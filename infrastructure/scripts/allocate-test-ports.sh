@@ -2,10 +2,22 @@
 set -eu
 
 # Get script directory and source port utilities
+# When sourced by start-emulators.sh, SCRIPT_DIR is already set
 if [ -z "${SCRIPT_DIR:-}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 source "${SCRIPT_DIR}/port-utils.sh"
+
+# Validate port is in valid range
+validate_port() {
+  local port=$1
+  local name=$2
+
+  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "FATAL: Invalid $name port: $port (must be 1-65535)" >&2
+    exit 1
+  fi
+}
 
 # Get worktree root directory path
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
@@ -33,16 +45,14 @@ UI_PORT=4000
 # Prevents conflicts when running multiple app servers concurrently
 # Port range: [8080, 9070] (8080 + 0*10 to 8080 + 99*10)
 APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
-validate_port_range "$APP_PORT" "APP"
+validate_port "$APP_PORT" "APP"
 
 # PER-WORKTREE HOSTING EMULATOR PORT - Different per worktree
 # Hosting emulator serves from relative path → must be per-worktree
-# Use automatic port fallback to avoid browser-restricted ports.
-# Browsers (Chrome, Firefox, Safari) block certain ports for security (ERR_UNSAFE_PORT).
-# System-reserved ports like 5000, 5001, 6000 are automatically skipped.
+# Use automatic port fallback to avoid system-reserved ports (5000, 5001, etc.)
 # Base port range: [5000, 5990] (5000 + 0*10 to 5000 + 99*10)
 BASE_HOSTING_PORT=$((5000 + ($PORT_OFFSET * 10)))
-validate_port_range "$BASE_HOSTING_PORT" "BASE_HOSTING"
+validate_port "$BASE_HOSTING_PORT" "BASE_HOSTING"
 HOSTING_PORT=$(find_available_port $BASE_HOSTING_PORT 10 10)
 PORT_ALLOC_STATUS=$?
 
@@ -77,9 +87,8 @@ export FIREBASE_UI_PORT="$UI_PORT"
 
 # Export per-worktree variables
 export HOSTING_PORT  # For per-worktree hosting emulator
-export PROJECT_ID    # For our scripts to use
-# Firebase Admin SDK and emulators check GCP_PROJECT_ID environment variable
-export GCP_PROJECT_ID="${PROJECT_ID}"
+export PROJECT_ID    # For Firestore data isolation
+export GCP_PROJECT_ID="${PROJECT_ID}"  # Firebase SDK uses this
 export TEST_PORT="$APP_PORT"  # For legacy app servers
 export PORT="$APP_PORT"  # For Go app
 

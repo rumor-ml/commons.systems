@@ -99,8 +99,8 @@ async function initFirebase() {
       import.meta.env.MODE === 'development' ||
       import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
-      // Use localhost consistently (avoids IPv6 ::1 resolution; emulator binds to IPv4 only)
-      // Use standard Firebase emulator ports (must match emulators.auth.port and emulators.firestore.port in firebase.json)
+      // Use localhost consistently (hosting emulator runs on same machine)
+      // Use standard Firebase emulator ports (must match firebase.json)
       const firestoreHost = 'localhost';
       const firestorePort = 8081;
       const authHost = 'localhost';

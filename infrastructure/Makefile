@@ -29,15 +29,6 @@ test-port-utils:
 	@echo "Running port-utils tests..."
 	@./scripts/tests/port-utils.test.sh
 
-# Run PID cleanup tests
-test-pid-cleanup:
-	@echo "Running PID cleanup tests..."
-	@./scripts/tests/pid-cleanup.test.sh
-
-# Run all infrastructure tests
-test-infra: test-port-utils test-pid-cleanup
-	@echo "All infrastructure tests passed!"
-
 # Format code
 fmt:
 	@echo "Formatting code..."
@@ -51,13 +42,11 @@ tidy:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build            - Build the iac binary to bin/iac"
-	@echo "  install          - Install iac globally"
-	@echo "  clean            - Remove build artifacts"
-	@echo "  test             - Run Go tests"
-	@echo "  test-port-utils  - Run port-utils.sh tests"
-	@echo "  test-pid-cleanup - Run PID cleanup tests"
-	@echo "  test-infra       - Run all infrastructure tests"
-	@echo "  fmt              - Format code"
-	@echo "  tidy             - Run go mod tidy"
-	@echo "  help             - Show this help message"
+	@echo "  build           - Build the iac binary to bin/iac"
+	@echo "  install         - Install iac globally"
+	@echo "  clean           - Remove build artifacts"
+	@echo "  test            - Run Go tests"
+	@echo "  test-port-utils - Run port-utils.sh tests"
+	@echo "  fmt             - Format code"
+	@echo "  tidy            - Run go mod tidy"
+	@echo "  help            - Show this help message"

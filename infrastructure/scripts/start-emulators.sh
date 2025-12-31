@@ -8,13 +8,6 @@ set -euo pipefail
 # - Hosting emulator is PER-WORKTREE (serves worktree-specific build)
 # - Project IDs isolate Firestore data per worktree
 #
-# Why this design?
-# - Backend emulators are resource-intensive (Firestore/Auth consume significant memory/CPU),
-#   so sharing them across worktrees saves resources
-# - Hosting must be per-worktree because it serves from relative paths - each worktree
-#   has different build artifacts that must not be contaminated
-# - Project IDs provide Firestore data isolation without running multiple backend instances
-#
 # Usage: start-emulators.sh [APP_NAME]
 #   APP_NAME: Optional app name to host (e.g., fellspiral, videobrowser)
 #             If provided, only that site will be hosted
@@ -67,7 +60,8 @@ else
   echo "Starting shared backend emulators (Auth, Firestore, Storage)..."
 
   # Change to repository root
-  cd "${PROJECT_ROOT}"
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  cd "${REPO_ROOT}"
 
   # Start ONLY backend emulators (shared)
   npx firebase-tools emulators:start \
@@ -81,39 +75,56 @@ else
   echo "Backend emulators started with PID: ${BACKEND_PID}"
   echo "Log file: $BACKEND_LOG_FILE"
 
-  # Wait a moment for process to start or fail immediately
-  sleep 2
-
-  # Check if process is still running (catches immediate failures)
-  if ! kill -0 $BACKEND_PID 2>/dev/null; then
-    echo "ERROR: Backend emulator process died immediately after start" >&2
-    echo "This usually indicates a configuration or startup error" >&2
-    echo "Last 50 lines of emulator log:" >&2
-    tail -n 50 "$BACKEND_LOG_FILE" >&2
-    rm -f "$BACKEND_PID_FILE"
-    exit 1
-  fi
-
   # Health check for Auth
-  if ! wait_for_port ${AUTH_PORT} "Auth emulator" $MAX_RETRIES "$BACKEND_LOG_FILE" $BACKEND_PID; then
-    kill $BACKEND_PID 2>/dev/null || true
-    rm -f "$BACKEND_PID_FILE"
-    exit 1
-  fi
+  echo "Waiting for Auth emulator on port ${AUTH_PORT}..."
+  RETRY_COUNT=0
+  while ! nc -z localhost ${AUTH_PORT} 2>/dev/null; do
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo "ERROR: Auth emulator failed to start after ${MAX_RETRIES} seconds"
+      echo "Last 20 lines of emulator log:"
+      tail -n 20 "$BACKEND_LOG_FILE"
+      kill $BACKEND_PID 2>/dev/null || true
+      rm -f "$BACKEND_PID_FILE"
+      exit 1
+    fi
+    sleep $RETRY_INTERVAL
+  done
+  echo "✓ Auth emulator ready on port ${AUTH_PORT}"
 
   # Health check for Firestore
-  if ! wait_for_port ${FIRESTORE_PORT} "Firestore emulator" $MAX_RETRIES "$BACKEND_LOG_FILE" $BACKEND_PID; then
-    kill $BACKEND_PID 2>/dev/null || true
-    rm -f "$BACKEND_PID_FILE"
-    exit 1
-  fi
+  echo "Waiting for Firestore emulator on port ${FIRESTORE_PORT}..."
+  RETRY_COUNT=0
+  while ! nc -z localhost ${FIRESTORE_PORT} 2>/dev/null; do
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo "ERROR: Firestore emulator failed to start after ${MAX_RETRIES} seconds"
+      echo "Last 20 lines of emulator log:"
+      tail -n 20 "$BACKEND_LOG_FILE"
+      kill $BACKEND_PID 2>/dev/null || true
+      rm -f "$BACKEND_PID_FILE"
+      exit 1
+    fi
+    sleep $RETRY_INTERVAL
+  done
+  echo "✓ Firestore emulator ready on port ${FIRESTORE_PORT}"
 
   # Health check for Storage
-  if ! wait_for_port ${STORAGE_PORT} "Storage emulator" $MAX_RETRIES "$BACKEND_LOG_FILE" $BACKEND_PID; then
-    kill $BACKEND_PID 2>/dev/null || true
-    rm -f "$BACKEND_PID_FILE"
-    exit 1
-  fi
+  echo "Waiting for Storage emulator on port ${STORAGE_PORT}..."
+  RETRY_COUNT=0
+  while ! nc -z localhost ${STORAGE_PORT} 2>/dev/null; do
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo "ERROR: Storage emulator failed to start after ${MAX_RETRIES} seconds"
+      echo "Last 20 lines of emulator log:"
+      tail -n 20 "$BACKEND_LOG_FILE"
+      kill $BACKEND_PID 2>/dev/null || true
+      rm -f "$BACKEND_PID_FILE"
+      exit 1
+    fi
+    sleep $RETRY_INTERVAL
+  done
+  echo "✓ Storage emulator ready on port ${STORAGE_PORT}"
   echo ""
 fi
 
@@ -139,17 +150,9 @@ if ! is_port_available ${HOSTING_PORT}; then
   exit 1
 fi
 
-# Double-check immediately before starting emulator (narrow race window)
-sleep 0.1
-if ! is_port_available ${HOSTING_PORT}; then
-  echo "ERROR: Port ${HOSTING_PORT} became unavailable between check and start" >&2
-  echo "This indicates a race condition with another process" >&2
-  get_port_owner ${HOSTING_PORT} >&2
-  exit 1
-fi
-
 # Change to repository root
-cd "${PROJECT_ROOT}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "${REPO_ROOT}"
 
 # Create temporary firebase config for this worktree with custom hosting port
 # Put it in PROJECT_ROOT so relative paths work correctly
@@ -157,24 +160,14 @@ TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
 # Filter hosting config to only include the site being tested (if APP_NAME provided)
 # Keep paths relative since Firebase is launched from PROJECT_ROOT
-# Remove site/target fields - Firebase emulator limitation: doesn't support multi-site
-# routing like production Firebase Hosting. Each site needs a separate emulator instance.
+# Remove site/target fields for emulation - single hosting config serves at root
 if [ -n "$APP_NAME" ]; then
   # Extract the one site config and remove site/target fields
-  HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
+  if ! HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
     '.hosting[] | select(.site == $site) | del(.site, .target)' \
-    firebase.json 2>&1)
-  JQ_STATUS=$?
-
-  if [ $JQ_STATUS -ne 0 ]; then
-    echo "ERROR: jq failed to extract hosting config for site '$APP_NAME'" >&2
-    echo "jq exit status: $JQ_STATUS" >&2
-    echo "jq output: $HOSTING_CONFIG" >&2
-    echo "" >&2
-    echo "This usually indicates:" >&2
-    echo "  - firebase.json has syntax errors" >&2
-    echo "  - Site '$APP_NAME' doesn't exist in firebase.json" >&2
-    echo "  - jq is not installed" >&2
+    firebase.json 2>&1); then
+    echo "ERROR: Failed to extract hosting config for site '$APP_NAME' from firebase.json" >&2
+    echo "jq error: $HOSTING_CONFIG" >&2
     exit 1
   fi
 
@@ -184,40 +177,17 @@ if [ -n "$APP_NAME" ]; then
     exit 1
   fi
 
-  # Validate it's actually valid JSON by attempting to parse it
-  if ! echo "$HOSTING_CONFIG" | jq empty 2>/dev/null; then
-    echo "ERROR: jq produced invalid JSON output" >&2
-    echo "Output: $HOSTING_CONFIG" >&2
-    exit 1
-  fi
-
   echo "Hosting only site: $APP_NAME"
 else
   # For all sites, keep as array but remove site/target fields
-  HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json 2>&1)
-  JQ_STATUS=$?
-
-  if [ $JQ_STATUS -ne 0 ]; then
-    echo "ERROR: jq failed to extract hosting configs from firebase.json" >&2
-    echo "jq exit status: $JQ_STATUS" >&2
-    echo "jq output: $HOSTING_CONFIG" >&2
-    echo "" >&2
-    echo "This usually indicates:" >&2
-    echo "  - firebase.json has syntax errors" >&2
-    echo "  - .hosting array is missing" >&2
-    echo "  - jq is not installed" >&2
+  if ! HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json 2>&1); then
+    echo "ERROR: Failed to extract hosting configs from firebase.json" >&2
+    echo "jq error: $HOSTING_CONFIG" >&2
     exit 1
   fi
 
   if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ] || [ "$HOSTING_CONFIG" = "[]" ]; then
     echo "ERROR: No hosting configs found in firebase.json" >&2
-    exit 1
-  fi
-
-  # Validate it's actually valid JSON by attempting to parse it
-  if ! echo "$HOSTING_CONFIG" | jq empty 2>/dev/null; then
-    echo "ERROR: jq produced invalid JSON output" >&2
-    echo "Output: $HOSTING_CONFIG" >&2
     exit 1
   fi
 
@@ -237,16 +207,25 @@ EOF
 
 # Cleanup function for hosting emulator (process group)
 cleanup_hosting_emulator() {
-  if parse_pid_file "$HOSTING_PID_FILE"; then
-    kill_process_group "$PARSED_PID" "$PARSED_PGID"
+  if [ -f "$HOSTING_PID_FILE" ]; then
+    IFS=':' read -r pid pgid < "$HOSTING_PID_FILE" 2>/dev/null || true
+    if [ -n "$pgid" ]; then
+      # Kill entire process group (parent + children)
+      kill -TERM -$pgid 2>/dev/null || true
+      sleep 1
+      kill -KILL -$pgid 2>/dev/null || true
+    elif [ -n "$pid" ]; then
+      # Fallback to single PID
+      kill -TERM $pid 2>/dev/null || true
+      sleep 1
+      kill -KILL $pid 2>/dev/null || true
+    fi
+    rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
   fi
-  rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
 }
 
-# Only register trap when script is run directly, not sourced.
-# When sourced by run-e2e-tests.sh, the parent script's EXIT trap handles cleanup.
-# Double-registration would cause cleanup to run twice, potentially killing emulators
-# before tests complete.
+# Only register trap when script is run directly, not sourced
+# This prevents trap conflicts when sourced by run-e2e-tests.sh
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   trap cleanup_hosting_emulator EXIT ERR
 fi
@@ -261,41 +240,17 @@ npx firebase-tools emulators:start \
 
 HOSTING_PID=$!
 
-# Extract PGID with error handling and retry
+# Extract PGID with error handling
 HOSTING_PGID=$(ps -o pgid= -p $HOSTING_PID 2>/dev/null | tr -d ' ')
 
 if [ -z "$HOSTING_PGID" ]; then
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-  echo "⚠️  WARNING: Failed to extract process group ID" >&2
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-  echo "" >&2
-  echo "This may happen if:" >&2
-  echo "  - The emulator process terminated immediately (check logs)" >&2
-  echo "  - Platform differences in 'ps' command" >&2
-  echo "  - The process hasn't forked yet (rare race condition)" >&2
-  echo "" >&2
-  echo "Impact: Cleanup may not kill all child processes" >&2
-  echo "Workaround: Use port-based cleanup if issues occur" >&2
-  echo "" >&2
-  echo "PID: ${HOSTING_PID}" >&2
-  echo "Log file: ${HOSTING_LOG_FILE}" >&2
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-
-  # Wait a moment then retry once
-  sleep 1
-  HOSTING_PGID=$(ps -o pgid= -p $HOSTING_PID 2>/dev/null | tr -d ' ')
-
-  if [ -z "$HOSTING_PGID" ]; then
-    echo "⚠️  PGID extraction failed after retry - using PID-only tracking" >&2
-    echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
-    echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID unavailable)"
-  else
-    echo "✓ PGID extraction succeeded on retry: ${HOSTING_PGID}" >&2
-    echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
-    echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID}"
-  fi
+  echo "WARNING: Failed to extract process group ID for PID ${HOSTING_PID}" >&2
+  echo "This may happen if the process terminated immediately or due to platform differences" >&2
+  echo "Process group cleanup may not work correctly - falling back to PID-only tracking" >&2
+  echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
+  echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID extraction failed)"
 else
-  # Success on first try
+  # Save both PID and PGID for cleanup (format: PID:PGID)
   echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
   echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID}"
 fi
@@ -303,21 +258,23 @@ fi
 echo "Log file: $HOSTING_LOG_FILE"
 
 # Wait for hosting to be ready (check the assigned port)
+echo "Waiting for hosting emulator on port ${HOSTING_PORT}..."
+RETRY_COUNT=0
 MAX_HOSTING_RETRIES=15  # Hosting starts faster than backend
-if ! wait_for_port ${HOSTING_PORT} "Hosting emulator" $MAX_HOSTING_RETRIES "$HOSTING_LOG_FILE" $HOSTING_PID; then
-  # Check if port is bound by another process (race condition)
-  if ! is_port_available ${HOSTING_PORT}; then
-    echo "Port ${HOSTING_PORT} is now in use by another process:" >&2
-    get_port_owner ${HOSTING_PORT} >&2
-    echo "" >&2
-    echo "This indicates a port conflict race condition" >&2
+while ! nc -z localhost ${HOSTING_PORT} 2>/dev/null; do
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -ge $MAX_HOSTING_RETRIES ]; then
+    echo "ERROR: Hosting emulator failed to start after ${MAX_HOSTING_RETRIES} seconds"
+    echo "Last 20 lines of emulator log:"
+    tail -n 20 "$HOSTING_LOG_FILE"
+    kill $HOSTING_PID 2>/dev/null || true
+    rm -f "$HOSTING_PID_FILE"
+    rm -f "$TEMP_CONFIG"
+    exit 1
   fi
-
-  kill $HOSTING_PID 2>/dev/null || true
-  rm -f "$HOSTING_PID_FILE"
-  rm -f "$TEMP_CONFIG"
-  exit 1
-fi
+  sleep $RETRY_INTERVAL
+done
+echo "✓ Hosting emulator ready on port ${HOSTING_PORT}"
 
 # ============================================================================
 # Summary

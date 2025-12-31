@@ -73,7 +73,8 @@ test.describe('Performance', () => {
     // Wait a bit for JavaScript to run
     await page.waitForTimeout(2000);
 
-    // TODO(#1075): Firefox has race condition where it attempts production Firestore connection before emulator connection completes. Skip CORS errors in Firefox only - they don't impact functionality
+    // TODO(#1075): Firefox has race condition with Firestore emulator connection
+    // Skip CORS errors in Firefox only - they don't impact functionality
     const filteredErrors =
       browserName === 'firefox'
         ? errors.filter(

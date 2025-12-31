@@ -270,7 +270,6 @@ test_find_available_port_invalid_step() {
   fi
 }
 
-# TODO(#1078): Replace source code inspection with behavioral test
 test_find_available_port_range_overflow() {
   # Test the overflow detection logic exists in find_available_port
   # Read the function and verify it has the overflow check

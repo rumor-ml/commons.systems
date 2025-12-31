@@ -13,12 +13,10 @@
  * - infrastructure/scripts/allocate-test-ports.sh
  */
 
-// TODO(#1076): Simplify overly complex type definitions for simple port constants
-// Branded port types for compile-time safety
-export type FirestorePort = 8081 & { __brand: 'FirestorePort' };
-export type AuthPort = 9099 & { __brand: 'AuthPort' };
-export type StoragePort = 9199 & { __brand: 'StoragePort' };
-export type UIPort = 4000 & { __brand: 'UIPort' };
+export type FirestorePort = 8081;
+export type AuthPort = 9099;
+export type StoragePort = 9199;
+export type UIPort = 4000;
 
 export const FIREBASE_PORTS = {
   firestore: 8081 as FirestorePort,

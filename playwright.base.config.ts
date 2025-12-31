@@ -1,33 +1,8 @@
 // playwright.base.config.ts
 import { defineConfig, devices, PlaywrightTestConfig } from '@playwright/test';
 
-// Type-safe port range with branded type
-type NetworkPort = number & { __brand: 'NetworkPort' };
-
-function createNetworkPort(port: number): NetworkPort {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid port: ${port}. Must be integer between 1-65535`);
-  }
-  return port as NetworkPort;
-}
-
+// TODO(#1074): Add port validation and factory pattern to prevent invalid state combinations
 export interface SiteConfig {
-  siteName: string;
-  port: NetworkPort;
-  deployedUrl?: string;
-  testDir?: string;
-  webServerCommand?: {
-    local: string;
-    ci: string;
-  };
-  env?: Record<string, string>;
-  timeout?: number;
-  expect?: { timeout?: number };
-  globalSetup?: string;
-  globalTeardown?: string;
-}
-
-export function createSiteConfig(config: {
   siteName: string;
   port: number;
   deployedUrl?: string;
@@ -41,17 +16,6 @@ export function createSiteConfig(config: {
   expect?: { timeout?: number };
   globalSetup?: string;
   globalTeardown?: string;
-}): SiteConfig {
-  const validPort = createNetworkPort(config.port);
-
-  if (config.timeout !== undefined && config.timeout <= 0) {
-    throw new Error(`Invalid timeout: ${config.timeout}. Must be positive`);
-  }
-
-  return {
-    ...config,
-    port: validPort,
-  };
 }
 
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
