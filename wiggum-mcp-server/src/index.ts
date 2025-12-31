@@ -70,7 +70,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'wiggum_complete_all_hands',
         description:
-          'Complete all-hands review after all agents finish (both review and implementation). Reads manifests internally, applies 2-strike agent completion logic, and returns next step instructions. If all agents complete with 0 high-priority in-scope issues, marks step complete and proceeds. Otherwise returns instructions to continue iteration.',
+          'Complete all-hands review after all agents finish (both review and implementation). Reads manifests internally, counts high-priority in-scope issues, and returns next step instructions. If issue count is 0, marks step complete and proceeds. Otherwise returns instructions to continue iteration.',
         inputSchema: {
           type: 'object',
           properties: {

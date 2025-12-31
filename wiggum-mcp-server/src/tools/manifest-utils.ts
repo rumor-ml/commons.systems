@@ -496,13 +496,13 @@ export function readManifestFiles(): Map<string, AgentManifest> {
 }
 
 /**
- * Determine which agents should be marked complete (DEPRECATED - use updateAgentCompletionStatus)
+ * Determine which agents should be marked complete (DEPRECATED - use countHighPriorityInScopeIssues)
  *
  * An agent is complete if:
  * 1. No in-scope manifest exists (found zero issues), OR
  * 2. Has in-scope manifest but zero high-priority issues
  *
- * @deprecated Use updateAgentCompletionStatus instead for 2-strike completion logic
+ * @deprecated Use countHighPriorityInScopeIssues instead for completion determination
  * @param manifests - Map of agent manifests from readManifestFiles
  * @returns Array of agent names that are complete
  */
