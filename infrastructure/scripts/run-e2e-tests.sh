@@ -123,9 +123,10 @@ if [ "$APP_TYPE" = "firebase" ]; then
   echo "Running Playwright tests..."
   cd "${APP_PATH_ABS}/tests"
 
+  # Set START_SERVER=true to serve built files (we built above with pnpm build)
   # Let playwright.config.ts determine browser based on platform
   # No hardcoded --project chromium
-  npx playwright test
+  START_SERVER=true npx playwright test
 
 elif [ "$APP_TYPE" = "go-tui" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   # Go apps use make test-e2e
