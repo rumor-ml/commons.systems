@@ -213,7 +213,6 @@ export function generateTestCardData(suffix = '') {
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {number} timeout - Timeout in milliseconds (default: 5000)
  */
-// TODO(#1028): No tests verify waitForFirebaseInit enhanced error message content
 export async function waitForFirebaseInit(page, timeout = 5000) {
   // Wait for window.__testAuth to be available (set by authEmulator fixture)
   // This indicates Firebase Auth has been initialized and connected to emulator
@@ -252,7 +251,6 @@ export async function waitForFirebaseInit(page, timeout = 5000) {
  * @param {string} messageType - Type of console messages to capture ('error', 'warning', 'log', etc.)
  * @returns {CaptureController} Capture controller with start/stop lifecycle
  */
-// TODO(#1029): Add tests for state guard enforcement (startCapture/stopCapture error cases)
 export function captureConsoleMessages(page, messageType = 'error') {
   const messages = [];
   let _isCapturing = false;
@@ -264,8 +262,10 @@ export function captureConsoleMessages(page, messageType = 'error') {
   };
 
   return {
-    // TODO(#1026): Comment claims "defensive copy" but implementation is shallow copy
-    getMessages: () => [...messages], // Return defensive copy
+    // TODO(#1051): Add test verifying shallow copy behavior prevents external mutations
+    // Return shallow copy of messages array (prevents caller from modifying internal array,
+    // but message objects themselves could be mutated if they were non-primitives)
+    getMessages: () => [...messages],
     startCapture: () => {
       if (_isCapturing) {
         throw new Error('captureConsoleMessages: already capturing, call stopCapture() first');
@@ -289,12 +289,16 @@ export function captureConsoleMessages(page, messageType = 'error') {
  * Uses single setTimeout for both listener cleanup and result resolution to avoid
  * race conditions where the timeout fires while the listener is still processing
  * a message, potentially missing late-arriving matches.
+ *
+ * Note: If the predicate throws an error, it will bubble up within the listener
+ * and stop further message processing, but the promise may remain pending.
+ * Ensure predicates handle their own exceptions if fault tolerance is needed.
+ *
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {(msg: string) => boolean} predicate - Function to test console messages
  * @param {number} timeout - Timeout in milliseconds (default: 2000)
  * @returns {Promise<boolean>} True if matching message found within timeout
  */
-// TODO(#1040): Add try-catch to expose predicate errors instead of silently swallowing them
 export async function waitForConsoleMessage(page, predicate, timeout = 2000) {
   const messages = [];
 
@@ -351,6 +355,8 @@ export async function waitForCardCount(page, minCount, timeout = 5000) {
  * @param {string} cardTitle - Title of card to wait for
  * @param {number} maxRetries - Maximum poll attempts (default: 10)
  * @param {number} intervalMs - Polling interval in ms (default: 200)
+ * @returns {Promise<Object>} Card document with id and data
+ * @throws {Error} If card not found after all retries
  */
 export async function waitForFirestorePropagation(cardTitle, maxRetries = 10, intervalMs = 200) {
   for (let i = 0; i < maxRetries; i++) {
@@ -358,7 +364,13 @@ export async function waitForFirestorePropagation(cardTitle, maxRetries = 10, in
     if (card) return card;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
-  return null;
+
+  throw new Error(
+    `Card "${cardTitle}" not found in Firestore after ${maxRetries} retries ` +
+      `(${maxRetries * intervalMs}ms total). This could indicate: ` +
+      `(1) Card was never created, (2) Firestore emulator is down, ` +
+      `(3) Propagation delay exceeds timeout. Increase maxRetries or check card creation logic.`
+  );
 }
 
 /**
@@ -449,11 +461,7 @@ async function fillComboboxField(page, inputId, listboxId, value, dropdownDelay 
   } catch (error) {
     // Only handle "option not found" errors - re-throw all others (listbox not found, page errors, etc.)
     // This prevents masking critical errors like broken DOM or browser context issues
-    if (
-      error.message &&
-      error.message.includes('Option') &&
-      error.message.includes('not found in listbox')
-    ) {
+    if (error.message?.includes('not found in listbox')) {
       // No matching option found - close dropdown and accept custom value
       // This is expected behavior for custom values not in the predefined list
       await page.locator(`#${inputId}`).press('Escape');
@@ -490,6 +498,7 @@ export async function createCardViaUI(page, cardData) {
   // Set type using combobox (fill input and select from dropdown or accept custom value)
   await fillComboboxField(page, 'cardType', 'typeListbox', cardData.type, DROPDOWN_RENDER_DELAY_MS);
 
+  // TODO(#1050): Inline KEEP comments lack context about removal criteria
   // KEEP: Subtype combobox update delay after type selection (100ms)
   // The subtype options are dynamically filtered based on selected type via JavaScript
   // (e.g., "Equipment" type → "Weapon", "Armor" subtypes). This DOM update requires
@@ -582,15 +591,16 @@ let _adminApp = null;
 let _firestoreDb = null;
 let _firestoreSettingsConfigured = false;
 
-// TODO(#1027): Update comment to accurately describe JavaScript concurrency model instead of using "thread-safe" terminology
 /**
  * Get or initialize Firebase Admin SDK and Firestore connection
  * Reuses the same instance across multiple calls to avoid settings() errors
  *
- * **IMPORTANT**: This function uses module-level state and is NOT thread-safe.
- * Concurrent calls may race during initialization. Designed for single-threaded
- * test execution. If you need concurrent test isolation, consider implementing
- * an initialization lock or separate instances per test.
+ * **IMPORTANT**: This function uses module-level state and may have race conditions
+ * if called concurrently during async initialization. JavaScript is single-threaded
+ * but async operations can interleave - multiple simultaneous calls may race during
+ * first initialization. Designed for sequential test execution. If you need concurrent
+ * test isolation, consider implementing an initialization lock or separate instances
+ * per test.
  *
  * @returns {Promise<FirestoreAdminInstance>} Firebase Admin app and Firestore database instances
  */
@@ -723,8 +733,8 @@ export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDel
       const delayMs = initialDelayMs * Math.pow(2, attempt);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
-
-    return null;
+    // Note: Loop always exits via early returns (found card at lines 721-724, last attempt at lines 732-733)
+    // or throws from handleFirestoreErrorCode. This point is unreachable.
   } catch (error) {
     wrapFirestoreError(error, 'getCardFromFirestore');
   }

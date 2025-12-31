@@ -66,11 +66,14 @@ test.describe('Event Listener Setup - Error Handling', () => {
     const searchInput = page.locator('#searchCards');
     await expect(searchInput).toBeVisible();
     await searchInput.fill('skill');
-    await page.waitForTimeout(300); // Debounce delay
 
-    // Search should filter cards (verifies search listener was set up)
-    const visibleCards = await page.locator('.card-item').count();
-    expect(visibleCards).toBeGreaterThan(0);
+    // Wait for search filtering to complete and DOM to update.
+    // handleFilterChange() in cards.js applies filters synchronously, but we need
+    // to wait for the DOM to reflect the filtered state before asserting.
+    await expect(async () => {
+      const visibleCards = await page.locator('.card-item:visible').count();
+      expect(visibleCards).toBeGreaterThan(0);
+    }).toPass({ timeout: 2000 });
 
     // Test view mode buttons (verifies view mode listeners were set up)
     const gridViewBtn = page.locator('.view-mode-btn[data-mode="grid"]');
@@ -85,13 +88,26 @@ test.describe('Event Listener Setup - Error Handling', () => {
       document.getElementById('searchCards')?.remove();
     });
 
+    // Set up console monitoring to verify no critical errors thrown
+    const criticalErrors = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error' && msg.text().includes('Error setting up event listeners')) {
+        criticalErrors.push(msg.text());
+      }
+    });
+
     // Trigger re-initialization to test error handling
     await page.evaluate(() => {
       window.__testHelpers?.setupEventListeners();
     });
 
-    // Test passes if no exceptions are thrown - graceful degradation
-    // Search input removal doesn't prevent page from loading other elements
+    // Verify graceful degradation: no critical errors thrown
+    // The code logs a warning for missing search input, but should not throw
+    expect(criticalErrors.length).toBe(0);
+
+    // Verify other functionality still works - view mode buttons should be functional
+    const viewModeBtn = page.locator('.view-mode-btn[data-mode="grid"]');
+    await expect(viewModeBtn).toBeVisible();
   });
 
   test('should log error when modal elements are missing', async ({ page }) => {
@@ -267,12 +283,14 @@ test.describe('Event Listener Setup - Error Handling', () => {
     const searchInput = page.locator('#searchCards');
     await expect(searchInput).toBeVisible();
     await searchInput.fill('skill');
-    // 300ms delay allows search filtering to complete before checking results
-    await page.waitForTimeout(300);
 
-    // Should have filtered cards
-    const visibleCards = await page.locator('.card-item').count();
-    expect(visibleCards).toBeGreaterThan(0);
+    // Wait for search filtering to complete and DOM to update.
+    // handleFilterChange() in cards.js applies filters synchronously, but we need
+    // to wait for the DOM to reflect the filtered state before asserting.
+    await expect(async () => {
+      const visibleCards = await page.locator('.card-item:visible').count();
+      expect(visibleCards).toBeGreaterThan(0);
+    }).toPass({ timeout: 2000 });
   });
 
   test('should handle re-initialization without duplicate behavior', async ({
@@ -365,5 +383,86 @@ test.describe('Event Listener Setup - Error Handling', () => {
 
     // Verify the error was re-thrown (not silently swallowed)
     expect(errorThrown).toBe(true);
+  });
+
+  test('should re-throw non-addEventListener errors in setupEventListeners loop', async ({
+    page,
+  }) => {
+    await page.goto('/cards.html');
+
+    // Force an error during the modal elements loop by breaking getElementById
+    // This tests the re-throw behavior for errors other than addEventListener failures
+    const errorThrown = await page.evaluate(() => {
+      try {
+        const originalGetElement = document.getElementById.bind(document);
+        let callCount = 0;
+
+        // Throw error on a later call during the modal elements loop
+        document.getElementById = function (id) {
+          callCount++;
+          // Throw on closeModalBtn lookup (first modal element in the loop)
+          if (id === 'closeModalBtn') {
+            throw new Error('Test error: DOM element lookup failed');
+          }
+          return originalGetElement(id);
+        };
+
+        try {
+          window.__testHelpers?.setupEventListeners();
+          return false; // Should not reach here
+        } catch (error) {
+          // Verify error was re-thrown (not swallowed)
+          return error.message === 'Test error: DOM element lookup failed';
+        } finally {
+          // Restore original
+          document.getElementById = originalGetElement;
+        }
+      } catch (e) {
+        return false;
+      }
+    });
+
+    // Verify the error was re-thrown (not silently swallowed)
+    // This ensures issue #311 fix works for all error types, not just addEventListener
+    expect(errorThrown).toBe(true);
+  });
+
+  test('should not log error when modal backdrop is missing (documents current behavior)', async ({
+    page,
+  }) => {
+    await page.goto('/cards.html');
+
+    // Remove modal backdrop
+    await page.evaluate(() => {
+      document.querySelector('.modal-backdrop')?.remove();
+    });
+
+    // Capture console error messages
+    const errorMessages = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        errorMessages.push(msg.text());
+      }
+    });
+
+    // Trigger re-initialization
+    await page.evaluate(() => {
+      window.__testHelpers?.setupEventListeners();
+    });
+
+    // Allow time for any async logging
+    await page.waitForTimeout(100);
+
+    // Current behavior: no error logged for missing backdrop
+    // The backdrop is handled separately from modal elements and lacks error logging
+    // TODO(#1037): When implemented, update this test to verify error IS logged
+    const hasBackdropError = errorMessages.some(
+      (msg) => msg.toLowerCase().includes('backdrop') || msg.includes('modal-backdrop')
+    );
+    expect(hasBackdropError).toBe(false);
+
+    // Verify other modal elements still work - close button should exist
+    const closeBtn = page.locator('#closeModalBtn');
+    await expect(closeBtn).toBeVisible();
   });
 });

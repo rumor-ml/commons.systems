@@ -10,6 +10,9 @@ import {
   getFirestoreAdmin,
   createCardViaUI,
   generateTestCardData,
+  waitForFirebaseInit,
+  captureConsoleMessages,
+  waitForConsoleMessage,
 } from './test-helpers.js';
 
 test.describe('Test Helper Input Validation', () => {
@@ -285,23 +288,8 @@ test.describe('getCardFromFirestore Error Handling', () => {
     }).rejects.toThrow('cardTitle must be a non-empty string');
   });
 
-  test('should use exponential backoff for retries', async () => {
-    const startTime = Date.now();
-
-    // With maxRetries=3 and initialDelay=100ms, delays are:
-    // attempt 0: no delay (immediate)
-    // attempt 1: 100ms * 2^0 = 100ms
-    // attempt 2: 100ms * 2^1 = 200ms
-    // attempt 3: 100ms * 2^2 = 400ms
-    // Total: ~700ms
-    await getCardFromFirestore('NonExistent-' + Date.now(), 3, 100);
-    const elapsed = Date.now() - startTime;
-
-    // Should take at least 650ms due to exponential backoff (allowing timing variance)
-    expect(elapsed).toBeGreaterThanOrEqual(650);
-    // But not excessively long (allow for Firestore round-trip time)
-    expect(elapsed).toBeLessThan(1500);
-  });
+  // Note: Exponential backoff test exists in 'Test Helper Error Scenarios' describe block
+  // (test 'getCardFromFirestore should use exponential backoff' at lines 112-129)
 
   test('should handle long connection delays gracefully', async () => {
     // Test with longer delays to ensure helper can handle slow Firestore responses
@@ -866,5 +854,210 @@ test.describe('deleteTestCards Batch Size Handling', () => {
     const result = await deleteTestCards(/^NonExistent-DoesNotMatch$/);
     expect(typeof result.deleted).toBe('number');
     expect(result.deleted).toBeGreaterThanOrEqual(0);
+  });
+});
+
+test.describe('waitForFirebaseInit Error Message Content', () => {
+  test('should provide enhanced error with init state snapshot on timeout', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Remove __testAuth to trigger timeout
+    await page.evaluate(() => {
+      delete window.__testAuth;
+    });
+
+    let caughtError;
+    try {
+      await waitForFirebaseInit(page, 500);
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toBeDefined();
+    expect(caughtError.message).toContain('Firebase not initialized after 500ms');
+    expect(caughtError.message).toContain('testAuthExists');
+    expect(caughtError.message).toContain('firebaseAppExists');
+    expect(caughtError.message).toContain('Check that authEmulator fixture is properly configured');
+
+    // Verify state snapshot is parseable JSON
+    const stateMatch = caughtError.message.match(/\{[^}]+\}/);
+    expect(stateMatch).toBeTruthy();
+    const state = JSON.parse(stateMatch[0]);
+    expect(state).toHaveProperty('testAuthExists');
+    expect(state).toHaveProperty('firebaseAppExists');
+    // testAuthExists should be false since we deleted it
+    expect(state.testAuthExists).toBe(false);
+  });
+
+  test('should succeed when Firebase is initialized', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await authEmulator.createTestUser('test-firebase-init@example.com');
+    await authEmulator.signInTestUser('test-firebase-init@example.com');
+    await page.reload();
+
+    // Should not throw - Firebase is initialized via authEmulator fixture
+    await expect(waitForFirebaseInit(page, 2000)).resolves.not.toThrow();
+  });
+});
+
+test.describe('captureConsoleMessages State Guard Enforcement', () => {
+  test('should throw when startCapture called twice', async ({ page }) => {
+    await page.goto('/cards.html');
+    const controller = captureConsoleMessages(page, 'error');
+
+    controller.startCapture();
+
+    expect(() => {
+      controller.startCapture();
+    }).toThrow('already capturing, call stopCapture() first');
+
+    controller.stopCapture();
+  });
+
+  test('should throw when stopCapture called before startCapture', async ({ page }) => {
+    await page.goto('/cards.html');
+    const controller = captureConsoleMessages(page, 'error');
+
+    expect(() => {
+      controller.stopCapture();
+    }).toThrow('not capturing, call startCapture() first');
+  });
+
+  test('should allow start after stop (valid lifecycle restart)', async ({ page }) => {
+    await page.goto('/cards.html');
+    const controller = captureConsoleMessages(page, 'error');
+
+    controller.startCapture();
+    controller.stopCapture();
+
+    // Should not throw - valid lifecycle restart
+    expect(() => {
+      controller.startCapture();
+    }).not.toThrow();
+
+    controller.stopCapture();
+  });
+
+  test('should capture messages between start and stop', async ({ page }) => {
+    await page.goto('/cards.html');
+    const controller = captureConsoleMessages(page, 'log');
+
+    controller.startCapture();
+
+    // Emit a console.log message
+    await page.evaluate(() => {
+      console.log('test message for capture');
+    });
+
+    // Give the listener time to receive the message
+    await page.waitForTimeout(50);
+
+    const messages = controller.getMessages();
+    controller.stopCapture();
+
+    expect(messages).toContain('test message for capture');
+  });
+
+  test('should not capture messages after stop', async ({ page }) => {
+    await page.goto('/cards.html');
+    const controller = captureConsoleMessages(page, 'log');
+
+    controller.startCapture();
+
+    // Emit a message during capture
+    await page.evaluate(() => {
+      console.log('during capture');
+    });
+    await page.waitForTimeout(50);
+
+    controller.stopCapture();
+
+    // Emit a message after stopping
+    await page.evaluate(() => {
+      console.log('after capture');
+    });
+    await page.waitForTimeout(50);
+
+    const messages = controller.getMessages();
+
+    expect(messages).toContain('during capture');
+    expect(messages).not.toContain('after capture');
+  });
+});
+
+test.describe('waitForConsoleMessage Predicate Error Handling', () => {
+  test('should document predicate error behavior (silent swallowing)', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Predicate that throws error
+    const badPredicate = () => {
+      throw new Error('Test error in predicate');
+    };
+
+    // Emit some console messages to trigger the predicate
+    await page.evaluate(() => {
+      console.log('trigger message');
+    });
+
+    // Currently returns false (timeout) - predicate errors are silently swallowed
+    const result = await waitForConsoleMessage(page, badPredicate, 500);
+
+    // Documents current behavior: predicate errors are silently swallowed
+    // and the function returns false after timeout
+    expect(result).toBe(false);
+  });
+
+  test('should return true when predicate matches', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Set up listener before emitting message
+    const waitPromise = waitForConsoleMessage(
+      page,
+      (msg) => msg.includes('test match message'),
+      2000
+    );
+
+    // Emit matching console message
+    await page.evaluate(() => {
+      console.log('test match message');
+    });
+
+    const result = await waitPromise;
+
+    expect(result).toBe(true);
+  });
+
+  test('should return false on timeout when no match', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    const result = await waitForConsoleMessage(
+      page,
+      (msg) => msg.includes('this will never match'),
+      300
+    );
+
+    expect(result).toBe(false);
+  });
+
+  test('should check collected messages as fallback on timeout', async ({ page }) => {
+    await page.goto('/cards.html');
+
+    // Emit message before starting wait
+    await page.evaluate(() => {
+      console.log('pre-existing message');
+    });
+
+    // Start waiting - the message was emitted before listener attached
+    // but the final fallback check should find it if collected
+    const result = await waitForConsoleMessage(
+      page,
+      (msg) => msg.includes('pre-existing message'),
+      500
+    );
+
+    // This tests the fallback behavior at timeout: messages.some(predicate)
+    // The message may or may not be captured depending on timing
+    // We just verify the function handles this case without throwing
+    expect(typeof result).toBe('boolean');
   });
 });

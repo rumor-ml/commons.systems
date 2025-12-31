@@ -279,7 +279,8 @@ function setupEventListeners() {
     // This allows other page functionality (search, filters, view modes) to work
     // even if toolbar is broken or removed during testing
     if (!addCardBtn || !importCardsBtn || !exportCardsBtn) {
-      // Log specific missing buttons for debugging
+      // Build array of missing button IDs for targeted debugging - helps distinguish
+      // whether entire toolbar is missing vs specific buttons, aiding root cause analysis
       const missingButtons = [];
       if (!addCardBtn) missingButtons.push('addCardBtn');
       if (!importCardsBtn) missingButtons.push('importCardsBtn');
@@ -305,12 +306,32 @@ function setupEventListeners() {
     if (searchCards) {
       searchCards.addEventListener('input', handleFilterChange);
     } else {
+      // TODO(#1053): Replace console.warn with proper logging utility
       console.warn('Search input not found, search functionality will be unavailable');
     }
 
     // Modal elements - consolidated setup (resolves #562)
+    // Valid DOM event types for modal element configuration
+    const VALID_EVENTS = ['click', 'submit', 'change', 'input', 'blur'];
+
+    /**
+     * @typedef {Object} EventListenerConfig
+     * @property {string} id - DOM element ID
+     * @property {string} name - Human-readable element name for error messages
+     * @property {'click'|'submit'|'change'|'input'|'blur'} event - Event type
+     * @property {Function} handler - Event handler function
+     * @property {boolean} [critical] - If true, throws error when missing
+     */
+
+    /** @type {EventListenerConfig[]} */
     const modalElements = [
-      { id: 'closeModalBtn', name: 'Close modal button', event: 'click', handler: closeCardEditor },
+      {
+        id: 'closeModalBtn',
+        name: 'Close modal button',
+        event: 'click',
+        handler: closeCardEditor,
+        critical: true,
+      },
       {
         id: 'cancelModalBtn',
         name: 'Cancel modal button',
@@ -318,17 +339,41 @@ function setupEventListeners() {
         handler: closeCardEditor,
       },
       { id: 'deleteCardBtn', name: 'Delete card button', event: 'click', handler: deleteCard },
-      { id: 'cardForm', name: 'Card form', event: 'submit', handler: handleCardSave },
+      {
+        id: 'cardForm',
+        name: 'Card form',
+        event: 'submit',
+        handler: handleCardSave,
+        critical: true,
+      },
       { id: 'cardType', name: 'Card type select', event: 'change', handler: updateSubtypeOptions },
     ];
 
-    for (const { id, name, event, handler } of modalElements) {
+    const missingCritical = [];
+    for (const { id, name, event, handler, critical } of modalElements) {
+      // Validate event/handler configuration to catch typos and misconfigurations
+      if (!VALID_EVENTS.includes(event)) {
+        throw new Error(`Invalid event type '${event}' for ${name}`);
+      }
+      if (typeof handler !== 'function') {
+        throw new Error(`Handler for ${name} must be a function, got ${typeof handler}`);
+      }
+
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener(event, handler);
+      } else if (critical) {
+        missingCritical.push(name);
       } else {
         console.error(`${name} not found`);
       }
+    }
+
+    // Throw after loop to report all missing critical elements at once
+    if (missingCritical.length > 0) {
+      throw new Error(
+        `Critical modal elements missing: ${missingCritical.join(', ')}. Modal functionality will not work.`
+      );
     }
 
     // TODO(#1037): Missing logging in setupEventListeners for missing modal backdrop
@@ -351,21 +396,19 @@ function setupMobileMenu() {
     const mobileMenuToggle = document.getElementById('mobileMenuToggle');
     const sidebar = document.getElementById('sidebar');
 
-    if (!mobileMenuToggle) {
-      console.warn('Mobile menu toggle button not found');
+    // Early return if required elements are missing - log specific elements for debugging
+    // TODO(#1054): Mobile menu warnings should use consistent logging pattern
+    if (!mobileMenuToggle || !sidebar) {
+      if (!mobileMenuToggle) console.warn('Mobile menu toggle button not found');
+      if (!sidebar) console.warn('Sidebar element not found');
+      return;
     }
 
-    if (!sidebar) {
-      console.warn('Sidebar element not found');
-    }
-
-    // Only set up listener if both elements exist
-    if (mobileMenuToggle && sidebar) {
-      mobileMenuToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        sidebar.classList.toggle('active');
-      });
-    }
+    // Both elements exist - set up mobile menu toggle
+    mobileMenuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar.classList.toggle('active');
+    });
 
     // Nav section toggle handlers (for library section expand/collapse)
     const navSectionToggles = document.querySelectorAll('.nav-section-toggle');
@@ -380,29 +423,27 @@ function setupMobileMenu() {
     });
 
     // Close sidebar when clicking a nav link on mobile
-    if (sidebar) {
-      const navItems = sidebar.querySelectorAll('.nav-item');
-      navItems.forEach((item) => {
-        item.addEventListener('click', () => {
-          if (window.innerWidth <= 768) {
-            sidebar.classList.remove('active');
-          }
-        });
-      });
-
-      // Close sidebar when clicking outside on mobile
-      document.addEventListener('click', (e) => {
-        if (
-          window.innerWidth <= 768 &&
-          document.body.contains(mobileMenuToggle) &&
-          !sidebar.contains(e.target) &&
-          !mobileMenuToggle?.contains(e.target) &&
-          sidebar.classList.contains('active')
-        ) {
+    const navItems = sidebar.querySelectorAll('.nav-item');
+    navItems.forEach((item) => {
+      item.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
           sidebar.classList.remove('active');
         }
       });
-    }
+    });
+
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener('click', (e) => {
+      if (
+        window.innerWidth <= 768 &&
+        document.body.contains(mobileMenuToggle) &&
+        !sidebar.contains(e.target) &&
+        !mobileMenuToggle?.contains(e.target) &&
+        sidebar.classList.contains('active')
+      ) {
+        sidebar.classList.remove('active');
+      }
+    });
   } catch (error) {
     // Log error before re-throwing to ensure visibility in console
     // Re-throw prevents silent failures (issue #311)

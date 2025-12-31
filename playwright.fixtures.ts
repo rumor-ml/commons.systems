@@ -1,6 +1,7 @@
 // playwright.fixtures.ts
 import { test as base, expect } from '@playwright/test';
 
+// TODO(#1055): Consider using branded types for email/password validation in type signature
 type AuthFixtures = {
   authEmulator: {
     /**
