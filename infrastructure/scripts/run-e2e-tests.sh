@@ -43,7 +43,7 @@ case "$APP_TYPE" in
   firebase)
     # Static Firebase app with Firebase emulators
     echo "Starting Firebase emulators..."
-    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
 
     # Export emulator env vars
     export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"
@@ -84,7 +84,7 @@ case "$APP_TYPE" in
   go-fullstack)
     # Go app with Firebase emulators
     echo "Starting Firebase emulators..."
-    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
 
     # Export emulator env vars
     export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"

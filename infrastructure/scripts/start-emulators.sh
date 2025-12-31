@@ -7,6 +7,13 @@ set -euo pipefail
 # - Backend emulators (Auth, Firestore, Storage) are SHARED across worktrees
 # - Hosting emulator is PER-WORKTREE (serves worktree-specific build)
 # - Project IDs isolate Firestore data per worktree
+#
+# Usage: start-emulators.sh [APP_NAME]
+#   APP_NAME: Optional app name to host (e.g., fellspiral, videobrowser)
+#             If provided, only that site will be hosted
+
+# Accept APP_NAME parameter
+APP_NAME="${1:-}"
 
 # Source port allocation script to get ports and project ID
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -148,6 +155,16 @@ cd "${REPO_ROOT}"
 
 # Create temporary firebase config for this worktree with custom hosting port
 TEMP_CONFIG="${PROJECT_ROOT}/tmp/firebase.${PROJECT_ID}.json"
+
+# Filter hosting config to only include the site being tested (if APP_NAME provided)
+if [ -n "$APP_NAME" ]; then
+  HOSTING_CONFIG=$(jq --arg site "$APP_NAME" '[.hosting[] | select(.site == $site)]' firebase.json)
+  echo "Hosting only site: $APP_NAME"
+else
+  HOSTING_CONFIG=$(jq '.hosting' firebase.json)
+  echo "Hosting all sites from firebase.json"
+fi
+
 cat > "${TEMP_CONFIG}" <<EOF
 {
   "emulators": {
@@ -155,7 +172,7 @@ cat > "${TEMP_CONFIG}" <<EOF
       "port": ${HOSTING_PORT}
     }
   },
-  "hosting": $(jq '.hosting' firebase.json)
+  "hosting": ${HOSTING_CONFIG}
 }
 EOF
 
