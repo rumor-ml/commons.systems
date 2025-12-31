@@ -18,7 +18,7 @@ BACKEND_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.
 HOSTING_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.log"
 
 # Temp config file
-TEMP_CONFIG="${PROJECT_ROOT}/tmp/firebase.${PROJECT_ID}.json"
+TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
 echo "Stopping Firebase emulators..."
 echo ""

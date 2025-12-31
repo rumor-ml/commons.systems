@@ -62,7 +62,7 @@ if lsof -ti :${HOSTING_PORT} >/dev/null 2>&1; then
 fi
 
 # Clean up hosting emulator temp config
-TEMP_CONFIG="${WORKTREE_ROOT}/tmp/firebase.${PROJECT_ID}.json"
+TEMP_CONFIG="${WORKTREE_ROOT}/.firebase-${PROJECT_ID}.json"
 if [ -f "$TEMP_CONFIG" ]; then
   rm -f "$TEMP_CONFIG"
   echo "✓ Removed hosting temp config"

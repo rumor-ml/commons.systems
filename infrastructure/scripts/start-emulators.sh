@@ -154,17 +154,21 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 # Create temporary firebase config for this worktree with custom hosting port
-TEMP_CONFIG="${PROJECT_ROOT}/tmp/firebase.${PROJECT_ID}.json"
+# Put it in PROJECT_ROOT so relative paths work correctly
+TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
 # Filter hosting config to only include the site being tested (if APP_NAME provided)
 # Keep paths relative since Firebase is launched from PROJECT_ROOT
+# Remove site/target fields for emulation - single hosting config serves at root
 if [ -n "$APP_NAME" ]; then
+  # Extract the one site config and remove site/target fields
   HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
-    '[.hosting[] | select(.site == $site)]' \
+    '.hosting[] | select(.site == $site) | del(.site, .target)' \
     firebase.json)
   echo "Hosting only site: $APP_NAME"
 else
-  HOSTING_CONFIG=$(jq '.hosting' firebase.json)
+  # For all sites, keep as array but remove site/target fields
+  HOSTING_CONFIG=$(jq '.hosting | map(del(.site, .target))' firebase.json)
   echo "Hosting all sites from firebase.json"
 fi
 

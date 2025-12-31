@@ -56,7 +56,7 @@ if lsof -ti :${HOSTING_PORT} >/dev/null 2>&1; then
 fi
 
 # Clean up temp config file
-TEMP_CONFIG="${PROJECT_ROOT}/tmp/firebase.${PROJECT_ID}.json"
+TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 if [ -f "$TEMP_CONFIG" ]; then
   rm -f "$TEMP_CONFIG"
   echo "✓ Removed temp config file"
