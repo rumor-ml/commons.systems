@@ -4,7 +4,8 @@
 # Reusable port management for multi-worktree emulator isolation
 
 # System-reserved ports (NEVER allocate these)
-RESERVED_PORTS=(5000 5001 6000 8000)
+# Includes browser-restricted ports (SIP: 5060-5061, IRC: 6665-6669)
+RESERVED_PORTS=(5000 5001 5060 5061 6000 6665 6666 6667 6668 6669 8000)
 
 # Check if port is in blacklist
 is_port_blacklisted() {
