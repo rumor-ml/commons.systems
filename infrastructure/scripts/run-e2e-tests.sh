@@ -114,7 +114,7 @@ case "$APP_TYPE" in
     # These apps serve via their own web server (started by Playwright webServer config)
     # They only need backend emulators: Auth, Firestore, Storage
     echo "Starting Firebase backend emulators..."
-    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    SKIP_HOSTING=1 source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
 
     # Export emulator env vars
     export FIRESTORE_EMULATOR_HOST

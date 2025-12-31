@@ -11,6 +11,7 @@ set -euo pipefail
 # Usage: start-emulators.sh [APP_NAME]
 #   APP_NAME: Optional app name to host (e.g., fellspiral, videobrowser)
 #             If provided, only that site will be hosted
+#   SKIP_HOSTING: Set to 1 to skip hosting emulator (backend only)
 
 # Accept APP_NAME parameter
 APP_NAME="${1:-}"
@@ -98,8 +99,25 @@ else
 fi
 
 # ============================================================================
-# PHASE 2: Start Per-Worktree Hosting Emulator (ALWAYS start)
+# PHASE 2: Start Per-Worktree Hosting Emulator (ALWAYS start unless SKIP_HOSTING=1)
 # ============================================================================
+
+if [ "${SKIP_HOSTING:-0}" = "1" ]; then
+  echo ""
+  echo "========================================="
+  echo "✅ Backend emulators ready!"
+  echo "========================================="
+  echo ""
+  echo "Backend emulators (shared):"
+  echo "  FIRESTORE_EMULATOR_HOST=localhost:${FIRESTORE_PORT}"
+  echo "  FIREBASE_AUTH_EMULATOR_HOST=localhost:${AUTH_PORT}"
+  echo "  STORAGE_EMULATOR_HOST=localhost:${STORAGE_PORT}"
+  echo "  Emulator UI: http://localhost:${UI_PORT}"
+  echo ""
+  echo "Hosting emulator: SKIPPED (SKIP_HOSTING=1)"
+  echo ""
+  return 0
+fi
 
 echo "Starting per-worktree hosting emulator..."
 echo "  Port: ${HOSTING_PORT}"
