@@ -2,7 +2,6 @@
 set -eu
 
 # Get script directory and source port utilities
-# When sourced by start-emulators.sh, SCRIPT_DIR is already set
 if [ -z "${SCRIPT_DIR:-}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
@@ -17,7 +16,13 @@ WORKTREE_NAME="$(basename "$WORKTREE_ROOT")"
 HASH=$(echo -n "$WORKTREE_ROOT" | cksum | awk '{print $1}')
 PORT_OFFSET=$(($HASH % 100))
 
-# SHARED EMULATOR PORTS - Same across all worktrees (from firebase.json)
+# Validate offset is in expected range
+if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
+  echo "FATAL: PORT_OFFSET out of range: $PORT_OFFSET (expected 0-99)" >&2
+  exit 1
+fi
+
+# SHARED EMULATOR PORTS - Standard Firebase emulator ports (match firebase.json)
 # Multiple worktrees connect to the same emulator instance
 AUTH_PORT=9099
 FIRESTORE_PORT=8081
@@ -26,20 +31,35 @@ UI_PORT=4000
 
 # UNIQUE APP SERVER PORT - Different per worktree
 # Prevents conflicts when running multiple app servers concurrently
+# Port range: [8080, 9070] (8080 + 0*10 to 8080 + 99*10)
 APP_PORT=$((8080 + ($PORT_OFFSET * 10)))
+validate_port_range "$APP_PORT" "APP"
 
 # PER-WORKTREE HOSTING EMULATOR PORT - Different per worktree
 # Hosting emulator serves from relative path → must be per-worktree
-# Use automatic port fallback to avoid system-reserved ports (5000, 5001, etc.)
+# Use automatic port fallback to avoid browser-restricted ports.
+# Browsers (Chrome, Firefox, Safari) block certain ports for security (ERR_UNSAFE_PORT).
+# System-reserved ports like 5000, 5001, 6000 are automatically skipped.
+# Base port range: [5000, 5990] (5000 + 0*10 to 5000 + 99*10)
 BASE_HOSTING_PORT=$((5000 + ($PORT_OFFSET * 10)))
+validate_port_range "$BASE_HOSTING_PORT" "BASE_HOSTING"
 HOSTING_PORT=$(find_available_port $BASE_HOSTING_PORT 10 10)
+PORT_ALLOC_STATUS=$?
 
-# Check if fallback was used
-if [ $? -ne 0 ]; then
+# Check if allocation succeeded
+if [ $PORT_ALLOC_STATUS -ne 0 ]; then
   echo "FATAL: Could not allocate hosting port in range ${BASE_HOSTING_PORT}-$((BASE_HOSTING_PORT + 100))" >&2
+  echo "All candidate ports are in use or blacklisted" >&2
   exit 1
 fi
 
+# Validate port is a valid number
+if ! [[ "$HOSTING_PORT" =~ ^[0-9]+$ ]]; then
+  echo "FATAL: Port allocation returned invalid value: ${HOSTING_PORT}" >&2
+  exit 1
+fi
+
+# Check if fallback was used
 if [ "$HOSTING_PORT" != "$BASE_HOSTING_PORT" ]; then
   echo "⚠️  Using fallback port $HOSTING_PORT (base $BASE_HOSTING_PORT was unavailable)"
   echo ""
@@ -57,8 +77,9 @@ export FIREBASE_UI_PORT="$UI_PORT"
 
 # Export per-worktree variables
 export HOSTING_PORT  # For per-worktree hosting emulator
-export PROJECT_ID    # For Firestore data isolation
-export GCP_PROJECT_ID="${PROJECT_ID}"  # Firebase SDK uses this
+export PROJECT_ID    # For our scripts to use
+# Firebase Admin SDK and emulators check GCP_PROJECT_ID environment variable
+export GCP_PROJECT_ID="${PROJECT_ID}"
 export TEST_PORT="$APP_PORT"  # For legacy app servers
 export PORT="$APP_PORT"  # For Go app
 

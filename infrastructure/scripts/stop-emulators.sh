@@ -27,8 +27,19 @@ echo ""
 if [ -f "$HOSTING_PID_FILE" ]; then
   echo "Stopping hosting emulator..."
 
-  # Read PID and PGID from file (format: PID:PGID)
-  IFS=':' read -r HOSTING_PID HOSTING_PGID < "$HOSTING_PID_FILE" 2>/dev/null || true
+  # Read PID and PGID from file (format: PID:PGID) with error handling
+  IFS=':' read -r HOSTING_PID HOSTING_PGID < "$HOSTING_PID_FILE" 2>/dev/null || {
+    echo "WARNING: Failed to read PID file at ${HOSTING_PID_FILE}" >&2
+    HOSTING_PID=""
+    HOSTING_PGID=""
+  }
+
+  # Validate we got at least some data
+  if [ -z "$HOSTING_PID" ] && [ -z "$HOSTING_PGID" ]; then
+    echo "WARNING: PID file exists but contains no valid data" >&2
+    echo "File contents: $(cat "$HOSTING_PID_FILE" 2>/dev/null || echo 'unreadable')" >&2
+    echo "Skipping PID-based cleanup - will attempt port-based cleanup" >&2
+  fi
 
   if [ -n "${HOSTING_PGID:-}" ]; then
     # Kill entire process group (parent + children)
