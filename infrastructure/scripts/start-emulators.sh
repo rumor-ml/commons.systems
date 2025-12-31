@@ -150,14 +150,28 @@ if ! jq empty firebase.json 2>/dev/null; then
   exit 1
 fi
 
+# Map app directory names to Firebase site IDs
+# This handles apps where directory name != site ID in firebase.json
+get_firebase_site_id() {
+  local app_name="$1"
+  case "$app_name" in
+    print) echo "print-dfb47" ;;
+    videobrowser) echo "videobrowser-7696a" ;;
+    *) echo "$app_name" ;;  # Default: use app name as-is
+  esac
+}
+
 # Filter hosting config to only include the site being tested (if APP_NAME provided)
 # Keep paths relative - Firebase emulator resolves them from CWD (PROJECT_ROOT)
 # Remove site/target fields - hosting emulator serves all configs at root path
 if [ -n "$APP_NAME" ]; then
+  # Map directory name to Firebase site ID
+  SITE_ID=$(get_firebase_site_id "$APP_NAME")
+
   # Extract the one site config and remove site/target fields
   # Capture stderr separately to avoid mixing error messages with JSON output
   JQ_ERROR=$(mktemp)
-  HOSTING_CONFIG=$(jq --arg site "$APP_NAME" \
+  HOSTING_CONFIG=$(jq --arg site "$SITE_ID" \
     '.hosting[] | select(.site == $site) | del(.site, .target)' \
     firebase.json 2>"$JQ_ERROR")
   JQ_EXIT=$?
@@ -175,7 +189,7 @@ if [ -n "$APP_NAME" ]; then
   rm -f "$JQ_ERROR"
 
   if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ]; then
-    echo "ERROR: No hosting config found for site '$APP_NAME' in firebase.json" >&2
+    echo "ERROR: No hosting config found for site '$SITE_ID' (app: '$APP_NAME') in firebase.json" >&2
     AVAILABLE_SITES=$(jq -r '.hosting[].site // empty' firebase.json 2>/dev/null)
     if [ -n "$AVAILABLE_SITES" ]; then
       echo "Available sites:" >&2
@@ -184,7 +198,7 @@ if [ -n "$APP_NAME" ]; then
     exit 1
   fi
 
-  echo "Hosting only site: $APP_NAME"
+  echo "Hosting only site: $SITE_ID (app: $APP_NAME)"
 else
   # For all sites, keep as array but remove site/target fields
   # Capture stderr separately to avoid mixing error messages with JSON output
