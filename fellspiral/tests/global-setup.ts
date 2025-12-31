@@ -24,11 +24,11 @@ async function globalSetup() {
     return;
   }
 
-  // Get emulator host from environment or use default
-  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081';
-  const [host, port] = firestoreHost.split(':');
+  // Use localhost and port from firebase.json - single source of truth
+  const firestoreHost = 'localhost';
+  const firestorePort = 8081;
 
-  console.log(`📦 Seeding Firestore emulator at ${firestoreHost}...`);
+  console.log(`📦 Seeding Firestore emulator at ${firestoreHost}:${firestorePort}...`);
 
   try {
     // Load cards data with detailed path logging
@@ -57,11 +57,13 @@ async function globalSetup() {
     const admin = adminModule.default;
 
     // Initialize Firebase Admin with emulator
+    // Use per-worktree project ID for data isolation
+    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
     if (!admin.apps.length) {
       admin.initializeApp({
-        projectId: 'demo-test',
+        projectId,
       });
-      console.log(`   ✓ Initialized Firebase Admin (projectId: demo-test)`);
+      console.log(`   ✓ Initialized Firebase Admin (projectId: ${projectId})`);
     } else {
       console.log(`   ✓ Using existing Firebase Admin app`);
     }
@@ -69,10 +71,10 @@ async function globalSetup() {
     // Connect to Firestore emulator
     const db = admin.firestore();
     db.settings({
-      host: `${host}:${port}`,
+      host: `${firestoreHost}:${firestorePort}`,
       ssl: false,
     });
-    console.log(`   ✓ Connected to Firestore emulator at ${host}:${port}`);
+    console.log(`   ✓ Connected to Firestore emulator at ${firestoreHost}:${firestorePort}`);
 
     const collectionName = getCardsCollectionName();
     const cardsCollection = db.collection(collectionName);

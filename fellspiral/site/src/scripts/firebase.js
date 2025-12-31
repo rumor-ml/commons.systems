@@ -99,15 +99,16 @@ async function initFirebase() {
       import.meta.env.MODE === 'development' ||
       import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
-      // Use 127.0.0.1 to avoid IPv6 ::1 resolution (emulator only binds to IPv4)
-      const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
-      const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+      // Use localhost consistently (hosting emulator runs on same machine)
+      // Ports from firebase.json - single source of truth
+      const firestoreHost = 'localhost';
+      const firestorePort = 8081;
+      const authHost = 'localhost';
+      const authPort = 9099;
 
       try {
-        const [firestoreHostname, firestorePort] = firestoreHost.split(':');
-        connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
-
-        connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+        connectFirestoreEmulator(db, firestoreHost, firestorePort);
+        connectAuthEmulator(auth, `http://${authHost}:${authPort}`, { disableWarnings: true });
       } catch (error) {
         // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
         const msg = error.message || '';
@@ -121,8 +122,8 @@ async function initFirebase() {
         // Unexpected emulator connection errors
         console.error('[Firebase] Emulator connection failed:', {
           error: msg,
-          firestoreHost,
-          authHost,
+          firestoreHost: `${firestoreHost}:${firestorePort}`,
+          authHost: `${authHost}:${authPort}`,
           env: import.meta.env.MODE,
         });
         throw error;

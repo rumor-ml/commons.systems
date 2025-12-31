@@ -85,17 +85,30 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
 
     webServer: isDeployed
       ? undefined
-      : {
-          command: process.env.CI
-            ? site.webServerCommand?.ci || `cd ../site && npm run preview`
-            : site.webServerCommand?.local || `cd ../site && npm run dev`,
-          url: `http://localhost:${site.port}`,
-          reuseExistingServer: true,
-          timeout: 120 * 1000,
-          env: {
-            ...process.env,
-            ...(site.env || {}),
+      : site.webServerCommand
+        ? {
+            // Legacy: Apps still using webServerCommand (not yet migrated to hosting emulator)
+            command: process.env.CI
+              ? site.webServerCommand?.ci || `cd ../site && npm run preview`
+              : site.webServerCommand?.local || `cd ../site && npm run dev`,
+            url: `http://localhost:${site.port}`,
+            reuseExistingServer: true,
+            timeout: 120 * 1000,
+            env: {
+              ...process.env,
+              ...(site.env || {}),
+            },
+          }
+        : {
+            // Modern: Hosting emulator started externally - just health check
+            command: 'echo "Emulators should already be running"',
+            url: `http://localhost:${site.port}`,
+            reuseExistingServer: true,
+            timeout: 5000, // Just health check (was: 120000)
+            env: {
+              ...process.env,
+              ...(site.env || {}),
+            },
           },
-        },
   });
 }
