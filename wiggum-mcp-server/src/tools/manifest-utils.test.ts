@@ -5,7 +5,7 @@
  * Tests cover agent completion tracking, manifest reading, and cleanup logic.
  */
 
-// TODO(#994): Consider adding mutation tests for 2-strike verification logic
+// TODO(#994): Consider adding mutation tests for manifest issue counting logic
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
@@ -1365,6 +1365,6 @@ describe('manifest-utils', () => {
   // - Merging issues from multiple manifest files per agent
   // - Cleaning up manifest files after processing
   // - Handling filesystem errors gracefully
-  // - 2-strike agent completion edge cases
+  // - Agent completion determination based on issue counts
   // - Concurrent manifest operations
 });

@@ -1,7 +1,7 @@
 ---
 name: 'unsupervised-implement'
 description: 'Autonomous implementation agent for wiggum fixes - explores, plans, and implements without user approval'
-model: opus
+model: sonnet
 color: cyan
 permissionMode: acceptEdits
 ---

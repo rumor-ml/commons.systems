@@ -362,36 +362,27 @@ mcp__wiggum__wiggum_complete_all_hands({
 
 - **Increments iteration count** (each call = one complete review+fix cycle)
 - Reads manifest files from `tmp/wiggum/` directory
-- Applies 2-strike agent completion verification logic
-- Determines if all agents have completed (0 high-priority in-scope issues)
-- Updates wiggum state with agent tracking
+- Counts high-priority in-scope issues across all manifests
+- Determines if step is complete (0 high-priority in-scope issues)
 - Cleans up manifest files after processing
-- Returns next step instructions (including Active Agents list for next iteration)
+- Returns next step instructions
 
-**Agent Completion Logic:**
+**Completion Logic:**
 
-The tool uses 2-strike verification to prevent false completions:
+The tool determines completion based on high-priority in-scope issues:
 
-1. **First time agent finds 0 high-priority issues** → Added to `pendingCompletionAgents` (runs once more)
-2. **Second consecutive time** → Moved to `completedAgents` (stops running)
-3. **Agent finds issues after pending** → Reset to active (removed from both lists)
-4. **All agents complete** → Step advances to next workflow step
-5. **Some agents still active** → Returns instructions to continue iteration with Active Agents list
+1. **Reads manifest files** from tmp/wiggum/ directory
+2. **Counts high-priority in-scope issues** across all agent manifests
+3. **If count is 0** → All issues have been fixed or marked as not_fixed → Advances to next step
+4. **If count > 0** → Issues remain → Returns instructions to continue iteration with Plan+Fix cycle
 
-**Active Agents:**
-
-When the tool returns instructions for the next iteration, it includes an **Active Agents** list. On subsequent all-hands agent invocations:
-
-- **Only launch agents NOT in `completedAgents`**
-- Completed agents have passed 2-strike verification and should not run again
-- This reduces redundant work as agents complete
+The simplified procedure: proceed to next step when no review agents produce high priority in-scope issues (which are fixed by the implementor agent, not rejected as already fixed).
 
 IMPORTANT:
 
 - Tool handles all manifest reading internally
 - No file paths needed as input
-- Automatically tracks which agents have completed
-- Only advances step when ALL agents have 0 high-priority in-scope issues for 2 consecutive iterations
+- Only advances step when high-priority in-scope issue count is 0
 - `maxIterations` is optional - use when user approves increasing limit
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
@@ -457,22 +448,20 @@ mcp__wiggum__wiggum_complete_fix({
 
 **Tool Behavior:**
 
-The tool reads manifest files to determine which agents found high-priority in-scope issues:
+The tool reads manifest files to determine fix completion status:
 
-1. **Agents with 0 high-priority in-scope issues for first time** → Added to `pendingCompletionAgents` (will run one more time for verification)
-2. **Agents with 0 high-priority issues for second consecutive time** → Moved to `completedAgents` (will not run again this step)
-3. **Agents that found issues after being pending** → Reset to active (removed from pending)
-4. **All agents complete** → Step advances to next workflow step
-5. **Some agents still active** → Returns instructions to re-run review with active agents only
+1. **Counts high-priority in-scope issues** across all agent manifests
+2. **If count is 0** → All issues have been fixed or marked as not_fixed → Proceeds to next step
+3. **If count > 0** → Issues remain → Increments iteration and returns Plan+Fix instructions
 
-**2-Strike Agent Completion:**
+**Agent Completion Tracking:**
 
-Agents use a "2-strike" verification rule to prevent false completions:
+When implementing fixes, the tool tracks which agents have been addressed:
 
-- First time finding 0 high-priority issues → "pending" (verified once more)
-- Second consecutive time → "complete" (stops running)
+- Agents with 0 high-priority in-scope issues are marked as complete
+- The workflow proceeds when all high-priority issues have been addressed
 
-This ensures agents don't stop prematurely due to transient code states.
+This ensures all review feedback is properly handled before continuing.
 
 **Common Scenarios:**
 
