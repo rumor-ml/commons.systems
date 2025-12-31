@@ -99,16 +99,6 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
               ...(site.env || {}),
             },
           }
-        : {
-            // Modern: Hosting emulator started externally - just health check
-            command: 'echo "Emulators should already be running"',
-            url: `http://localhost:${site.port}`,
-            reuseExistingServer: true,
-            timeout: 5000, // Just health check (was: 120000)
-            env: {
-              ...process.env,
-              ...(site.env || {}),
-            },
-          },
+        : undefined, // Modern: No webServer needed, emulators started externally
   });
 }

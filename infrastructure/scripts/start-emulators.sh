@@ -178,8 +178,11 @@ cleanup_hosting_emulator() {
   fi
 }
 
-# Register cleanup trap for hosting emulator
-trap cleanup_hosting_emulator EXIT ERR
+# Only register trap when script is run directly, not sourced
+# This prevents trap conflicts when sourced by run-e2e-tests.sh
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  trap cleanup_hosting_emulator EXIT ERR
+fi
 
 # Start hosting emulator in new process group (for proper cleanup)
 set -m  # Enable job control
