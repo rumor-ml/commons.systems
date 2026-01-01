@@ -728,9 +728,8 @@ type TreeUpdateMessageV2 struct {
 }
 
 // NewTreeUpdateMessage creates a validated TreeUpdateMessage.
-// The tree parameter is cloned (tree.Clone() creates new map structures but shares immutable Pane values).
-// This prevents data races during concurrent broadcasting - the daemon can continue mutating its tree state
-// while messages are being serialized/sent to multiple clients.
+// The tree parameter is cloned to prevent data races - the daemon can continue mutating
+// its tree state while messages are being serialized/sent to multiple clients.
 // Caller may safely mutate the original tree after passing it - the message will not be affected.
 func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV2 {
 	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}
@@ -748,9 +747,8 @@ func (m *TreeUpdateMessageV2) ToWireFormat() Message {
 	}
 }
 
-// Tree returns a defensive clone of the tree state.
-// Returns tree.Clone() to prevent callers from mutating the message's internal state.
-// This ensures message immutability even if callers modify the returned tree.
+// Tree returns a clone to prevent caller mutations from affecting this message.
+// The message itself should be treated as immutable after construction.
 func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree.Clone() }
 
 // 20. TreeErrorMessageV2 represents a tree collection failure
@@ -798,6 +796,7 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 		return nil, fmt.Errorf("invalid wire message: %w", err)
 	}
 
+	// TODO(#1192): Enhance error messages to include field lengths for better debugging of whitespace issues
 	switch msg.Type {
 	case MsgTypeHello:
 		v2msg, err := NewHelloMessage(msg.SeqNum, msg.ClientID)

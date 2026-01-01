@@ -43,6 +43,7 @@ func NewPane(id, path, windowID string, windowIndex int, windowActive, windowBel
 	if !strings.HasPrefix(id, "%") {
 		return Pane{}, fmt.Errorf("invalid pane ID format: %s (must start with %%)", id)
 	}
+	// TODO(#1194): Add windowID validation to ensure it starts with "@" and is non-empty
 	if windowIndex < 0 {
 		return Pane{}, fmt.Errorf("window index must be non-negative: %d", windowIndex)
 	}

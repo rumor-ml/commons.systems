@@ -33,6 +33,27 @@ var (
 	ErrHealthValidationFailed = errors.New("health status validation failed: internal state corrupted")
 )
 
+// CRITICAL: Tree Pointer Safety
+//
+// The Message.Tree field is a pointer to enable omitempty JSON serialization (reduces message size).
+// However, this creates aliasing risks in concurrent broadcast scenarios:
+//
+// NEVER share Tree pointers between Message instances:
+//   - One goroutine serializes msg1 to JSON (reads Tree.tree map)
+//   - Another goroutine modifies the daemon's tree (writes Tree.tree map)
+//   - Result: DATA RACE
+//
+// SAFE PATTERN (always use this):
+//   1. Clone the tree before taking its address: msg.Tree = &tree.Clone()
+//   2. JSON unmarshal creates new pointer but shares internal maps - don't reuse unmarshaled Trees
+//
+// See TreeUpdateMessageV2.ToWireFormat() in protocol_v2.go for the correct construction pattern.
+// TreeUpdateMessageV2 enforces this safety via constructor (NewTreeUpdateMessage clones automatically).
+//
+// WHY NOT ENFORCE AT TYPE LEVEL:
+// Making Tree private would require breaking the wire protocol (JSON field names).
+// The comment + TreeUpdateMessageV2 pattern provides adequate safety for current codebase size.
+
 // Message types for client-daemon communication
 const (
 	// MsgTypeHello is sent by client when connecting
@@ -117,7 +138,7 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
-	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update only. Pointer enables omitempty to reduce message size. CRITICAL: Never share Tree pointers between Message instances - always clone before taking address (msg.Tree = &tree.Clone()). JSON unmarshal creates new pointer but shares internal maps. See TreeUpdateMessageV2.ToWireFormat() for safe construction pattern.
+	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update only. See Tree Pointer Safety comment above for usage.
 }
 
 // PROTOCOL V2 MIGRATION GUIDE
@@ -177,6 +198,7 @@ type Message struct {
 // HealthStatus represents daemon health metrics for monitoring.
 // All fields are private to enforce validation and immutability.
 // Use NewHealthStatus() to create and getters to access fields.
+// TODO(#1193): Migrate all callers to HealthStatusBuilder and unexport NewHealthStatus constructor
 type HealthStatus struct {
 	timestamp               time.Time
 	broadcastFailures       int64

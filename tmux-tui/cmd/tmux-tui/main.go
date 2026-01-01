@@ -577,7 +577,6 @@ func watchDaemonCmd(client *daemon.DaemonClient) tea.Cmd {
 	}
 }
 
-// TODO(#482): Add edge case tests for reconcileAlerts (empty tree, empty alerts, orphaned alerts)
 // reconcileAlerts removes alerts for panes that no longer exist.
 // It modifies the alerts map in-place and returns the same map.
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {

@@ -1241,3 +1241,336 @@ func TestTreeUpdate_AlertReconciliationLogic(t *testing.T) {
 		t.Errorf("Expected 0 alerts after empty tree update, got %d: %v", len(finalAlerts), finalAlerts)
 	}
 }
+
+// TestReconcileAlerts_EmptyTree verifies that reconcileAlerts correctly handles
+// empty tree state (all panes removed). All alerts should be removed to prevent
+// memory leaks from orphaned alerts.
+func TestReconcileAlerts_EmptyTree(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Model with alerts for panes %1, %2
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "stop",
+		"%2": "idle",
+	}
+	m.alertsMu.Unlock()
+
+	// Send tree_update with empty tree (all sessions killed)
+	emptyTree := tmux.NewRepoTree()
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &emptyTree,
+		},
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify alerts map is empty after reconciliation
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(alerts) != 0 {
+		t.Errorf("Expected alerts to be empty after reconciling with empty tree, got %d alerts: %v", len(alerts), alerts)
+	}
+}
+
+// TestReconcileAlerts_EmptyAlerts verifies that reconcileAlerts handles
+// empty alerts map gracefully (no panic, no unexpected behavior).
+func TestReconcileAlerts_EmptyAlerts(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Model with empty alerts
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{}
+	m.alertsMu.Unlock()
+
+	// Send tree_update with populated tree
+	tree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &tree,
+		},
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify no panic, alerts remain empty
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(alerts) != 0 {
+		t.Errorf("Expected alerts to remain empty, got %d alerts: %v", len(alerts), alerts)
+	}
+}
+
+// TestReconcileAlerts_OrphanedAlerts verifies that reconcileAlerts removes
+// orphaned alerts for non-existent panes (data corruption scenario).
+// Only alerts matching tree panes should remain.
+func TestReconcileAlerts_OrphanedAlerts(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Manually inject alerts for non-existent panes (simulate data corruption)
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1":   "stop",       // Will match tree pane %1
+		"%99":  "idle",       // Orphaned - no pane %99 in tree
+		"%100": "permission", // Orphaned - no pane %100 in tree
+	}
+	m.alertsMu.Unlock()
+
+	// Send tree_update with valid tree containing only %1, %2
+	tree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &tree,
+		},
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify orphaned alerts are removed
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(alerts) != 1 {
+		t.Errorf("Expected 1 alert after reconciliation, got %d: %v", len(alerts), alerts)
+	}
+
+	// Verify only alert matching tree pane %1 remains
+	if alert, ok := alerts["%1"]; !ok || alert != "stop" {
+		t.Errorf("Expected alert for %%1 to be 'stop', got: %v", alert)
+	}
+
+	// Verify orphaned alerts were removed
+	if _, exists := alerts["%99"]; exists {
+		t.Error("Expected orphaned alert for %%99 to be removed")
+	}
+	if _, exists := alerts["%100"]; exists {
+		t.Error("Expected orphaned alert for %%100 to be removed")
+	}
+}
+
+// TestReconcileAlerts_NoRepos verifies reconciliation when tree has no repos
+// (different from empty tree - no repos vs repos with no branches).
+func TestReconcileAlerts_NoRepos(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Alerts exist
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "stop",
+		"%2": "idle",
+	}
+	m.alertsMu.Unlock()
+
+	// Create tree with no repos (empty)
+	emptyTree := tmux.NewRepoTree()
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &emptyTree,
+		},
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify all alerts removed (no repos = no panes)
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(alerts) != 0 {
+		t.Errorf("Expected 0 alerts when tree has no repos, got %d: %v", len(alerts), alerts)
+	}
+}
+
+// TestReconcileAlerts_NoBranches verifies reconciliation when tree has repos
+// but no branches (sessions exist but no panes).
+func TestReconcileAlerts_NoBranches(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Alerts exist
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "stop",
+		"%2": "idle",
+	}
+	m.alertsMu.Unlock()
+
+	// Create tree with repo but no branches (can't actually do this via testTree)
+	// Empty tree is the closest we can get - RepoTree doesn't allow repos without branches
+	emptyTree := tmux.NewRepoTree()
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &emptyTree,
+		},
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify all alerts removed (no branches = no panes)
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(alerts) != 0 {
+		t.Errorf("Expected 0 alerts when tree has no branches, got %d: %v", len(alerts), alerts)
+	}
+}
+
+// TestReconcileAlerts_NoPanes verifies reconciliation when tree has repos and
+// branches but no panes (branches exist but empty).
+func TestReconcileAlerts_NoPanes(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Alerts exist
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "stop",
+		"%2": "idle",
+	}
+	m.alertsMu.Unlock()
+
+	// Create tree with repo and branch but empty panes array
+	tree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {}, // Empty panes array
+		},
+	})
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &tree,
+		},
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify all alerts removed (no panes in branch)
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(alerts) != 0 {
+		t.Errorf("Expected 0 alerts when tree has no panes, got %d: %v", len(alerts), alerts)
+	}
+}
+
+// TestReconcileAlerts_RaceWithAlertChange verifies that alert reconciliation
+// correctly handles race condition where alert_change arrives for a pane
+// just before tree_update removes that pane.
+func TestReconcileAlerts_RaceWithAlertChange(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Tree with panes %1, %2
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Setup: Alerts for pane %1 only
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "stop",
+	}
+	m.alertsMu.Unlock()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Goroutine 1: alert_change for pane %2 (adds alert)
+	go func() {
+		defer wg.Done()
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type:      daemon.MsgTypeAlertChange,
+				PaneID:    "%2",
+				EventType: "idle",
+				Created:   true,
+			},
+		}
+		m.Update(msg)
+	}()
+
+	// Goroutine 2: tree_update removing pane %2 (reconciles alerts)
+	go func() {
+		defer wg.Done()
+		newTree := testTree(map[string]map[string][]tmux.Pane{
+			"test-repo": {
+				"main": {
+					testPane("%1", "@1", 0, true),
+				},
+			},
+		})
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type: daemon.MsgTypeTreeUpdate,
+				Tree: &newTree,
+			},
+		}
+		m.Update(msg)
+	}()
+
+	wg.Wait()
+
+	// Verify: No race detector warnings (run with -race)
+	// Verify: Final state is consistent
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	panes, _ := m.tree.GetPanes("test-repo", "main")
+	hasPane2InTree := false
+	for _, p := range panes {
+		if p.ID() == "%2" {
+			hasPane2InTree = true
+			break
+		}
+	}
+
+	// If pane %2 is in tree, alert may exist (timing-dependent)
+	// If pane %2 not in tree, alert must NOT exist
+	if !hasPane2InTree {
+		if _, exists := alerts["%2"]; exists {
+			t.Error("Alert for %%2 should be removed when pane no longer in tree")
+		}
+	}
+
+	// Alert for %1 should always exist (pane %1 remains in tree)
+	if _, exists := alerts["%1"]; !exists {
+		t.Error("Expected alert for %%1 to remain (pane still in tree)")
+	}
+}
