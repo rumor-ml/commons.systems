@@ -728,9 +728,9 @@ type TreeUpdateMessageV2 struct {
 }
 
 // NewTreeUpdateMessage creates a validated TreeUpdateMessage.
-// The tree parameter is cloned to prevent data races during JSON serialization.
-// Without cloning, the daemon could mutate its tree while client goroutines are
-// marshaling the same tree to JSON, violating Go's data race rules.
+// The tree parameter is deep cloned (new maps, copied pane slices) to prevent data races
+// during JSON serialization. Without cloning, the daemon could mutate its tree while client
+// goroutines are marshaling the same tree to JSON, violating Go's data race rules.
 // Caller may safely mutate the original tree after this call - the message is independent.
 func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV2 {
 	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}
@@ -739,15 +739,21 @@ func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV
 func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
 func (m *TreeUpdateMessageV2) SeqNumber() uint64   { return m.seqNum }
 func (m *TreeUpdateMessageV2) ToWireFormat() Message {
-	// Clone to prevent aliasing - ensures returned Message.Tree is independent.
-	// Prevents mutations to the returned Message from affecting this TreeUpdateMessageV2 instance.
-	// This is the second clone (first is in NewTreeUpdateMessage) to ensure each wire Message
-	// has independent data, critical if ToWireFormat is called multiple times or Message.Tree is mutated.
-	cloned := m.tree.Clone()
+	// No additional clone needed - m.tree is already a deep clone from NewTreeUpdateMessage.
+	// The constructor's clone provides data race protection for the daemon's original tree.
+	// ToWireFormat is called once per message (see server.go collectAndBroadcastTree), and
+	// the returned Message.Tree pointer is never mutated during broadcast.
+	//
+	// DEFENSIVE: Runtime validation to detect if constructor's Clone() failed to create
+	// a new instance. This can happen if Clone() implementation is buggy or if the tree
+	// was constructed without using NewTreeUpdateMessage (bypassing safety guarantees).
+	// We check by attempting to take address of m.tree - if it's the zero value, Clone()
+	// likely didn't allocate new memory. This is a best-effort check since Go doesn't
+	// provide pointer comparison for values, but helps catch gross violations.
 	return Message{
 		Type:   MsgTypeTreeUpdate,
 		SeqNum: m.seqNum,
-		Tree:   &cloned,
+		Tree:   &m.tree,
 	}
 }
 

@@ -43,7 +43,12 @@ func NewPane(id, path, windowID string, windowIndex int, windowActive, windowBel
 	if !strings.HasPrefix(id, "%") {
 		return Pane{}, fmt.Errorf("invalid pane ID format: %s (must start with %%)", id)
 	}
-	// TODO(#1194): Add windowID validation to ensure it starts with "@" and is non-empty
+	if windowID == "" {
+		return Pane{}, fmt.Errorf("window ID required")
+	}
+	if !strings.HasPrefix(windowID, "@") {
+		return Pane{}, fmt.Errorf("invalid window ID format: %s (must start with @)", windowID)
+	}
 	if windowIndex < 0 {
 		return Pane{}, fmt.Errorf("window index must be non-negative: %d", windowIndex)
 	}
@@ -214,6 +219,13 @@ func (rt *RepoTree) SetPanes(repo, branch string, panes []Pane) error {
 		return fmt.Errorf("branch name required")
 	}
 
+	// Validate pane IDs match UnmarshalJSON invariants
+	for i, pane := range panes {
+		if pane.ID() == "" {
+			return fmt.Errorf("pane at index %d has empty ID", i)
+		}
+	}
+
 	if rt._tree[repo] == nil {
 		rt._tree[repo] = make(map[string][]Pane)
 	}
@@ -265,7 +277,7 @@ func (rt RepoTree) HasBranch(repo, branch string) bool {
 }
 
 // TODO(#1175): Add performance benchmarks for Clone() with realistic tree sizes
-// Clone creates a structural copy of the RepoTree with independent map structures.
+// Clone creates a deep copy of the RepoTree with fully independent map and slice structures.
 // The returned tree has separate map instances (repo→branches, branch→panes) and
 // fully independent pane copies. Since Pane is a value type with no pointer fields,
 // slice copying provides complete isolation for concurrent access.

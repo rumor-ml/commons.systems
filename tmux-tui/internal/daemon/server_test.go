@@ -4759,3 +4759,177 @@ func TestWatchTree_GoroutineCleanup(t *testing.T) {
 	t.Log("Verified: No goroutine leak on daemon shutdown")
 	t.Log("Verified: ticker.Stop() called during cleanup")
 }
+
+// TestNewAlertDaemon_CollectorInitFailure_DegradedMode tests daemon behavior when tree collector fails
+func TestNewAlertDaemon_CollectorInitFailure_DegradedMode(t *testing.T) {
+	// This test verifies daemon continues in degraded mode when tmux is unavailable
+	// We can't easily mock tmux.NewCollector failure without dependency injection,
+	// so this test documents expected behavior and validates error handling paths
+
+	// Skip if we can't make collector fail
+	t.Skip("Requires ability to force tmux.NewCollector() failure - add when DI available")
+
+	// Expected behavior (document for future implementation):
+	// 1. daemon.collector == nil but daemon starts successfully
+	// 2. Connect client and verify tree_error received (not tree_update)
+	// 3. Check error message contains "collector initialization failed"
+	// 4. Verify health status shows treeErrors > 0
+	// 5. Verify alerts/blocking still work normally
+}
+
+// TestNotifyTreeConstructionFailure_NestedErrorFailure tests nested tree_error construction failure
+func TestNotifyTreeConstructionFailure_NestedErrorFailure(t *testing.T) {
+	// Create minimal daemon for testing
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.lastTreeMsgConstructErr.Store("")
+	daemon.treeMsgConstructErrors.Store(0)
+
+	// Test empty error string (causes NewTreeErrorMessage to fail validation)
+	daemon.notifyTreeConstructionFailure("")
+
+	// Verify error was recorded
+	if daemon.treeMsgConstructErrors.Load() != 1 {
+		t.Errorf("Expected treeMsgConstructErrors=1, got %d", daemon.treeMsgConstructErrors.Load())
+	}
+
+	// Verify no panic occurred (critical requirement)
+	// Test passes if we reach here without panic
+}
+
+// TestCollectAndBroadcastTree_WireFormatNilTree tests ToWireFormat returning nil Tree
+func TestCollectAndBroadcastTree_WireFormatNilTree(t *testing.T) {
+	// This test requires ability to make ToWireFormat return nil Tree
+	// Current implementation always returns valid Tree, so test documents expected behavior
+
+	t.Skip("Requires mock TreeUpdateMessage with corrupted ToWireFormat - add when testable")
+
+	// Expected behavior:
+	// 1. treeMsgConstructErrors incremented
+	// 2. notifyTreeConstructionFailure called with correct message
+	// 3. Clients receive tree_error (not corrupted tree_update)
+	// 4. No clients receive message with nil Tree
+}
+
+// TestWatchTree_ImmediateCollectionOnStartup tests immediate tree collection on daemon startup
+func TestWatchTree_ImmediateCollectionOnStartup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// This test requires real tmux environment
+	t.Skip("Requires real tmux environment and test infrastructure - add when available")
+
+	// Expected behavior:
+	// 1. Create daemon with collector
+	// 2. Start daemon
+	// 3. Verify currentTree updated within 2 seconds (immediate collection)
+	// 4. Verify timing is faster than 30 second ticker interval
+}
+
+// TestCollectAndBroadcastTree_RecoveryAfterFailure tests tree broadcast recovery after GetTree failure
+func TestCollectAndBroadcastTree_RecoveryAfterFailure(t *testing.T) {
+	// This test requires mock collector that can fail then succeed
+	t.Skip("Requires mock tmux.Collector with controllable failure - add when DI available")
+
+	// Expected behavior:
+	// 1. First collectAndBroadcastTree broadcasts tree_error
+	// 2. treeErrors increments
+	// 3. Second collectAndBroadcastTree broadcasts tree_update (success)
+	// 4. currentTree updated with new tree
+	// 5. No error state persists after recovery
+}
+
+// TestBroadcastTree_SeparateFailureTracking tests that tree broadcast failures are tracked separately
+func TestBroadcastTree_SeparateFailureTracking(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Can't easily test broadcast failures without real network connections
+	t.Skip("Requires real client connections to test broadcast failures - complex integration test")
+
+	// Expected behavior when implemented:
+	// 1. treeBroadcastErrors incremented for tree_update failure only
+	// 2. broadcastFailures incremented for all failures
+	// 3. lastTreeBroadcastErr contains type=tree_update, seq, failures count
+}
+
+// TestGetHealthStatus_TreeMetrics tests health status includes tree metrics
+func TestGetHealthStatus_TreeMetrics(t *testing.T) {
+	// Create daemon with tree metrics
+	daemon := &AlertDaemon{
+		alerts:          make(map[string]string),
+		blockedBranches: make(map[string]string),
+		clients:         make(map[string]*clientConnection),
+	}
+
+	// Initialize atomic values
+	daemon.lastBroadcastError.Store("")
+	daemon.lastWatcherError.Store("")
+	daemon.lastCloseError.Store("")
+	daemon.lastAudioBroadcastErr.Store("")
+	daemon.lastTreeError.Store("")
+	daemon.lastTreeBroadcastErr.Store("tree broadcast failed")
+	daemon.lastTreeMsgConstructErr.Store("tree construction failed")
+
+	daemon.treeBroadcastErrors.Store(5)
+	daemon.treeMsgConstructErrors.Store(2)
+
+	// Get health status
+	status, err := daemon.GetHealthStatus()
+	if err != nil {
+		t.Fatalf("GetHealthStatus failed: %v", err)
+	}
+
+	// Verify tree metrics included
+	if status.GetTreeBroadcastErrors() != 5 {
+		t.Errorf("Expected TreeBroadcastErrors=5, got %d", status.GetTreeBroadcastErrors())
+	}
+
+	if status.GetLastTreeBroadcastError() != "tree broadcast failed" {
+		t.Errorf("Expected LastTreeBroadcastErr='tree broadcast failed', got %q", status.GetLastTreeBroadcastError())
+	}
+
+	if status.GetTreeMsgConstructErrors() != 2 {
+		t.Errorf("Expected TreeMsgConstructErrors=2, got %d", status.GetTreeMsgConstructErrors())
+	}
+
+	if status.GetLastTreeMsgConstructError() != "tree construction failed" {
+		t.Errorf("Expected LastTreeMsgConstructErr='tree construction failed', got %q", status.GetLastTreeMsgConstructError())
+	}
+}
+
+// TestCollectAndBroadcastTree_ConcurrentCallsSerialized tests collectorMu lock protection
+func TestCollectAndBroadcastTree_ConcurrentCallsSerialized(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping race detection test in short mode")
+	}
+
+	// This test would require:
+	// 1. Real tmux environment
+	// 2. Multiple goroutines calling collectAndBroadcastTree
+	// 3. Race detector enabled (go test -race)
+
+	t.Skip("Requires real tmux and race detector - run with: go test -race")
+
+	// Expected behavior:
+	// 1. No race conditions detected
+	// 2. All calls complete successfully
+	// 3. Lock prevents overlapping GetTree() calls
+}
+
+// TestCollectAndBroadcastTree_NilMessageConstruction tests NewTreeUpdateMessage nil handling
+func TestCollectAndBroadcastTree_NilMessageConstruction(t *testing.T) {
+	// NewTreeUpdateMessage currently never returns nil (always returns &TreeUpdateMessageV2{})
+	// This test documents expected behavior if that changes
+
+	t.Skip("NewTreeUpdateMessage cannot return nil in current implementation")
+
+	// Expected behavior if nil return added:
+	// 1. notifyTreeConstructionFailure called
+	// 2. treeMsgConstructErrors incremented
+	// 3. Clients receive tree_error (not nil or nothing)
+	// 4. No broadcast of nil message attempted
+}

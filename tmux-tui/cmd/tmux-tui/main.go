@@ -80,8 +80,8 @@ func initialModel() model {
 	renderer := ui.NewTreeRenderer(80) // Default width
 	m.renderer = renderer
 
-	// Initialize empty tree - will be populated by daemon's first tree_update broadcast
-	// Client displays empty tree until daemon sends initial state (typically <1s after connection)
+	// Initialize empty tree - will be populated by daemon's tree_update broadcast
+	// Client displays empty tree until daemon sends tree (from periodic 30s collection cycle)
 	// Daemon collects tree once and broadcasts to all clients, eliminating redundant per-client queries
 	m.tree = tmux.NewRepoTree()
 
@@ -134,7 +134,7 @@ func (m model) Init() tea.Cmd {
 	}
 
 	// Start daemon event listener if connected
-	// Tree updates come from daemon broadcasts - no client-side collection needed
+	// Client receives tree state via MsgTypeTreeUpdate messages (no client-side collection)
 	if m.daemonClient != nil {
 		cmds = append(cmds, watchDaemonCmd(m.daemonClient))
 	}
@@ -198,8 +198,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Clean up daemon client on quit
 			if m.daemonClient != nil {
 				if err := m.daemonClient.Close(); err != nil {
-					fmt.Fprintf(os.Stderr, "WARNING: Failed to cleanly close daemon connection: %v\n", err)
-					fmt.Fprintf(os.Stderr, "         Application will exit anyway but daemon may have stale client state\n")
+					// Suppress harmless "use of closed network connection" errors
+					if !containsClosedConnectionError(err) {
+						fmt.Fprintf(os.Stderr, "Note: Failed to cleanly close daemon connection: %v\n", err)
+						fmt.Fprintf(os.Stderr, "      Application will exit normally. If you see connection issues on restart, run: pkill tmux-tui-daemon\n")
+					}
 					debug.Log("TUI_CLIENT_CLOSE_ERROR error=%v", err)
 				} else {
 					debug.Log("TUI_CLIENT_CLOSE_SUCCESS")
@@ -253,7 +256,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.alertsMu.Unlock()
 
-			// Continue watching daemon events (no tree refresh needed - alert state is managed by daemon)
+			// Continue watching daemon - alert state updated, daemon manages tree refresh cycle
 			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeShowBlockPicker:
@@ -408,8 +411,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 					if m.daemonClient != nil {
 						if err := m.daemonClient.Close(); err != nil {
-							fmt.Fprintf(os.Stderr, "WARNING: Failed to cleanly close daemon connection during circuit breaker disconnect: %v\n", err)
-							fmt.Fprintf(os.Stderr, "         Daemon may have stale client state\n")
+							// Suppress harmless "use of closed network connection" errors
+							if !containsClosedConnectionError(err) {
+								fmt.Fprintf(os.Stderr, "Note: Failed to cleanly close daemon connection: %v\n", err)
+								fmt.Fprintf(os.Stderr, "      Circuit breaker activated. Daemon may have stale client state.\n")
+							}
 							debug.Log("TUI_CIRCUIT_BREAKER_CLOSE_ERROR error=%v", err)
 						} else {
 							debug.Log("TUI_CIRCUIT_BREAKER_CLOSE_SUCCESS")
@@ -629,6 +635,33 @@ func timeTickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return timeTickMsg(t)
 	})
+}
+
+// containsClosedConnectionError checks if error is a harmless "connection already closed" error
+func containsClosedConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return containsAny(errStr, []string{
+		"use of closed network connection",
+		"connection already closed",
+		"socket is already closed",
+	})
+}
+
+// containsAny checks if s contains any of the substrings
+func containsAny(s string, substrings []string) bool {
+	for _, substr := range substrings {
+		if len(s) >= len(substr) {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // GetAlertsForTesting returns a copy of current alert state (testing only)

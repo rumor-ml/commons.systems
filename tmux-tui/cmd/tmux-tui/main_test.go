@@ -1647,3 +1647,250 @@ func TestTreeUpdate_CircuitBreakerDisconnectBehavior(t *testing.T) {
 		t.Errorf("Expected consecutiveNilUpdates=3, got %d", m.consecutiveNilUpdates)
 	}
 }
+
+// TestTreeError_HandlingAndRecovery tests tree_error message handling and state persistence
+// This test verifies:
+// 1. tree_error message sets treeRefreshError correctly
+// 2. Error persists across multiple View() calls
+// 3. continueWatchingDaemon() keeps client connected (doesn't disconnect)
+// 4. Subsequent tree_update clears the error state
+func TestTreeError_HandlingAndRecovery(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Create a daemon client to verify connection remains active
+	client := daemon.NewDaemonClient()
+	m.daemonClient = client
+
+	// Setup: Initial tree state
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Step 1: Send tree_error message
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type:  daemon.MsgTypeTreeError,
+			Error: "failed to collect tmux tree: tmux server not found",
+		},
+	}
+	updatedModel, cmd := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify treeRefreshError is set
+	m.errorMu.RLock()
+	err := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if err == nil {
+		t.Fatal("Expected treeRefreshError to be set after tree_error")
+	}
+
+	expectedErrorText := "daemon tree collection failed: failed to collect tmux tree: tmux server not found"
+	if err.Error() != expectedErrorText {
+		t.Errorf("Expected error text %q, got %q", expectedErrorText, err.Error())
+	}
+
+	// Verify daemon connection remains active (no disconnect)
+	if m.daemonClient == nil {
+		t.Error("tree_error should NOT disconnect daemon client (alerts/blocking still work)")
+	}
+
+	// Verify Update() returns continueWatchingDaemon cmd (non-nil)
+	if cmd == nil {
+		t.Error("tree_error should return continueWatchingDaemon cmd, got nil")
+	}
+
+	// Step 2: Verify error persists across View() calls
+	view1 := m.View()
+	if !strings.Contains(view1, "TREE REFRESH FAILED") {
+		t.Error("Expected warning banner to appear in first View() call")
+	}
+
+	view2 := m.View()
+	if !strings.Contains(view2, "TREE REFRESH FAILED") {
+		t.Error("Expected warning banner to persist across multiple View() calls")
+	}
+
+	// Step 3: Send tree_update to clear error
+	recoveryTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@1", 1, false),
+			},
+		},
+	})
+
+	recoveryMsg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &recoveryTree,
+		},
+	}
+	updatedModel, _ = m.Update(recoveryMsg)
+	m = updatedModel.(model)
+
+	// Verify error is cleared
+	m.errorMu.RLock()
+	clearedErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if clearedErr != nil {
+		t.Errorf("Expected treeRefreshError to be cleared after successful tree_update, got: %v", clearedErr)
+	}
+
+	// Verify banner disappears after recovery
+	view3 := m.View()
+	if strings.Contains(view3, "TREE REFRESH FAILED") {
+		t.Error("Expected warning banner to disappear after successful tree_update")
+	}
+}
+
+// TestContinueWatchingDaemon_NilClient tests edge case where continueWatchingDaemon is called with nil client
+// This test verifies:
+// 1. continueWatchingDaemon() returns nil when daemonClient is nil
+// 2. No panic occurs when called after circuit breaker disconnect
+// 3. Safe to call multiple times with nil client
+func TestContinueWatchingDaemon_NilClient(t *testing.T) {
+	m := initialModel()
+
+	// Test 1: Set daemonClient to nil (simulating circuit breaker disconnect or init failure)
+	m.daemonClient = nil
+
+	// Call continueWatchingDaemon
+	cmd := m.continueWatchingDaemon()
+
+	// Verify returns nil (not tea.Cmd that would panic)
+	if cmd != nil {
+		t.Error("continueWatchingDaemon should return nil when daemonClient is nil, got non-nil cmd")
+	}
+
+	// Test 2: Call multiple times to ensure no panic
+	cmd2 := m.continueWatchingDaemon()
+	if cmd2 != nil {
+		t.Error("continueWatchingDaemon should return nil on second call with nil client")
+	}
+
+	// Test 3: Verify safe to call after circuit breaker triggers
+	// Simulate circuit breaker by sending 3 nil tree updates
+	client := daemon.NewDaemonClient()
+	m.daemonClient = client
+
+	for i := 1; i <= 3; i++ {
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type:   daemon.MsgTypeTreeUpdate,
+				SeqNum: uint64(i),
+				Tree:   nil,
+			},
+		}
+		updatedModel, _ := m.Update(msg)
+		m = updatedModel.(model)
+	}
+
+	// After circuit breaker, daemonClient should be nil
+	if m.daemonClient != nil {
+		t.Fatal("Circuit breaker should have set daemonClient to nil")
+	}
+
+	// Calling continueWatchingDaemon should not panic
+	cmd3 := m.continueWatchingDaemon()
+	if cmd3 != nil {
+		t.Error("continueWatchingDaemon should return nil after circuit breaker disconnect")
+	}
+}
+
+// TestTreeUpdate_CompleteFlowWithAlertReconciliation tests the complete tree_update flow with alert reconciliation
+// This test verifies the critical sequence:
+// 1. Reset consecutiveNilUpdates (allows recovery from previous nil updates)
+// 2. Update tree
+// 3. Reconcile alerts (under lock)
+// 4. Continue watching daemon
+func TestTreeUpdate_CompleteFlowWithAlertReconciliation(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Create daemon client
+	client := daemon.NewDaemonClient()
+	m.daemonClient = client
+
+	// Setup: Alerts for all 3 panes (initially for non-existent panes)
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "idle",
+		"%2": "stop",
+		"%3": "permission",
+	}
+	m.alertsMu.Unlock()
+
+	// Setup: Simulate previous nil updates (counter = 2, not yet circuit breaker)
+	m.consecutiveNilUpdates = 2
+
+	// Send tree_update with only panes %1 and %2 (pane %3 removed)
+	updatedTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@1", 1, false),
+			},
+		},
+	})
+
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &updatedTree,
+		},
+	}
+
+	updatedModel, cmd := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify 1: consecutiveNilUpdates reset to 0 (allows recovery)
+	if m.consecutiveNilUpdates != 0 {
+		t.Errorf("Expected consecutiveNilUpdates to be reset to 0, got %d", m.consecutiveNilUpdates)
+	}
+
+	// Verify 2: Tree updated with new state
+	if m.tree.TotalPanes() != 2 {
+		t.Errorf("Expected 2 panes in tree after update, got %d", m.tree.TotalPanes())
+	}
+
+	// Verify 3: Alert for pane %3 removed during reconciliation
+	m.alertsMu.RLock()
+	alerts := make(map[string]string)
+	for k, v := range m.alerts {
+		alerts[k] = v
+	}
+	m.alertsMu.RUnlock()
+
+	if _, exists := alerts["%3"]; exists {
+		t.Error("Expected alert for removed pane %3 to be deleted during reconciliation")
+	}
+
+	// Verify 4: Alerts for %1 and %2 still present
+	if alerts["%1"] != "idle" {
+		t.Errorf("Expected alert for pane %%1 to be 'idle', got %q", alerts["%1"])
+	}
+	if alerts["%2"] != "stop" {
+		t.Errorf("Expected alert for pane %%2 to be 'stop', got %q", alerts["%2"])
+	}
+
+	// Verify 5: continueWatchingDaemon() called (daemon still connected)
+	if cmd == nil {
+		t.Error("Expected non-nil cmd from continueWatchingDaemon, got nil")
+	}
+
+	// Verify 6: treeRefreshError cleared
+	m.errorMu.RLock()
+	err := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if err != nil {
+		t.Errorf("Expected treeRefreshError to be cleared after successful tree_update, got: %v", err)
+	}
+}

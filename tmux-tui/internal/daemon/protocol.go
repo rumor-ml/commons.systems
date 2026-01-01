@@ -43,16 +43,24 @@ var (
 //   - Another goroutine modifies the daemon's tree (writes Tree.tree map)
 //   - Result: DATA RACE
 //
-// SAFE PATTERN (always use this):
-//   1. Clone the tree before taking its address: msg.Tree = &tree.Clone()
-//   2. JSON unmarshal creates new pointer but shares internal maps - don't reuse unmarshaled Trees
+// SAFE PATTERN (ALWAYS use protocol_v2.go constructors):
+//   1. Server code: Use NewTreeUpdateMessage(seqNum, tree) which clones automatically
+//   2. Convert to wire format: msg.ToWireFormat() returns Message with independent Tree
+//   3. JSON unmarshal: Creates new pointer but shares internal maps - don't reuse unmarshaled Trees
 //
-// See TreeUpdateMessageV2.ToWireFormat() in protocol_v2.go for the correct construction pattern.
-// TreeUpdateMessageV2 enforces this safety via constructor (NewTreeUpdateMessage clones automatically).
+// ENFORCEMENT:
+//   - Type-level: TreeUpdateMessageV2 (protocol_v2.go) has private tree field, requires constructor
+//   - Constructor: NewTreeUpdateMessage calls tree.Clone() before storing
+//   - Runtime: Tests verify no aliasing between original tree and message (see protocol_v2_test.go)
+//   - Documentation: This comment + inline comments in ToWireFormat()
 //
-// WHY NOT ENFORCE AT TYPE LEVEL:
-// Making Tree private would require breaking the wire protocol (JSON field names).
-// The comment + TreeUpdateMessageV2 pattern provides adequate safety for current codebase size.
+// DO NOT construct Message{Type: MsgTypeTreeUpdate, Tree: ...} directly - use NewTreeUpdateMessage.
+// Direct construction bypasses cloning and creates data race vulnerabilities.
+//
+// WHY NOT MAKE Tree PRIVATE:
+// Making Tree private would require changing JSON field name ("tree" is part of wire protocol).
+// The V2 API pattern (private fields + constructors + conversion layer) provides type safety
+// without breaking wire protocol compatibility.
 
 // Message types for client-daemon communication
 const (
@@ -138,7 +146,7 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
-	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update only. See Tree Pointer Safety comment above for usage.
+	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Should be non-nil for tree_update only (not enforced by ValidateMessage). See Tree Pointer Safety comment above for usage.
 }
 
 // PROTOCOL V2 MIGRATION GUIDE

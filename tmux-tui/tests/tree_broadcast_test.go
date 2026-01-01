@@ -282,7 +282,7 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 					t.Logf("Client 2 received full_state after reconnect")
 					// Note: full_state messages don't currently include tree (Tree field is nil).
 					// Tree synchronization happens via tree_update broadcasts (see watchTree() in daemon).
-					// Tree will come in subsequent tree_update broadcast (~1-2s after connection).
+					// Tree will arrive in next periodic broadcast (30s collection interval).
 					return true, nil
 				}
 				t.Logf("Waiting for full_state, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
