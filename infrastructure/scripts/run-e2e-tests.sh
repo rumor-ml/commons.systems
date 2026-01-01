@@ -34,7 +34,31 @@ APP_NAME=$(basename "$APP_PATH_ABS")
 echo "=== E2E Tests: $APP_NAME ($APP_TYPE) ==="
 
 # Allocate ports based on worktree
-source "$SCRIPT_DIR/allocate-test-ports.sh"
+source "$SCRIPT_DIR/allocate-test-ports.sh" || {
+  echo "FATAL: Port allocation failed" >&2
+  echo "This could be due to:" >&2
+  echo "  - Missing allocate-test-ports.sh file" >&2
+  echo "  - Port allocation failure (all ports in use)" >&2
+  echo "  - Invalid port configuration" >&2
+  echo "Check allocate-test-ports.sh output above for details" >&2
+  exit 1
+}
+
+# Validate all critical variables are set by allocate-test-ports.sh
+MISSING_VARS=""
+[ -z "${GCP_PROJECT_ID:-}" ] && MISSING_VARS="$MISSING_VARS GCP_PROJECT_ID"
+[ -z "${FIRESTORE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIRESTORE_EMULATOR_HOST"
+[ -z "${FIREBASE_AUTH_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIREBASE_AUTH_EMULATOR_HOST"
+[ -z "${STORAGE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS STORAGE_EMULATOR_HOST"
+[ -z "${HOSTING_PORT:-}" ] && MISSING_VARS="$MISSING_VARS HOSTING_PORT"
+
+if [ -n "$MISSING_VARS" ]; then
+  echo "FATAL: Required variables not set by allocate-test-ports.sh:" >&2
+  echo "  Missing:$MISSING_VARS" >&2
+  echo "" >&2
+  echo "This indicates a bug in the port allocation script" >&2
+  exit 1
+fi
 
 echo "Using ports: App=$TEST_PORT, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestore=${FIRESTORE_EMULATOR_HOST}, Storage=${STORAGE_EMULATOR_HOST}"
 
@@ -42,14 +66,21 @@ echo "Using ports: App=$TEST_PORT, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestor
 case "$APP_TYPE" in
   firebase)
     # Static Firebase app with Firebase emulators
+
+    # Build the site BEFORE starting emulators to prevent 404 caching
+    # The hosting emulator caches 404 responses for missing files during startup.
+    # Building first ensures files exist when emulator initializes, preventing cached 404s.
+    echo "Building..."
+    pnpm --dir "${APP_PATH_ABS}/site" build
+
     echo "Starting Firebase emulators..."
-    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
 
     # Export emulator env vars
-    export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"
-    export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-localhost:9199}"
-    export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
-    export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
+    export FIRESTORE_EMULATOR_HOST
+    export STORAGE_EMULATOR_HOST
+    export FIREBASE_AUTH_EMULATOR_HOST
+    export GCP_PROJECT_ID
 
     # Debug: Verify emulator environment
     echo "=== CI Debug: Emulator Environment ==="
@@ -76,21 +107,20 @@ case "$APP_TYPE" in
       "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
     }
     trap cleanup EXIT
-
-    echo "Building..."
-    pnpm --dir "${APP_PATH_ABS}/site" build
     ;;
 
   go-fullstack)
-    # Go app with Firebase emulators
-    echo "Starting Firebase emulators..."
-    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    # Go app with Firebase backend emulators (no hosting emulator)
+    # These apps serve via their own web server (started by Playwright webServer config)
+    # They only need backend emulators: Auth, Firestore, Storage
+    echo "Starting Firebase backend emulators..."
+    SKIP_HOSTING=1 source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
 
     # Export emulator env vars
-    export FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8081}"
-    export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-localhost:9199}"
-    export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
-    export GCP_PROJECT_ID="${GCP_PROJECT_ID:-demo-test}"
+    export FIRESTORE_EMULATOR_HOST
+    export STORAGE_EMULATOR_HOST
+    export FIREBASE_AUTH_EMULATOR_HOST
+    export GCP_PROJECT_ID
 
     # Set up cleanup trap
     cleanup() {
@@ -125,7 +155,12 @@ if [ "$APP_TYPE" = "firebase" ]; then
 
   # Let playwright.config.ts determine browser based on platform
   # No hardcoded --project chromium
-  npx playwright test
+  # Explicitly pass environment variables to Playwright subprocess
+  HOSTING_PORT="${HOSTING_PORT}" PORT="${PORT}" GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
+    FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST}" \
+    FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST}" \
+    STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST}" \
+    npx playwright test
 
 elif [ "$APP_TYPE" = "go-tui" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   # Go apps use make test-e2e

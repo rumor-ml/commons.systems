@@ -1,4 +1,4 @@
-.PHONY: build install clean test help
+.PHONY: build install clean test test-port-utils test-emulator-startup test-scripts help
 
 # Build the iac binary
 build:
@@ -24,6 +24,20 @@ test:
 	@echo "Running tests..."
 	@go test -v ./...
 
+# Run port-utils tests
+test-port-utils:
+	@echo "Running port-utils tests..."
+	@./scripts/tests/port-utils.test.sh
+
+# Run emulator-startup tests
+test-emulator-startup:
+	@echo "Running emulator-startup tests..."
+	@./scripts/tests/emulator-startup.test.sh
+
+# Run all script tests
+test-scripts: test-port-utils test-emulator-startup
+	@echo "All script tests passed!"
+
 # Format code
 fmt:
 	@echo "Formatting code..."
@@ -37,10 +51,13 @@ tidy:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build    - Build the iac binary to bin/iac"
-	@echo "  install  - Install iac globally"
-	@echo "  clean    - Remove build artifacts"
-	@echo "  test     - Run tests"
-	@echo "  fmt      - Format code"
-	@echo "  tidy     - Run go mod tidy"
-	@echo "  help     - Show this help message"
+	@echo "  build                - Build the iac binary to bin/iac"
+	@echo "  install              - Install iac globally"
+	@echo "  clean                - Remove build artifacts"
+	@echo "  test                 - Run Go tests"
+	@echo "  test-port-utils      - Run port-utils.sh tests"
+	@echo "  test-emulator-startup - Run emulator-startup.sh tests"
+	@echo "  test-scripts         - Run all script tests"
+	@echo "  fmt                  - Format code"
+	@echo "  tidy                 - Run go mod tidy"
+	@echo "  help                 - Show this help message"

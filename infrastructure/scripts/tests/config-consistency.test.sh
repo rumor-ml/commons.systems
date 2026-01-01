@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# Configuration consistency tests for Firebase ports
+#
+# Ensures that hardcoded ports in various configuration files match
+# the ports defined in firebase.json (the source of truth).
+#
+# This prevents configuration drift where developers change firebase.json
+# but forget to update related configuration files, causing connection
+# failures and confusing "connection refused" errors.
+#
+# Related files:
+# - firebase.json: Source of truth for emulator configuration
+# - shared/config/firebase-ports.ts: TypeScript constants exported to apps
+# - fellspiral/site/src/scripts/firebase.js: Uses FIREBASE_PORTS for emulator connection
+# - infrastructure/scripts/allocate-test-ports.sh: Bash script with port constants
+
+set -euo pipefail
+
+# Get repository root (3 levels up from this script)
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
+# Test counters
+TESTS_RUN=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+
+# Test result tracking
+test_pass() {
+  local test_name=$1
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  echo "✓ PASS: $test_name"
+}
+
+test_fail() {
+  local test_name=$1
+  local reason=$2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  echo "✗ FAIL: $test_name"
+  echo "  Reason: $reason"
+}
+
+run_test() {
+  local test_name=$1
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo ""
+  echo "Running: $test_name"
+  $test_name
+}
+
+# ============================================================================
+# Firebase Port Consistency Tests
+# ============================================================================
+
+test_firebase_json_has_emulator_config() {
+  local firebase_json="${REPO_ROOT}/firebase.json"
+
+  if [ ! -f "$firebase_json" ]; then
+    test_fail "firebase.json exists" "File not found at $firebase_json"
+    return
+  fi
+
+  # Check if emulators section exists
+  if ! jq -e '.emulators' "$firebase_json" >/dev/null 2>&1; then
+    test_fail "firebase.json has emulators config" "No .emulators section in firebase.json"
+    return
+  fi
+
+  test_pass "firebase.json has emulators config"
+}
+
+test_firebase_ports_ts_matches_json() {
+  local firebase_json="${REPO_ROOT}/firebase.json"
+  local firebase_ports_ts="${REPO_ROOT}/shared/config/firebase-ports.ts"
+
+  if [ ! -f "$firebase_json" ] || [ ! -f "$firebase_ports_ts" ]; then
+    test_fail "firebase-ports.ts matches firebase.json" "Required files not found"
+    return
+  fi
+
+  # Extract ports from firebase.json using jq
+  local firestore_json=$(jq -r '.emulators.firestore.port' "$firebase_json")
+  local auth_json=$(jq -r '.emulators.auth.port' "$firebase_json")
+  local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
+  local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
+
+  # Extract ports from firebase-ports.ts using grep and sed
+  # Match patterns like: firestore: 8081 as FirestorePort,
+  local firestore_ts=$(grep -o 'firestore: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
+  local auth_ts=$(grep -o 'auth: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
+  local storage_ts=$(grep -o 'storage: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
+  local ui_ts=$(grep -o 'ui: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
+
+  # Compare ports
+  local mismatches=""
+
+  if [ "$firestore_json" != "$firestore_ts" ]; then
+    mismatches="${mismatches}Firestore: json=$firestore_json, ts=$firestore_ts; "
+  fi
+
+  if [ "$auth_json" != "$auth_ts" ]; then
+    mismatches="${mismatches}Auth: json=$auth_json, ts=$auth_ts; "
+  fi
+
+  if [ "$storage_json" != "$storage_ts" ]; then
+    mismatches="${mismatches}Storage: json=$storage_json, ts=$storage_ts; "
+  fi
+
+  if [ "$ui_json" != "$ui_ts" ]; then
+    mismatches="${mismatches}UI: json=$ui_json, ts=$ui_ts; "
+  fi
+
+  if [ -n "$mismatches" ]; then
+    test_fail "firebase-ports.ts matches firebase.json" "Port mismatches: $mismatches"
+    return
+  fi
+
+  test_pass "firebase-ports.ts matches firebase.json"
+}
+
+test_firebase_js_imports_from_shared_config() {
+  local firebase_js="${REPO_ROOT}/fellspiral/site/src/scripts/firebase.js"
+
+  if [ ! -f "$firebase_js" ]; then
+    test_fail "firebase.js imports from shared config" "File not found at $firebase_js"
+    return
+  fi
+
+  # Check if firebase.js imports from shared/config/firebase-ports.ts
+  if ! grep -q "from.*shared/config/firebase-ports" "$firebase_js"; then
+    test_fail "firebase.js imports from shared config" "No import from shared/config/firebase-ports.ts found"
+    return
+  fi
+
+  # Check if it uses FIREBASE_PORTS.firestore and FIREBASE_PORTS.auth
+  if ! grep -q "FIREBASE_PORTS\.firestore" "$firebase_js"; then
+    test_fail "firebase.js imports from shared config" "No usage of FIREBASE_PORTS.firestore found"
+    return
+  fi
+
+  if ! grep -q "FIREBASE_PORTS\.auth" "$firebase_js"; then
+    test_fail "firebase.js imports from shared config" "No usage of FIREBASE_PORTS.auth found"
+    return
+  fi
+
+  test_pass "firebase.js imports from shared config"
+}
+
+test_no_hardcoded_ports_in_firebase_js() {
+  local firebase_js="${REPO_ROOT}/fellspiral/site/src/scripts/firebase.js"
+
+  if [ ! -f "$firebase_js" ]; then
+    test_fail "firebase.js has no hardcoded ports" "File not found at $firebase_js"
+    return
+  fi
+
+  # Check for old hardcoded port patterns (but allow FIREBASE_PORTS usage)
+  # Look for patterns like: port = 8081 or port: 8081 (not FIREBASE_PORTS.*)
+  local hardcoded_pattern='(firestore|auth)(Port|Host)?\s*=\s*[0-9]{4}'
+
+  if grep -E "$hardcoded_pattern" "$firebase_js" | grep -v "FIREBASE_PORTS" >/dev/null 2>&1; then
+    test_fail "firebase.js has no hardcoded ports" "Found hardcoded port assignments not using FIREBASE_PORTS"
+    return
+  fi
+
+  test_pass "firebase.js has no hardcoded ports"
+}
+
+test_allocate_test_ports_matches_json() {
+  local firebase_json="${REPO_ROOT}/firebase.json"
+  local allocate_script="${REPO_ROOT}/infrastructure/scripts/allocate-test-ports.sh"
+
+  if [ ! -f "$firebase_json" ] || [ ! -f "$allocate_script" ]; then
+    test_fail "allocate-test-ports.sh matches firebase.json" "Required files not found"
+    return
+  fi
+
+  # Extract ports from firebase.json using jq
+  local firestore_json=$(jq -r '.emulators.firestore.port' "$firebase_json")
+  local auth_json=$(jq -r '.emulators.auth.port' "$firebase_json")
+  local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
+  local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
+
+  # Extract ports from allocate-test-ports.sh using grep
+  # Match patterns like: FIRESTORE_PORT=8081
+  local firestore_sh=$(grep -o 'FIRESTORE_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
+  local auth_sh=$(grep -o 'AUTH_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
+  local storage_sh=$(grep -o 'STORAGE_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
+  local ui_sh=$(grep -o 'UI_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
+
+  # Compare ports
+  local mismatches=""
+
+  if [ "$firestore_json" != "$firestore_sh" ]; then
+    mismatches="${mismatches}Firestore: json=$firestore_json, sh=$firestore_sh; "
+  fi
+
+  if [ "$auth_json" != "$auth_sh" ]; then
+    mismatches="${mismatches}Auth: json=$auth_json, sh=$auth_sh; "
+  fi
+
+  if [ "$storage_json" != "$storage_sh" ]; then
+    mismatches="${mismatches}Storage: json=$storage_json, sh=$storage_sh; "
+  fi
+
+  if [ "$ui_json" != "$ui_sh" ]; then
+    mismatches="${mismatches}UI: json=$ui_json, sh=$ui_sh; "
+  fi
+
+  if [ -n "$mismatches" ]; then
+    test_fail "allocate-test-ports.sh matches firebase.json" "Port mismatches: $mismatches"
+    return
+  fi
+
+  test_pass "allocate-test-ports.sh matches firebase.json"
+}
+
+# ============================================================================
+# Run All Tests
+# ============================================================================
+
+echo "========================================"
+echo "Firebase Configuration Consistency Tests"
+echo "========================================"
+
+run_test test_firebase_json_has_emulator_config
+run_test test_firebase_ports_ts_matches_json
+run_test test_firebase_js_imports_from_shared_config
+run_test test_no_hardcoded_ports_in_firebase_js
+run_test test_allocate_test_ports_matches_json
+
+# ============================================================================
+# Test Summary
+# ============================================================================
+
+echo ""
+echo "========================================"
+echo "Test Results"
+echo "========================================"
+echo "Total:  $TESTS_RUN"
+echo "Passed: $TESTS_PASSED"
+echo "Failed: $TESTS_FAILED"
+echo "========================================"
+
+if [ $TESTS_FAILED -eq 0 ]; then
+  echo "✓ All tests passed!"
+  exit 0
+else
+  echo "✗ Some tests failed"
+  exit 1
+fi

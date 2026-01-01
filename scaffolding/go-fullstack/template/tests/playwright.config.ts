@@ -2,6 +2,7 @@
 import { createPlaywrightConfig } from '../../playwright.base.config';
 
 export default createPlaywrightConfig({
+  mode: 'web-server',
   siteName: '{{APP_NAME}}',
   port: 8080,
   deployedUrl: 'https://{{APP_NAME}}.commons.systems',

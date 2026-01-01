@@ -1,6 +1,7 @@
 import { createPlaywrightConfig } from '../../playwright.base.config';
 
 export default createPlaywrightConfig({
+  mode: 'web-server',
   siteName: 'print',
   port: 3002,
   deployedUrl: 'https://print.commons.systems',

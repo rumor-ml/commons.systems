@@ -1,4 +1,5 @@
 {
+  "__comment": "TODO(#1083): No E2E tests verify production parity claim (firebase.json config tested in production)",
   "hosting": [
     {
       "site": "fellspiral",
@@ -148,6 +149,9 @@
     },
     "storage": {
       "port": 9199
+    },
+    "hosting": {
+      "port": 5001
     },
     "ui": {
       "enabled": true,

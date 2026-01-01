@@ -36,8 +36,13 @@ async function globalSetup() {
     const scriptPath = path.resolve(__dirname, '../../infrastructure/scripts/start-emulators.sh');
 
     // Execute script with no shell interpolation of variables
+    // printsync is a go-fullstack app - skip Firebase Hosting emulator
     execSync(scriptPath, {
       stdio: 'inherit',
+      env: {
+        ...process.env,
+        SKIP_HOSTING: '1',
+      },
     });
 
     console.log('✓ Firebase emulators started successfully');
