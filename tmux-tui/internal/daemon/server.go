@@ -12,6 +12,7 @@ import (
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/namespace"
+	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
@@ -291,6 +292,13 @@ type AlertDaemon struct {
 	audioBroadcastFailures atomic.Int64  // Total audio broadcast failures since startup
 	lastAudioBroadcastErr  atomic.Value  // Most recent audio broadcast error (string)
 	seqCounter             atomic.Uint64 // Global sequence number for message ordering
+
+	// Tree collection (for centralizing tmux queries)
+	collector     *tmux.Collector // Tmux tree collector
+	collectorMu   sync.RWMutex    // Protects collector operations
+	currentTree   tmux.RepoTree   // Last successful tree (for health metrics and full_state)
+	treeErrors    atomic.Int64    // Total tree collection errors
+	lastTreeError atomic.Value    // Most recent tree error (string)
 }
 
 // TODO(#328): Consider extracting map copy pattern into generic helper function
@@ -449,6 +457,18 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	daemon.lastWatcherError.Store("")
 	daemon.lastCloseError.Store("")
 	daemon.lastAudioBroadcastErr.Store("")
+	daemon.lastTreeError.Store("")
+
+	// Create tmux tree collector (gracefully handle errors - tree collection is non-critical)
+	collector, err := tmux.NewCollector()
+	if err != nil {
+		debug.Log("DAEMON_INIT_WARNING failed to create tree collector: %v - tree broadcasts will be disabled", err)
+		// Continue daemon startup without collector - clients will use fallback behavior
+	} else {
+		daemon.collector = collector
+		daemon.currentTree = tmux.NewRepoTree()
+		debug.Log("DAEMON_INIT tree collector initialized")
+	}
 
 	return daemon, nil
 }
@@ -474,6 +494,11 @@ func (d *AlertDaemon) Start() error {
 
 	// Start pane focus watcher
 	go d.watchPaneFocus()
+
+	// Start tree collection (if collector is available)
+	if d.collector != nil {
+		go d.watchTree()
+	}
 
 	// Accept client connections
 	go d.acceptClients()
@@ -533,6 +558,64 @@ func (d *AlertDaemon) watchPaneFocus() {
 			d.handlePaneFocusEvent(event)
 		}
 	}
+}
+
+// watchTree monitors tmux tree state and broadcasts updates every 30 seconds.
+// This centralizes tree collection in the daemon, eliminating N×client redundant queries.
+func (d *AlertDaemon) watchTree() {
+	// Collect immediately on start
+	d.collectAndBroadcastTree()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.done:
+			return
+		case <-ticker.C:
+			d.collectAndBroadcastTree()
+		}
+	}
+}
+
+// collectAndBroadcastTree collects current tmux tree state and broadcasts to all clients.
+// Errors are non-fatal - broadcasts tree_error and continues operation.
+func (d *AlertDaemon) collectAndBroadcastTree() {
+	// Lock collector for exclusive access during GetTree()
+	d.collectorMu.Lock()
+	defer d.collectorMu.Unlock()
+
+	// Collect tree (can be slow - up to several seconds with many panes/repos)
+	tree, err := d.collector.GetTree()
+	if err != nil {
+		// Collection failed - broadcast error to clients
+		d.treeErrors.Add(1)
+		errMsg := fmt.Sprintf("tree collection failed: %v", err)
+		d.lastTreeError.Store(errMsg)
+		debug.Log("DAEMON_TREE_ERROR error=%v total_errors=%d", err, d.treeErrors.Load())
+
+		// Broadcast tree_error to all clients
+		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
+		if msgErr != nil {
+			debug.Log("DAEMON_TREE_ERROR_MSG_FAILED error=%v", msgErr)
+			return
+		}
+		d.broadcast(msg.ToWireFormat())
+		return
+	}
+
+	// Collection succeeded - update currentTree and broadcast to clients
+	d.currentTree = tree
+	debug.Log("DAEMON_TREE_UPDATE repos=%d", len(tree.Repos()))
+
+	// Broadcast tree_update to all clients
+	msg, err := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
+	if err != nil {
+		debug.Log("DAEMON_TREE_UPDATE_MSG_FAILED error=%v", err)
+		return
+	}
+	d.broadcast(msg.ToWireFormat())
 }
 
 // isDuplicateEvent checks if an event is a duplicate within the deduplication window.

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
 // TODO(#280): Document error variables with usage context - see PR review for #273
@@ -72,6 +74,10 @@ const (
 	MsgTypeHealthQuery = "health_query"
 	// MsgTypeHealthResponse is sent by daemon with health metrics
 	MsgTypeHealthResponse = "health_response"
+	// MsgTypeTreeUpdate is sent by daemon with complete tmux tree state
+	MsgTypeTreeUpdate = "tree_update"
+	// MsgTypeTreeError is sent by daemon when tree collection fails
+	MsgTypeTreeError = "tree_error"
 )
 
 // Message represents a message exchanged between daemon and clients
@@ -111,6 +117,7 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
+	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // For tree_update messages
 }
 
 // PROTOCOL V2 MIGRATION GUIDE
@@ -454,6 +461,9 @@ func ValidateMessage(msg Message) error {
 		// No required fields
 	case MsgTypeSyncWarning, MsgTypePersistenceError, MsgTypeAudioError:
 		// Error field is optional but recommended
+	case MsgTypeTreeUpdate, MsgTypeTreeError:
+		// Tree field is optional for tree_error (error case)
+		// Tree field is required for tree_update but validated in constructor
 	default:
 		// Unknown message type - not necessarily invalid (forward compatibility)
 		return nil

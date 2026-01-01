@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
+	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
 // TODO(#280): Add tests for FromWireFormat edge cases - see PR review for #273
@@ -720,6 +721,60 @@ func (m *ShowBlockPickerMessageV2) ToWireFormat() Message {
 // PaneID returns the pane identifier
 func (m *ShowBlockPickerMessageV2) PaneID() string { return m.paneID }
 
+// 19. TreeUpdateMessageV2 represents a tmux tree state broadcast
+type TreeUpdateMessageV2 struct {
+	seqNum uint64
+	tree   tmux.RepoTree
+}
+
+// NewTreeUpdateMessage creates a validated TreeUpdateMessage.
+// Tree is copied to prevent external mutation.
+func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) (*TreeUpdateMessageV2, error) {
+	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree}, nil
+}
+
+func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
+func (m *TreeUpdateMessageV2) SeqNumber() uint64   { return m.seqNum }
+func (m *TreeUpdateMessageV2) ToWireFormat() Message {
+	return Message{
+		Type:   MsgTypeTreeUpdate,
+		SeqNum: m.seqNum,
+		Tree:   &m.tree,
+	}
+}
+
+// Tree returns the tmux tree state
+func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree }
+
+// 20. TreeErrorMessageV2 represents a tree collection failure
+type TreeErrorMessageV2 struct {
+	seqNum   uint64
+	errorMsg string
+}
+
+// NewTreeErrorMessage creates a validated TreeErrorMessage.
+// Returns error if errorMsg is empty after trimming.
+func NewTreeErrorMessage(seqNum uint64, errorMsg string) (*TreeErrorMessageV2, error) {
+	errorMsg = strings.TrimSpace(errorMsg)
+	if errorMsg == "" {
+		return nil, errors.New("error_msg required - empty error messages provide no diagnostic value")
+	}
+	return &TreeErrorMessageV2{seqNum: seqNum, errorMsg: errorMsg}, nil
+}
+
+func (m *TreeErrorMessageV2) MessageType() string { return MsgTypeTreeError }
+func (m *TreeErrorMessageV2) SeqNumber() uint64   { return m.seqNum }
+func (m *TreeErrorMessageV2) ToWireFormat() Message {
+	return Message{
+		Type:   MsgTypeTreeError,
+		SeqNum: m.seqNum,
+		Error:  m.errorMsg,
+	}
+}
+
+// Error returns the error message (guaranteed non-empty by constructor)
+func (m *TreeErrorMessageV2) Error() string { return m.errorMsg }
+
 // FromWireFormat converts a v1 Message to a type-safe v2 message.
 // Returns error if the message is invalid or has missing required fields.
 // TODO(#521): Add validation for extraneous fields to catch message construction bugs.
@@ -874,6 +929,25 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid %s message (seqNum=%d, paneID=%q): %w",
 				MsgTypeShowBlockPicker, msg.SeqNum, msg.PaneID, err)
+		}
+		return v2msg, nil
+
+	case MsgTypeTreeUpdate:
+		if msg.Tree == nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): tree_update requires tree",
+				MsgTypeTreeUpdate, msg.SeqNum)
+		}
+		v2msg, err := NewTreeUpdateMessage(msg.SeqNum, *msg.Tree)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypeTreeUpdate, msg.SeqNum, err)
+		}
+		return v2msg, nil
+
+	case MsgTypeTreeError:
+		v2msg, err := NewTreeErrorMessage(msg.SeqNum, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, error=%q): %w",
+				MsgTypeTreeError, msg.SeqNum, msg.Error, err)
 		}
 		return v2msg, nil
 

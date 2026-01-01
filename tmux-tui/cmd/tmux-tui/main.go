@@ -17,21 +17,13 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/ui"
 )
 
-type tickMsg time.Time
-
 type timeTickMsg time.Time
 
 type daemonEventMsg struct {
 	msg daemon.Message
 }
 
-type treeRefreshMsg struct {
-	tree tmux.RepoTree
-	err  error
-}
-
 type model struct {
-	collector    *tmux.Collector
 	renderer     *ui.TreeRenderer
 	daemonClient *daemon.DaemonClient
 	tree         tmux.RepoTree
@@ -84,22 +76,11 @@ func initialModel() model {
 		branchPicker:    ui.NewBranchPicker([]string{}, 80, 24),
 	}
 
-	collector, collectorErr := tmux.NewCollector()
-	if collectorErr != nil {
-		// Set error under lock
-		m.errorMu.Lock()
-		m.err = fmt.Errorf("failed to initialize collector: %w", collectorErr)
-		m.errorMu.Unlock()
-		return m
-	}
-	m.collector = collector
-
 	renderer := ui.NewTreeRenderer(80) // Default width
 	m.renderer = renderer
 
-	// Initial tree load
-	tree, err := collector.GetTree()
-	m.tree = tree
+	// Initialize empty tree - will be populated by daemon tree_update messages
+	m.tree = tmux.NewRepoTree()
 
 	// Initialize daemon client
 	var alertsDisabled bool
@@ -137,7 +118,6 @@ func initialModel() model {
 
 	// Set error fields under lock to prevent races with concurrent access
 	m.errorMu.Lock()
-	m.err = err
 	m.alertsDisabled = alertsDisabled
 	m.alertError = alertError
 	m.errorMu.Unlock()
@@ -147,12 +127,11 @@ func initialModel() model {
 
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		tickCmd(),
 		timeTickCmd(),
-		refreshTreeCmd(m.collector),
 	}
 
 	// Start daemon event listener if connected
+	// Tree updates will come from daemon via tree_update messages
 	if m.daemonClient != nil {
 		cmds = append(cmds, watchDaemonCmd(m.daemonClient))
 	}
@@ -233,9 +212,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.blockedMu.Unlock()
 
 			debug.Log("TUI_DAEMON_STATE alerts=%d blocked=%d", len(msg.msg.Alerts), len(msg.msg.BlockedBranches))
-			// Trigger tree refresh to update UI
+			// Continue watching daemon (tree updates come via tree_update messages)
 			if m.daemonClient != nil {
-				return m, tea.Batch(watchDaemonCmd(m.daemonClient), refreshTreeCmd(m.collector))
+				return m, watchDaemonCmd(m.daemonClient)
 			}
 			return m, nil
 
@@ -396,6 +375,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case daemon.MsgTypeTreeUpdate:
+			// Tree update received from daemon
+			if msg.msg.Tree != nil {
+				m.tree = *msg.msg.Tree
+				// Reconcile alerts with lock held to prevent race with fast path
+				m.alertsMu.Lock()
+				alertsBefore := len(m.alerts)
+				m.alerts = reconcileAlerts(m.tree, m.alerts)
+				alertsAfter := len(m.alerts)
+				removed := alertsBefore - alertsAfter
+
+				// Count total panes in tree
+				totalPanes := 0
+				for _, repo := range m.tree.Repos() {
+					for _, branch := range m.tree.Branches(repo) {
+						panes, ok := m.tree.GetPanes(repo, branch)
+						if ok {
+							totalPanes += len(panes)
+						}
+					}
+				}
+
+				// Log reconciliation results
+				debug.Log("TUI_TREE_UPDATE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
+				m.alertsMu.Unlock()
+
+				// Clear any previous tree refresh error
+				m.errorMu.Lock()
+				m.treeRefreshError = nil
+				m.errorMu.Unlock()
+			}
+
+			// Continue watching daemon
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
+		case daemon.MsgTypeTreeError:
+			// Tree collection error from daemon
+			debug.Log("TUI_TREE_ERROR error=%s", msg.msg.Error)
+			m.errorMu.Lock()
+			m.treeRefreshError = fmt.Errorf("daemon tree collection failed: %s", msg.msg.Error)
+			m.errorMu.Unlock()
+
+			// Continue watching daemon
+			if m.daemonClient != nil {
+				return m, watchDaemonCmd(m.daemonClient)
+			}
+			return m, nil
+
 		case "disconnect":
 			// Daemon disconnected
 			debug.Log("TUI_DAEMON_DISCONNECT")
@@ -413,50 +443,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, watchDaemonCmd(m.daemonClient)
 		}
 		return m, nil
-
-	case treeRefreshMsg:
-		// Background tree refresh completed
-		if msg.err == nil {
-			m.tree = msg.tree
-			// Reconcile alerts with lock held to prevent race with fast path
-			m.alertsMu.Lock()
-			alertsBefore := len(m.alerts)
-			m.alerts = reconcileAlerts(m.tree, m.alerts)
-			alertsAfter := len(m.alerts)
-			removed := alertsBefore - alertsAfter
-
-			// Count total panes in tree
-			totalPanes := 0
-			for _, repo := range m.tree.Repos() {
-				for _, branch := range m.tree.Branches(repo) {
-					panes, ok := m.tree.GetPanes(repo, branch)
-					if ok {
-						totalPanes += len(panes)
-					}
-				}
-			}
-
-			// Log reconciliation results
-			debug.Log("TUI_RECONCILE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
-			m.alertsMu.Unlock()
-			m.errorMu.Lock()
-			m.err = nil
-			m.treeRefreshError = nil
-			m.errorMu.Unlock()
-		} else {
-			fmt.Fprintf(os.Stderr, "Tree refresh failed: %v\n", msg.err)
-			m.errorMu.Lock()
-			m.treeRefreshError = msg.err // Always update with latest error
-			m.errorMu.Unlock()
-		}
-		return m, nil
-
-	case tickMsg:
-		// Periodic refresh (30s)
-		return m, tea.Batch(
-			refreshTreeCmd(m.collector),
-			tickCmd(),
-		)
 
 	case timeTickMsg:
 		// Time tick for header update (1s)
@@ -563,14 +549,6 @@ func watchDaemonCmd(client *daemon.DaemonClient) tea.Cmd {
 	}
 }
 
-// refreshTreeCmd refreshes the tree in the background
-func refreshTreeCmd(c *tmux.Collector) tea.Cmd {
-	return func() tea.Msg {
-		tree, err := c.GetTree()
-		return treeRefreshMsg{tree: tree, err: err}
-	}
-}
-
 // reconcileAlerts removes alerts for panes that no longer exist.
 // It modifies the alerts map in-place and returns the same map.
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {
@@ -599,12 +577,6 @@ func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]st
 		}
 	}
 	return alerts
-}
-
-func tickCmd() tea.Cmd {
-	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
 }
 
 // updateActivePane updates the WindowActive flag across all panes in the tree.

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/commons-systems/tmux-tui/internal/daemon"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
@@ -71,14 +72,17 @@ func TestModelErrorStateConcurrency(t *testing.T) {
 func TestTreeRefreshErrorHandling(t *testing.T) {
 	m := initialModel()
 
-	// Clear any initial errors from collector/tree initialization to isolate tree refresh error testing
+	// Clear any initial errors to isolate tree refresh error testing
 	m.errorMu.Lock()
 	m.err = nil
 	m.errorMu.Unlock()
 
-	msg := treeRefreshMsg{
-		tree: tmux.RepoTree{},
-		err:  fmt.Errorf("mock tree refresh error"),
+	// Simulate daemon tree_error message
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type:  daemon.MsgTypeTreeError,
+			Error: "mock tree refresh error",
+		},
 	}
 
 	updatedModel, _ := m.Update(msg)
@@ -101,16 +105,19 @@ func TestTreeRefreshErrorClearing(t *testing.T) {
 	m.treeRefreshError = fmt.Errorf("previous error")
 	m.errorMu.Unlock()
 
-	// Successful refresh should clear the error
-	msg := treeRefreshMsg{
-		tree: testTree(map[string]map[string][]tmux.Pane{
-			"test-repo": {
-				"main": {
-					testPane("%1", "@1", 0, true),
-				},
+	// Successful tree update from daemon should clear the error
+	tree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
 			},
-		}),
-		err: nil,
+		},
+	})
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &tree,
+		},
 	}
 
 	updatedModel, _ := m.Update(msg)
