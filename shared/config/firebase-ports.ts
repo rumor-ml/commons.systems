@@ -1,8 +1,13 @@
 /**
  * Firebase Emulator Port Configuration
  *
- * SINGLE SOURCE OF TRUTH: firebase.json (root directory)
- * This file exports TypeScript constants validated against firebase.json
+ * IMPORTANT: Port values are duplicated here from firebase.json for TypeScript type safety.
+ * These values MUST be manually kept in sync with firebase.json (root directory).
+ *
+ * Architecture:
+ * - firebase.json defines actual emulator ports (source of truth for Firebase CLI)
+ * - This file duplicates those ports for TypeScript imports
+ * - Tests enforce consistency to prevent configuration drift
  *
  * Used by:
  * - fellspiral/site/src/scripts/firebase.js (client-side emulator connection)

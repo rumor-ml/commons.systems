@@ -67,14 +67,27 @@ if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   exit_or_return 1
 fi
 
-# SHARED EMULATOR PORTS - Loaded from firebase.json (single source of truth)
+# SHARED EMULATOR PORTS - Sourced from generate-firebase-ports.sh
 # Multiple worktrees connect to the same emulator instance
-# Source ports from firebase.json via generator script
+# The generator script extracts ports from firebase.json (single source of truth)
 source <("${SCRIPT_DIR}/generate-firebase-ports.sh")
 
-# Validate ports were loaded successfully
-if [ -z "${AUTH_PORT:-}" ] || [ -z "${FIRESTORE_PORT:-}" ] || [ -z "${STORAGE_PORT:-}" ] || [ -z "${UI_PORT:-}" ]; then
+# Validate ports were loaded successfully - report which specific ports failed
+missing_ports=""
+[ -z "${AUTH_PORT:-}" ] && missing_ports="${missing_ports}AUTH_PORT "
+[ -z "${FIRESTORE_PORT:-}" ] && missing_ports="${missing_ports}FIRESTORE_PORT "
+[ -z "${STORAGE_PORT:-}" ] && missing_ports="${missing_ports}STORAGE_PORT "
+[ -z "${UI_PORT:-}" ] && missing_ports="${missing_ports}UI_PORT "
+
+if [ -n "$missing_ports" ]; then
   echo "FATAL: Failed to load Firebase emulator ports from firebase.json" >&2
+  echo "Missing port variables: $missing_ports" >&2
+  echo "" >&2
+  echo "Troubleshooting steps:" >&2
+  echo "1. Verify firebase.json exists at: ${WORKTREE_ROOT}/firebase.json" >&2
+  echo "2. Check that firebase.json contains .emulators.{auth,firestore,storage,ui}.port" >&2
+  echo "3. Verify generate-firebase-ports.sh is executable: ${SCRIPT_DIR}/generate-firebase-ports.sh" >&2
+  echo "4. Ensure jq is installed: command -v jq" >&2
   exit_or_return 1
 fi
 

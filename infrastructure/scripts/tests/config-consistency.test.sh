@@ -174,11 +174,47 @@ test_allocate_test_ports_matches_json() {
     return
   fi
 
-  # Extract ports from firebase.json using jq
-  local firestore_json=$(jq -r '.emulators.firestore.port' "$firebase_json")
-  local auth_json=$(jq -r '.emulators.auth.port' "$firebase_json")
-  local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
-  local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
+  # Extract ports from firebase.json with validation
+  local firestore_json=$(jq -r '.emulators.firestore.port' "$firebase_json" 2>/dev/null)
+  local auth_json=$(jq -r '.emulators.auth.port' "$firebase_json" 2>/dev/null)
+  local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json" 2>/dev/null)
+  local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json" 2>/dev/null)
+
+  # Validate firebase.json ports before proceeding
+  local json_errors=""
+
+  if ! [[ "$firestore_json" =~ ^[0-9]+$ ]] || [ "$firestore_json" -lt 1 ] || [ "$firestore_json" -gt 65535 ]; then
+    json_errors="${json_errors}firestore port invalid in firebase.json: '$firestore_json'; "
+  fi
+
+  if ! [[ "$auth_json" =~ ^[0-9]+$ ]] || [ "$auth_json" -lt 1 ] || [ "$auth_json" -gt 65535 ]; then
+    json_errors="${json_errors}auth port invalid in firebase.json: '$auth_json'; "
+  fi
+
+  if ! [[ "$storage_json" =~ ^[0-9]+$ ]] || [ "$storage_json" -lt 1 ] || [ "$storage_json" -gt 65535 ]; then
+    json_errors="${json_errors}storage port invalid in firebase.json: '$storage_json'; "
+  fi
+
+  if ! [[ "$ui_json" =~ ^[0-9]+$ ]] || [ "$ui_json" -lt 1 ] || [ "$ui_json" -gt 65535 ]; then
+    json_errors="${json_errors}ui port invalid in firebase.json: '$ui_json'; "
+  fi
+
+  if [ -n "$json_errors" ]; then
+    test_fail "allocate-test-ports.sh matches firebase.json" "firebase.json has invalid port configuration: $json_errors"
+    return
+  fi
+
+  # Use unique temp files to avoid race conditions
+  local temp_output="/tmp/allocate_ports_output_$$.txt"
+  local temp_errors="/tmp/allocate_ports_errors_$$.txt"
+  trap "rm -f '$temp_output' '$temp_errors'" RETURN
+
+  # Verify no port variables are set before test
+  local vars_before=$(env | grep -E '^(AUTH|FIRESTORE|STORAGE|UI)_PORT=' || true)
+  if [ -n "$vars_before" ]; then
+    test_fail "allocate-test-ports.sh matches firebase.json" "Test environment contaminated with port variables: $vars_before"
+    return
+  fi
 
   # Source allocate-test-ports.sh to get the ports it loads
   # This validates that the script correctly sources ports from generate-firebase-ports.sh
@@ -188,20 +224,67 @@ test_allocate_test_ports_matches_json() {
     unset AUTH_PORT FIRESTORE_PORT STORAGE_PORT UI_PORT
 
     # Source the script (it will load ports via generate-firebase-ports.sh)
-    source "$allocate_script" 2>/dev/null
+    source "$allocate_script"
 
     # Export ports for parent shell to verify
     echo "FIRESTORE_PORT=${FIRESTORE_PORT}"
     echo "AUTH_PORT=${AUTH_PORT}"
     echo "STORAGE_PORT=${STORAGE_PORT}"
     echo "UI_PORT=${UI_PORT}"
-  ) > /tmp/allocate_ports_output.txt
+  ) > "$temp_output" 2> "$temp_errors"
+
+  # Check if sourcing failed
+  if [ ! -s "$temp_output" ]; then
+    local error_msg="allocate-test-ports.sh failed to source"
+    if [ -s "$temp_errors" ]; then
+      error_msg="${error_msg}. Errors: $(cat "$temp_errors")"
+    fi
+    test_fail "allocate-test-ports.sh matches firebase.json" "$error_msg"
+    return
+  fi
 
   # Read the sourced ports
-  local firestore_sh=$(grep '^FIRESTORE_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
-  local auth_sh=$(grep '^AUTH_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
-  local storage_sh=$(grep '^STORAGE_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
-  local ui_sh=$(grep '^UI_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
+  local firestore_sh=$(grep '^FIRESTORE_PORT=' "$temp_output" | cut -d= -f2)
+  local auth_sh=$(grep '^AUTH_PORT=' "$temp_output" | cut -d= -f2)
+  local storage_sh=$(grep '^STORAGE_PORT=' "$temp_output" | cut -d= -f2)
+  local ui_sh=$(grep '^UI_PORT=' "$temp_output" | cut -d= -f2)
+
+  # Validate we got all required ports
+  if [ -z "$firestore_sh" ] || [ -z "$auth_sh" ] || [ -z "$storage_sh" ] || [ -z "$ui_sh" ]; then
+    test_fail "allocate-test-ports.sh matches firebase.json" "Script did not export all required ports"
+    return
+  fi
+
+  # Verify subshell didn't pollute parent environment
+  local vars_after=$(env | grep -E '^(AUTH|FIRESTORE|STORAGE|UI)_PORT=' || true)
+  if [ -n "$vars_after" ]; then
+    test_fail "allocate-test-ports.sh matches firebase.json" "Subshell leaked port variables to parent: $vars_after"
+    return
+  fi
+
+  # Validate ports are numeric and in valid range before comparing
+  local validation_errors=""
+
+  if ! [[ "$firestore_sh" =~ ^[0-9]+$ ]] || [ "$firestore_sh" -lt 1 ] || [ "$firestore_sh" -gt 65535 ]; then
+    validation_errors="${validation_errors}firestore_sh not valid port: '$firestore_sh'; "
+  fi
+
+  if ! [[ "$auth_sh" =~ ^[0-9]+$ ]] || [ "$auth_sh" -lt 1 ] || [ "$auth_sh" -gt 65535 ]; then
+    validation_errors="${validation_errors}auth_sh not valid port: '$auth_sh'; "
+  fi
+
+  if ! [[ "$storage_sh" =~ ^[0-9]+$ ]] || [ "$storage_sh" -lt 1 ] || [ "$storage_sh" -gt 65535 ]; then
+    validation_errors="${validation_errors}storage_sh not valid port: '$storage_sh'; "
+  fi
+
+  if ! [[ "$ui_sh" =~ ^[0-9]+$ ]] || [ "$ui_sh" -lt 1 ] || [ "$ui_sh" -gt 65535 ]; then
+    validation_errors="${validation_errors}ui_sh not valid port: '$ui_sh'; "
+  fi
+
+  if [ -n "$validation_errors" ]; then
+    test_fail "allocate-test-ports.sh matches firebase.json" "Port validation errors: $validation_errors"
+    return
+  fi
 
   # Compare ports
   local mismatches=""
@@ -239,44 +322,88 @@ test_generate_firebase_ports_works() {
     return
   fi
 
+  # Extract expected ports from firebase.json with validation
+  local firestore_json=$(jq -r '.emulators.firestore.port' "$firebase_json" 2>/dev/null)
+  local auth_json=$(jq -r '.emulators.auth.port' "$firebase_json" 2>/dev/null)
+  local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json" 2>/dev/null)
+  local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json" 2>/dev/null)
+
+  # Validate firebase.json has valid port configuration
+  local json_errors=""
+
+  if ! [[ "$firestore_json" =~ ^[0-9]+$ ]]; then
+    json_errors="${json_errors}firestore port invalid or missing in firebase.json: '$firestore_json'; "
+  fi
+
+  if ! [[ "$auth_json" =~ ^[0-9]+$ ]]; then
+    json_errors="${json_errors}auth port invalid or missing in firebase.json: '$auth_json'; "
+  fi
+
+  if ! [[ "$storage_json" =~ ^[0-9]+$ ]]; then
+    json_errors="${json_errors}storage port invalid or missing in firebase.json: '$storage_json'; "
+  fi
+
+  if ! [[ "$ui_json" =~ ^[0-9]+$ ]]; then
+    json_errors="${json_errors}ui port invalid or missing in firebase.json: '$ui_json'; "
+  fi
+
+  if [ -n "$json_errors" ]; then
+    test_fail "generate-firebase-ports.sh works correctly" "firebase.json validation failed: $json_errors"
+    return
+  fi
+
   # Source the generated ports
   source <("$generate_script")
-
-  # Extract expected ports from firebase.json
-  local firestore_json=$(jq -r '.emulators.firestore.port' "$firebase_json")
-  local auth_json=$(jq -r '.emulators.auth.port' "$firebase_json")
-  local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
-  local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
 
   # Verify ports were loaded and match firebase.json
   local mismatches=""
 
+  # Validate FIRESTORE_PORT
   if [ -z "${FIRESTORE_PORT:-}" ]; then
     mismatches="${mismatches}FIRESTORE_PORT not set; "
+  elif ! [[ "$FIRESTORE_PORT" =~ ^[0-9]+$ ]]; then
+    mismatches="${mismatches}FIRESTORE_PORT not numeric: '$FIRESTORE_PORT'; "
+  elif [ "$FIRESTORE_PORT" -lt 1 ] || [ "$FIRESTORE_PORT" -gt 65535 ]; then
+    mismatches="${mismatches}FIRESTORE_PORT out of range: $FIRESTORE_PORT; "
   elif [ "$firestore_json" != "$FIRESTORE_PORT" ]; then
     mismatches="${mismatches}Firestore: json=$firestore_json, generated=$FIRESTORE_PORT; "
   fi
 
+  # Validate AUTH_PORT
   if [ -z "${AUTH_PORT:-}" ]; then
     mismatches="${mismatches}AUTH_PORT not set; "
+  elif ! [[ "$AUTH_PORT" =~ ^[0-9]+$ ]]; then
+    mismatches="${mismatches}AUTH_PORT not numeric: '$AUTH_PORT'; "
+  elif [ "$AUTH_PORT" -lt 1 ] || [ "$AUTH_PORT" -gt 65535 ]; then
+    mismatches="${mismatches}AUTH_PORT out of range: $AUTH_PORT; "
   elif [ "$auth_json" != "$AUTH_PORT" ]; then
     mismatches="${mismatches}Auth: json=$auth_json, generated=$AUTH_PORT; "
   fi
 
+  # Validate STORAGE_PORT
   if [ -z "${STORAGE_PORT:-}" ]; then
     mismatches="${mismatches}STORAGE_PORT not set; "
+  elif ! [[ "$STORAGE_PORT" =~ ^[0-9]+$ ]]; then
+    mismatches="${mismatches}STORAGE_PORT not numeric: '$STORAGE_PORT'; "
+  elif [ "$STORAGE_PORT" -lt 1 ] || [ "$STORAGE_PORT" -gt 65535 ]; then
+    mismatches="${mismatches}STORAGE_PORT out of range: $STORAGE_PORT; "
   elif [ "$storage_json" != "$STORAGE_PORT" ]; then
     mismatches="${mismatches}Storage: json=$storage_json, generated=$STORAGE_PORT; "
   fi
 
+  # Validate UI_PORT
   if [ -z "${UI_PORT:-}" ]; then
     mismatches="${mismatches}UI_PORT not set; "
+  elif ! [[ "$UI_PORT" =~ ^[0-9]+$ ]]; then
+    mismatches="${mismatches}UI_PORT not numeric: '$UI_PORT'; "
+  elif [ "$UI_PORT" -lt 1 ] || [ "$UI_PORT" -gt 65535 ]; then
+    mismatches="${mismatches}UI_PORT out of range: $UI_PORT; "
   elif [ "$ui_json" != "$UI_PORT" ]; then
     mismatches="${mismatches}UI: json=$ui_json, generated=$UI_PORT; "
   fi
 
   if [ -n "$mismatches" ]; then
-    test_fail "generate-firebase-ports.sh works correctly" "Port mismatches or missing variables: $mismatches"
+    test_fail "generate-firebase-ports.sh works correctly" "Port validation failures: $mismatches"
     return
   fi
 
@@ -313,10 +440,24 @@ test_printsync_global_setup_uses_firebase_ports() {
     return
   fi
 
-  # Check that it does NOT have hardcoded ports (e.g., 9099, 8081, 9199)
-  # Look for isPortInUse with numeric literals (but not FIREBASE_PORTS usage)
-  if grep -E 'isPortInUse\s*\(\s*[0-9]{4}\s*\)' "$global_setup" | grep -v "FIREBASE_PORTS" >/dev/null 2>&1; then
-    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "Found hardcoded port numbers in isPortInUse calls"
+  # TODO(#1124): Improve comment to better explain the grep pattern and what it checks
+  # Verify no hardcoded ports in isPortInUse calls
+  # Look for patterns like isPortInUse(9099) outside of FIREBASE_PORTS
+  local hardcoded_ports=$(grep -n 'isPortInUse' "$global_setup" | grep -E '[0-9]{4}' | grep -v 'FIREBASE_PORTS' || true)
+
+  if [ -n "$hardcoded_ports" ]; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "Found hardcoded ports in isPortInUse calls: $hardcoded_ports"
+    return
+  fi
+
+  # Verify FIREBASE_PORTS appears in actual code (not just imports/comments)
+  # Count occurrences outside of comments and import lines
+  local usage_count=$(grep -v '^[[:space:]]*//' "$global_setup" | \
+                      grep -v '^import' | \
+                      grep -c 'FIREBASE_PORTS\.' || echo "0")
+
+  if [ "$usage_count" -lt 3 ]; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "Expected at least 3 FIREBASE_PORTS usages in code, found $usage_count"
     return
   fi
 
