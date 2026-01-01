@@ -20,7 +20,8 @@ import { z } from 'zod';
  * Brand utility type
  *
  * Creates a branded type by intersecting the base type with a unique brand.
- * The brand property is never actually present at runtime - it's a phantom type.
+ * The brand property exists only in TypeScript's type system and is completely
+ * erased during compilation - it has no runtime representation.
  * Uses a unique symbol to ensure brands cannot be constructed literally.
  *
  * @example
@@ -38,6 +39,11 @@ import { z } from 'zod';
  */
 declare const __brand: unique symbol;
 export type Brand<T, B> = T & { readonly [__brand]: B };
+
+// Note on type safety: TypeScript cannot prevent consumers from using type assertions
+// (e.g., `value as Brand<T, B>`) to bypass validation. Always use factory functions
+// (like createPort) or Zod parsers (like parsePort) to create branded types. Type
+// assertions create unvalidated values that violate the branded type's invariants.
 
 /**
  * Port number (0-65535)
@@ -126,9 +132,11 @@ export const PortSchema = z.number().int().min(0).max(65535).brand<'Port'>();
  * @returns Branded Port type
  * @throws ZodError if port is not in valid range (0-65535)
  */
-// TODO(#1140): Consolidate repetitive Zod brand explanation comments
-// Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
+// Note: Zod's .brand() creates types incompatible with our custom Brand<T, B> due to
+// different symbol usage. The cast is necessary to bridge Zod's runtime validation with
+// our compile-time branding. This is safe because Zod has already validated the value.
+// See TODO(#1140) for potential long-term solutions (unified branding approach).
+// TODO(#1157): Consider wrapping ZodError in user-friendly error messages or providing safeParse wrappers
 export const parsePort = (n: unknown): Port => PortSchema.parse(n) as unknown as Port;
 
 /**
@@ -284,11 +292,13 @@ export function createURL(s: string): URL {
     new globalThis.URL(s); // Validate using globalThis.URL constructor
     return s as URL;
   } catch (error) {
-    // Only catch TypeError which is what URL constructor throws for invalid URLs
+    // The URL constructor throws TypeError for invalid URLs. We catch TypeError specifically
+    // to convert validation failures into our branded Error type. Other error types (e.g.,
+    // out of memory) represent unexpected system errors and should propagate unchanged.
     if (error instanceof TypeError) {
       throw new Error(`Invalid URL: ${s} (${error.message})`);
     }
-    // Re-throw unexpected errors
+    // Re-throw unexpected errors unchanged
     throw error;
   }
 }
@@ -347,6 +357,8 @@ export function createTimestamp(input?: number | Date): Timestamp {
 
 /**
  * Helper function to create string-based IDs with validation
+ *
+ * TODO(#1159): Add format validation to prevent whitespace-only, control characters, and path traversal
  *
  * @param s - ID string
  * @param brandName - Name of the brand for error messages
@@ -419,6 +431,7 @@ export function createFileID(s: string): FileID {
   return createStringID(s, 'FileID');
 }
 
+// TODO(#1160): Consider using constrained generic `unwrap<T, B extends string>(branded: Brand<T, B>)` instead of `any` for better type safety
 /**
  * Unwrap a branded type to its base type
  *
@@ -434,9 +447,9 @@ export function createFileID(s: string): FileID {
  * ```
  */
 export function unwrap<T>(branded: Brand<T, any>): T {
-  // Type-erasing no-op that removes the brand at compile time.
+  // Returns the input value unchanged. The return type annotation (T instead of Brand<T, any>)
+  // allows TypeScript to infer the base type, effectively "unwrapping" the brand at the type level.
   // The 'any' brand parameter accepts all branded types for convenience.
-  // This is safe because the function simply returns the value unchanged,
-  // only removing the brand from the type signature.
+  // This is safe because brands are phantom types with no runtime representation.
   return branded as T;
 }

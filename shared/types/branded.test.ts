@@ -157,6 +157,7 @@ describe('createTimestamp', () => {
   });
 });
 
+// TODO(#1152): Missing test for string ID schemas with special characters and Unicode
 describe('createSessionID', () => {
   it('creates valid session IDs', () => {
     expect(createSessionID('abc123')).toBe('abc123');
@@ -327,6 +328,8 @@ describe('unwrap', () => {
     const values = [unwrap(port), unwrap(timestamp)];
     expect(values).toEqual([3000, 1704067200000]);
   });
+
+  // TODO(#1155): Add negative tests for unwrap edge cases (type mismatches, null/undefined, performance)
 });
 
 describe('Type safety (compile-time checks)', () => {
