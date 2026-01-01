@@ -17,7 +17,8 @@ fi
 # Purpose: Makes firebase.json the single source of truth - bash scripts source this
 #          instead of hardcoding ports, preventing configuration drift
 # Usage: source <(generate-firebase-ports.sh)
-# Output: Lines like "AUTH_PORT=9099" that are evaluated when sourced
+# Output: Lines like "AUTH_PORT=9099" using heredoc for atomic output
+#         (heredoc ensures consistent formatting and proper newlines when sourced)
 # Exits: Status 1 if firebase.json is missing, jq unavailable, or ports invalid
 # Note: Sourcing scripts should validate all port variables are set after sourcing
 
@@ -40,6 +41,8 @@ for emulator in "${!ports[@]}"; do
   var_name="${ports[$emulator]}"
 
   jq_stderr=$(mktemp)
+  trap 'rm "$jq_stderr" 2>/dev/null || echo "Warning: Could not delete temporary file $jq_stderr" >&2' EXIT RETURN
+
   if ! port_value=$(jq -r ".emulators.${emulator}.port" "$FIREBASE_JSON" 2>"$jq_stderr"); then
     echo "ERROR: jq failed for ${emulator} port extraction" >&2
     if [ -s "$jq_stderr" ]; then
@@ -47,10 +50,8 @@ for emulator in "${!ports[@]}"; do
       cat "$jq_stderr" >&2
     fi
     echo "Check that firebase.json is valid JSON" >&2
-    rm -f "$jq_stderr"
     exit 1
   fi
-  rm -f "$jq_stderr"
 
   # Validate port is not null or empty
   if [ "$port_value" = "null" ] || [ -z "$port_value" ]; then

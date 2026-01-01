@@ -205,8 +205,80 @@ EOF
   rm -rf "$temp_dir"
 }
 
+# Test 8: Output format is sourceable (success path test)
+test_output_format_is_sourceable() {
+  test_count=$((test_count + 1))
+
+  local output=$("$GENERATE_SCRIPT" 2>&1)
+
+  # Verify output contains exactly 4 lines
+  local line_count=$(echo "$output" | wc -l | tr -d ' ')
+  if [ "$line_count" != "4" ]; then
+    echo "✗ test_output_format_is_sourceable: Expected 4 lines, got $line_count"
+    fail_count=$((fail_count + 1))
+    return 1
+  fi
+
+  # Verify each line matches VAR_NAME=VALUE format (no export, no quotes around value)
+  if ! echo "$output" | grep -qE '^AUTH_PORT=[0-9]+$'; then
+    echo "✗ test_output_format_is_sourceable: AUTH_PORT line has unexpected format"
+    echo "Expected: AUTH_PORT=9099"
+    echo "Got: $(echo "$output" | grep AUTH_PORT || echo "AUTH_PORT line missing")"
+    fail_count=$((fail_count + 1))
+    return 1
+  fi
+
+  if ! echo "$output" | grep -qE '^FIRESTORE_PORT=[0-9]+$'; then
+    echo "✗ test_output_format_is_sourceable: FIRESTORE_PORT line has unexpected format"
+    fail_count=$((fail_count + 1))
+    return 1
+  fi
+
+  if ! echo "$output" | grep -qE '^STORAGE_PORT=[0-9]+$'; then
+    echo "✗ test_output_format_is_sourceable: STORAGE_PORT line has unexpected format"
+    fail_count=$((fail_count + 1))
+    return 1
+  fi
+
+  if ! echo "$output" | grep -qE '^UI_PORT=[0-9]+$'; then
+    echo "✗ test_output_format_is_sourceable: UI_PORT line has unexpected format"
+    fail_count=$((fail_count + 1))
+    return 1
+  fi
+
+  # Verify output is sourceable (can be evaluated as shell commands)
+  # Create a subshell to test sourcing without polluting current environment
+  if ! (source <(echo "$output") 2>&1); then
+    echo "✗ test_output_format_is_sourceable: Output cannot be sourced"
+    fail_count=$((fail_count + 1))
+    return 1
+  fi
+
+  # Verify all expected variables are set after sourcing
+  local test_result
+  test_result=$(
+    source <(echo "$output")
+    if [ -z "${AUTH_PORT:-}" ] || [ -z "${FIRESTORE_PORT:-}" ] || \
+       [ -z "${STORAGE_PORT:-}" ] || [ -z "${UI_PORT:-}" ]; then
+      echo "MISSING_VARS"
+    else
+      echo "OK"
+    fi
+  )
+
+  if [ "$test_result" != "OK" ]; then
+    echo "✗ test_output_format_is_sourceable: Variables not set after sourcing"
+    fail_count=$((fail_count + 1))
+    return 1
+  fi
+
+  echo "✓ test_output_format_is_sourceable"
+  pass_count=$((pass_count + 1))
+  return 0
+}
+
 # Run all tests
-echo "Running generate-firebase-ports.sh error path tests..."
+echo "Running generate-firebase-ports.sh tests..."
 echo
 
 test_missing_firebase_json
@@ -216,6 +288,7 @@ test_null_port
 test_invalid_port_number
 test_port_too_low
 test_port_too_high
+test_output_format_is_sourceable
 
 echo
 echo "Results: $pass_count passed, $fail_count failed, $test_count total"

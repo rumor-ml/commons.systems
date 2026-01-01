@@ -4,8 +4,8 @@
 # Ensures that hardcoded ports in various configuration files match
 # the ports defined in firebase.json (the source of truth).
 #
-# This prevents configuration drift where developers change firebase.json
-# but forget to update related configuration files, causing connection
+# Prevents configuration drift by failing tests when ports don't match,
+# catching mismatches in CI/pre-commit before they cause connection
 # failures and confusing "connection refused" errors.
 #
 # Related files:
@@ -47,9 +47,11 @@ run_test() {
   $test_name
 }
 
+# TODO(#1171): Add unit tests for validate_port function
 # Validates that a port value is numeric and in valid range (1-65535)
 # Args: $1 = port name (e.g., "firestore"), $2 = port value
-# Returns: Empty string if valid, error message if invalid
+# Returns: Echoes error message if invalid, empty string if valid (always exits 0)
+# Usage: error=$(validate_port "name" "$value"); if [ -n "$error" ]; then ...; fi
 validate_port() {
   local name=$1
   local value=$2
@@ -101,7 +103,7 @@ test_firebase_ports_ts_matches_json() {
   local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
   local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
 
-  # Extract ports from firebase-ports.ts using grep and sed
+  # Extract ports from firebase-ports.ts using grep
   # Match patterns like: firestore: createPort<FirestorePort>(8081, 'Firestore'),
   local firestore_ts=$(grep 'firestore: createPort' "$firebase_ports_ts" | grep -o 'createPort<[^>]*>([0-9]*' | grep -o '[0-9]*')
   local auth_ts=$(grep 'auth: createPort' "$firebase_ports_ts" | grep -o 'createPort<[^>]*>([0-9]*' | grep -o '[0-9]*')
@@ -201,6 +203,7 @@ test_allocate_test_ports_matches_json() {
   # Validate firebase.json ports before proceeding
   local json_errors=""
 
+  # TODO(#1174): Log validation errors immediately, not just on failure
   local error=$(validate_port "firestore port in firebase.json" "$firestore_json")
   if [ -n "$error" ]; then
     json_errors="${json_errors}${error}; "
@@ -226,6 +229,7 @@ test_allocate_test_ports_matches_json() {
     return
   fi
 
+  # TODO(#1172): Check mktemp success to avoid confusing errors if /tmp is full
   # Use unique temp files to avoid race conditions
   local temp_output="/tmp/allocate_ports_output_$$.txt"
   local temp_errors="/tmp/allocate_ports_errors_$$.txt"
@@ -241,8 +245,8 @@ test_allocate_test_ports_matches_json() {
   # Source allocate-test-ports.sh to validate it loads ports from generate-firebase-ports.sh
   # This test verifies: (1) sourcing completes without errors, (2) all port variables are set,
   # (3) port values match firebase.json
-  # Uses subshell to prevent port variables (AUTH_PORT, FIRESTORE_PORT, etc.) from leaking
-  # into parent test environment, which would contaminate subsequent test validations
+  # Uses subshell to isolate port variables and prevent them from persisting,
+  # which would invalidate subsequent tests that check for missing port variables (line 238)
 
   # Source allocate-test-ports.sh in subshell and capture exit status
   set +e  # Temporarily disable exit on error to capture status
@@ -586,8 +590,9 @@ test_printsync_global_setup_uses_firebase_ports() {
   fi
 
   # Verify isPortInUse calls use FIREBASE_PORTS, not hardcoded port numbers
-  # Pattern matches: lines with isPortInUse that contain 4-digit numbers but don't reference FIREBASE_PORTS
-  # This prevents port drift where tests use hardcoded ports instead of shared config
+  # Pattern matches: lines with isPortInUse containing 4-digit numbers (e.g., 8081, 9099)
+  # Note: Only checks 4-digit patterns as all Firebase emulator ports are 4 digits
+  # This prevents drift where tests hardcode ports instead of using shared config
   local hardcoded_ports=$(grep -n 'isPortInUse' "$global_setup" | grep -E '[0-9]{4}' | grep -v 'FIREBASE_PORTS' || true)
 
   if [ -n "$hardcoded_ports" ]; then
@@ -649,6 +654,7 @@ test_allocate_test_ports_handles_missing_firebase_json() {
 
   # Create temp directory for test
   local test_dir=$(mktemp -d)
+  # TODO(#1173): Add warning if cleanup fails to detect filesystem issues
   trap "rm -rf '$test_dir'" RETURN
 
   # Set up directory structure that generate-firebase-ports.sh expects

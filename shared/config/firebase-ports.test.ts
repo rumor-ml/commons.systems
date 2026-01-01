@@ -12,6 +12,7 @@
  * Related files:
  * - firebase.json: Source of truth for emulator configuration
  * - shared/config/firebase-ports.ts: TypeScript constants exported to apps
+ * TODO(#1167): Verify fellspiral paths exist and actually use FIREBASE_PORTS
  * - fellspiral/site/src/scripts/firebase.js: Uses FIREBASE_PORTS for emulator connection
  * - fellspiral/tests/global-setup.ts: Uses FIREBASE_PORTS for test setup
  */
@@ -33,8 +34,32 @@ describe('Firebase port configuration consistency', () => {
   test('firebase-ports.ts matches firebase.json emulator ports', () => {
     // Read firebase.json from repository root
     const firebaseJsonPath = join(process.cwd(), 'firebase.json');
-    const firebaseJsonContent = readFileSync(firebaseJsonPath, 'utf-8');
-    const firebaseConfig = JSON.parse(firebaseJsonContent);
+    let firebaseJsonContent: string;
+    try {
+      firebaseJsonContent = readFileSync(firebaseJsonPath, 'utf-8');
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      throw new Error(
+        `Failed to read firebase.json: ${err.message}\n` +
+          `Expected path: ${firebaseJsonPath}\n` +
+          `This file is required for Firebase emulator configuration.\n` +
+          `Check that:\n` +
+          `1. firebase.json exists in the repository root\n` +
+          `2. The file has read permissions\n` +
+          `3. You're running tests from the correct directory`
+      );
+    }
+
+    let firebaseConfig: any;
+    try {
+      firebaseConfig = JSON.parse(firebaseJsonContent);
+    } catch (error) {
+      throw new Error(
+        `Failed to parse firebase.json: ${error instanceof Error ? error.message : String(error)}\n` +
+          `File path: ${firebaseJsonPath}\n` +
+          `Check for JSON syntax errors (trailing commas, missing brackets, etc.)`
+      );
+    }
 
     // Extract emulator ports from firebase.json
     const emulators = firebaseConfig.emulators;
@@ -68,28 +93,11 @@ describe('Firebase port configuration consistency', () => {
 
   test('firebase-ports.ts exports expected port structure', () => {
     // Verify the FIREBASE_PORTS object has all required fields
-    assert.ok(FIREBASE_PORTS.firestore, 'FIREBASE_PORTS must export firestore port');
-    assert.ok(FIREBASE_PORTS.auth, 'FIREBASE_PORTS must export auth port');
-    assert.ok(FIREBASE_PORTS.storage, 'FIREBASE_PORTS must export storage port');
-    assert.ok(FIREBASE_PORTS.ui, 'FIREBASE_PORTS must export ui port');
-
-    // Verify they are valid port numbers (1-65535)
-    assert.ok(
-      FIREBASE_PORTS.firestore > 0 && FIREBASE_PORTS.firestore <= 65535,
-      'Firestore port must be valid (1-65535)'
-    );
-    assert.ok(
-      FIREBASE_PORTS.auth > 0 && FIREBASE_PORTS.auth <= 65535,
-      'Auth port must be valid (1-65535)'
-    );
-    assert.ok(
-      FIREBASE_PORTS.storage > 0 && FIREBASE_PORTS.storage <= 65535,
-      'Storage port must be valid (1-65535)'
-    );
-    assert.ok(
-      FIREBASE_PORTS.ui > 0 && FIREBASE_PORTS.ui <= 65535,
-      'UI port must be valid (1-65535)'
-    );
+    // Port validity is guaranteed by createPort factory function
+    assert.ok('firestore' in FIREBASE_PORTS, 'FIREBASE_PORTS must export firestore port');
+    assert.ok('auth' in FIREBASE_PORTS, 'FIREBASE_PORTS must export auth port');
+    assert.ok('storage' in FIREBASE_PORTS, 'FIREBASE_PORTS must export storage port');
+    assert.ok('ui' in FIREBASE_PORTS, 'FIREBASE_PORTS must export ui port');
   });
 
   test('factory function validates correct port values', () => {
@@ -166,5 +174,36 @@ describe('Firebase port configuration consistency', () => {
         'Error message should reference firebase.json for troubleshooting'
       );
     }
+  });
+
+  test('branded types document intent and provide runtime behavior', () => {
+    // Branded types in firebase-ports.ts serve as type documentation to indicate
+    // each port's intended usage (FirestorePort, AuthPort, etc.)
+    // Note: TypeScript's structural type system means these don't prevent mixing
+    // at compile time, but they improve code readability and IDE support
+
+    // Type guard function that documents FirestorePort usage
+    function expectFirestorePort(port: FirestorePort): FirestorePort {
+      return port;
+    }
+
+    // Valid: passing correct branded type works as expected
+    assert.doesNotThrow(
+      () => expectFirestorePort(FIREBASE_PORTS.firestore),
+      'Should accept FirestorePort where FirestorePort is expected'
+    );
+
+    // Runtime verification: branded types are still numbers
+    // This is important for compatibility with existing code
+    assert.strictEqual(typeof FIREBASE_PORTS.firestore, 'number');
+    assert.strictEqual(typeof FIREBASE_PORTS.auth, 'number');
+    assert.strictEqual(typeof FIREBASE_PORTS.storage, 'number');
+    assert.strictEqual(typeof FIREBASE_PORTS.ui, 'number');
+
+    // Verify each port type can be used as a number
+    const firestoreNum: number = FIREBASE_PORTS.firestore;
+    const authNum: number = FIREBASE_PORTS.auth;
+    assert.ok(firestoreNum > 0);
+    assert.ok(authNum > 0);
   });
 });

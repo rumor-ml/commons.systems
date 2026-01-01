@@ -59,6 +59,7 @@ fi
 # Calculate offset
 PORT_OFFSET=$(($HASH % 100))
 
+# TODO(#1168): Simplify verbose comment - remove redundant defensive programming note
 # Validate offset is in expected range (defensive programming - mathematically should always pass)
 if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   echo "FATAL: PORT_OFFSET out of range: $PORT_OFFSET (expected 0-99)" >&2
@@ -67,18 +68,15 @@ if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   exit_or_return 1
 fi
 
-# TODO(#1133): Comment style inconsistency - consider condensing or making consistent with file
 # SHARED EMULATOR PORTS - Sourced from generate-firebase-ports.sh
 # Multiple worktrees connect to the same emulator instance
 # The generator script extracts ports from firebase.json (single source of truth)
 
-# Capture generate-firebase-ports.sh output and errors to temporary files
-# Why: Direct sourcing via source <(script) swallows stderr, making failures opaque
-# This approach lets us show the actual jq/firebase.json errors to users
-# instead of generic troubleshooting steps
+# Use temp files to capture both stdout (for sourcing) and stderr (for error messages)
+# Process substitution source <(script) would hide stderr from users
 GEN_STDERR=$(mktemp)
 GEN_OUTPUT=$(mktemp)
-trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT'" RETURN
+trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT' || echo 'Warning: Failed to clean up temp files' >&2" RETURN
 
 if ! "${SCRIPT_DIR}/generate-firebase-ports.sh" > "$GEN_OUTPUT" 2> "$GEN_STDERR"; then
   echo "FATAL: generate-firebase-ports.sh failed" >&2
