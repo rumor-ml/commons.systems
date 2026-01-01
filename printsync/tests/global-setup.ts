@@ -20,6 +20,7 @@ async function globalSetup() {
 
   console.log('Checking Firebase emulators...');
 
+  // TODO(#1130): Add runtime tests verifying global-setup uses correct ports from FIREBASE_PORTS
   // Check if emulators are already running by testing ports
   const isAuthRunning = await isPortInUse(FIREBASE_PORTS.auth);
   const isFirestoreRunning = await isPortInUse(FIREBASE_PORTS.firestore);
@@ -48,6 +49,7 @@ async function globalSetup() {
 
     console.log('✓ Firebase emulators started successfully');
   } catch (error) {
+    // TODO(#1134): Add structured error logging with context and actionable guidance
     console.error('Failed to start Firebase emulators:', error);
     throw error;
   }

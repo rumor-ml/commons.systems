@@ -84,11 +84,11 @@ test_firebase_ports_ts_matches_json() {
   local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
 
   # Extract ports from firebase-ports.ts using grep and sed
-  # Match patterns like: firestore: createFirestorePort(8081),
-  local firestore_ts=$(grep -o 'firestore: createFirestorePort([0-9]*)' "$firebase_ports_ts" | grep -o '[0-9]*')
-  local auth_ts=$(grep -o 'auth: createAuthPort([0-9]*)' "$firebase_ports_ts" | grep -o '[0-9]*')
-  local storage_ts=$(grep -o 'storage: createStoragePort([0-9]*)' "$firebase_ports_ts" | grep -o '[0-9]*')
-  local ui_ts=$(grep -o 'ui: createUIPort([0-9]*)' "$firebase_ports_ts" | grep -o '[0-9]*')
+  # Match patterns like: firestore: 8081 as FirestorePort,
+  local firestore_ts=$(grep -o 'firestore: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
+  local auth_ts=$(grep -o 'auth: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
+  local storage_ts=$(grep -o 'storage: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
+  local ui_ts=$(grep -o 'ui: [0-9]*' "$firebase_ports_ts" | grep -o '[0-9]*')
 
   # Compare ports
   local mismatches=""
@@ -207,6 +207,7 @@ test_allocate_test_ports_matches_json() {
   # Use unique temp files to avoid race conditions
   local temp_output="/tmp/allocate_ports_output_$$.txt"
   local temp_errors="/tmp/allocate_ports_errors_$$.txt"
+  # TODO(#1136): Make cleanup non-fatal to avoid masking test failures
   trap "rm -f '$temp_output' '$temp_errors'" RETURN
 
   # Verify no port variables are set before test
@@ -441,6 +442,7 @@ test_printsync_global_setup_uses_firebase_ports() {
   fi
 
   # TODO(#1124): Improve comment to better explain the grep pattern and what it checks
+  # TODO(#1137): Check grep exit codes explicitly - distinguish between no match (exit 1) and errors (exit 2)
   # Verify no hardcoded ports in isPortInUse calls
   # Look for patterns like isPortInUse(9099) outside of FIREBASE_PORTS
   local hardcoded_ports=$(grep -n 'isPortInUse' "$global_setup" | grep -E '[0-9]{4}' | grep -v 'FIREBASE_PORTS' || true)
@@ -464,200 +466,6 @@ test_printsync_global_setup_uses_firebase_ports() {
   test_pass "printsync global-setup.ts uses FIREBASE_PORTS"
 }
 
-test_allocate_test_ports_handles_missing_firebase_json() {
-  local allocate_script="${REPO_ROOT}/infrastructure/scripts/allocate-test-ports.sh"
-  local firebase_json="${REPO_ROOT}/firebase.json"
-
-  if [ ! -f "$allocate_script" ]; then
-    test_fail "allocate-test-ports.sh handles missing firebase.json" "allocate-test-ports.sh not found"
-    return
-  fi
-
-  if [ ! -f "$firebase_json" ]; then
-    test_fail "allocate-test-ports.sh handles missing firebase.json" "firebase.json not found (cannot test)"
-    return
-  fi
-
-  # Create temp directory for test
-  local test_dir=$(mktemp -d)
-  trap "rm -rf '$test_dir'" RETURN
-
-  # Set up directory structure that generate-firebase-ports.sh expects
-  # Scripts in infrastructure/scripts, firebase.json at repo root
-  mkdir -p "${test_dir}/infrastructure/scripts"
-  local test_allocate="${test_dir}/infrastructure/scripts/allocate-test-ports.sh"
-  local test_generate="${test_dir}/infrastructure/scripts/generate-firebase-ports.sh"
-  local test_port_utils="${test_dir}/infrastructure/scripts/port-utils.sh"
-
-  cp "$allocate_script" "$test_allocate"
-  cp "${REPO_ROOT}/infrastructure/scripts/generate-firebase-ports.sh" "$test_generate"
-  cp "${REPO_ROOT}/infrastructure/scripts/port-utils.sh" "$test_port_utils"
-
-  # Make scripts executable
-  chmod +x "$test_allocate" "$test_generate"
-
-  # Create a temporary git repository structure for the test
-  # allocate-test-ports.sh uses git rev-parse --show-toplevel
-  (
-    cd "$test_dir"
-    git init -q
-    git config user.email "test@example.com"
-    git config user.name "Test User"
-
-    # Run allocate script without firebase.json - should fail with clear error
-    local output=$(SCRIPT_DIR="${test_dir}/infrastructure/scripts" bash "$test_allocate" 2>&1 || true)
-
-    # Verify it failed with appropriate error message
-    if ! echo "$output" | grep -q "FATAL: generate-firebase-ports.sh failed"; then
-      test_fail "allocate-test-ports.sh handles missing firebase.json" "Missing 'FATAL: generate-firebase-ports.sh failed' message"
-      return
-    fi
-
-    # Verify actual error from generate-firebase-ports.sh is shown
-    if ! echo "$output" | grep -q "ERROR: firebase.json not found"; then
-      test_fail "allocate-test-ports.sh handles missing firebase.json" "Missing 'ERROR: firebase.json not found' message from generator"
-      return
-    fi
-
-    # Verify troubleshooting steps are shown
-    if ! echo "$output" | grep -q "Check that:"; then
-      test_fail "allocate-test-ports.sh handles missing firebase.json" "Missing troubleshooting steps"
-      return
-    fi
-  )
-
-  test_pass "allocate-test-ports.sh handles missing firebase.json"
-}
-
-test_allocate_test_ports_handles_corrupted_firebase_json() {
-  local allocate_script="${REPO_ROOT}/infrastructure/scripts/allocate-test-ports.sh"
-  local firebase_json="${REPO_ROOT}/firebase.json"
-
-  if [ ! -f "$allocate_script" ]; then
-    test_fail "allocate-test-ports.sh handles corrupted firebase.json" "allocate-test-ports.sh not found"
-    return
-  fi
-
-  if [ ! -f "$firebase_json" ]; then
-    test_fail "allocate-test-ports.sh handles corrupted firebase.json" "firebase.json not found (cannot test)"
-    return
-  fi
-
-  # Create temp directory for test
-  local test_dir=$(mktemp -d)
-  trap "rm -rf '$test_dir'" RETURN
-
-  # Set up directory structure that generate-firebase-ports.sh expects
-  # Scripts in infrastructure/scripts, firebase.json at repo root
-  mkdir -p "${test_dir}/infrastructure/scripts"
-  local test_allocate="${test_dir}/infrastructure/scripts/allocate-test-ports.sh"
-  local test_generate="${test_dir}/infrastructure/scripts/generate-firebase-ports.sh"
-  local test_port_utils="${test_dir}/infrastructure/scripts/port-utils.sh"
-
-  cp "$allocate_script" "$test_allocate"
-  cp "${REPO_ROOT}/infrastructure/scripts/generate-firebase-ports.sh" "$test_generate"
-  cp "${REPO_ROOT}/infrastructure/scripts/port-utils.sh" "$test_port_utils"
-
-  # Make scripts executable
-  chmod +x "$test_allocate" "$test_generate"
-
-  # Create a temporary git repository
-  (
-    cd "$test_dir"
-    git init -q
-    git config user.email "test@example.com"
-    git config user.name "Test User"
-
-    # Create corrupted firebase.json (invalid JSON) at repo root
-    echo "{ invalid json" > "${test_dir}/firebase.json"
-
-    # Run allocate script - should fail with clear error
-    local output=$(SCRIPT_DIR="${test_dir}/infrastructure/scripts" bash "$test_allocate" 2>&1 || true)
-
-    # Verify it failed with appropriate error message
-    if ! echo "$output" | grep -q "FATAL: generate-firebase-ports.sh failed"; then
-      test_fail "allocate-test-ports.sh handles corrupted firebase.json" "Missing 'FATAL: generate-firebase-ports.sh failed' message"
-      return
-    fi
-
-    # Verify jq parsing error is shown (matches "jq failed" messages)
-    if ! echo "$output" | grep -q "ERROR: jq failed"; then
-      test_fail "allocate-test-ports.sh handles corrupted firebase.json" "Missing jq error message"
-      return
-    fi
-
-    # Verify JSON validation message is shown
-    if ! echo "$output" | grep -q "Check that firebase.json is valid JSON"; then
-      test_fail "allocate-test-ports.sh handles corrupted firebase.json" "Missing JSON validation suggestion"
-      return
-    fi
-  )
-
-  test_pass "allocate-test-ports.sh handles corrupted firebase.json"
-}
-
-test_allocate_test_ports_handles_missing_port_in_json() {
-  local allocate_script="${REPO_ROOT}/infrastructure/scripts/allocate-test-ports.sh"
-
-  if [ ! -f "$allocate_script" ]; then
-    test_fail "allocate-test-ports.sh handles missing port in firebase.json" "allocate-test-ports.sh not found"
-    return
-  fi
-
-  # Create temp directory for test
-  local test_dir=$(mktemp -d)
-  trap "rm -rf '$test_dir'" RETURN
-
-  # Set up directory structure that generate-firebase-ports.sh expects
-  mkdir -p "${test_dir}/infrastructure/scripts"
-  local test_allocate="${test_dir}/infrastructure/scripts/allocate-test-ports.sh"
-  local test_generate="${test_dir}/infrastructure/scripts/generate-firebase-ports.sh"
-  local test_port_utils="${test_dir}/infrastructure/scripts/port-utils.sh"
-
-  cp "$allocate_script" "$test_allocate"
-  cp "${REPO_ROOT}/infrastructure/scripts/generate-firebase-ports.sh" "$test_generate"
-  cp "${REPO_ROOT}/infrastructure/scripts/port-utils.sh" "$test_port_utils"
-
-  # Make scripts executable
-  chmod +x "$test_allocate" "$test_generate"
-
-  # Create a temporary git repository
-  (
-    cd "$test_dir"
-    git init -q
-    git config user.email "test@example.com"
-    git config user.name "Test User"
-
-    # Create firebase.json with missing auth port at repo root
-    cat > "${test_dir}/firebase.json" <<EOF
-{
-  "emulators": {
-    "firestore": { "port": 8081 },
-    "storage": { "port": 8082 },
-    "ui": { "port": 8083 }
-  }
-}
-EOF
-
-    # Run allocate script - should fail with clear error
-    local output=$(SCRIPT_DIR="${test_dir}/infrastructure/scripts" bash "$test_allocate" 2>&1 || true)
-
-    # Verify it failed with appropriate error message
-    if ! echo "$output" | grep -q "FATAL: generate-firebase-ports.sh failed"; then
-      test_fail "allocate-test-ports.sh handles missing port in firebase.json" "Missing 'FATAL: generate-firebase-ports.sh failed' message"
-      return
-    fi
-
-    # Verify specific error about missing auth port
-    if ! echo "$output" | grep -q "ERROR: auth port is missing or null in firebase.json"; then
-      test_fail "allocate-test-ports.sh handles missing port in firebase.json" "Missing specific auth port error"
-      return
-    fi
-  )
-
-  test_pass "allocate-test-ports.sh handles missing port in firebase.json"
-}
-
 # ============================================================================
 # Run All Tests
 # ============================================================================
@@ -673,9 +481,6 @@ run_test test_no_hardcoded_ports_in_firebase_js
 run_test test_allocate_test_ports_matches_json
 run_test test_generate_firebase_ports_works
 run_test test_printsync_global_setup_uses_firebase_ports
-run_test test_allocate_test_ports_handles_missing_firebase_json
-run_test test_allocate_test_ports_handles_corrupted_firebase_json
-run_test test_allocate_test_ports_handles_missing_port_in_json
 
 # ============================================================================
 # Test Summary

@@ -23,16 +23,47 @@
  * - infrastructure/scripts/generate-firebase-ports.sh (bash port generation)
  */
 
-// TODO(#1087): FirestorePort, AuthPort, StoragePort, UIPort - Literal types provide no safety over number
-export type FirestorePort = 8081;
-export type AuthPort = 9099;
-export type StoragePort = 9199;
-export type UIPort = 4000;
+// Branded types prevent mixing port types at compile time
+export type FirestorePort = number & { readonly __brand: 'FirestorePort' };
+export type AuthPort = number & { readonly __brand: 'AuthPort' };
+export type StoragePort = number & { readonly __brand: 'StoragePort' };
+export type UIPort = number & { readonly __brand: 'UIPort' };
 
-// TODO(#1088): FIREBASE_PORTS - Type assertions defeat the port validation
+/**
+ * Factory functions with runtime validation
+ * These ensure port values are correct and create branded types
+ */
+function createFirestorePort(port: number): FirestorePort {
+  if (port !== 8081) {
+    throw new Error(`Invalid Firestore port: ${port}, expected 8081`);
+  }
+  return port as FirestorePort;
+}
+
+function createAuthPort(port: number): AuthPort {
+  if (port !== 9099) {
+    throw new Error(`Invalid Auth port: ${port}, expected 9099`);
+  }
+  return port as AuthPort;
+}
+
+function createStoragePort(port: number): StoragePort {
+  if (port !== 9199) {
+    throw new Error(`Invalid Storage port: ${port}, expected 9199`);
+  }
+  return port as StoragePort;
+}
+
+function createUIPort(port: number): UIPort {
+  if (port !== 4000) {
+    throw new Error(`Invalid UI port: ${port}, expected 4000`);
+  }
+  return port as UIPort;
+}
+
 export const FIREBASE_PORTS = {
-  firestore: 8081 as FirestorePort,
-  auth: 9099 as AuthPort,
-  storage: 9199 as StoragePort,
-  ui: 4000 as UIPort,
+  firestore: createFirestorePort(8081),
+  auth: createAuthPort(9099),
+  storage: createStoragePort(9199),
+  ui: createUIPort(4000),
 } as const;

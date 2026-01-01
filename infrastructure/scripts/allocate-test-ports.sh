@@ -67,10 +67,36 @@ if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   exit_or_return 1
 fi
 
+# TODO(#1133): Comment style inconsistency - consider condensing or making consistent with file
 # SHARED EMULATOR PORTS - Sourced from generate-firebase-ports.sh
 # Multiple worktrees connect to the same emulator instance
 # The generator script extracts ports from firebase.json (single source of truth)
-source <("${SCRIPT_DIR}/generate-firebase-ports.sh")
+
+# Capture generate-firebase-ports.sh output and errors explicitly
+# This ensures we show actual error messages to users instead of generic troubleshooting
+GEN_STDERR=$(mktemp)
+GEN_OUTPUT=$(mktemp)
+trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT'" RETURN
+
+if ! "${SCRIPT_DIR}/generate-firebase-ports.sh" > "$GEN_OUTPUT" 2> "$GEN_STDERR"; then
+  echo "FATAL: generate-firebase-ports.sh failed" >&2
+  echo "" >&2
+  if [ -s "$GEN_STDERR" ]; then
+    echo "Error details:" >&2
+    cat "$GEN_STDERR" >&2
+    echo "" >&2
+  fi
+  echo "This script extracts Firebase emulator ports from firebase.json" >&2
+  echo "Check that:" >&2
+  echo "1. jq is installed: command -v jq" >&2
+  echo "2. firebase.json exists at: ${WORKTREE_ROOT}/firebase.json" >&2
+  echo "3. firebase.json is valid JSON with .emulators.{auth,firestore,storage,ui}.port" >&2
+  echo "4. generate-firebase-ports.sh is executable: ${SCRIPT_DIR}/generate-firebase-ports.sh" >&2
+  exit_or_return 1
+fi
+
+# Source the validated output
+source "$GEN_OUTPUT"
 
 # Validate ports were loaded successfully - report which specific ports failed
 missing_ports=""
