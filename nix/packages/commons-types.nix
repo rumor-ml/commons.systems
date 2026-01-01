@@ -44,9 +44,9 @@ buildNpmPackage {
       && !(lib.hasSuffix "~" baseName);
   };
 
-  # Empty cache - package has only devDependencies (not needed for build)
+  # Package now has zod as a runtime dependency
   # pnpm workspace links don't have resolved URLs, so we use forceEmptyCache
-  npmDepsHash = "sha256-k3+Cwq/nZI+TZvAfVFntxmNXpwkdhHuSOnMFKw1lom8=";
+  npmDepsHash = "sha256-KWjsYQblTA5kN+5SpjBNEU+kOHhZPS2r/3IswM23oHs=";
   forceEmptyCache = true;
 
   # Simple build - just TypeScript compilation

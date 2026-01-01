@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { ZodError } from 'zod';
 import {
   createPort,
   createURL,
@@ -11,6 +12,18 @@ import {
   createUserID,
   createFileID,
   unwrap,
+  PortSchema,
+  URLSchema,
+  TimestampSchema,
+  SessionIDSchema,
+  UserIDSchema,
+  FileIDSchema,
+  parsePort,
+  parseURL,
+  parseTimestamp,
+  parseSessionID,
+  parseUserID,
+  parseFileID,
   type Port,
   type URL,
   type Timestamp,
@@ -311,5 +324,324 @@ describe('Real-world usage patterns', () => {
     };
 
     expect(endpoint.url).toBe('https://api.example.com/users');
+  });
+});
+
+describe('Zod Schema Validation', () => {
+  describe('PortSchema', () => {
+    it('parses valid port numbers', () => {
+      expect(PortSchema.parse(0)).toBe(0);
+      expect(PortSchema.parse(80)).toBe(80);
+      expect(PortSchema.parse(443)).toBe(443);
+      expect(PortSchema.parse(3000)).toBe(3000);
+      expect(PortSchema.parse(65535)).toBe(65535);
+    });
+
+    it('rejects invalid ports with ZodError', () => {
+      expect(() => PortSchema.parse(-1)).toThrow(ZodError);
+      expect(() => PortSchema.parse(65536)).toThrow(ZodError);
+      expect(() => PortSchema.parse(70000)).toThrow(ZodError);
+      expect(() => PortSchema.parse(3000.5)).toThrow(ZodError);
+      expect(() => PortSchema.parse('3000')).toThrow(ZodError);
+      expect(() => PortSchema.parse(NaN)).toThrow(ZodError);
+      expect(() => PortSchema.parse(Infinity)).toThrow(ZodError);
+    });
+
+    it('safeParse returns correct success/error objects', () => {
+      const validResult = PortSchema.safeParse(3000);
+      expect(validResult.success).toBe(true);
+      if (validResult.success) {
+        expect(validResult.data).toBe(3000);
+      }
+
+      const invalidResult = PortSchema.safeParse(-1);
+      expect(invalidResult.success).toBe(false);
+      if (!invalidResult.success) {
+        expect(invalidResult.error).toBeInstanceOf(ZodError);
+      }
+    });
+
+    it('parsePort helper works correctly', () => {
+      expect(parsePort(3000)).toBe(3000);
+      expect(() => parsePort(-1)).toThrow(ZodError);
+      expect(() => parsePort('invalid')).toThrow(ZodError);
+    });
+
+    it('branded type is compatible with factory function', () => {
+      const schemaPort: Port = PortSchema.parse(3000);
+      const factoryPort: Port = createPort(3000);
+
+      // Both should work in contexts expecting Port
+      const ports: Port[] = [schemaPort, factoryPort];
+      expect(ports).toHaveLength(2);
+    });
+  });
+
+  describe('URLSchema', () => {
+    it('parses valid URLs', () => {
+      expect(URLSchema.parse('https://example.com')).toBe('https://example.com');
+      expect(URLSchema.parse('http://localhost:3000')).toBe('http://localhost:3000');
+      expect(URLSchema.parse('https://example.com/path?query=1')).toBe(
+        'https://example.com/path?query=1'
+      );
+    });
+
+    it('rejects invalid URLs with ZodError', () => {
+      expect(() => URLSchema.parse('not a url')).toThrow(ZodError);
+      expect(() => URLSchema.parse('')).toThrow(ZodError);
+      expect(() => URLSchema.parse('//example.com')).toThrow(ZodError);
+      expect(() => URLSchema.parse(123)).toThrow(ZodError);
+    });
+
+    it('safeParse returns correct success/error objects', () => {
+      const validResult = URLSchema.safeParse('https://example.com');
+      expect(validResult.success).toBe(true);
+
+      const invalidResult = URLSchema.safeParse('not a url');
+      expect(invalidResult.success).toBe(false);
+    });
+
+    it('parseURL helper works correctly', () => {
+      expect(parseURL('https://example.com')).toBe('https://example.com');
+      expect(() => parseURL('invalid')).toThrow(ZodError);
+    });
+
+    it('branded type is compatible with factory function', () => {
+      const schemaURL: URL = URLSchema.parse('https://example.com');
+      const factoryURL: URL = createURL('https://example.com');
+
+      const urls: URL[] = [schemaURL, factoryURL];
+      expect(urls).toHaveLength(2);
+    });
+  });
+
+  describe('TimestampSchema', () => {
+    it('parses valid timestamps', () => {
+      expect(TimestampSchema.parse(0)).toBe(0);
+      expect(TimestampSchema.parse(Date.now())).toBeGreaterThan(0);
+      expect(TimestampSchema.parse(1704067200000)).toBe(1704067200000);
+    });
+
+    it('rejects invalid timestamps with ZodError', () => {
+      expect(() => TimestampSchema.parse(-1)).toThrow(ZodError);
+      expect(() => TimestampSchema.parse(Infinity)).toThrow(ZodError);
+      expect(() => TimestampSchema.parse(-Infinity)).toThrow(ZodError);
+      expect(() => TimestampSchema.parse(NaN)).toThrow(ZodError);
+      expect(() => TimestampSchema.parse('1704067200000')).toThrow(ZodError);
+    });
+
+    it('safeParse returns correct success/error objects', () => {
+      const validResult = TimestampSchema.safeParse(Date.now());
+      expect(validResult.success).toBe(true);
+
+      const invalidResult = TimestampSchema.safeParse(-1);
+      expect(invalidResult.success).toBe(false);
+    });
+
+    it('parseTimestamp helper works correctly', () => {
+      const now = Date.now();
+      expect(parseTimestamp(now)).toBe(now);
+      expect(() => parseTimestamp(-1)).toThrow(ZodError);
+    });
+
+    it('branded type is compatible with factory function', () => {
+      const now = Date.now();
+      const schemaTimestamp: Timestamp = TimestampSchema.parse(now);
+      const factoryTimestamp: Timestamp = createTimestamp(now);
+
+      const timestamps: Timestamp[] = [schemaTimestamp, factoryTimestamp];
+      expect(timestamps).toHaveLength(2);
+    });
+  });
+
+  describe('SessionIDSchema', () => {
+    it('parses valid session IDs', () => {
+      expect(SessionIDSchema.parse('abc123')).toBe('abc123');
+      expect(SessionIDSchema.parse('session-id-with-dashes')).toBe('session-id-with-dashes');
+      expect(SessionIDSchema.parse('a')).toBe('a');
+    });
+
+    it('rejects invalid session IDs with ZodError', () => {
+      expect(() => SessionIDSchema.parse('')).toThrow(ZodError);
+      expect(() => SessionIDSchema.parse('a'.repeat(257))).toThrow(ZodError);
+      expect(() => SessionIDSchema.parse(123)).toThrow(ZodError);
+    });
+
+    it('safeParse returns correct success/error objects', () => {
+      const validResult = SessionIDSchema.safeParse('session123');
+      expect(validResult.success).toBe(true);
+
+      const invalidResult = SessionIDSchema.safeParse('');
+      expect(invalidResult.success).toBe(false);
+    });
+
+    it('parseSessionID helper works correctly', () => {
+      expect(parseSessionID('session123')).toBe('session123');
+      expect(() => parseSessionID('')).toThrow(ZodError);
+    });
+
+    it('branded type is compatible with factory function', () => {
+      const schemaSessionID: SessionID = SessionIDSchema.parse('session123');
+      const factorySessionID: SessionID = createSessionID('session123');
+
+      const sessionIds: SessionID[] = [schemaSessionID, factorySessionID];
+      expect(sessionIds).toHaveLength(2);
+    });
+  });
+
+  describe('UserIDSchema', () => {
+    it('parses valid user IDs', () => {
+      expect(UserIDSchema.parse('user123')).toBe('user123');
+      expect(UserIDSchema.parse('user_abc')).toBe('user_abc');
+    });
+
+    it('rejects invalid user IDs with ZodError', () => {
+      expect(() => UserIDSchema.parse('')).toThrow(ZodError);
+      expect(() => UserIDSchema.parse('a'.repeat(257))).toThrow(ZodError);
+      expect(() => UserIDSchema.parse(123)).toThrow(ZodError);
+    });
+
+    it('safeParse returns correct success/error objects', () => {
+      const validResult = UserIDSchema.safeParse('user123');
+      expect(validResult.success).toBe(true);
+
+      const invalidResult = UserIDSchema.safeParse('');
+      expect(invalidResult.success).toBe(false);
+    });
+
+    it('parseUserID helper works correctly', () => {
+      expect(parseUserID('user123')).toBe('user123');
+      expect(() => parseUserID('')).toThrow(ZodError);
+    });
+
+    it('branded type is compatible with factory function', () => {
+      const schemaUserID: UserID = UserIDSchema.parse('user123');
+      const factoryUserID: UserID = createUserID('user123');
+
+      const userIds: UserID[] = [schemaUserID, factoryUserID];
+      expect(userIds).toHaveLength(2);
+    });
+  });
+
+  describe('FileIDSchema', () => {
+    it('parses valid file IDs', () => {
+      expect(FileIDSchema.parse('abc123')).toBe('abc123');
+      expect(FileIDSchema.parse('64-char-hash')).toBe('64-char-hash');
+    });
+
+    it('rejects invalid file IDs with ZodError', () => {
+      expect(() => FileIDSchema.parse('')).toThrow(ZodError);
+      expect(() => FileIDSchema.parse('a'.repeat(257))).toThrow(ZodError);
+      expect(() => FileIDSchema.parse(123)).toThrow(ZodError);
+    });
+
+    it('safeParse returns correct success/error objects', () => {
+      const validResult = FileIDSchema.safeParse('hash123');
+      expect(validResult.success).toBe(true);
+
+      const invalidResult = FileIDSchema.safeParse('');
+      expect(invalidResult.success).toBe(false);
+    });
+
+    it('parseFileID helper works correctly', () => {
+      expect(parseFileID('hash123')).toBe('hash123');
+      expect(() => parseFileID('')).toThrow(ZodError);
+    });
+
+    it('branded type is compatible with factory function', () => {
+      const schemaFileID: FileID = FileIDSchema.parse('hash123');
+      const factoryFileID: FileID = createFileID('hash123');
+
+      const fileIds: FileID[] = [schemaFileID, factoryFileID];
+      expect(fileIds).toHaveLength(2);
+    });
+  });
+
+  describe('Schema Composition', () => {
+    it('can compose branded type schemas into larger schemas', async () => {
+      const { z } = await import('zod');
+
+      const ServerConfigSchema = z.object({
+        port: PortSchema,
+        url: URLSchema,
+      });
+
+      const validConfig = {
+        port: 3000,
+        url: 'https://example.com',
+      };
+
+      const parsed = ServerConfigSchema.parse(validConfig);
+      expect(parsed.port).toBe(3000);
+      expect(parsed.url).toBe('https://example.com');
+
+      // Type-level check: parsed values should be branded
+      const port: Port = parsed.port;
+      const url: URL = parsed.url;
+      expect(port).toBe(3000);
+      expect(url).toBe('https://example.com');
+    });
+
+    it('validates nested schemas correctly', async () => {
+      const { z } = await import('zod');
+
+      const SessionSchema = z.object({
+        id: SessionIDSchema,
+        userId: UserIDSchema,
+        createdAt: TimestampSchema,
+      });
+
+      const validSession = {
+        id: 'sess_abc123',
+        userId: 'user_xyz789',
+        createdAt: Date.now(),
+      };
+
+      const parsed = SessionSchema.parse(validSession);
+      expect(parsed.id).toBe('sess_abc123');
+      expect(parsed.userId).toBe('user_xyz789');
+      expect(parsed.createdAt).toBeGreaterThan(0);
+    });
+
+    it('rejects invalid nested data', async () => {
+      const { z } = await import('zod');
+
+      const ServerConfigSchema = z.object({
+        port: PortSchema,
+        url: URLSchema,
+      });
+
+      const invalidConfig = {
+        port: -1, // Invalid port
+        url: 'https://example.com',
+      };
+
+      expect(() => ServerConfigSchema.parse(invalidConfig)).toThrow(ZodError);
+    });
+  });
+
+  describe('Error Messages', () => {
+    it('provides detailed error messages for invalid data', () => {
+      try {
+        PortSchema.parse(-1);
+        expect.fail('Should have thrown ZodError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ZodError);
+        const zodError = error as ZodError;
+        expect(zodError.issues).toHaveLength(1);
+        expect(zodError.issues[0].message).toContain('greater than or equal to 0');
+      }
+    });
+
+    it('provides error messages for type mismatches', () => {
+      try {
+        PortSchema.parse('not a number');
+        expect.fail('Should have thrown ZodError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ZodError);
+        const zodError = error as ZodError;
+        expect(zodError.issues[0].code).toBe('invalid_type');
+      }
+    });
   });
 });

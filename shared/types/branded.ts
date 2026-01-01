@@ -5,8 +5,14 @@
  * This prevents accidentally passing a regular number where a Port is expected,
  * or mixing up different string-based IDs.
  *
+ * This module provides two approaches to validation:
+ * 1. Factory functions (createPort, createURL, etc.) - Simple runtime validation
+ * 2. Zod schemas (PortSchema, URLSchema, etc.) - Schema-based validation with composability
+ *
  * @module branded
  */
+
+import { z } from 'zod';
 
 /**
  * Brand utility type
@@ -66,6 +72,155 @@ export type UserID = Brand<string, 'UserID'>;
  * Prevents mixing up file IDs with other string identifiers.
  */
 export type FileID = Brand<string, 'FileID'>;
+
+/**
+ * Zod Schemas for Branded Types
+ *
+ * These schemas provide schema-based validation with Zod's composability features.
+ * Use these when you need to:
+ * - Compose schemas into larger objects
+ * - Get detailed validation error messages
+ * - Use Zod's transform, refine, or other features
+ * - Validate data from external sources (API, database, etc.)
+ *
+ * @example
+ * ```typescript
+ * // Using schemas directly
+ * const port = PortSchema.parse(3000); // Port
+ * const result = PortSchema.safeParse(70000); // { success: false, error: ZodError }
+ *
+ * // Composing into larger schemas
+ * const ServerConfigSchema = z.object({
+ *   port: PortSchema,
+ *   url: URLSchema,
+ * });
+ *
+ * // Using parse functions for convenience
+ * const port = parsePort(3000); // Port (throws on invalid)
+ * ```
+ */
+
+/**
+ * Zod schema for Port (0-65535)
+ *
+ * @example
+ * ```typescript
+ * const port = PortSchema.parse(3000); // Port
+ * const invalid = PortSchema.safeParse(-1); // { success: false }
+ * ```
+ */
+export const PortSchema = z.number().int().min(0).max(65535).brand<'Port'>();
+
+/**
+ * Parse a Port with Zod validation
+ *
+ * @param n - Port number
+ * @returns Branded Port type
+ * @throws ZodError if port is not in valid range (0-65535)
+ */
+export const parsePort = (n: unknown): Port => PortSchema.parse(n) as unknown as Port;
+
+/**
+ * Zod schema for URL string
+ *
+ * @example
+ * ```typescript
+ * const url = URLSchema.parse('https://example.com'); // URL
+ * const invalid = URLSchema.safeParse('not a url'); // { success: false }
+ * ```
+ */
+export const URLSchema = z.string().url().brand<'URL'>();
+
+/**
+ * Parse a URL with Zod validation
+ *
+ * @param s - URL string
+ * @returns Branded URL type
+ * @throws ZodError if URL is malformed
+ */
+export const parseURL = (s: unknown): URL => URLSchema.parse(s) as unknown as URL;
+
+/**
+ * Zod schema for Timestamp (Unix timestamp in milliseconds)
+ *
+ * @example
+ * ```typescript
+ * const timestamp = TimestampSchema.parse(Date.now()); // Timestamp
+ * const invalid = TimestampSchema.safeParse(-1); // { success: false }
+ * ```
+ */
+export const TimestampSchema = z.number().finite().nonnegative().brand<'Timestamp'>();
+
+/**
+ * Parse a Timestamp with Zod validation
+ *
+ * @param ms - Milliseconds since Unix epoch
+ * @returns Branded Timestamp
+ * @throws ZodError if timestamp is negative or not finite
+ */
+export const parseTimestamp = (ms: unknown): Timestamp =>
+  TimestampSchema.parse(ms) as unknown as Timestamp;
+
+/**
+ * Zod schema for SessionID (1-256 characters)
+ *
+ * @example
+ * ```typescript
+ * const sessionId = SessionIDSchema.parse('abc123'); // SessionID
+ * const invalid = SessionIDSchema.safeParse(''); // { success: false }
+ * ```
+ */
+export const SessionIDSchema = z.string().min(1).max(256).brand<'SessionID'>();
+
+/**
+ * Parse a SessionID with Zod validation
+ *
+ * @param s - Session ID string
+ * @returns Branded SessionID
+ * @throws ZodError if session ID is empty or too long
+ */
+export const parseSessionID = (s: unknown): SessionID =>
+  SessionIDSchema.parse(s) as unknown as SessionID;
+
+/**
+ * Zod schema for UserID (1-256 characters)
+ *
+ * @example
+ * ```typescript
+ * const userId = UserIDSchema.parse('user_abc123'); // UserID
+ * const invalid = UserIDSchema.safeParse(''); // { success: false }
+ * ```
+ */
+export const UserIDSchema = z.string().min(1).max(256).brand<'UserID'>();
+
+/**
+ * Parse a UserID with Zod validation
+ *
+ * @param s - User ID string
+ * @returns Branded UserID
+ * @throws ZodError if user ID is empty or too long
+ */
+export const parseUserID = (s: unknown): UserID => UserIDSchema.parse(s) as unknown as UserID;
+
+/**
+ * Zod schema for FileID (1-256 characters)
+ *
+ * @example
+ * ```typescript
+ * const fileId = FileIDSchema.parse('hash123'); // FileID
+ * const invalid = FileIDSchema.safeParse(''); // { success: false }
+ * ```
+ */
+export const FileIDSchema = z.string().min(1).max(256).brand<'FileID'>();
+
+/**
+ * Parse a FileID with Zod validation
+ *
+ * @param s - File ID string (hash)
+ * @returns Branded FileID
+ * @throws ZodError if file ID is empty or too long
+ */
+export const parseFileID = (s: unknown): FileID => FileIDSchema.parse(s) as unknown as FileID;
 
 /**
  * Create a Port with validation
