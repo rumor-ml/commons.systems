@@ -134,10 +134,9 @@ async function globalSetup() {
     }
 
     // Initialize Firebase Admin with emulator
-    // Use per-worktree project ID for data isolation
-    // Integration tests in infrastructure/scripts/tests/firestore-isolation.test.sh verify
-    // that different project IDs correctly isolate Firestore data when using the same emulator.
-    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
+    // Use hardcoded project ID to match browser client initialization
+    // Browser client uses hardcoded 'demo-test' in firebase-config.ts
+    const projectId = 'demo-test';
     if (!admin.apps.length) {
       admin.initializeApp({
         projectId,
