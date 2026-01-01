@@ -116,7 +116,13 @@ if [ "${SKIP_HOSTING:-0}" = "1" ]; then
   echo ""
   echo "Hosting emulator: SKIPPED (SKIP_HOSTING=1)"
   echo ""
-  return 0
+
+  # Use exit when run directly, return when sourced
+  if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    exit 0
+  else
+    return 0
+  fi
 fi
 
 echo "Starting per-worktree hosting emulator..."

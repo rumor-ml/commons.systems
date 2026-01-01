@@ -24,7 +24,7 @@ const config = createPlaywrightConfig({
     FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099',
     FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8081',
     STORAGE_EMULATOR_HOST: process.env.STORAGE_EMULATOR_HOST || 'localhost:9199',
-    GCP_PROJECT_ID: 'demo-test', // Must match the project ID used in test fixtures (test-helpers.ts)
+    GCP_PROJECT_ID: process.env.GCP_PROJECT_ID || 'demo-test', // Use allocated project ID from environment
     PORT: process.env.TEST_PORT || '8080', // Pass PORT to Go app
   },
   // Increase timeout for tests that interact with emulators

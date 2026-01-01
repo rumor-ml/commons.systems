@@ -63,8 +63,11 @@ export class TestHelpers {
     try {
       console.log('[TestHelpers] Initializing Firestore with host:', firestoreHost);
       // Initialize Firestore client with emulator
+      // Use allocated project ID from environment to match what the Go server uses
+      const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
+      console.log('[TestHelpers] Using project ID:', projectId);
       this.firestore = new Firestore({
-        projectId: 'demo-test',
+        projectId,
         host: firestoreHost,
         ssl: false,
       });
@@ -75,7 +78,7 @@ export class TestHelpers {
       // The Storage SDK uses STORAGE_EMULATOR_HOST env var directly
       process.env.STORAGE_EMULATOR_HOST = storageHost;
       this.storage = new Storage({
-        projectId: 'demo-test',
+        projectId, // Use same project ID as Firestore
       });
       console.log('[TestHelpers] Storage initialized successfully');
 
