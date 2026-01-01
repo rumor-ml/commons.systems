@@ -102,29 +102,23 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Validate using same logic as NewPane
-	id := strings.TrimSpace(aux.ID)
-	windowID := strings.TrimSpace(aux.WindowID)
+	// Reuse constructor for validation - single source of truth
+	validated, err := NewPane(
+		aux.ID,
+		aux.Path,
+		aux.WindowID,
+		aux.WindowIndex,
+		aux.WindowActive,
+		aux.WindowBell,
+		aux.Command,
+		aux.Title,
+		aux.IsClaudePane,
+	)
+	if err != nil {
+		return err
+	}
 
-	if id == "" {
-		return fmt.Errorf("pane ID required")
-	}
-	if !strings.HasPrefix(id, "%") {
-		return fmt.Errorf("invalid pane ID format: %s (must start with %%)", id)
-	}
-	if aux.WindowIndex < 0 {
-		return fmt.Errorf("window index must be non-negative: %d", aux.WindowIndex)
-	}
-
-	p.id = id
-	p.path = aux.Path
-	p.windowID = windowID
-	p.windowIndex = aux.WindowIndex
-	p.windowActive = aux.WindowActive
-	p.windowBell = aux.WindowBell
-	p.command = aux.Command
-	p.title = aux.Title
-	p.isClaudePane = aux.IsClaudePane
+	*p = validated
 	return nil
 }
 
@@ -302,14 +296,20 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Validate all repo and branch names
+	// Validate all repo and branch names, and pane invariants
 	for repo, branches := range tempTree {
 		if repo == "" {
 			return fmt.Errorf("unmarshaled tree contains empty repo name")
 		}
-		for branch := range branches {
+		for branch, panes := range branches {
 			if branch == "" {
 				return fmt.Errorf("unmarshaled tree contains empty branch name in repo %q", repo)
+			}
+			// Validate each pane satisfies basic invariants
+			for i, pane := range panes {
+				if pane.ID() == "" {
+					return fmt.Errorf("unmarshaled tree contains invalid pane at repo %q, branch %q, index %d: empty ID", repo, branch, i)
+				}
 			}
 		}
 	}

@@ -299,6 +299,12 @@ type AlertDaemon struct {
 	currentTree   tmux.RepoTree   // Last successful tree (for health metrics and full_state)
 	treeErrors    atomic.Int64    // Total tree collection errors
 	lastTreeError atomic.Value    // Most recent tree error (string)
+
+	// Tree broadcast and construction error tracking (accessed atomically)
+	treeBroadcastErrors     atomic.Int64 // Tree broadcast failures (tree_update + tree_error)
+	lastTreeBroadcastErr    atomic.Value // Most recent tree broadcast error (string)
+	treeMsgConstructErrors  atomic.Int64 // Tree message construction failures
+	lastTreeMsgConstructErr atomic.Value // Most recent tree message construction error (string)
 }
 
 // TODO(#328): Consider extracting map copy pattern into generic helper function
@@ -458,6 +464,8 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	daemon.lastCloseError.Store("")
 	daemon.lastAudioBroadcastErr.Store("")
 	daemon.lastTreeError.Store("")
+	daemon.lastTreeBroadcastErr.Store("")
+	daemon.lastTreeMsgConstructErr.Store("")
 
 	// Create tmux tree collector (gracefully handle errors - tree collection is non-critical)
 	collector, err := tmux.NewCollector()
@@ -607,12 +615,17 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 		// Broadcast tree_error to all clients
 		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
 		if msgErr != nil {
-			debug.Log("DAEMON_TREE_ERROR_MSG_FAILED error=%v", msgErr)
+			// Track metric for message construction failures
+			d.treeMsgConstructErrors.Add(1)
+			d.lastTreeMsgConstructErr.Store(fmt.Sprintf("tree_error construction failed: %v (original error: %v)", msgErr, err))
+
+			debug.Log("DAEMON_TREE_ERROR_MSG_FAILED error=%v original_error=%v", msgErr, err)
 			fmt.Fprintf(os.Stderr, "ERROR: Failed to construct tree error message: %v\n", msgErr)
 			fmt.Fprintf(os.Stderr, "       Original tree error: %s\n", errMsg)
+			fmt.Fprintf(os.Stderr, "       CRITICAL: Clients will not be notified of tree collection failure\n")
 			return
 		}
-		d.broadcast(msg.ToWireFormat())
+		d.broadcastTree(msg.ToWireFormat())
 		return
 	}
 
@@ -621,28 +634,8 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 	debug.Log("DAEMON_TREE_UPDATE repos=%d", len(tree.Repos()))
 
 	// Broadcast tree_update to all clients
-	msg, err := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
-	if err != nil {
-		// Message construction failed - treat as collection error and broadcast to clients
-		d.treeErrors.Add(1)
-		errMsg := fmt.Sprintf("tree update message construction failed: %v", err)
-		d.lastTreeError.Store(errMsg)
-		debug.Log("DAEMON_TREE_UPDATE_MSG_FAILED error=%v total_errors=%d", err, d.treeErrors.Load())
-		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct tree update message: %v\n", err)
-
-		// Broadcast tree_error to notify clients
-		errBroadcastMsg, errBroadcastErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
-		if errBroadcastErr != nil {
-			// Catastrophic failure - can't even construct error message
-			debug.Log("DAEMON_TREE_ERROR_MSG_DOUBLE_FAILED error=%v", errBroadcastErr)
-			fmt.Fprintf(os.Stderr, "CRITICAL: Cannot construct tree error message: %v (original error: %v)\n",
-				errBroadcastErr, err)
-			return
-		}
-		d.broadcast(errBroadcastMsg.ToWireFormat())
-		return
-	}
-	d.broadcast(msg.ToWireFormat())
+	msg := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
+	d.broadcastTree(msg.ToWireFormat())
 }
 
 // isDuplicateEvent checks if an event is a duplicate within the deduplication window.
@@ -825,6 +818,27 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	}
 
 	debug.Log("DAEMON_SENT_STATE client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
+
+	// If tree collector failed initialization, notify client why tree updates won't happen
+	if d.collector == nil {
+		initErrMsg, _ := d.lastTreeError.Load().(string)
+		if initErrMsg == "" {
+			initErrMsg = "tree collector initialization failed (reason unknown)"
+		}
+
+		treeErrMsg, err := NewTreeErrorMessage(d.seqCounter.Add(1), initErrMsg)
+		if err != nil {
+			debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=tree_error error=%v", err)
+			// Don't disconnect client for this - they can still use alerts/blocking features
+		} else {
+			if err := client.sendMessage(treeErrMsg.ToWireFormat()); err != nil {
+				debug.Log("DAEMON_TREE_INIT_ERROR_SEND_FAILED client=%s error=%v", clientID, err)
+				// Don't disconnect - tree is non-critical feature
+			} else {
+				debug.Log("DAEMON_SENT_TREE_INIT_ERROR client=%s", clientID)
+			}
+		}
+	}
 
 	// Handle incoming messages
 	for {
@@ -1301,6 +1315,27 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	}
 }
 
+// broadcastTree broadcasts tree-related messages (tree_update, tree_error) and tracks failures separately.
+// This allows health metrics to distinguish tree broadcast issues from general broadcast issues.
+func (d *AlertDaemon) broadcastTree(msg Message) {
+	preBroadcastFailures := d.broadcastFailures.Load()
+	d.broadcast(msg)
+	postBroadcastFailures := d.broadcastFailures.Load()
+
+	if postBroadcastFailures > preBroadcastFailures {
+		newFailures := postBroadcastFailures - preBroadcastFailures
+		d.treeBroadcastErrors.Add(int64(newFailures))
+
+		errMsg := fmt.Sprintf("Tree broadcast failed to %d clients (type=%s, seq=%d)",
+			newFailures, msg.Type, msg.SeqNum)
+		d.lastTreeBroadcastErr.Store(errMsg)
+
+		debug.Log("TREE_BROADCAST_FAILED type=%s failures=%d total_tree_failures=%d",
+			msg.Type, newFailures, d.treeBroadcastErrors.Load())
+		fmt.Fprintf(os.Stderr, "WARNING: %s\n", errMsg)
+	}
+}
+
 // sendFullState sends the complete current daemon state to a single client.
 //
 // Purpose:
@@ -1383,6 +1418,8 @@ func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	lastWatcherErr, _ := d.lastWatcherError.Load().(string)
 	lastCloseErr, _ := d.lastCloseError.Load().(string)
 	lastAudioBroadcastErr, _ := d.lastAudioBroadcastErr.Load().(string)
+	lastTreeBroadcastErr, _ := d.lastTreeBroadcastErr.Load().(string)
+	lastTreeMsgConstructErr, _ := d.lastTreeMsgConstructErr.Load().(string)
 
 	d.clientsMu.RLock()
 	clientCount := len(d.clients)
@@ -1406,6 +1443,10 @@ func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 		lastCloseErr,
 		d.audioBroadcastFailures.Load(),
 		lastAudioBroadcastErr,
+		d.treeBroadcastErrors.Load(),
+		lastTreeBroadcastErr,
+		d.treeMsgConstructErrors.Load(),
+		lastTreeMsgConstructErr,
 		clientCount,
 		alertCount,
 		blockedCount,

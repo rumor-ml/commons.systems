@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -312,7 +313,7 @@ func TestPaneUnmarshalJSON_InvalidInput(t *testing.T) {
 			err := json.Unmarshal([]byte(tt.json), &pane)
 			if err == nil {
 				t.Errorf("Expected error containing %q, got nil", tt.wantErr)
-			} else if !contains(err.Error(), tt.wantErr) {
+			} else if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("Error %q does not contain %q", err.Error(), tt.wantErr)
 			}
 		})
@@ -344,26 +345,11 @@ func TestRepoTreeUnmarshalJSON_InvalidInput(t *testing.T) {
 			err := json.Unmarshal([]byte(tt.json), &tree)
 			if err == nil {
 				t.Errorf("Expected error containing %q, got nil", tt.wantErr)
-			} else if !contains(err.Error(), tt.wantErr) {
+			} else if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("Error %q does not contain %q", err.Error(), tt.wantErr)
 			}
 		})
 	}
-}
-
-// contains is a helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && hasSubstring(s, substr)))
-}
-
-func hasSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // TestRepoTreeClone tests that Clone creates a deep copy

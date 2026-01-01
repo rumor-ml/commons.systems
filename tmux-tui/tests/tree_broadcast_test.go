@@ -10,7 +10,7 @@ import (
 // TestTreeBroadcast_SingleClient verifies that a single client receives tree_update messages
 // from the daemon's periodic tree collection.
 func TestTreeBroadcast_SingleClient(t *testing.T) {
-	t.Skip("Flaky test: Daemon socket creation fails in sandboxed environments (issue #241)")
+	t.Skip("TODO(#309): Enable tmux socket E2E tests in sandboxed/CI environments")
 
 	socketName := uniqueSocketName()
 	sessionName := "tree-single-test"
@@ -22,18 +22,25 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 	defer cleanupStaleSockets() // Clean up after test
 
 	// Create a test pane to ensure tree has content
-	// TODO(#1138): Check error return value from tmux commands to fail early with clear errors
-	tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run()
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer tmuxCmd(socketName, "kill-session", "-t", sessionName).Run()
+	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer func() {
+		if err := tmuxCmd(socketName, "kill-session", "-t", sessionName).Run(); err != nil {
+			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
+		}
+	}()
 
 	// Connect client
 	client := daemon.NewDaemonClient()
 	if err := client.Connect(); err != nil {
 		t.Fatalf("Client failed to connect: %v", err)
 	}
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("WARNING: Cleanup failed to close client: %v", err)
+		}
+	}()
 
 	// Wait for full_state message first
 	err := waitForCondition(t, WaitCondition{
@@ -72,6 +79,7 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 					t.Logf("Received tree_update with tree (repos: %d)", len(msg.Tree.Repos()))
 					return true, nil
 				}
+				t.Logf("Waiting for tree_update, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
 			default:
 			}
 			return false, nil
@@ -89,7 +97,7 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 // TestTreeBroadcast_MultipleClients verifies that all connected clients receive
 // identical tree_update messages with the same sequence number.
 func TestTreeBroadcast_MultipleClients(t *testing.T) {
-	t.Skip("Flaky test: Daemon socket creation fails in sandboxed environments (issue #241)")
+	t.Skip("TODO(#309): Enable tmux socket E2E tests in sandboxed/CI environments")
 
 	socketName := uniqueSocketName()
 	sessionName := "tree-multi-test"
@@ -101,10 +109,14 @@ func TestTreeBroadcast_MultipleClients(t *testing.T) {
 	defer cleanupStaleSockets() // Clean up after test
 
 	// Create a test pane
-	// TODO(#1138): Check error return value from tmux commands to fail early with clear errors
-	tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run()
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer tmuxCmd(socketName, "kill-session", "-t", sessionName).Run()
+	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer func() {
+		if err := tmuxCmd(socketName, "kill-session", "-t", sessionName).Run(); err != nil {
+			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
+		}
+	}()
 
 	// Connect 3 clients
 	clients := make([]*daemon.DaemonClient, 3)
@@ -113,8 +125,11 @@ func TestTreeBroadcast_MultipleClients(t *testing.T) {
 		if err := client.Connect(); err != nil {
 			t.Fatalf("Client %d failed to connect: %v", i, err)
 		}
-		// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-		defer client.Close()
+		defer func(c *daemon.DaemonClient, idx int) {
+			if err := c.Close(); err != nil {
+				t.Logf("WARNING: Cleanup failed to close client %d: %v", idx, err)
+			}
+		}(client, i)
 		clients[i] = client
 
 		// Drain full_state message
@@ -148,6 +163,9 @@ func TestTreeBroadcast_MultipleClients(t *testing.T) {
 						receivedUpdates[i] = &msg
 						t.Logf("Client %d received tree_update (seq=%d, repos=%d)",
 							i, msg.SeqNum, len(msg.Tree.Repos()))
+					} else {
+						t.Logf("Client %d waiting for tree_update, received %s (seq=%d) - draining",
+							i, msg.Type, msg.SeqNum)
 					}
 				default:
 				}
@@ -185,7 +203,7 @@ func TestTreeBroadcast_CollectionError(t *testing.T) {
 // TestTreeBroadcast_ClientReconnect verifies that a newly connected client
 // receives the current tree in the full_state message.
 func TestTreeBroadcast_ClientReconnect(t *testing.T) {
-	t.Skip("Flaky test: Daemon socket creation fails in sandboxed environments (issue #241)")
+	t.Skip("TODO(#309): Enable tmux socket E2E tests in sandboxed/CI environments")
 
 	socketName := uniqueSocketName()
 	sessionName := "tree-reconnect-test"
@@ -197,10 +215,14 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 	defer cleanupStaleSockets() // Clean up after test
 
 	// Create a test pane
-	// TODO(#1138): Check error return value from tmux commands to fail early with clear errors
-	tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run()
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer tmuxCmd(socketName, "kill-session", "-t", sessionName).Run()
+	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer func() {
+		if err := tmuxCmd(socketName, "kill-session", "-t", sessionName).Run(); err != nil {
+			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
+		}
+	}()
 
 	// Connect first client and wait for initial tree_update
 	client1 := daemon.NewDaemonClient()
@@ -216,8 +238,11 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 			if msg.Type == daemon.MsgTypeTreeUpdate {
 				gotTreeUpdate = true
 				t.Logf("Client 1 received tree_update")
+			} else {
+				t.Logf("Client 1 waiting for tree_update, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
 			}
 		case <-time.After(1 * time.Second):
+			t.Logf("Client 1 timeout waiting for message (iteration %d/10)", i+1)
 		}
 	}
 
@@ -235,8 +260,11 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 	if err := client2.Connect(); err != nil {
 		t.Fatalf("Client 2 failed to connect: %v", err)
 	}
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer client2.Close()
+	defer func() {
+		if err := client2.Close(); err != nil {
+			t.Logf("WARNING: Cleanup failed to close client 2: %v", err)
+		}
+	}()
 
 	// Wait for full_state message - it should include the current tree
 	err := waitForCondition(t, WaitCondition{
@@ -251,6 +279,7 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 					// Tree will come in subsequent tree_update broadcast
 					return true, nil
 				}
+				t.Logf("Waiting for full_state, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
 			default:
 			}
 			return false, nil
@@ -276,6 +305,7 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 					t.Logf("Client 2 received tree_update (repos: %d)", len(msg.Tree.Repos()))
 					return true, nil
 				}
+				t.Logf("Waiting for tree_update, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
 			default:
 			}
 			return false, nil

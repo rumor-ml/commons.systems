@@ -10,11 +10,6 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
-// contains is a helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
-}
-
 // testPane is a helper to create Pane instances for testing
 // Panics on error since these are test fixtures with valid data
 func testPane(id, windowID string, windowIndex int, windowActive bool) tmux.Pane {
@@ -248,7 +243,7 @@ func TestErrorBannerPriority(t *testing.T) {
 			// Check that expected error type appears in view
 			// Note: We can't do exact string matching because lipgloss adds styling
 			// But we can verify the key text is present using strings.Contains
-			if !contains(view, tt.expectedContains) {
+			if !strings.Contains(view, tt.expectedContains) {
 				t.Errorf("Expected view to contain %q, but it was not found.\nView content:\n%s",
 					tt.expectedContains, view)
 			}
@@ -437,7 +432,7 @@ func TestTreeUpdate_ClearsErrorAfterRecovery(t *testing.T) {
 	errorText := m.treeRefreshError.Error()
 	m.errorMu.RUnlock()
 
-	if !contains(errorText, "collection failed") {
+	if !strings.Contains(errorText, "collection failed") {
 		t.Errorf("Expected error to contain 'collection failed', got: %v", errorText)
 	}
 
@@ -491,7 +486,8 @@ func TestTreeUpdateNilHandling_Enhanced(t *testing.T) {
 	})
 	m.tree = initialTree
 
-	// Simulate malformed tree_update with nil Tree (bypassed protocol validation)
+	// Simulate malformed tree_update with nil Tree (defensive client-side check)
+	// In practice, FromWireFormat should reject this, but test ensures graceful degradation
 	msg := daemonEventMsg{
 		msg: daemon.Message{
 			Type:   daemon.MsgTypeTreeUpdate,
@@ -514,10 +510,10 @@ func TestTreeUpdateNilHandling_Enhanced(t *testing.T) {
 	}
 
 	errorText := refreshErr.Error()
-	if !contains(errorText, "nil Tree") {
+	if !strings.Contains(errorText, "nil Tree") {
 		t.Errorf("Expected error to mention 'nil Tree', got: %v", errorText)
 	}
-	if !contains(errorText, "seq=42") {
+	if !strings.Contains(errorText, "seq=42") {
 		t.Errorf("Expected error to include sequence number, got: %v", errorText)
 	}
 
@@ -533,5 +529,95 @@ func TestTreeUpdateNilHandling_Enhanced(t *testing.T) {
 	panes, ok := m.tree.GetPanes("test-repo", "main")
 	if !ok || len(panes) != 1 {
 		t.Errorf("Expected tree to preserve last good state with 1 pane, got %d panes", len(panes))
+	}
+}
+
+func TestTreeUpdate_NilTreePersistsErrorUntilRecovery(t *testing.T) {
+	// Tests error state management when receiving multiple nil tree_update messages
+	// Verifies that errors persist across multiple failures until a valid update arrives
+	m := initialModel()
+
+	// Setup: Initial valid tree
+	validTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	m.tree = validTree
+
+	// Step 1: Receive nil tree_update (malformed message)
+	nilMsg := daemonEventMsg{
+		msg: daemon.Message{
+			Type:   daemon.MsgTypeTreeUpdate,
+			SeqNum: 1,
+			Tree:   nil,
+		},
+	}
+	updatedModel, _ := m.Update(nilMsg)
+	m = updatedModel.(model)
+
+	// Verify error is set
+	m.errorMu.RLock()
+	firstErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+	if firstErr == nil {
+		t.Fatal("Expected error to be set after nil Tree")
+	}
+
+	// Step 2: Receive ANOTHER nil tree_update (error still happening)
+	nilMsg2 := daemonEventMsg{
+		msg: daemon.Message{
+			Type:   daemon.MsgTypeTreeUpdate,
+			SeqNum: 2,
+			Tree:   nil,
+		},
+	}
+	updatedModel, _ = m.Update(nilMsg2)
+	m = updatedModel.(model)
+
+	// Verify error STILL set (not cleared)
+	m.errorMu.RLock()
+	secondErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+	if secondErr == nil {
+		t.Fatal("Expected error to persist across multiple nil updates")
+	}
+
+	// Step 3: Receive valid tree_update (daemon recovered)
+	recoveredTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%3", "@3", 2, false),
+			},
+		},
+	})
+	validMsg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &recoveredTree,
+		},
+	}
+	updatedModel, _ = m.Update(validMsg)
+	m = updatedModel.(model)
+
+	// Verify error CLEARED after successful update
+	m.errorMu.RLock()
+	clearedErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+	if clearedErr != nil {
+		t.Errorf("Expected error to be cleared after valid update, got: %v", clearedErr)
+	}
+
+	// Verify tree was updated
+	if len(m.tree.Repos()) == 0 {
+		t.Error("Expected tree to be updated after recovery")
+	}
+	panes, ok := m.tree.GetPanes("test-repo", "main")
+	if !ok || len(panes) != 2 {
+		t.Errorf("Expected 2 panes after recovery, got %d", len(panes))
 	}
 }

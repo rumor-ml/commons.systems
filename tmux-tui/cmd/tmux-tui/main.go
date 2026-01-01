@@ -131,7 +131,7 @@ func (m model) Init() tea.Cmd {
 	}
 
 	// Start daemon event listener if connected
-	// Tree updates will come from daemon via tree_update messages
+	// All tree updates now come from daemon broadcasts (no client-side collection)
 	if m.daemonClient != nil {
 		cmds = append(cmds, watchDaemonCmd(m.daemonClient))
 	}
@@ -356,6 +356,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.msg.Tree == nil {
 				err := fmt.Errorf("received tree_update with nil Tree field (seq=%d)", msg.msg.SeqNum)
 				debug.Log("TUI_TREE_UPDATE_INVALID error=%v", err)
+
+				// User-facing error notification
+				fmt.Fprintf(os.Stderr, "ERROR: Received invalid tree update from daemon (seqNum=%d)\n", msg.msg.SeqNum)
+				fmt.Fprintf(os.Stderr, "       Tree data is missing. This indicates a daemon bug or protocol mismatch.\n")
+				fmt.Fprintf(os.Stderr, "       Tree display will show stale data. Consider restarting the daemon.\n")
+
 				m.errorMu.Lock()
 				m.treeRefreshError = err
 				m.errorMu.Unlock()
@@ -383,7 +389,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Log reconciliation results
-			debug.Log("TUI_TREE_UPDATE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
+			debug.Log("TUI_RECONCILE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
 			m.alertsMu.Unlock()
 
 			// Clear any previous tree refresh error
@@ -396,6 +402,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case daemon.MsgTypeTreeError:
 			// Tree collection error from daemon
 			debug.Log("TUI_TREE_ERROR error=%s", msg.msg.Error)
+
+			// User-facing error notification
+			fmt.Fprintf(os.Stderr, "WARNING: Daemon failed to collect tmux tree: %s\n", msg.msg.Error)
+			fmt.Fprintf(os.Stderr, "         Tree display will show stale data until collection succeeds.\n")
+
 			m.errorMu.Lock()
 			m.treeRefreshError = fmt.Errorf("daemon tree collection failed: %s", msg.msg.Error)
 			m.errorMu.Unlock()
@@ -526,6 +537,7 @@ func watchDaemonCmd(client *daemon.DaemonClient) tea.Cmd {
 	}
 }
 
+// TODO(#1164): Add edge case tests for reconcileAlerts (empty tree, empty alerts, orphaned alerts)
 // reconcileAlerts removes alerts for panes that no longer exist.
 // It modifies the alerts map in-place and returns the same map.
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {
@@ -556,15 +568,13 @@ func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]st
 	return alerts
 }
 
-// TODO(#1120): Comment about updateActivePane function is outdated or misplaced
-// updateActivePane updates the WindowActive flag across all panes in the tree.
-// NOTE: With immutable Pane design, WindowActive is set during collection from tmux.
-// This function is currently a no-op as the WindowActive flag is read-only and comes
-// directly from tmux's window_active format string during tree refresh.
+// updateActivePane is a no-op and may be removable in future refactoring.
+// This function was part of the legacy client-side tree collection architecture.
+// With the daemon-based tree broadcast model (#482), clients receive complete tree
+// state via tree_update messages. The WindowActive flag is set during daemon's tree
+// collection and broadcast to all clients.
 func (m *model) updateActivePane(activePaneID string) {
-	// No-op: Pane fields are now immutable and WindowActive is set during collection
-	// from tmux. The tree will be updated on the next refresh cycle.
-	return
+	// No-op: Tree updates now come from daemon via tree_update messages.
 }
 
 // continueWatchingDaemon returns the appropriate command to continue watching daemon events

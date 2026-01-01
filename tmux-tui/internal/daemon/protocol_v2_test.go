@@ -3,7 +3,9 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	. "github.com/commons-systems/tmux-tui/internal/tmux"
@@ -550,7 +552,7 @@ func TestHealthMessages(t *testing.T) {
 	}
 
 	// Health Response
-	status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, 0, 0)
+	status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0, 0, 0)
 	if err != nil {
 		t.Fatalf("NewHealthStatus() error = %v", err)
 	}
@@ -980,10 +982,7 @@ func TestFromWireFormat_ErrorWrapping(t *testing.T) {
 func TestTreeUpdateMessage(t *testing.T) {
 	t.Run("empty_tree", func(t *testing.T) {
 		tree := NewRepoTree()
-		msg, err := NewTreeUpdateMessage(1, tree)
-		if err != nil {
-			t.Fatalf("NewTreeUpdateMessage() with empty tree error = %v", err)
-		}
+		msg := NewTreeUpdateMessage(1, tree)
 
 		// Verify sequence number
 		if msg.SeqNumber() != 1 {
@@ -1012,10 +1011,7 @@ func TestTreeUpdateMessage(t *testing.T) {
 			t.Fatalf("SetPanes() error = %v", err)
 		}
 
-		msg, err := NewTreeUpdateMessage(42, tree)
-		if err != nil {
-			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-		}
+		msg := NewTreeUpdateMessage(42, tree)
 
 		// Verify tree is populated
 		returnedTree := msg.Tree()
@@ -1036,10 +1032,7 @@ func TestTreeUpdateMessage(t *testing.T) {
 		pane1, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
 		tree.SetPanes("repo1", "branch1", []Pane{pane1})
 
-		msg, err := NewTreeUpdateMessage(1, tree)
-		if err != nil {
-			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-		}
+		msg := NewTreeUpdateMessage(1, tree)
 
 		// Modify original tree after message creation
 		pane2, _ := NewPane("%2", "/other", "@1", 1, false, false, "vim", "other", false)
@@ -1063,12 +1056,87 @@ func TestTreeUpdateMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("deep_copy_prevents_nested_mutation", func(t *testing.T) {
+		// Create tree with panes
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path1", "@0", 0, true, false, "zsh", "title1", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1})
+
+		msg := NewTreeUpdateMessage(1, tree)
+
+		// Mutate EXISTING branch's panes (not just adding new repos)
+		pane2, _ := NewPane("%2", "/path2", "@1", 1, false, false, "vim", "title2", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1, pane2}) // Replace with 2 panes
+
+		// Message should still have only 1 pane
+		msgTree := msg.Tree()
+		panes, ok := msgTree.GetPanes("repo1", "branch1")
+		if !ok {
+			t.Fatal("Message tree should have repo1/branch1")
+		}
+		if len(panes) != 1 {
+			t.Errorf("Message tree should be immutable to nested mutations: got %d panes, want 1", len(panes))
+		}
+	})
+
+	t.Run("concurrent_mutation_safety", func(t *testing.T) {
+		// Test that tree can be safely mutated while message is being broadcast
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1})
+
+		msg := NewTreeUpdateMessage(1, tree)
+
+		// Simulate concurrent mutation while serializing
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		// Goroutine 1: Serialize message (simulates broadcast)
+		var wireData []byte
+		var serializeErr error
+		go func() {
+			defer wg.Done()
+			wire := msg.ToWireFormat()
+			wireData, serializeErr = json.Marshal(wire)
+		}()
+
+		// Goroutine 2: Mutate original tree
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 100; i++ {
+				paneN, _ := NewPane(fmt.Sprintf("%%%d", i+2), "/path", "@0", 0, false, false, "vim", "title", false)
+				tree.SetPanes("repo1", "branch1", []Pane{pane1, paneN})
+			}
+		}()
+
+		wg.Wait()
+
+		// Verify no race detector warnings (test must run with -race)
+		// Verify serialization succeeded
+		if serializeErr != nil {
+			t.Errorf("Serialization failed during concurrent mutation: %v", serializeErr)
+		}
+		if len(wireData) == 0 {
+			t.Error("Serialization produced empty data during concurrent mutation")
+		}
+
+		// Verify message tree still has original pane
+		msgTree := msg.Tree()
+		panes, ok := msgTree.GetPanes("repo1", "branch1")
+		if !ok {
+			t.Fatal("Message tree should have repo1/branch1")
+		}
+		if len(panes) != 1 {
+			t.Errorf("Message should be isolated from concurrent mutations: got %d panes, want 1", len(panes))
+		}
+	})
+
 	t.Run("wire_format_includes_tree", func(t *testing.T) {
 		tree := NewRepoTree()
 		pane, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
 		tree.SetPanes("test-repo", "test-branch", []Pane{pane})
 
-		msg, _ := NewTreeUpdateMessage(99, tree)
+		msg := NewTreeUpdateMessage(99, tree)
 		wire := msg.ToWireFormat()
 
 		// Verify wire format
@@ -1090,7 +1158,7 @@ func TestTreeUpdateMessage(t *testing.T) {
 
 	t.Run("round_trip_empty_tree", func(t *testing.T) {
 		tree := NewRepoTree()
-		msg1, _ := NewTreeUpdateMessage(5, tree)
+		msg1 := NewTreeUpdateMessage(5, tree)
 		wire := msg1.ToWireFormat()
 
 		msg2, err := FromWireFormat(wire)
@@ -1115,7 +1183,7 @@ func TestTreeUpdateMessage(t *testing.T) {
 		tree.SetPanes("commons.systems", "main", []Pane{pane1, pane2})
 		tree.SetPanes("other-repo", "feature-branch", []Pane{pane3})
 
-		msg1, _ := NewTreeUpdateMessage(100, tree)
+		msg1 := NewTreeUpdateMessage(100, tree)
 		wire := msg1.ToWireFormat()
 		msg2, err := FromWireFormat(wire)
 		if err != nil {
@@ -1149,7 +1217,7 @@ func TestTreeUpdateMessage(t *testing.T) {
 		testSeqNums := []uint64{0, 1, 42, 999, 1000000}
 
 		for _, seqNum := range testSeqNums {
-			msg, _ := NewTreeUpdateMessage(seqNum, tree)
+			msg := NewTreeUpdateMessage(seqNum, tree)
 			if msg.SeqNumber() != seqNum {
 				t.Errorf("SeqNumber() = %v, want %v", msg.SeqNumber(), seqNum)
 			}
@@ -1401,10 +1469,7 @@ func TestTreeUpdateMessage_JSONSerialization(t *testing.T) {
 	}
 
 	// Create TreeUpdateMessage
-	msg, err := NewTreeUpdateMessage(42, tree)
-	if err != nil {
-		t.Fatalf("Failed to create tree update message: %v", err)
-	}
+	msg := NewTreeUpdateMessage(42, tree)
 
 	// Convert to wire format (this is what gets JSON serialized during broadcast)
 	wireMsg := msg.ToWireFormat()

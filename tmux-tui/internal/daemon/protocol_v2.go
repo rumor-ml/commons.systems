@@ -728,10 +728,12 @@ type TreeUpdateMessageV2 struct {
 }
 
 // NewTreeUpdateMessage creates a validated TreeUpdateMessage.
-// Tree is deep-copied to ensure message immutability. Caller may safely
-// mutate the original tree after passing it - the message will not be affected.
-func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) (*TreeUpdateMessageV2, error) {
-	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}, nil
+// Tree is deep-copied to ensure message immutability and prevent data races during
+// concurrent broadcasting to multiple clients. The daemon may continue mutating its
+// tree state while messages are being serialized/sent. Caller may safely mutate the
+// original tree after passing it - the message will not be affected.
+func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV2 {
+	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}
 }
 
 func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
@@ -744,8 +746,8 @@ func (m *TreeUpdateMessageV2) ToWireFormat() Message {
 	}
 }
 
-// Tree returns the tmux tree state
-func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree }
+// Tree returns a deep copy of the tmux tree state to prevent external mutation
+func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree.Clone() }
 
 // 20. TreeErrorMessageV2 represents a tree collection failure
 type TreeErrorMessageV2 struct {
@@ -945,10 +947,7 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 				"  3. Report this error if it persists",
 				MsgTypeTreeUpdate, msg.SeqNum)
 		}
-		v2msg, err := NewTreeUpdateMessage(msg.SeqNum, *msg.Tree)
-		if err != nil {
-			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w", MsgTypeTreeUpdate, msg.SeqNum, err)
-		}
+		v2msg := NewTreeUpdateMessage(msg.SeqNum, *msg.Tree)
 		return v2msg, nil
 
 	case MsgTypeTreeError:

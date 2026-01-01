@@ -579,7 +579,7 @@ func TestRoundTripFidelity(t *testing.T) {
 	})
 
 	t.Run("health_response_message", func(t *testing.T) {
-		status, err := NewHealthStatus(2, "", 1, "", 0, "", 0, "", 5, 10, 3)
+		status, err := NewHealthStatus(2, "", 1, "", 0, "", 0, "", 0, "", 0, "", 5, 10, 3)
 		if err != nil {
 			t.Fatalf("Failed to create health status: %v", err)
 		}
