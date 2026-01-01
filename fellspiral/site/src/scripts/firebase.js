@@ -298,11 +298,10 @@ function validateCardData(cardData) {
 // Only fetches public cards - matches the security rules which require isPublic == true
 export async function getAllCards() {
   await initFirebase();
-  // Timeout of 5 seconds balances user experience with network variance:
-  // - Typical Firestore cold-start latency: 1-2s, warm queries: 100-500ms
-  // - 5s allows for slow connections while preventing indefinite hangs
-  // - Beyond 5s, perceived wait becomes unacceptable for card list loading
-  const FIRESTORE_TIMEOUT_MS = 5000;
+  // Timeout of 30 seconds for emulator environment (may be slower due to system load)
+  // Production: typical latency 1-2s cold-start, 100-500ms warm queries
+  // Emulator: can be slower due to JVM startup, especially on overloaded systems or Firefox
+  const FIRESTORE_TIMEOUT_MS = 30000;
 
   try {
     // Query for public cards only - this matches the security rules requirement
