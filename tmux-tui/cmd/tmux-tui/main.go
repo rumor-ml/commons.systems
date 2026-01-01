@@ -373,12 +373,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Circuit breaker: disconnect after 3 consecutive nil updates
 				if m.consecutiveNilUpdates >= 3 {
-					fmt.Fprintf(os.Stderr, "CRITICAL: Received %d consecutive nil tree updates. Disconnecting from daemon.\n", m.consecutiveNilUpdates)
-					fmt.Fprintf(os.Stderr, "\n")
-					fmt.Fprintf(os.Stderr, "       To recover:\n")
-					fmt.Fprintf(os.Stderr, "       1. pkill tmux-tui-daemon\n")
-					fmt.Fprintf(os.Stderr, "       2. tmux-tui-daemon &\n")
-					fmt.Fprintf(os.Stderr, "       3. Restart tmux-tui clients\n")
+					fmt.Fprintf(os.Stderr, `CRITICAL: Received %d consecutive nil tree updates. Disconnecting from daemon.
+
+       To recover:
+       1. pkill tmux-tui-daemon
+       2. tmux-tui-daemon &
+       3. Restart tmux-tui clients
+`, m.consecutiveNilUpdates)
 
 					if m.daemonClient != nil {
 						m.daemonClient.Close()
@@ -387,7 +388,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.errorMu.Lock()
 					m.treeRefreshError = fmt.Errorf("daemon sending malformed updates - disconnected after %d failures", m.consecutiveNilUpdates)
 					m.errorMu.Unlock()
-					return m, nil // Stop watching
+					return m, nil // Circuit breaker: stop watching daemon after too many malformed updates
 				}
 
 				fmt.Fprintf(os.Stderr, "       Tree display will show stale data. Consider restarting the daemon.\n")
@@ -452,10 +453,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Continue watching
-		if m.daemonClient != nil {
-			return m, watchDaemonCmd(m.daemonClient)
-		}
-		return m, nil
+		return m, m.continueWatchingDaemon()
 
 	case timeTickMsg:
 		// Time tick for header update (1s)
@@ -562,7 +560,7 @@ func watchDaemonCmd(client *daemon.DaemonClient) tea.Cmd {
 	}
 }
 
-// TODO(#1164): Add edge case tests for reconcileAlerts (empty tree, empty alerts, orphaned alerts)
+// TODO(#482): Add edge case tests for reconcileAlerts (empty tree, empty alerts, orphaned alerts)
 // reconcileAlerts removes alerts for panes that no longer exist.
 // It modifies the alerts map in-place and returns the same map.
 func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]string {

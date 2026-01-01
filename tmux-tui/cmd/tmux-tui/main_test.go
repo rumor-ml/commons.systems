@@ -820,3 +820,133 @@ func TestTreeError_MultipleConsecutiveFailures(t *testing.T) {
 		t.Errorf("Error message suspiciously long (%d chars), possible accumulation", errorLen)
 	}
 }
+
+// TestTreeUpdate_CircuitBreakerRecovery verifies that the circuit breaker mechanism
+// properly resets when valid tree updates arrive after consecutive nil tree failures.
+// Tests the consecutiveNilUpdates counter and treeRefreshError clearing on recovery.
+func TestTreeUpdate_CircuitBreakerRecovery(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Initial valid tree
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Send 2 consecutive nil tree_update messages (below circuit breaker threshold of 3)
+	for i := 1; i <= 2; i++ {
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type:   daemon.MsgTypeTreeUpdate,
+				SeqNum: uint64(i),
+				Tree:   nil,
+			},
+		}
+		updatedModel, _ := m.Update(msg)
+		m = updatedModel.(model)
+	}
+
+	// Verify consecutiveNilUpdates incremented
+	if m.consecutiveNilUpdates != 2 {
+		t.Errorf("Expected consecutiveNilUpdates=2, got %d", m.consecutiveNilUpdates)
+	}
+
+	// Verify treeRefreshError is set
+	m.errorMu.RLock()
+	hasError := m.treeRefreshError != nil
+	m.errorMu.RUnlock()
+
+	if !hasError {
+		t.Fatal("Expected treeRefreshError to be set after nil tree updates")
+	}
+
+	// Send valid tree_update (daemon recovered)
+	validTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%3", "@3", 2, false),
+			},
+		},
+	})
+	validMsg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &validTree,
+		},
+	}
+	updatedModel, _ := m.Update(validMsg)
+	m = updatedModel.(model)
+
+	// Verify consecutiveNilUpdates resets to 0
+	if m.consecutiveNilUpdates != 0 {
+		t.Errorf("Expected consecutiveNilUpdates to reset to 0 after valid update, got %d", m.consecutiveNilUpdates)
+	}
+
+	// Verify treeRefreshError is cleared
+	m.errorMu.RLock()
+	refreshErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if refreshErr != nil {
+		t.Errorf("Expected treeRefreshError to be cleared after valid update, got: %v", refreshErr)
+	}
+
+	// Verify tree is updated correctly
+	if len(m.tree.Repos()) != 1 {
+		t.Errorf("Expected 1 repo after valid update, got %d", len(m.tree.Repos()))
+	}
+	panes, ok := m.tree.GetPanes("test-repo", "main")
+	if !ok || len(panes) != 2 {
+		t.Errorf("Expected 2 panes after valid update, got %d", len(panes))
+	}
+}
+
+// TestTreeUpdate_EmptyTreeValid verifies that client correctly handles tree_update
+// with empty RepoTree (0 repos), distinguishing it from nil tree (malformed message).
+// Empty tree is valid state (e.g., no tmux sessions running).
+func TestTreeUpdate_EmptyTreeValid(t *testing.T) {
+	m := initialModel()
+
+	// Populate with initial data
+	tree := testTree(map[string]map[string][]tmux.Pane{
+		"repo1": {"main": {testPane("%1", "@1", 0, true)}},
+	})
+	m.tree = tree
+
+	// Receive empty tree update (all sessions killed)
+	emptyTree := tmux.NewRepoTree()
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &emptyTree,
+		},
+	}
+
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify tree is empty (not nil)
+	if len(m.tree.Repos()) != 0 {
+		t.Errorf("Expected empty tree after update, got %d repos", len(m.tree.Repos()))
+	}
+
+	// Verify NO error is set (empty != error)
+	m.errorMu.RLock()
+	refreshErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if refreshErr != nil {
+		t.Errorf("Empty tree should not trigger error, got: %v", refreshErr)
+	}
+
+	// Verify consecutiveNilUpdates is 0 (empty tree is valid)
+	if m.consecutiveNilUpdates != 0 {
+		t.Errorf("Empty tree should not increment consecutiveNilUpdates, got %d", m.consecutiveNilUpdates)
+	}
+}

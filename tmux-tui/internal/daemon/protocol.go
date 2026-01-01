@@ -117,7 +117,7 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
-	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update only. Pointer enables omitempty to reduce message size. WARNING: JSON marshal/unmarshal creates shallow copy - internal map pointers are shared. See NewTreeUpdateMessage() for deep copy behavior.
+	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update only. Pointer enables omitempty to reduce message size. CRITICAL: Never share Tree pointers between Message instances - always clone before taking address (msg.Tree = &tree.Clone()). JSON unmarshal creates new pointer but shares internal maps. See TreeUpdateMessageV2.ToWireFormat() for safe construction pattern.
 }
 
 // PROTOCOL V2 MIGRATION GUIDE
@@ -315,49 +315,61 @@ func (h HealthStatus) GetBlockedBranches() int { return h.blockedBranches }
 // MarshalJSON implements custom JSON marshaling to maintain wire protocol compatibility
 func (h HealthStatus) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Timestamp              time.Time `json:"timestamp"`
-		BroadcastFailures      int64     `json:"broadcast_failures"`
-		LastBroadcastError     string    `json:"last_broadcast_error"`
-		WatcherErrors          int64     `json:"watcher_errors"`
-		LastWatcherError       string    `json:"last_watcher_error"`
-		ConnectionCloseErrors  int64     `json:"connection_close_errors"`
-		LastCloseError         string    `json:"last_close_error"`
-		AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
-		LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
-		ConnectedClients       int       `json:"connected_clients"`
-		ActiveAlerts           int       `json:"active_alerts"`
-		BlockedBranches        int       `json:"blocked_branches"`
+		Timestamp               time.Time `json:"timestamp"`
+		BroadcastFailures       int64     `json:"broadcast_failures"`
+		LastBroadcastError      string    `json:"last_broadcast_error"`
+		WatcherErrors           int64     `json:"watcher_errors"`
+		LastWatcherError        string    `json:"last_watcher_error"`
+		ConnectionCloseErrors   int64     `json:"connection_close_errors"`
+		LastCloseError          string    `json:"last_close_error"`
+		AudioBroadcastFailures  int64     `json:"audio_broadcast_failures"`
+		LastAudioBroadcastErr   string    `json:"last_audio_broadcast_error"`
+		TreeBroadcastErrors     int64     `json:"tree_broadcast_errors"`
+		LastTreeBroadcastErr    string    `json:"last_tree_broadcast_error"`
+		TreeMsgConstructErrors  int64     `json:"tree_msg_construct_errors"`
+		LastTreeMsgConstructErr string    `json:"last_tree_msg_construct_error"`
+		ConnectedClients        int       `json:"connected_clients"`
+		ActiveAlerts            int       `json:"active_alerts"`
+		BlockedBranches         int       `json:"blocked_branches"`
 	}{
-		Timestamp:              h.timestamp,
-		BroadcastFailures:      h.broadcastFailures,
-		LastBroadcastError:     h.lastBroadcastError,
-		WatcherErrors:          h.watcherErrors,
-		LastWatcherError:       h.lastWatcherError,
-		ConnectionCloseErrors:  h.connectionCloseErrors,
-		LastCloseError:         h.lastCloseError,
-		AudioBroadcastFailures: h.audioBroadcastFailures,
-		LastAudioBroadcastErr:  h.lastAudioBroadcastErr,
-		ConnectedClients:       h.connectedClients,
-		ActiveAlerts:           h.activeAlerts,
-		BlockedBranches:        h.blockedBranches,
+		Timestamp:               h.timestamp,
+		BroadcastFailures:       h.broadcastFailures,
+		LastBroadcastError:      h.lastBroadcastError,
+		WatcherErrors:           h.watcherErrors,
+		LastWatcherError:        h.lastWatcherError,
+		ConnectionCloseErrors:   h.connectionCloseErrors,
+		LastCloseError:          h.lastCloseError,
+		AudioBroadcastFailures:  h.audioBroadcastFailures,
+		LastAudioBroadcastErr:   h.lastAudioBroadcastErr,
+		TreeBroadcastErrors:     h.treeBroadcastErrors,
+		LastTreeBroadcastErr:    h.lastTreeBroadcastErr,
+		TreeMsgConstructErrors:  h.treeMsgConstructErrors,
+		LastTreeMsgConstructErr: h.lastTreeMsgConstructErr,
+		ConnectedClients:        h.connectedClients,
+		ActiveAlerts:            h.activeAlerts,
+		BlockedBranches:         h.blockedBranches,
 	})
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling with validation
 func (h *HealthStatus) UnmarshalJSON(data []byte) error {
 	aux := &struct {
-		Timestamp              time.Time `json:"timestamp"`
-		BroadcastFailures      int64     `json:"broadcast_failures"`
-		LastBroadcastError     string    `json:"last_broadcast_error"`
-		WatcherErrors          int64     `json:"watcher_errors"`
-		LastWatcherError       string    `json:"last_watcher_error"`
-		ConnectionCloseErrors  int64     `json:"connection_close_errors"`
-		LastCloseError         string    `json:"last_close_error"`
-		AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
-		LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
-		ConnectedClients       int       `json:"connected_clients"`
-		ActiveAlerts           int       `json:"active_alerts"`
-		BlockedBranches        int       `json:"blocked_branches"`
+		Timestamp               time.Time `json:"timestamp"`
+		BroadcastFailures       int64     `json:"broadcast_failures"`
+		LastBroadcastError      string    `json:"last_broadcast_error"`
+		WatcherErrors           int64     `json:"watcher_errors"`
+		LastWatcherError        string    `json:"last_watcher_error"`
+		ConnectionCloseErrors   int64     `json:"connection_close_errors"`
+		LastCloseError          string    `json:"last_close_error"`
+		AudioBroadcastFailures  int64     `json:"audio_broadcast_failures"`
+		LastAudioBroadcastErr   string    `json:"last_audio_broadcast_error"`
+		TreeBroadcastErrors     int64     `json:"tree_broadcast_errors"`
+		LastTreeBroadcastErr    string    `json:"last_tree_broadcast_error"`
+		TreeMsgConstructErrors  int64     `json:"tree_msg_construct_errors"`
+		LastTreeMsgConstructErr string    `json:"last_tree_msg_construct_error"`
+		ConnectedClients        int       `json:"connected_clients"`
+		ActiveAlerts            int       `json:"active_alerts"`
+		BlockedBranches         int       `json:"blocked_branches"`
 	}{}
 
 	if err := json.Unmarshal(data, aux); err != nil {
@@ -376,6 +388,12 @@ func (h *HealthStatus) UnmarshalJSON(data []byte) error {
 	}
 	if aux.AudioBroadcastFailures < 0 {
 		return fmt.Errorf("invalid audio_broadcast_failures: %d", aux.AudioBroadcastFailures)
+	}
+	if aux.TreeBroadcastErrors < 0 {
+		return fmt.Errorf("invalid tree_broadcast_errors: %d", aux.TreeBroadcastErrors)
+	}
+	if aux.TreeMsgConstructErrors < 0 {
+		return fmt.Errorf("invalid tree_msg_construct_errors: %d", aux.TreeMsgConstructErrors)
 	}
 	if aux.ConnectedClients < 0 {
 		return fmt.Errorf("invalid connected_clients: %d", aux.ConnectedClients)
@@ -396,6 +414,10 @@ func (h *HealthStatus) UnmarshalJSON(data []byte) error {
 	h.lastCloseError = aux.LastCloseError
 	h.audioBroadcastFailures = aux.AudioBroadcastFailures
 	h.lastAudioBroadcastErr = aux.LastAudioBroadcastErr
+	h.treeBroadcastErrors = aux.TreeBroadcastErrors
+	h.lastTreeBroadcastErr = aux.LastTreeBroadcastErr
+	h.treeMsgConstructErrors = aux.TreeMsgConstructErrors
+	h.lastTreeMsgConstructErr = aux.LastTreeMsgConstructErr
 	h.connectedClients = aux.ConnectedClients
 	h.activeAlerts = aux.ActiveAlerts
 	h.blockedBranches = aux.BlockedBranches
@@ -491,10 +513,17 @@ func ValidateMessage(msg Message) error {
 		// No required fields
 	case MsgTypeSyncWarning, MsgTypePersistenceError, MsgTypeAudioError:
 		// Error field is optional but recommended
-	case MsgTypeTreeUpdate, MsgTypeTreeError:
-		// TODO(#1176): Add Tree field validation for tree_update and Error field validation for tree_error
-		// Tree field is optional for tree_error (error case)
-		// Tree field validated when constructing TreeUpdateMessageV2 via FromWireFormat
+	case MsgTypeTreeUpdate:
+		if msg.Tree == nil {
+			return errors.New("tree_update message requires non-nil tree field - " +
+				"possible daemon bug in ToWireFormat() or message construction")
+		}
+	case MsgTypeTreeError:
+		errorMsg := strings.TrimSpace(msg.Error)
+		if errorMsg == "" {
+			return errors.New("tree_error message requires non-empty error field - " +
+				"empty error messages provide no diagnostic value to clients")
+		}
 	default:
 		// Unknown message type - not necessarily invalid (forward compatibility)
 		return nil

@@ -576,9 +576,17 @@ func (d *AlertDaemon) watchPaneFocus() {
 	}
 }
 
-// watchTree monitors tmux tree state and broadcasts updates every 30 seconds.
+// recordTreeMsgConstructError tracks message construction failures with consistent logging
+func (d *AlertDaemon) recordTreeMsgConstructError(errMsg string) {
+	d.treeMsgConstructErrors.Add(1)
+	d.lastTreeMsgConstructErr.Store(errMsg)
+	debug.Log("DAEMON_TREE_MSG_CONSTRUCT_FAILED error=%s", errMsg)
+	fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+}
+
+// watchTree monitors tmux tree state and broadcasts updates to all clients.
+// Tree is collected and broadcast immediately on daemon startup, then every 30 seconds thereafter.
 // This centralizes tree collection in the daemon, eliminating N×client redundant queries.
-// Tree is collected and broadcast immediately on daemon startup, then every 30s thereafter.
 func (d *AlertDaemon) watchTree() {
 	// Collect immediately on start
 	d.collectAndBroadcastTree()
@@ -597,8 +605,9 @@ func (d *AlertDaemon) watchTree() {
 }
 
 // collectAndBroadcastTree collects current tmux tree state and broadcasts to all clients.
-// Errors are non-fatal - broadcasts tree_error and continues operation.
-// TODO(#1121): Add test to verify seqNum increases monotonically across multiple broadcasts
+// Collection errors are non-fatal: broadcasts tree_error to notify clients and continues operation.
+// Message construction failures are logged and attempt to broadcast tree_error if possible.
+// TODO(#482): Add test to verify seqNum increases monotonically across multiple broadcasts
 func (d *AlertDaemon) collectAndBroadcastTree() {
 	// Lock collector for exclusive access during GetTree()
 	d.collectorMu.Lock()
@@ -617,11 +626,7 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
 		if msgErr != nil {
 			// Track metric for message construction failures
-			d.treeMsgConstructErrors.Add(1)
-			d.lastTreeMsgConstructErr.Store(fmt.Sprintf("tree_error construction failed: %v (original error: %v)", msgErr, err))
-
-			debug.Log("DAEMON_TREE_ERROR_MSG_FAILED error=%v original_error=%v", msgErr, err)
-			fmt.Fprintf(os.Stderr, "ERROR: Failed to construct tree error message: %v\n", msgErr)
+			d.recordTreeMsgConstructError(fmt.Sprintf("tree_error construction failed: %v (original error: %v)", msgErr, err))
 			fmt.Fprintf(os.Stderr, "       Original tree error: %s\n", errMsg)
 			fmt.Fprintf(os.Stderr, "       CRITICAL: Clients will not be notified of tree collection failure\n")
 			return
@@ -639,25 +644,32 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 
 	// Defensive: Verify message construction succeeded
 	if msg == nil {
-		d.treeMsgConstructErrors.Add(1)
-		errMsg := "tree_update message construction returned nil (possible OOM or data corruption)"
-		d.lastTreeMsgConstructErr.Store(errMsg)
+		errMsg := fmt.Sprintf("tree_update message construction returned nil (repos=%d, possible OOM or data corruption)", len(tree.Repos()))
+		d.recordTreeMsgConstructError(errMsg)
+		fmt.Fprintf(os.Stderr, "       Attempting to notify clients with tree_error message\n")
 
-		debug.Log("DAEMON_TREE_MSG_CONSTRUCT_FAILED repos=%d error=%s", len(tree.Repos()), errMsg)
-		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
-		fmt.Fprintf(os.Stderr, "       Clients will not receive this tree update\n")
+		// Attempt to notify clients instead of silent return
+		if treeErrMsg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg); msgErr == nil {
+			d.broadcastTree(treeErrMsg.ToWireFormat())
+		} else {
+			fmt.Fprintf(os.Stderr, "       CRITICAL: Cannot construct tree_error - clients orphaned: %v\n", msgErr)
+		}
 		return
 	}
 
 	// Verify wire format conversion succeeds
 	wireMsg := msg.ToWireFormat()
 	if wireMsg.Tree == nil {
-		d.treeMsgConstructErrors.Add(1)
-		errMsg := "ToWireFormat returned message with nil Tree field"
-		d.lastTreeMsgConstructErr.Store(errMsg)
+		errMsg := "ToWireFormat returned message with nil Tree field - possible memory corruption"
+		d.recordTreeMsgConstructError(errMsg)
+		fmt.Fprintf(os.Stderr, "       Attempting to notify clients with tree_error message\n")
 
-		debug.Log("DAEMON_WIRE_FORMAT_FAILED error=%s", errMsg)
-		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+		// Attempt to notify clients instead of silently dropping the update
+		if treeErrMsg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg); msgErr == nil {
+			d.broadcastTree(treeErrMsg.ToWireFormat())
+		} else {
+			fmt.Fprintf(os.Stderr, "       CRITICAL: Cannot construct tree_error - clients orphaned: %v\n", msgErr)
+		}
 		return
 	}
 
@@ -855,10 +867,16 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 		treeErrMsg, err := NewTreeErrorMessage(d.seqCounter.Add(1), initErrMsg)
 		if err != nil {
 			debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=tree_error error=%v", err)
+			fmt.Fprintf(os.Stderr, "ERROR: Cannot construct tree_error message for client %s: %v\n", clientID, err)
+			fmt.Fprintf(os.Stderr, "       Collector initialization failed: %s\n", initErrMsg)
+			fmt.Fprintf(os.Stderr, "       Client will see empty tree state without explanation\n")
 			// Don't disconnect client for this - they can still use alerts/blocking features
 		} else {
 			if err := client.sendMessage(treeErrMsg.ToWireFormat()); err != nil {
 				debug.Log("DAEMON_TREE_INIT_ERROR_SEND_FAILED client=%s error=%v", clientID, err)
+				fmt.Fprintf(os.Stderr, "WARNING: Failed to send tree_error to newly connected client %s: %v\n", clientID, err)
+				fmt.Fprintf(os.Stderr, "         Original error: %s\n", initErrMsg)
+				fmt.Fprintf(os.Stderr, "         Client will see empty tree state\n")
 				// Don't disconnect - tree is non-critical feature
 			} else {
 				debug.Log("DAEMON_SENT_TREE_INIT_ERROR client=%s", clientID)
@@ -1392,10 +1410,18 @@ func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) e
 		}
 
 		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
-		if msgErr == nil {
+		if msgErr != nil {
+			// Cannot construct error message - log the failure
+			debug.Log("DAEMON_TREE_ERROR_CONSTRUCT_FAILED client=%s construct_error=%v original_error=%s", clientID, msgErr, errMsg)
+			fmt.Fprintf(os.Stderr, "ERROR: Cannot construct tree_error message for client %s: %v\n", clientID, msgErr)
+			fmt.Fprintf(os.Stderr, "       Tree initialization failed with: %s\n", errMsg)
+			fmt.Fprintf(os.Stderr, "       Client will see empty tree state without explanation\n")
+			// Don't return - client can still use alerts and blocking features
+		} else {
 			wireMsg := msg.ToWireFormat()
 			if sendErr := client.sendMessage(wireMsg); sendErr != nil {
 				debug.Log("DAEMON_TREE_ERROR_SEND_FAILED client=%s error=%v", clientID, sendErr)
+				fmt.Fprintf(os.Stderr, "WARNING: Failed to send tree_error to client %s: %v\n", clientID, sendErr)
 			} else {
 				debug.Log("DAEMON_TREE_ERROR_SENT client=%s reason=%s", clientID, errMsg)
 			}

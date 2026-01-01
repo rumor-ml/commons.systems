@@ -338,7 +338,7 @@ func TestTreeBroadcast_DaemonRestart(t *testing.T) {
 // expected performance benefits over N×client collections.
 func TestTreeBroadcast_Performance(t *testing.T) {
 	t.Skip("Performance benchmarks should be run separately")
-	// TODO: Implement benchmark comparing:
+	// TODO(#1178): Implement benchmark comparing:
 	// - Daemon: 1 collection + broadcast to N clients
 	// - Client: N independent collections
 	// Expected: Daemon approach is ~90% faster with 12 clients

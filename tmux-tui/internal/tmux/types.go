@@ -188,8 +188,8 @@ func NewRepoTree() RepoTree {
 }
 
 // GetPanes retrieves panes for a given repo and branch.
-// Returns the pane slice directly. Since Pane is a value type with no pointer fields,
-// callers cannot mutate the tree's internal state. Returns nil and false if not found.
+// Returns a defensive copy of the pane slice to prevent external mutation.
+// Returns nil and false if not found.
 func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
 	branches, ok := rt.tree[repo]
 	if !ok {
@@ -199,8 +199,10 @@ func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
 	if !ok {
 		return nil, false
 	}
-	// Safe to return directly - Pane is a value type with no pointers
-	return panes, true
+	// Defensive copy to prevent slice mutation
+	result := make([]Pane, len(panes))
+	copy(result, panes)
+	return result, true
 }
 
 // SetPanes sets panes for a given repo and branch with validation.
