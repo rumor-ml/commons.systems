@@ -36,7 +36,10 @@ export const BATCH_SIZE = 500;
 /**
  * Identify cards that need migration (missing isPublic field)
  * @param {Object[]} cards - Array of card documents with id and data() method
- * @returns {{ cardsNeedingUpdate: Object[], cardsAlreadyHaveField: string[] }}
+ * @returns {{
+ *   cardsNeedingUpdate: Array<{id: string, title: string, createdBy: string}>,
+ *   cardsAlreadyHaveField: Array<{id: string, title: string, createdBy: string}>
+ * }}
  */
 export function identifyCardsNeedingMigration(cards) {
   const cardsNeedingUpdate = [];
@@ -44,16 +47,16 @@ export function identifyCardsNeedingMigration(cards) {
 
   cards.forEach((doc) => {
     const data = typeof doc.data === 'function' ? doc.data() : doc;
-    const id = doc.id;
+    const cardInfo = {
+      id: doc.id,
+      title: data.title || '(untitled)',
+      createdBy: data.createdBy || '(unknown)',
+    };
 
     if (data.isPublic === undefined) {
-      cardsNeedingUpdate.push({
-        id,
-        title: data.title || '(untitled)',
-        createdBy: data.createdBy || '(unknown)',
-      });
+      cardsNeedingUpdate.push(cardInfo);
     } else {
-      cardsAlreadyHaveField.push(id);
+      cardsAlreadyHaveField.push(cardInfo);
     }
   });
 
@@ -82,7 +85,14 @@ export function splitIntoBatches(cards, batchSize = BATCH_SIZE) {
  * @param {Object} options - Migration options
  * @param {boolean} options.dryRun - If true, don't actually write to database
  * @param {Function} options.getServerTimestamp - Function returning server timestamp
- * @returns {Promise<{ success: boolean, updatedCount: number, error?: Error, failedBatchNum?: number }>}
+ * @returns {Promise<{
+ *   success: boolean,
+ *   updatedCount: number,
+ *   dryRun?: boolean,
+ *   error?: Error,
+ *   failedBatchNum?: number,
+ *   failedCardIds?: string[]
+ * }>}
  */
 export async function executeBatchMigration(db, cardsRef, cardsNeedingUpdate, options = {}) {
   const {
@@ -107,6 +117,8 @@ export async function executeBatchMigration(db, cardsRef, cardsNeedingUpdate, op
       batch.update(docRef, {
         isPublic: true,
         _migratedIsPublic: getServerTimestamp(),
+        lastModifiedAt: getServerTimestamp(),
+        lastModifiedBy: 'migration-script',
       });
     });
 
@@ -172,10 +184,10 @@ if (isMainModule) {
 
     try {
       // DEPLOYMENT SEQUENCE (CRITICAL - follow this order to prevent data access issues):
-      // 1. Run THIS migration script to backfill isPublic on existing cards
+      // 1. Run this migration script to backfill isPublic on existing cards
       // 2. Verify migration completed successfully (all cards now have isPublic field)
-      // 3. Deploy NEW security rules (require isPublic field)
-      // If migration fails mid-way, DO NOT deploy security rules until ALL cards are migrated
+      // 3. Deploy new security rules (require isPublic field)
+      // If migration fails mid-way, DO NOT deploy security rules until all cards are migrated
       // Get all cards (no query filter - we need to check all cards)
       const snapshot = await cardsRef.get();
 
@@ -214,19 +226,20 @@ if (isMainModule) {
 
       if (!result.success) {
         // Stop immediately on first batch failure to prevent inconsistent database state
-        console.error(
+        const errorMsg = [
           `\nCRITICAL: Batch ${result.failedBatchNum} FAILED - Migration stopped immediately!`,
-          {
-            error: result.error?.message || String(result.error),
-            code: result.error?.code || 'UNKNOWN',
-            cardIds: result.failedCardIds,
-          }
-        );
-        console.error('\nDATABASE STATE IS INCONSISTENT:');
-        console.error(`  Successfully updated: ${result.updatedCount} cards`);
-        console.error(`  Failed batch: batch ${result.failedBatchNum}`);
-        console.error('\nDO NOT DEPLOY security rules until ALL batches succeed!');
-        console.error('  Fix the error and re-run this script.');
+          `\nDATABASE STATE IS INCONSISTENT:`,
+          `  Successfully updated: ${result.updatedCount} cards`,
+          `  Failed batch: batch ${result.failedBatchNum}`,
+          `\nDO NOT DEPLOY security rules until ALL batches succeed!`,
+          `  Fix the error and re-run this script.`,
+        ].join('\n');
+        console.error(errorMsg);
+        console.error('\nError details:', {
+          error: result.error?.message || String(result.error),
+          code: result.error?.code || 'UNKNOWN',
+          cardIds: result.failedCardIds,
+        });
         process.exit(1);
       }
 

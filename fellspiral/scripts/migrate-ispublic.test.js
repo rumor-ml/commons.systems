@@ -115,7 +115,10 @@ async function runTests() {
       ['card-1', 'card-3']
     );
     assertEquals(result.cardsAlreadyHaveField.length, 2);
-    assertEquals(result.cardsAlreadyHaveField, ['card-2', 'card-4']);
+    assertEquals(
+      result.cardsAlreadyHaveField.map((c) => c.id),
+      ['card-2', 'card-4']
+    );
   });
 
   await test('should handle empty collection', () => {
@@ -363,6 +366,8 @@ async function runTests() {
     assertTrue(capturedData !== null, 'Should have captured update data');
     assertEquals(capturedData.isPublic, true);
     assertEquals(capturedData._migratedIsPublic, mockTimestamp);
+    assertEquals(capturedData.lastModifiedAt, mockTimestamp);
+    assertEquals(capturedData.lastModifiedBy, 'migration-script');
   });
 
   // ============================================

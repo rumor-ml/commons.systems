@@ -197,17 +197,16 @@ export async function createCardViaUI(page, cardData) {
       { timeout: 5000 }
     )
     .catch(async (originalError) => {
-      // Enhanced error with auth state snapshot for debugging, preserving original error
+      // Enhance error with auth state snapshot for debugging
       const authState = await page.evaluate(() => ({
         authExists: !!window.__testAuth,
         currentUser: !!window.__testAuth?.currentUser,
         currentUserUid: window.__testAuth?.currentUser?.uid,
       }));
-      const enhancedError = new Error(
-        `Auth not ready after 5s: ${JSON.stringify(authState)}. Original: ${originalError.message}`
-      );
-      enhancedError.cause = originalError;
-      throw enhancedError;
+
+      // Preserve original error type and stack, just enhance the message
+      originalError.message = `Auth not ready after 5s: ${JSON.stringify(authState)}. ${originalError.message}`;
+      throw originalError; // Re-throw with enhanced message but original stack/type
     });
 
   // Submit form

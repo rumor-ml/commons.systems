@@ -37,6 +37,18 @@ let app, db, auth, cardsCollection;
 let initPromise = null;
 
 /**
+ * Check if error indicates emulator is already connected
+ * Used during HTMX page swaps where emulator connection persists
+ * @param {Error} error - The error to check
+ * @returns {boolean} True if error indicates already connected
+ */
+function isEmulatorAlreadyConnected(error) {
+  const code = error?.code || '';
+  const msg = error?.message || '';
+  return code === 'failed-precondition' || msg.toLowerCase().includes('already');
+}
+
+/**
  * Get Firebase configuration
  * - In production (Firebase Hosting): fetch from /__/firebase/init.json
  * - In development: use imported config
@@ -167,15 +179,10 @@ async function initFirebase() {
         );
       } catch (error) {
         const msg = error.message || '';
-        const code = error.code || '';
-
         // Expected: already connected (happens on HTMX page swaps)
         // Firebase throws 'failed-precondition' with message containing 'already'
         // Check both code and message for robustness across SDK versions
-        const isAlreadyConnected =
-          code === 'failed-precondition' || msg.toLowerCase().includes('already');
-
-        if (isAlreadyConnected) {
+        if (isEmulatorAlreadyConnected(error)) {
           console.debug('[Firebase] Emulators already connected');
           return { app, db, auth, cardsCollection };
         }
@@ -266,11 +273,17 @@ function validateCardData(cardData) {
   if (!cardData.title?.trim()) {
     throw new Error('Card title is required');
   }
+  if (cardData.title.length > 100) {
+    throw new Error('Card title must be 100 characters or less');
+  }
   if (!cardData.type?.trim()) {
     throw new Error('Card type is required');
   }
   if (!cardData.subtype?.trim()) {
     throw new Error('Card subtype is required');
+  }
+  if (cardData.description && cardData.description.length > 500) {
+    throw new Error('Card description must be 500 characters or less');
   }
   if (cardData.isPublic !== undefined && typeof cardData.isPublic !== 'boolean') {
     throw new Error('isPublic must be a boolean value');
@@ -335,6 +348,7 @@ export async function getCard(cardId) {
       throw new Error('Card not found');
     }
   } catch (error) {
+    // TODO(#1097): Add error categorization and user-friendly messaging
     console.error('Error getting card:', error);
     throw error;
   }

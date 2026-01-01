@@ -161,6 +161,7 @@ async function globalSetup() {
       const docRef = cardsCollection.doc(card.id);
       batch.set(docRef, {
         ...card,
+        isPublic: true, // Required by security rules for READ access
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });

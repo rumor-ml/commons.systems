@@ -299,6 +299,42 @@ test.describe('Add Card - Form Validation Tests', () => {
     expect(isValid).toBe(false);
   });
 
+  test('should reject whitespace-only subtype', async ({ page, authEmulator }) => {
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+
+    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
+    await page.waitForTimeout(3000);
+
+    const email = `test-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
+
+    // Open modal
+    await page.locator('#addCardBtn').click();
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
+
+    // Fill title and type, but use whitespace-only subtype
+    await page.locator('#cardTitle').fill(`Test Card ${Date.now()}`);
+    await page.locator('#cardType').fill('Equipment');
+    await page.locator('#cardType').press('Escape'); // Close dropdown
+
+    // Enter whitespace-only subtype (spaces)
+    await page.locator('#cardSubtype').fill('   ');
+    await page.locator('#cardSubtype').press('Escape'); // Close dropdown
+
+    // Try to submit
+    await page.locator('#saveCardBtn').click();
+
+    // Modal should still be open (validation failed)
+    await expect(page.locator('#cardEditorModal.active')).toBeVisible();
+
+    // Check HTML5 validation state or custom validation
+    const subtypeInput = page.locator('#cardSubtype');
+    const isValid = await subtypeInput.evaluate((el) => el.checkValidity());
+    expect(isValid).toBe(false);
+  });
+
   test('should update subtype options when type changes', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -4733,10 +4769,6 @@ test.describe('Add Card - Collection Pattern Tests', () => {
     expect(querySucceeded.count).toBeGreaterThanOrEqual(2);
   });
 });
-
-// TODO(#311): Add test for whitespace-only subtype
-// Test should verify that whitespace-only subtypes are rejected by validation
-// (current validation uses .trim() but no test verifies the rejection)
 
 // TODO(#311): Replace fixed timeouts with condition-based waiting
 // Many tests use page.waitForTimeout() with hardcoded values (2000ms, 3000ms, etc.)

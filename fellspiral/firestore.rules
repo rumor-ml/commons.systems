@@ -28,19 +28,22 @@ service cloud.firestore {
       // .get('isPublic', false) returns false for missing fields, denying access
       // Migration consideration: Existing cards without isPublic field won't be readable
       // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
-      // DEPLOYMENT DECISION TREE:
+      // DEPLOYMENT DECISION TREE (for manual deployments):
       // 1. First, run: node fellspiral/scripts/migrate-ispublic.js --dry-run
       // 2. If output shows "Cards needing migration: 0" → safe to deploy rules immediately
       // 3. If output shows cards needing migration → run migration WITHOUT --dry-run → verify success → then deploy rules
+      // NOTE: For automated CI/CD deployments, integrate migration check/execution into the pipeline.
       // Consequence if deployed without migration: Cards without isPublic field become UNREADABLE (users see empty library)
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
-                  && resource.data.get('isPublic', false) == true;
+                  && (resource.data.get('isPublic', false) == true
+                      || (isAuthenticated() && resource.data.get('createdBy', '') == request.auth.uid));
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // SECURITY LIMITATION: Clients can forge createdAt timestamps during CREATE operations.
-      // Root cause: serverTimestamp() is a sentinel that resolves AFTER rule evaluation completes,
-      // so rules cannot compare createdAt == request.time at document creation time.
+      // Root cause: Security rules evaluate BEFORE the document is written. At evaluation time,
+      // request.resource.data.createdAt contains a serverTimestamp() sentinel (not an actual timestamp).
+      // The sentinel resolves to server time during the write, but rules cannot access this resolved value.
       // Impact: Clients could backdate or future-date document creation times. For this app,
       // timestamp accuracy is cosmetic (display only) - not security-critical. No authorization
       // decisions depend on createdAt values.
@@ -66,6 +69,8 @@ service cloud.firestore {
 
       // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
       // INTENTIONAL DESIGN: Wiki-style collaborative editing where any authenticated user can edit.
+      // This implements the "Card creator or collaborator" requirement with universal collaboration
+      // (all authenticated users are implicit collaborators, similar to Wikipedia's edit model).
       // SECURITY TRADEOFF: This allows vandalism of public cards by malicious users in exchange for
       // frictionless collaboration (no permission requests, no ownership gatekeeping).
       // AUDIT: lastModifiedBy field tracks who made each change, enabling rollback if needed.

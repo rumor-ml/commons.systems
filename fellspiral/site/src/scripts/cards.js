@@ -35,6 +35,7 @@ import { initLibraryNav } from './library-nav.js';
 import cardsData from '../data/cards.json';
 
 // Timeout constants for various operations
+// TODO(#1094): Consider freezing TIMEOUTS object to prevent runtime mutation
 const TIMEOUTS = {
   BLUR_DELAY_MS: 200, // Browser event ordering safety margin
   AUTH_RETRY_MS: 500, // Firebase SDK init wait
@@ -54,7 +55,6 @@ let isSaving = false;
 //   - Script injection: <script>alert('xss')</script> → escaped, not executed
 //   - Event handler injection: <img onerror="alert('xss')"> → escaped, not executed
 //   - Protocol injection: <a href="javascript:alert('xss')"> → escaped, not clickable
-//   - Entity bypass: &#60;script&#62; → double-escaped if attempted
 //
 // CRITICAL: Use for ALL user-generated content before inserting into DOM:
 //   - Card titles, descriptions, types, subtypes in renderCards()
@@ -71,6 +71,7 @@ function escapeHtml(text) {
 }
 
 // Whitelist of valid card types for class attribute
+// TODO(#1098): Freeze VALID_CARD_TYPES to prevent runtime mutations
 const VALID_CARD_TYPES = ['Equipment', 'Skill', 'Upgrade', 'Foe', 'Origin'];
 function sanitizeCardType(type) {
   return VALID_CARD_TYPES.includes(type) ? type : '';
@@ -92,15 +93,17 @@ function sanitizeCardType(type) {
  * @property {string} [stat1] - Optional primary stat value
  * @property {string} [stat2] - Optional secondary stat value
  * @property {string} [cost] - Optional cost value
- * @property {boolean} [isPublic] - Whether card is publicly visible (default: false)
+ * @property {boolean} [isPublic] - Whether card is publicly visible (default: true for backward compatibility)
  * @property {string} [createdBy] - UID of user who created the card
- * @property {string} [lastModifiedBy] - UID of user who last modified the card
+ * @property {FirebaseFirestore.Timestamp} [createdAt] - Timestamp when card was created
+ * @property {FirebaseFirestore.Timestamp} [updatedAt] - Timestamp when card was last updated
  */
 
 /**
  * Validation constraints for card data fields.
  * Centralized to ensure consistency between client and server validation.
  */
+// TODO(#1098): Freeze CARD_CONSTRAINTS to prevent runtime mutations
 const CARD_CONSTRAINTS = {
   TITLE_MAX_LENGTH: 100,
   DESCRIPTION_MAX_LENGTH: 500,
@@ -162,6 +165,7 @@ function validateCardData(cardData) {
 // State Management with Validation
 // ==========================================================================
 
+// TODO(#1096): Consider using Object.freeze for runtime immutability
 /**
  * Valid view modes for card display.
  * @type {readonly ['grid', 'list']}
@@ -308,6 +312,10 @@ function createCombobox(config) {
     throw new Error('createCombobox: getOptions must be a function');
   }
 
+  if (config.onSelect !== undefined && typeof config.onSelect !== 'function') {
+    throw new Error('createCombobox: onSelect must be a function if provided');
+  }
+
   const { inputId, listboxId, comboboxId, getOptions, onSelect } = config;
 
   const combobox = document.getElementById(comboboxId);
@@ -386,8 +394,12 @@ function createCombobox(config) {
       errorLi.textContent = 'Unable to load options. Please refresh the page.';
       listbox.appendChild(errorLi);
 
-      // Don't re-throw - UI error is shown, form should remain usable
-      // Caller can check listbox.classList.contains('combobox-error') if needed
+      // Disable input to prevent submission with broken combobox
+      input.disabled = true;
+      input.placeholder = 'Options unavailable - please refresh';
+      combobox.dataset.broken = 'true';
+
+      // Don't re-throw - UI error is shown, form validation will catch broken state
       return;
     }
 
@@ -424,7 +436,7 @@ function createCombobox(config) {
       // Add "Add new" option for custom values
       if (showAddNew) {
         listbox.appendChild(
-          createOption(input.value, `Add "${input.value}"`, 'combobox-option--new')
+          createOption(input.value, `Add "${escapeHtml(input.value)}"`, 'combobox-option--new')
         );
       }
     } catch (error) {
@@ -444,7 +456,12 @@ function createCombobox(config) {
       errorLi.style.cssText = 'font-style: italic; color: var(--color-error);';
       listbox.appendChild(errorLi);
 
-      // Don't re-throw - UI error is shown, form should remain usable
+      // Disable input to prevent submission with broken combobox
+      input.disabled = true;
+      input.placeholder = 'Options unavailable - please refresh';
+      combobox.dataset.broken = 'true';
+
+      // Don't re-throw - UI error is shown, form validation will catch broken state
       return;
     }
   }
@@ -1082,13 +1099,28 @@ function setupMobileMenu() {
   });
 }
 
+/**
+ * Check if error indicates Firebase Auth SDK is not initialized yet
+ * Firebase Auth SDK initialization is asynchronous, this detects when it's not ready
+ * @param {Error} error - The error to check
+ * @returns {boolean} True if error indicates auth not initialized
+ */
+function isAuthNotInitializedError(error) {
+  return (
+    error.code === 'auth-not-initialized' ||
+    error.name === 'AuthNotInitializedError' ||
+    String(error.message || '').includes('before auth initialized')
+  );
+}
+
 // Setup auth state listener to show/hide auth-controls
 // TODO(#480): Add E2E test coverage for auth listener retry logic (lines 889-950)
 // Test scenarios: SDK not ready on first attempt, max retries exceeded, recovery after transient failure
 //
 // Auth Initialization Retry Logic:
 // Firebase Auth SDK initialization is asynchronous. When this function runs before
-// the SDK is ready, onAuthStateChanged throws an error. We detect this via:
+// the SDK is ready, onAuthStateChanged throws an error. We detect this using
+// isAuthNotInitializedError() which checks:
 //   1. error.code === 'auth-not-initialized' (preferred, if Firebase provides it)
 //   2. error.name === 'AuthNotInitializedError' (custom error name)
 //   3. error.message containing 'before auth initialized' (fallback string match)
@@ -1127,12 +1159,7 @@ function setupAuthStateListener() {
     }, TIMEOUTS.AUTH_RETRY_MS);
   } catch (error) {
     // TODO(#483): Improve error categorization - string matching is fragile
-    const isAuthNotReady =
-      error.code === 'auth-not-initialized' ||
-      error.name === 'AuthNotInitializedError' ||
-      String(error.message || '').includes('before auth initialized');
-
-    if (isAuthNotReady) {
+    if (isAuthNotInitializedError(error)) {
       state.authListenerRetries++;
       if (state.authListenerRetries >= state.authListenerMaxRetries) {
         console.error('[Cards] Auth listener setup failed after max retries');
@@ -1632,34 +1659,50 @@ async function handleCardSave(e) {
       cardData: { title: cardData.title, type: cardData.type },
     });
 
-    // Categorize errors for specific user guidance
-    let userMessage = 'Failed to save card. ';
+    // Categorize errors for specific user guidance using switch for cleaner code
     let errorCategory = 'unknown';
+    let userMessage = 'Failed to save card. ';
 
-    if (error.code === 'permission-denied') {
-      errorCategory = 'permission';
-      userMessage += 'You do not have permission to save cards. Please contact support.';
-    } else if (error.code === 'unauthenticated' || error.message?.includes('authenticated')) {
-      errorCategory = 'authentication';
-      userMessage += 'You must be logged in to save cards. Please refresh and sign in again.';
-    } else if (error.message?.includes('timeout')) {
-      // TODO(#483): Improve timeout handling - use error.code instead of string matching
-      errorCategory = 'timeout';
-      userMessage += 'The operation timed out. Please check your connection and try again.';
-    } else if (error.code === 'unavailable' || error.message?.includes('unavailable')) {
-      errorCategory = 'unavailable';
-      userMessage += 'The server is temporarily unavailable. Please try again in a moment.';
-    } else if (error.message?.includes('required') || error.code === 'invalid-argument') {
-      // TODO(#483): Validation error detection via string matching is fragile - use structured error codes
-      errorCategory = 'validation';
-      userMessage += `Validation error: ${error.message}`;
-    } else if (error.code === 'failed-precondition') {
-      errorCategory = 'precondition';
-      userMessage += 'Operation failed due to server validation. Please check your input.';
-    } else {
-      // TODO(#483): Sanitize error messages - don't expose raw Firebase errors to users
-      errorCategory = 'unexpected';
-      userMessage += `Unexpected error: ${error.message}. If this persists, please refresh the page.`;
+    switch (error.code) {
+      case 'permission-denied':
+        errorCategory = 'permission';
+        userMessage += 'You do not have permission to save cards. Please contact support.';
+        break;
+
+      case 'unauthenticated':
+        errorCategory = 'authentication';
+        userMessage += 'You must be logged in to save cards. Please refresh and sign in again.';
+        break;
+
+      case 'unavailable':
+        errorCategory = 'unavailable';
+        userMessage += 'The server is temporarily unavailable. Please try again in a moment.';
+        break;
+
+      case 'invalid-argument':
+        errorCategory = 'validation';
+        userMessage += `Validation error: ${error.message}`;
+        break;
+
+      case 'failed-precondition':
+        errorCategory = 'precondition';
+        userMessage += 'Operation failed due to server validation. Please check your input.';
+        break;
+
+      default:
+        // Handle cases where error.code is not set but message indicates specific errors
+        // TODO(#483): Remove string matching once Firebase provides consistent error.code
+        if (error.message?.includes('required')) {
+          errorCategory = 'validation';
+          userMessage += `Validation error: ${error.message}`;
+        } else if (error.message?.includes('timeout')) {
+          errorCategory = 'timeout';
+          userMessage += 'The operation timed out. Please check your connection and try again.';
+        } else {
+          // TODO(#483): Sanitize error messages - don't expose raw Firebase errors to users
+          errorCategory = 'unexpected';
+          userMessage += `Unexpected error: ${error.message}. If this persists, please refresh the page.`;
+        }
     }
 
     console.error(`[Cards] Save error category: ${errorCategory}`);
