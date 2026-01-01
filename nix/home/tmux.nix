@@ -10,6 +10,9 @@
 { config, pkgs, ... }:
 
 {
+  # Install tmux-tui auto-load helper script
+  home.file.".local/bin/tmux-tui-auto-load".source = ./scripts/tmux-tui-auto-load.sh;
+
   programs.tmux = {
     enable = true;
 
@@ -24,17 +27,24 @@
       # Do NOT add terminal-overrides with Tc or RGB flags
       # Only iTerm2, Alacritty, Kitty, WezTerm support true color
 
+      # Enable mouse support for scrolling and selection
+      set -g mouse on
+
       # Enable hyperlink support for tmux 3.2+
       set -as terminal-features ",*:hyperlinks"
 
       # Allow applications to use tmux passthrough sequences
       set -g allow-passthrough on
 
-      # Project-specific TUI keybinding
-      # This references the $TMUX_TUI_SPAWN_SCRIPT environment variable
-      # which is set by nix/hooks/tmux-tui.nix when you enter the dev shell.
-      # Prefix + t will spawn the project's TUI interface.
-      bind-key t run-shell "$TMUX_TUI_SPAWN_SCRIPT"
+      # Auto-load project tmux-tui config automatically
+      # These hooks ensure the config loads even if tmux starts before direnv
+      # Uses a helper script to check and load config as needed
+
+      # Hook: After creating a new window (covers most common workflow)
+      set-hook -g after-new-window 'run-shell -b "${config.home.homeDirectory}/.local/bin/tmux-tui-auto-load"'
+
+      # Hook: After attaching to a session (covers tmux attach scenario)
+      set-hook -g client-attached 'run-shell -b "${config.home.homeDirectory}/.local/bin/tmux-tui-auto-load"'
     '';
   };
 }

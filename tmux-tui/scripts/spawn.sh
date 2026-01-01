@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # spawn.sh - Spawn tmux-tui in a 40-column left pane
 # Follows tmux-git-window-name pattern
 #

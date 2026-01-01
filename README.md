@@ -4,83 +4,135 @@ A monorepo for commons.systems projects.
 
 ---
 
-## Quick Start
+## Dev Environment Setup
 
-Deploy the to GCP with **zero local setup** and **one local command**.
+### Prerequisites
 
-### Development with Nix (Recommended)
+Choose your platform and complete the prerequisites:
 
-Get a fully configured, reproducible development environment in one command:
+#### Windows: Install NixOS-WSL
+
+1. **Enable WSL on Windows**
+
+   Open PowerShell as Administrator and run:
+   ```powershell
+   wsl --install
+   ```
+
+   Restart your computer when prompted.
+
+2. **Install NixOS-WSL**
+
+   Download the latest NixOS-WSL tarball from [nix-community/NixOS-WSL releases](https://github.com/nix-community/NixOS-WSL/releases):
+
+   ```powershell
+   # Download the tarball (adjust version as needed)
+   # Example: nixos-wsl-x86_64-linux.tar.gz
+
+   # Import into WSL (replace paths as needed)
+   wsl --import NixOS $env:USERPROFILE\NixOS nixos-wsl.tar.gz
+
+   # Set as default
+   wsl --set-default NixOS
+
+   # Launch NixOS-WSL
+   wsl
+   ```
+
+3. **Initial NixOS-WSL configuration** (inside WSL)
+
+   ```bash
+   # Set your username (replace 'yourname')
+   sudo nix-shell -p vim
+   sudo vim /etc/nixos/configuration.nix
+   # Add under users.users: yourname = { isNormalUser = true; extraGroups = [ "wheel" ]; };
+
+   # Rebuild system
+   sudo nixos-rebuild switch
+
+   # Exit and restart WSL
+   exit
+   ```
+
+   Relaunch WSL - you should now log in as your user.
+
+#### macOS: Install Nix
 
 ```bash
-# Install Nix (one-time setup)
 curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+```
 
-# Enter development shell
-nix develop
+Follow the prompts and **restart your shell** when complete.
 
-# Verify environment
+---
+
+### Common Setup Steps
+
+After completing platform prerequisites, follow these steps (identical for all platforms):
+
+**1. Clone the repository**
+
+```bash
+git clone <repository-url>
+cd commons.systems
+```
+
+**Platform-specific note for NixOS-WSL:** Since NixOS-WSL doesn't include git by default, use a temporary shell:
+```bash
+nix-shell -p git  # Temporary git access
+git clone <repository-url>
+cd commons.systems
+exit  # Exit temporary shell
+```
+
+**2. Activate Home Manager configuration**
+
+This installs and configures all development tools declaratively:
+
+```bash
+# One-command setup (auto-detects your system)
+nix --extra-experimental-features 'nix-command flakes' run .#home-manager-setup
+
+# Restart your shell to apply changes
+exec $SHELL
+```
+
+**Note**: After the first activation, Home Manager will manage your Nix configuration and enable experimental features permanently, so you won't need those flags again.
+
+**What this provides:**
+- **git** - Version control (macOS: config merge; NixOS-WSL: permanent install)
+- **direnv** - Auto-loads project environment (with shell integration)
+- **tmux** - Terminal multiplexer with project-specific TUI
+- **neovim** - Modern text editor (vim/vi aliases)
+- **Claude Code** - AI coding assistant CLI
+
+**3. Allow direnv for this repository**
+
+After Home Manager activation and shell restart:
+
+```bash
+cd commons.systems
+direnv allow
+```
+
+The development environment will now load automatically when you enter the directory.
+
+**4. Verify setup**
+
+```bash
 nix run .#check-env
+```
 
-# Start developing
+**5. Start developing** (optional - for web apps)
+
+```bash
 pnpm install
 pnpm dev
 ```
 
-**Why Nix?**
+## Infrastructure Quick Start
 
-- **Reproducible**: Everyone gets the exact same tool versions
-- **Isolated**: Project dependencies don't interfere with your system
-- **Version Controlled**: Development environment lives in Git
-- **Fast Onboarding**: One command to get started
-
-**What you get:**
-
-- Go 1.21.5, Node.js 20.x, pnpm 8.x
-- Firebase CLI, GitHub CLI, Google Cloud SDK
-- tmux, ripgrep, jq, and other developer tools
-- Custom tooling (tmux-tui, gh-workflow-mcp-server)
-- Automatic environment initialization
-
-**Comparison:**
-
-| Aspect        | Nix               | Codespaces                 |
-| ------------- | ----------------- | -------------------------- |
-| Setup time    | 1 command         | Click + wait for container |
-| Tool versions | Exact, pinned     | Container-defined          |
-| Works offline | Yes               | No                         |
-| Cost          | Free              | Free for 120 hours/month   |
-| Ideal for     | Daily development | Quick experiments          |
-
-**Learn more:**
-
-- Comprehensive guide: [nix/README.md](nix/README.md)
-- Home Manager setup: [nix/home/README.md](nix/home/README.md)
-
-### GitHub Codespaces (Alternative)
-
-1. **Open in Codespaces**:
-   - Click the green "Code" button on GitHub
-   - Select "Codespaces" tab
-   - Click "Create codespace on your-branch"
-   - Wait for container to build
-
-2. **Run the setup script**:
-
-   ```bash
-   python3 iac.py
-   ```
-
-   **The script handles everything**:
-   - Gathers all inputs upfront (project ID defaults to gcloud config)
-   - Enables all required GCP APIs (Firebase, Cloud Storage, etc.)
-   - Sets up Workload Identity Federation
-   - Creates service accounts with IAM permissions
-   - Initializes Firebase on your GCP project
-   - Creates GitHub secrets automatically
-   <!-- TODO: must handle github auth app creation -->
-
-3. <!-- TODO: what is the next step for a user that deploys after cloning the repo -->
+Deploy the to GCP with **zero local setup** and **one local command**.
 
 ## Monorepo Architecture
 
