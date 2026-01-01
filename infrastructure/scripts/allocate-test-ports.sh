@@ -73,9 +73,9 @@ fi
 # The generator script extracts ports from firebase.json (single source of truth)
 
 # Capture generate-firebase-ports.sh output and errors to temporary files
-# Why: Direct sourcing via source <(script) swallows stderr, making failures opaque
-# This approach lets us show the actual jq/firebase.json errors to users
-# instead of generic troubleshooting steps
+# Why: Process substitution source <(script) makes it difficult to capture stderr separately
+# This approach preserves both stdout (for sourcing) and stderr (for error reporting)
+# so users see actual jq/firebase.json errors instead of generic troubleshooting steps
 GEN_STDERR=$(mktemp)
 GEN_OUTPUT=$(mktemp)
 trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT'" RETURN

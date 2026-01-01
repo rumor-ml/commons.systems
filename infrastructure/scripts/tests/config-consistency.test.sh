@@ -101,7 +101,7 @@ test_firebase_ports_ts_matches_json() {
   local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
   local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
 
-  # Extract ports from firebase-ports.ts using grep and sed
+  # Extract ports from firebase-ports.ts using grep
   # Match patterns like: firestore: createPort<FirestorePort>(8081, 'Firestore'),
   local firestore_ts=$(grep 'firestore: createPort' "$firebase_ports_ts" | grep -o 'createPort<[^>]*>([0-9]*' | grep -o '[0-9]*')
   local auth_ts=$(grep 'auth: createPort' "$firebase_ports_ts" | grep -o 'createPort<[^>]*>([0-9]*' | grep -o '[0-9]*')
@@ -241,8 +241,8 @@ test_allocate_test_ports_matches_json() {
   # Source allocate-test-ports.sh to validate it loads ports from generate-firebase-ports.sh
   # This test verifies: (1) sourcing completes without errors, (2) all port variables are set,
   # (3) port values match firebase.json
-  # Uses subshell to prevent port variables (AUTH_PORT, FIRESTORE_PORT, etc.) from leaking
-  # into parent test environment, which would contaminate subsequent test validations
+  # Uses subshell to isolate port variables (AUTH_PORT, FIRESTORE_PORT, etc.) and prevent
+  # them from persisting in parent environment, which would invalidate subsequent tests
 
   # Source allocate-test-ports.sh in subshell and capture exit status
   set +e  # Temporarily disable exit on error to capture status

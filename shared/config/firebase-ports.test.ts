@@ -33,8 +33,32 @@ describe('Firebase port configuration consistency', () => {
   test('firebase-ports.ts matches firebase.json emulator ports', () => {
     // Read firebase.json from repository root
     const firebaseJsonPath = join(process.cwd(), 'firebase.json');
-    const firebaseJsonContent = readFileSync(firebaseJsonPath, 'utf-8');
-    const firebaseConfig = JSON.parse(firebaseJsonContent);
+    let firebaseJsonContent: string;
+    try {
+      firebaseJsonContent = readFileSync(firebaseJsonPath, 'utf-8');
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      throw new Error(
+        `Failed to read firebase.json: ${err.message}\n` +
+          `Expected path: ${firebaseJsonPath}\n` +
+          `This file is required for Firebase emulator configuration.\n` +
+          `Check that:\n` +
+          `1. firebase.json exists in the repository root\n` +
+          `2. The file has read permissions\n` +
+          `3. You're running tests from the correct directory`
+      );
+    }
+
+    let firebaseConfig: any;
+    try {
+      firebaseConfig = JSON.parse(firebaseJsonContent);
+    } catch (error) {
+      throw new Error(
+        `Failed to parse firebase.json: ${error instanceof Error ? error.message : String(error)}\n` +
+          `File path: ${firebaseJsonPath}\n` +
+          `Check for JSON syntax errors (trailing commas, missing brackets, etc.)`
+      );
+    }
 
     // Extract emulator ports from firebase.json
     const emulators = firebaseConfig.emulators;

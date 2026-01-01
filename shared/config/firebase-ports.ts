@@ -1,14 +1,15 @@
 /**
  * Firebase Emulator Port Configuration
  *
- * IMPORTANT: Port values are defined here with runtime validation.
- * firebase.json is the single source of truth - tests enforce consistency automatically.
+ * IMPORTANT: Port values must be manually synchronized with firebase.json.
+ * Tests in firebase-ports.test.ts automatically verify consistency.
  *
  * Architecture:
- * - firebase.json defines actual emulator ports (source of truth for Firebase CLI)
- * - This file exports those ports for TypeScript with branded type safety
+ * - firebase.json defines emulator ports for Firebase CLI
+ * - This file mirrors those ports for TypeScript with branded type safety
  * - infrastructure/scripts/generate-firebase-ports.sh extracts ports for bash scripts
- * - Tests enforce consistency automatically (no manual synchronization needed)
+ * - Both TypeScript and bash must be kept in sync with firebase.json manually
+ * - Tests enforce consistency to prevent configuration drift
  *
  * Used by:
  * - fellspiral/site/src/scripts/firebase.js (client-side emulator connection)
@@ -24,15 +25,21 @@
  * - infrastructure/scripts/generate-firebase-ports.sh (bash port generation)
  */
 
+// Unique symbols for compile-time type safety
+const FirestorePortBrand: unique symbol = Symbol('FirestorePort');
+const AuthPortBrand: unique symbol = Symbol('AuthPort');
+const StoragePortBrand: unique symbol = Symbol('StoragePort');
+const UIPortBrand: unique symbol = Symbol('UIPort');
+
 // Branded types prevent mixing port types at compile time
-export type FirestorePort = number & { readonly __brand: 'FirestorePort' };
-export type AuthPort = number & { readonly __brand: 'AuthPort' };
-export type StoragePort = number & { readonly __brand: 'StoragePort' };
-export type UIPort = number & { readonly __brand: 'UIPort' };
+export type FirestorePort = number & { readonly [FirestorePortBrand]: true };
+export type AuthPort = number & { readonly [AuthPortBrand]: true };
+export type StoragePort = number & { readonly [StoragePortBrand]: true };
+export type UIPort = number & { readonly [UIPortBrand]: true };
 
 /**
- * Validates a port number is in valid range
- * Does NOT validate against hardcoded values - firebase.json is the single source of truth
+ * Validates a port number is in valid range (1-65535)
+ * Does NOT validate specific port assignments - tests verify consistency with firebase.json
  */
 function validatePort(port: number, name: string): void {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -45,14 +52,11 @@ function validatePort(port: number, name: string): void {
 
 /**
  * Generic factory function for creating branded port types
- * Validates port range but not specific values (firebase.json is source of truth)
+ * Validates port range (1-65535) and creates branded type
  *
- * Exported for testing purposes to verify validation logic
+ * Used by FIREBASE_PORTS constant and exported for testing validation logic
  */
-export function createPort<T extends number & { readonly __brand: string }>(
-  port: number,
-  name: string
-): T {
+export function createPort<T extends number>(port: number, name: string): T {
   validatePort(port, name);
   return port as T;
 }
