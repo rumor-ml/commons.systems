@@ -27,7 +27,7 @@ check_sandbox_requirement "Starting Firebase emulators" || exit 1
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
 # Configuration
-MAX_RETRIES=30
+MAX_RETRIES=120  # Increased to handle system overload (2 minutes total)
 RETRY_INTERVAL=1
 
 # Shared directory for backend emulator state (shared across all worktrees)
