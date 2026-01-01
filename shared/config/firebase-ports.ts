@@ -26,6 +26,7 @@ const StoragePortBrand: unique symbol = Symbol('StoragePort');
 const UIPortBrand: unique symbol = Symbol('UIPort');
 
 // Branded types prevent mixing port types at compile time
+// TODO(#1207): TypeScript structural typing allows type mixing via 'as' casts - consider nominal types
 export type FirestorePort = number & { readonly [FirestorePortBrand]: true };
 export type AuthPort = number & { readonly [AuthPortBrand]: true };
 export type StoragePort = number & { readonly [StoragePortBrand]: true };
@@ -53,6 +54,7 @@ function validatePort(port: number, name: string): void {
  * Validates port range (1-65535) and creates branded type
  *
  * Used by FIREBASE_PORTS constant and exported for testing validation logic
+ * TODO(#1208): Consider semantic validation of port-to-service mapping against firebase.json
  */
 export function createPort<T extends ValidPortBrand>(port: number, name: string): T {
   validatePort(port, name);

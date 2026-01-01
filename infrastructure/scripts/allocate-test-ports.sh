@@ -73,12 +73,26 @@ fi
 # The generator script extracts ports from firebase.json (single source of truth)
 
 # Capture generate-firebase-ports.sh output and errors to temporary files
-# Why: Process substitution source <(script) makes it difficult to capture stderr separately
-# This approach preserves both stdout (for sourcing) and stderr (for error reporting)
-# so users see actual jq/firebase.json errors instead of generic troubleshooting steps
-GEN_STDERR=$(mktemp)
-GEN_OUTPUT=$(mktemp)
-trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT' || echo 'Warning: Failed to clean up temp files' >&2" RETURN
+# Why: Process substitution source <(script) runs the script in a subshell whose stderr
+# is already connected to the parent's stderr, making it impossible to redirect separately.
+# Using temp files allows independent capture of stdout (for sourcing) and stderr (for
+# error reporting), so users see actual jq/firebase.json errors instead of generic messages.
+GEN_STDERR=$(mktemp) || {
+  echo "FATAL: Failed to create temporary file for stderr capture" >&2
+  echo "This indicates a filesystem problem:" >&2
+  echo "- Disk space: df -h /tmp" >&2
+  echo "- Permissions: ls -ld /tmp" >&2
+  echo "- Mount options: mount | grep /tmp" >&2
+  exit_or_return 1
+}
+
+GEN_OUTPUT=$(mktemp) || {
+  echo "FATAL: Failed to create temporary file for output capture" >&2
+  rm -f "$GEN_STDERR"  # Clean up first temp file
+  exit_or_return 1
+}
+
+trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT' || echo 'Warning: Failed to clean up temp files (check disk)' >&2" RETURN
 
 if ! "${SCRIPT_DIR}/generate-firebase-ports.sh" > "$GEN_OUTPUT" 2> "$GEN_STDERR"; then
   echo "FATAL: generate-firebase-ports.sh failed" >&2

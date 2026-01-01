@@ -39,14 +39,32 @@ describe('Firebase port configuration consistency', () => {
       firebaseJsonContent = readFileSync(firebaseJsonPath, 'utf-8');
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
+      const code = err.code ?? 'UNKNOWN';
+
+      let troubleshooting = '';
+      if (code === 'ENOENT') {
+        troubleshooting =
+          `File not found. Check that:\n` +
+          `1. firebase.json exists in the repository root\n` +
+          `2. You're running tests from the correct directory`;
+      } else if (code === 'EACCES' || code === 'EPERM') {
+        troubleshooting =
+          `Permission denied. Check that:\n` +
+          `1. The file has read permissions\n` +
+          `2. Parent directories are accessible`;
+      } else {
+        troubleshooting =
+          `Unexpected filesystem error (${code}). This may indicate:\n` +
+          `- Filesystem corruption\n` +
+          `- Insufficient memory\n` +
+          `- Hardware problems`;
+      }
+
       throw new Error(
         `Failed to read firebase.json: ${err.message}\n` +
           `Expected path: ${firebaseJsonPath}\n` +
-          `This file is required for Firebase emulator configuration.\n` +
-          `Check that:\n` +
-          `1. firebase.json exists in the repository root\n` +
-          `2. The file has read permissions\n` +
-          `3. You're running tests from the correct directory`
+          `Error code: ${code}\n` +
+          `${troubleshooting}`
       );
     }
 
@@ -174,6 +192,48 @@ describe('Firebase port configuration consistency', () => {
         'Error message should reference firebase.json for troubleshooting'
       );
     }
+  });
+
+  test('factory function enforces boundary values correctly', () => {
+    // Valid boundary values (1 and 65535 are the min and max valid TCP/IP ports)
+    assert.doesNotThrow(
+      () => createPort<FirestorePort>(1, 'Firestore'),
+      'createPort should accept minimum valid port 1'
+    );
+    assert.strictEqual(
+      createPort<FirestorePort>(1, 'Firestore'),
+      1,
+      'createPort should return port 1 unchanged'
+    );
+
+    assert.doesNotThrow(
+      () => createPort<AuthPort>(65535, 'Auth'),
+      'createPort should accept maximum valid port 65535'
+    );
+    assert.strictEqual(
+      createPort<AuthPort>(65535, 'Auth'),
+      65535,
+      'createPort should return port 65535 unchanged'
+    );
+
+    // Invalid boundary values (0 and 65536 are outside valid range)
+    assert.throws(
+      () => createPort<FirestorePort>(0, 'Firestore'),
+      {
+        name: 'Error',
+        message: /Invalid Firestore port: 0 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for port 0 (below minimum)'
+    );
+
+    assert.throws(
+      () => createPort<StoragePort>(65536, 'Storage'),
+      {
+        name: 'Error',
+        message: /Invalid Storage port: 65536 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for port 65536 (above maximum)'
+    );
   });
 
   test('branded types document intent and provide runtime behavior', () => {

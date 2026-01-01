@@ -38,6 +38,7 @@ async function globalSetup() {
   try {
     // Execute script with no shell interpolation of variables
     // printsync is a go-fullstack app - skip Firebase Hosting emulator
+    // TODO(#1206): stdio: 'inherit' prevents stderr capture - error handling below tries to access err.stderr but it won't exist
     execSync(scriptPath, {
       stdio: 'inherit',
       env: {
@@ -80,9 +81,9 @@ async function globalSetup() {
 }
 
 /**
- * TODO(#1170): Add tests for error handling (EMFILE, EACCES, ENETUNREACH)
  * Check if a port is in use using Node.js net module
  * Cross-platform alternative to platform-specific commands like lsof/netstat
+ * Error handling tests: See global-setup.unit.test.ts
  */
 async function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -108,26 +109,33 @@ async function isPortInUse(port: number): Promise<boolean> {
       }
 
       // Other errors indicate system problems - fail loudly
-      try {
-        const err = error as NodeJS.ErrnoException;
-        const errorMsg =
-          `Failed to check if port ${port} is in use: ${err.code || 'UNKNOWN'} - ${err.message}\n` +
-          `This indicates a system-level problem, not just a port conflict.\n` +
-          `Common causes:\n` +
-          `- Too many open files (EMFILE): Increase file descriptor limit\n` +
-          `- Permission denied (EACCES): Check firewall or security settings\n` +
-          `- Network issues (ENETUNREACH): Check network configuration\n` +
-          `Error details: ${JSON.stringify({ code: err.code, errno: err.errno, syscall: err.syscall })}`;
+      // TODO(#1203): Simplify verbose error construction - remove try/catch wrapper
+      const err = error as NodeJS.ErrnoException;
+      const code = err.code ?? 'UNKNOWN';
+      const message = err.message ?? 'Unknown error';
 
-        reject(new Error(errorMsg));
-      } catch (handlerError) {
-        // If error message construction fails, still reject with basic error
-        reject(
-          new Error(
-            `Failed to check port ${port}: ${error.message}. Additionally, error handler failed: ${handlerError}`
-          )
-        );
+      // Safely stringify error details, falling back to simple representation
+      let errorDetails: string;
+      try {
+        errorDetails = JSON.stringify({
+          code: err.code,
+          errno: err.errno,
+          syscall: err.syscall,
+        });
+      } catch {
+        errorDetails = `code=${code}, errno=${err.errno}, syscall=${err.syscall}`;
       }
+
+      const errorMsg =
+        `Failed to check if port ${port} is in use: ${code} - ${message}\n` +
+        `This indicates a system-level problem, not just a port conflict.\n` +
+        `Common causes:\n` +
+        `- Too many open files (EMFILE): Increase file descriptor limit\n` +
+        `- Permission denied (EACCES): Check firewall or security settings\n` +
+        `- Network issues (ENETUNREACH): Check network configuration\n` +
+        `Error details: ${errorDetails}`;
+
+      reject(new Error(errorMsg));
     });
 
     socket.connect(port, 'localhost');
