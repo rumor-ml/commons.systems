@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -57,6 +58,59 @@ func NewPane(id, path, windowID string, windowIndex int, windowActive, windowBel
 		title:        title,
 		isClaudePane: isClaudePane,
 	}, nil
+}
+
+// MarshalJSON implements json.Marshaler for wire format.
+func (p Pane) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID           string `json:"id"`
+		Path         string `json:"path"`
+		WindowID     string `json:"window_id"`
+		WindowIndex  int    `json:"window_index"`
+		WindowActive bool   `json:"window_active"`
+		WindowBell   bool   `json:"window_bell"`
+		Command      string `json:"command"`
+		Title        string `json:"title"`
+		IsClaudePane bool   `json:"is_claude_pane"`
+	}{
+		ID:           p.id,
+		Path:         p.path,
+		WindowID:     p.windowID,
+		WindowIndex:  p.windowIndex,
+		WindowActive: p.windowActive,
+		WindowBell:   p.windowBell,
+		Command:      p.command,
+		Title:        p.title,
+		IsClaudePane: p.isClaudePane,
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler for wire format.
+func (p *Pane) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		ID           string `json:"id"`
+		Path         string `json:"path"`
+		WindowID     string `json:"window_id"`
+		WindowIndex  int    `json:"window_index"`
+		WindowActive bool   `json:"window_active"`
+		WindowBell   bool   `json:"window_bell"`
+		Command      string `json:"command"`
+		Title        string `json:"title"`
+		IsClaudePane bool   `json:"is_claude_pane"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	p.id = aux.ID
+	p.path = aux.Path
+	p.windowID = aux.WindowID
+	p.windowIndex = aux.WindowIndex
+	p.windowActive = aux.WindowActive
+	p.windowBell = aux.WindowBell
+	p.command = aux.Command
+	p.title = aux.Title
+	p.isClaudePane = aux.IsClaudePane
+	return nil
 }
 
 // Window represents a tmux window with validated panes.
@@ -153,7 +207,11 @@ func (rt *RepoTree) SetPanes(repo, branch string, panes []Pane) error {
 	if rt.tree[repo] == nil {
 		rt.tree[repo] = make(map[string][]Pane)
 	}
-	rt.tree[repo][branch] = panes
+
+	// Defensive copy to prevent external mutation
+	panesCopy := make([]Pane, len(panes))
+	copy(panesCopy, panes)
+	rt.tree[repo][branch] = panesCopy
 	return nil
 }
 
@@ -194,4 +252,17 @@ func (rt RepoTree) HasBranch(repo, branch string) bool {
 	}
 	_, ok = branches[branch]
 	return ok
+}
+
+// MarshalJSON implements json.Marshaler for wire format.
+func (rt RepoTree) MarshalJSON() ([]byte, error) {
+	return json.Marshal(rt.tree)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for wire format.
+func (rt *RepoTree) UnmarshalJSON(data []byte) error {
+	if rt.tree == nil {
+		rt.tree = make(map[string]map[string][]Pane)
+	}
+	return json.Unmarshal(data, &rt.tree)
 }

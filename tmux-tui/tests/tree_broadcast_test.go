@@ -53,7 +53,8 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 	}
 
 	// Wait for tree_update message (daemon broadcasts immediately on start + every 30s)
-	// Since watchTree() calls collectAndBroadcastTree() immediately, we should get one soon
+	// watchTree() calls collectAndBroadcastTree() immediately after daemon starts,
+	// so we should receive the first broadcast within ~1-2 seconds (depends on goroutine scheduling)
 	err = waitForCondition(t, WaitCondition{
 		Name: "client receives tree_update",
 		CheckFunc: func() (bool, error) {
@@ -233,7 +234,8 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 			case msg := <-client2.Events():
 				if msg.Type == daemon.MsgTypeFullState {
 					t.Logf("Client 2 received full_state after reconnect")
-					// Note: full_state doesn't include tree in current implementation
+					// Note: full_state doesn't include tree by design - tree synchronization
+					// happens via tree_update broadcasts (see watchTree() in daemon)
 					// Tree will come in subsequent tree_update broadcast
 					return true, nil
 				}
