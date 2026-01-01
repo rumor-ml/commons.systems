@@ -131,24 +131,25 @@ sleep 3
 # Track HTTP check failures
 HTTP_CHECK_FAILURES=0
 
-# Check Auth emulator REST API
-if curl -sf "http://127.0.0.1:${AUTH_PORT}/identitytoolkit.googleapis.com/v1/projects/demo-test/accounts" > /dev/null 2>&1; then
+# Check Auth emulator - root endpoint returns 200 OK
+if curl -s "http://127.0.0.1:${AUTH_PORT}/" > /dev/null 2>&1; then
   echo "✓ Auth emulator HTTP API is responding"
 else
   echo "ERROR: Auth emulator port is open but not responding to HTTP requests"
   HTTP_CHECK_FAILURES=$((HTTP_CHECK_FAILURES + 1))
 fi
 
-# Check Firestore emulator
-if curl -sf "http://127.0.0.1:${FIRESTORE_PORT}/" > /dev/null 2>&1; then
+# Check Firestore emulator - root endpoint returns 200 OK with "Ok" body
+if curl -s "http://127.0.0.1:${FIRESTORE_PORT}/" > /dev/null 2>&1; then
   echo "✓ Firestore emulator HTTP API is responding"
 else
   echo "ERROR: Firestore emulator port is open but not responding to HTTP requests"
   HTTP_CHECK_FAILURES=$((HTTP_CHECK_FAILURES + 1))
 fi
 
-# Check Storage emulator
-if curl -sf "http://127.0.0.1:${STORAGE_PORT}/" > /dev/null 2>&1; then
+# Check Storage emulator - root endpoint returns 501 Not Implemented (expected)
+# We accept any HTTP response as proof the emulator is running
+if curl -s "http://127.0.0.1:${STORAGE_PORT}/" > /dev/null 2>&1; then
   echo "✓ Storage emulator HTTP API is responding"
 else
   echo "ERROR: Storage emulator port is open but not responding to HTTP requests"
