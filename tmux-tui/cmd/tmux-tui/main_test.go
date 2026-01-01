@@ -72,7 +72,7 @@ func TestTreeRefreshErrorHandling(t *testing.T) {
 	m.err = nil
 	m.errorMu.Unlock()
 
-	// Simulate daemon tree_error message
+	// Simulate receiving a tree_error message from daemon
 	msg := daemonEventMsg{
 		msg: daemon.Message{
 			Type:  daemon.MsgTypeTreeError,
@@ -100,7 +100,7 @@ func TestTreeRefreshErrorClearing(t *testing.T) {
 	m.treeRefreshError = fmt.Errorf("previous error")
 	m.errorMu.Unlock()
 
-	// Successful tree update from daemon should clear the error
+	// Successful tree_update from daemon should clear treeRefreshError
 	tree := testTree(map[string]map[string][]tmux.Pane{
 		"test-repo": {
 			"main": {
@@ -948,5 +948,296 @@ func TestTreeUpdate_EmptyTreeValid(t *testing.T) {
 	// Verify consecutiveNilUpdates is 0 (empty tree is valid)
 	if m.consecutiveNilUpdates != 0 {
 		t.Errorf("Empty tree should not increment consecutiveNilUpdates, got %d", m.consecutiveNilUpdates)
+	}
+}
+
+// TestTreeUpdate_CircuitBreakerTriggersAtThreshold verifies that the circuit breaker
+// disconnects from daemon after exactly 3 consecutive nil tree updates.
+// This is a critical protection mechanism against runaway daemon bugs.
+func TestTreeUpdate_CircuitBreakerTriggersAtThreshold(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Initial valid tree
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Send exactly 3 consecutive nil tree_update messages (circuit breaker threshold)
+	for i := 1; i <= 3; i++ {
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type:   daemon.MsgTypeTreeUpdate,
+				SeqNum: uint64(i),
+				Tree:   nil,
+			},
+		}
+		updatedModel, cmd := m.Update(msg)
+		m = updatedModel.(model)
+
+		// Verify consecutiveNilUpdates increments
+		if m.consecutiveNilUpdates != i {
+			t.Errorf("After update %d: expected consecutiveNilUpdates=%d, got %d", i, i, m.consecutiveNilUpdates)
+		}
+
+		// On 3rd update, circuit breaker should trigger
+		if i == 3 {
+			// Verify daemonClient is disconnected (set to nil)
+			if m.daemonClient != nil {
+				t.Error("Expected daemonClient to be nil after 3 consecutive nil updates")
+			}
+
+			// Verify treeRefreshError contains disconnect message
+			m.errorMu.RLock()
+			refreshErr := m.treeRefreshError
+			m.errorMu.RUnlock()
+
+			if refreshErr == nil {
+				t.Fatal("Expected treeRefreshError to be set after circuit breaker triggers")
+			}
+
+			errorText := refreshErr.Error()
+			if !strings.Contains(errorText, "disconnected after 3 failures") {
+				t.Errorf("Expected error to contain 'disconnected after 3 failures', got: %v", errorText)
+			}
+
+			// Verify Update() returns nil cmd (stops watching daemon)
+			if cmd != nil {
+				t.Errorf("Expected Update() to return nil cmd after circuit breaker, got: %v", cmd)
+			}
+		}
+	}
+
+	// Send 4th nil update - counter increments but circuit breaker already triggered
+	msg4 := daemonEventMsg{
+		msg: daemon.Message{
+			Type:   daemon.MsgTypeTreeUpdate,
+			SeqNum: 4,
+			Tree:   nil,
+		},
+	}
+	updatedModel, _ := m.Update(msg4)
+	m = updatedModel.(model)
+
+	// consecutiveNilUpdates increments to 4 (counter updates before circuit breaker check)
+	// Circuit breaker already triggered at 3, so daemonClient remains nil
+	if m.consecutiveNilUpdates != 4 {
+		t.Errorf("Expected consecutiveNilUpdates=4 after 4th update, got %d", m.consecutiveNilUpdates)
+	}
+
+	// Verify daemonClient still nil (circuit breaker remains active)
+	if m.daemonClient != nil {
+		t.Error("Expected daemonClient to remain nil after 4th nil update")
+	}
+}
+
+// TestTreeUpdateErrorRecoveryCycle verifies the complete error recovery path:
+// tree_error → (collection recovers) → tree_update with proper error clearing.
+// This is the primary error recovery path in production.
+func TestTreeUpdateErrorRecoveryCycle(t *testing.T) {
+	m := initialModel()
+
+	// Step 1: Initialize model with valid tree state
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Step 2: Send tree_error message (daemon collection failed)
+	errMsg1 := daemonEventMsg{
+		msg: daemon.Message{
+			Type:  daemon.MsgTypeTreeError,
+			Error: "collection failed: tmux not responding",
+		},
+	}
+	updatedModel, _ := m.Update(errMsg1)
+	m = updatedModel.(model)
+
+	// Step 3: Verify treeRefreshError is set
+	m.errorMu.RLock()
+	firstErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if firstErr == nil {
+		t.Fatal("Expected treeRefreshError to be set after tree_error")
+	}
+
+	if !strings.Contains(firstErr.Error(), "collection failed") {
+		t.Errorf("Expected error to contain 'collection failed', got: %v", firstErr)
+	}
+
+	// Step 4: Verify tree preserves last good state (not cleared)
+	if len(m.tree.Repos()) != 1 {
+		t.Errorf("Expected tree to preserve last good state, got %d repos", len(m.tree.Repos()))
+	}
+	panes, ok := m.tree.GetPanes("test-repo", "main")
+	if !ok || len(panes) != 2 {
+		t.Errorf("Expected 2 panes in preserved tree, got %d", len(panes))
+	}
+
+	// Step 5: Send ANOTHER tree_error (still failing) - verify error updates to latest
+	errMsg2 := daemonEventMsg{
+		msg: daemon.Message{
+			Type:  daemon.MsgTypeTreeError,
+			Error: "collection failed: timeout waiting for tmux",
+		},
+	}
+	updatedModel, _ = m.Update(errMsg2)
+	m = updatedModel.(model)
+
+	m.errorMu.RLock()
+	secondErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if secondErr == nil {
+		t.Fatal("Expected treeRefreshError to persist after second tree_error")
+	}
+
+	if !strings.Contains(secondErr.Error(), "timeout waiting for tmux") {
+		t.Errorf("Expected error to update to latest message, got: %v", secondErr)
+	}
+
+	// Step 6: Send tree_update with new valid tree (daemon recovered)
+	recoveredTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%3", "@3", 2, false),
+			},
+		},
+		"other-repo": {
+			"develop": {
+				testPane("%4", "@4", 0, true),
+			},
+		},
+	})
+	updateMsg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &recoveredTree,
+		},
+	}
+	updatedModel, _ = m.Update(updateMsg)
+	m = updatedModel.(model)
+
+	// Step 7: Verify treeRefreshError is cleared
+	m.errorMu.RLock()
+	clearedErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if clearedErr != nil {
+		t.Errorf("Expected treeRefreshError to be cleared after successful update, got: %v", clearedErr)
+	}
+
+	// Step 8: Verify tree is updated with new data
+	if len(m.tree.Repos()) != 2 {
+		t.Errorf("Expected 2 repos after recovery, got %d", len(m.tree.Repos()))
+	}
+
+	panes, ok = m.tree.GetPanes("test-repo", "main")
+	if !ok || len(panes) != 2 {
+		t.Errorf("Expected 2 panes in test-repo/main, got %d", len(panes))
+	}
+
+	panes, ok = m.tree.GetPanes("other-repo", "develop")
+	if !ok || len(panes) != 1 {
+		t.Errorf("Expected 1 pane in other-repo/develop, got %d", len(panes))
+	}
+
+	// Step 9: Verify consecutiveNilUpdates is 0 (not incremented by tree_error)
+	if m.consecutiveNilUpdates != 0 {
+		t.Errorf("Expected consecutiveNilUpdates to be 0, got %d", m.consecutiveNilUpdates)
+	}
+}
+
+// TestTreeUpdate_AlertReconciliationLogic verifies that alert reconciliation
+// correctly removes alerts for panes no longer in the tree.
+// This prevents memory leaks and UI confusion from zombie alerts.
+func TestTreeUpdate_AlertReconciliationLogic(t *testing.T) {
+	m := initialModel()
+
+	// Step 1: Initialize model with tree containing panes %1, %2, %3
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+				testPane("%3", "@3", 2, false),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Step 2: Add alerts for panes %1 and %2 (but not %3)
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "stop",
+		"%2": "idle",
+	}
+	m.alertsMu.Unlock()
+
+	// Step 3: Send tree_update with only pane %1 (panes %2, %3 removed)
+	updatedTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+			},
+		},
+	})
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &updatedTree,
+		},
+	}
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Step 4: Verify alerts map contains ONLY %1 alert
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(alerts) != 1 {
+		t.Errorf("Expected 1 alert after reconciliation, got %d: %v", len(alerts), alerts)
+	}
+
+	if alert, ok := alerts["%1"]; !ok || alert != "stop" {
+		t.Errorf("Expected alert for %%1 to be 'stop', got: %v", alert)
+	}
+
+	// Step 5: Verify %2 alert was removed (pane with alert gone)
+	if _, exists := alerts["%2"]; exists {
+		t.Error("Expected alert for %%2 to be removed after pane disappeared from tree")
+	}
+
+	// Step 6: Send tree_update removing all panes (empty tree)
+	emptyTree := tmux.NewRepoTree()
+	msg2 := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &emptyTree,
+		},
+	}
+	updatedModel, _ = m.Update(msg2)
+	m = updatedModel.(model)
+
+	// Step 7: Verify alerts map is empty
+	m.alertsMu.RLock()
+	finalAlerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	if len(finalAlerts) != 0 {
+		t.Errorf("Expected 0 alerts after empty tree update, got %d: %v", len(finalAlerts), finalAlerts)
 	}
 }

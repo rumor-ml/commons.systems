@@ -421,3 +421,62 @@ func TestRepoTreeClone_EmptyTree(t *testing.T) {
 		t.Errorf("Cloned tree should remain empty after original mutation, got %d repos", len(cloneRepos))
 	}
 }
+
+// TestRepoTreeUnmarshalJSON_MapIsolation verifies that UnmarshalJSON creates
+// independent map structures to prevent data races via shared map pointers.
+func TestRepoTreeUnmarshalJSON_MapIsolation(t *testing.T) {
+	// Create original tree with test data
+	original := NewRepoTree()
+	pane1, _ := NewPane("%1", "/path/one", "@0", 0, true, false, "zsh", "title1", false)
+	pane2, _ := NewPane("%2", "/path/two", "@1", 1, false, false, "vim", "title2", false)
+	original.SetPanes("repo1", "main", []Pane{pane1})
+	original.SetPanes("repo2", "feature", []Pane{pane2})
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Failed to marshal tree: %v", err)
+	}
+
+	// Unmarshal to new tree
+	var unmarshaled RepoTree
+	if err := json.Unmarshal(jsonData, &unmarshaled); err != nil {
+		t.Fatalf("Failed to unmarshal tree: %v", err)
+	}
+
+	// Verify unmarshaled tree has correct data
+	if !unmarshaled.HasRepo("repo1") {
+		t.Error("Unmarshaled tree should have repo1")
+	}
+	if !unmarshaled.HasBranch("repo1", "main") {
+		t.Error("Unmarshaled tree should have repo1/main")
+	}
+
+	// Mutate original tree (simulating concurrent daemon updates)
+	pane3, _ := NewPane("%3", "/path/three", "@2", 2, false, false, "bash", "title3", false)
+	if err := original.SetPanes("repo1", "main", []Pane{pane3}); err != nil {
+		t.Fatalf("Failed to update original tree: %v", err)
+	}
+
+	// Verify unmarshaled tree is NOT affected by mutation
+	// This would fail if UnmarshalJSON shared map pointers
+	panes, ok := unmarshaled.GetPanes("repo1", "main")
+	if !ok {
+		t.Fatal("Unmarshaled tree should still have repo1/main")
+	}
+	if len(panes) != 1 {
+		t.Errorf("Unmarshaled tree should have 1 pane, got %d", len(panes))
+	}
+	if panes[0].ID() != "%1" {
+		t.Errorf("Unmarshaled tree should have original pane %%1, got %s", panes[0].ID())
+	}
+
+	// Verify original tree was mutated
+	originalPanes, _ := original.GetPanes("repo1", "main")
+	if len(originalPanes) != 1 {
+		t.Errorf("Original tree should have 1 pane, got %d", len(originalPanes))
+	}
+	if originalPanes[0].ID() != "%3" {
+		t.Errorf("Original tree should have new pane %%3, got %s", originalPanes[0].ID())
+	}
+}

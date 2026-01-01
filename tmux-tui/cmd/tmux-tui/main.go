@@ -80,7 +80,8 @@ func initialModel() model {
 	renderer := ui.NewTreeRenderer(80) // Default width
 	m.renderer = renderer
 
-	// Initialize empty tree - will be populated by daemon tree_update messages
+	// Initialize empty tree - populated by daemon tree_update broadcasts (not client-side collection)
+	// Daemon collects tree once and broadcasts to all clients, eliminating redundant per-client queries
 	m.tree = tmux.NewRepoTree()
 
 	// Initialize daemon client
@@ -132,7 +133,7 @@ func (m model) Init() tea.Cmd {
 	}
 
 	// Start daemon event listener if connected
-	// All tree updates now come from daemon broadcasts (no client-side collection)
+	// Tree updates come from daemon broadcasts - no client-side collection needed
 	if m.daemonClient != nil {
 		cmds = append(cmds, watchDaemonCmd(m.daemonClient))
 	}
@@ -164,8 +165,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selectedBranch := m.branchPicker.Selected()
 				if selectedBranch != "" && m.daemonClient != nil && m.pickingForBranch != "" {
 					if err := m.daemonClient.BlockBranch(m.pickingForBranch, selectedBranch); err != nil {
-						fmt.Fprintf(os.Stderr, "Error blocking branch: %v\n", err)
+						errMsg := fmt.Sprintf("Failed to block branch '%s' with '%s': %v\nBlock was not applied.", m.pickingForBranch, selectedBranch, err)
+						fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+
+						// Make error visible in UI
+						m.errorMu.Lock()
+						m.alertError = errMsg
+						m.errorMu.Unlock()
+
+						// Keep picker open so user can see error and retry
+						return m, nil
 					}
+					// Request sent successfully - waiting for daemon block_change confirmation
+					fmt.Fprintf(os.Stderr, "Block request sent: '%s' blocked by '%s' (waiting for confirmation)\n", m.pickingForBranch, selectedBranch)
 				}
 				m.pickingBranch = false
 				m.pickingForBranch = ""
@@ -185,7 +197,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Clean up daemon client on quit
 			if m.daemonClient != nil {
 				if err := m.daemonClient.Close(); err != nil {
-					fmt.Fprintf(os.Stderr, "Error closing daemon client: %v\n", err)
+					fmt.Fprintf(os.Stderr, "WARNING: Failed to cleanly close daemon connection: %v\n", err)
+					fmt.Fprintf(os.Stderr, "         Application will exit anyway but daemon may have stale client state\n")
+					debug.Log("TUI_CLIENT_CLOSE_ERROR error=%v", err)
+				} else {
+					debug.Log("TUI_CLIENT_CLOSE_SUCCESS")
 				}
 			}
 			return m, tea.Quit
@@ -276,12 +292,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				debug.Log("TUI_TOGGLE_UNBLOCK branch=%s", currentBranch)
 				if m.daemonClient != nil {
 					if err := m.daemonClient.UnblockBranch(currentBranch); err != nil {
-						errMsg := fmt.Sprintf("Failed to unblock branch '%s': %v\nBranch remains blocked.", currentBranch, err)
+						errMsg := fmt.Sprintf("Failed to unblock branch '%s': %v\nBranch remains blocked. Check daemon status or retry.", currentBranch, err)
 						fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
 
-						// Make error visible in UI
+						// Make error visible in UI - use alertError for daemon communication failures
 						m.errorMu.Lock()
-						m.persistenceError = errMsg
+						m.alertError = errMsg
 						m.errorMu.Unlock()
 
 						return m, m.continueWatchingDaemon()
@@ -367,6 +383,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				err := fmt.Errorf("received tree_update with nil Tree field (seq=%d)", msg.msg.SeqNum)
 				debug.Log("TUI_TREE_UPDATE_INVALID error=%v consecutive=%d", err, m.consecutiveNilUpdates)
 
+				// CRITICAL: Set error state IMMEDIATELY to show warning banner
+				m.errorMu.Lock()
+				m.treeRefreshError = err
+				m.errorMu.Unlock()
+
 				// User-facing error notification
 				fmt.Fprintf(os.Stderr, "ERROR: Received invalid tree update from daemon (seqNum=%d)\n", msg.msg.SeqNum)
 				fmt.Fprintf(os.Stderr, "       Tree data is missing. This indicates a daemon bug or protocol mismatch.\n")
@@ -392,10 +413,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				fmt.Fprintf(os.Stderr, "       Tree display will show stale data. Consider restarting the daemon.\n")
-
-				m.errorMu.Lock()
-				m.treeRefreshError = err
-				m.errorMu.Unlock()
 
 				return m, m.continueWatchingDaemon()
 			}

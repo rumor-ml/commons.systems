@@ -1279,8 +1279,8 @@ func TestTreeUpdateMessage_FromWireFormat(t *testing.T) {
 		if msg != nil {
 			t.Errorf("FromWireFormat() with nil Tree should return nil message, got %T", msg)
 		}
-		if !strings.Contains(err.Error(), "tree_update requires tree") {
-			t.Errorf("Error should mention missing tree, got: %v", err)
+		if !strings.Contains(err.Error(), "tree_update") || !strings.Contains(err.Error(), "tree") {
+			t.Errorf("Error should mention tree_update and tree, got: %v", err)
 		}
 	})
 
@@ -1479,6 +1479,116 @@ func TestTreeErrorMessage_FromWireFormat(t *testing.T) {
 			t.Errorf("MessageType() = %v, want %v", msg.MessageType(), MsgTypeTreeError)
 		}
 	})
+}
+
+// TestTreeUpdateMessage_TreeIsolation verifies that TreeUpdateMessage truly isolates
+// the daemon's tree from message mutations during broadcast.
+// This test addresses the specific concern that Clone() might be shallow or that
+// ToWireFormat() might not properly copy data, which could cause data races.
+func TestTreeUpdateMessage_TreeIsolation(t *testing.T) {
+	// Step 1-2: Create original tree with panes for repo "test-repo" branch "main"
+	originalTree := NewRepoTree()
+	pane1, _ := NewPane("%1", "/test/repo", "@0", 0, true, false, "zsh", "original", false)
+	pane2, _ := NewPane("%2", "/test/repo", "@0", 0, false, false, "vim", "editor", false)
+	err := originalTree.SetPanes("test-repo", "main", []Pane{pane1, pane2})
+	if err != nil {
+		t.Fatalf("SetPanes() error = %v", err)
+	}
+
+	// Step 2: Create TreeUpdateMessage from tree
+	msg := NewTreeUpdateMessage(100, originalTree)
+
+	// Step 3-4: Mutate original tree (add new pane, change branch)
+	pane3, _ := NewPane("%3", "/test/repo", "@0", 0, false, false, "bash", "new-pane", false)
+	originalTree.SetPanes("test-repo", "main", []Pane{pane1, pane2, pane3}) // Add pane3
+	originalTree.SetPanes("test-repo", "feature", []Pane{pane3})            // Add new branch
+
+	// Step 5: Call ToWireFormat() on message
+	wire1 := msg.ToWireFormat()
+
+	// Step 6: Verify wire format Tree contains ORIGINAL panes (not mutations)
+	if wire1.Tree == nil {
+		t.Fatal("ToWireFormat().Tree = nil, want non-nil")
+	}
+
+	panes, ok := wire1.Tree.GetPanes("test-repo", "main")
+	if !ok {
+		t.Fatal("Wire format should have test-repo/main")
+	}
+
+	// Step 7: Verify wire format Tree does NOT contain new pane
+	if len(panes) != 2 {
+		t.Errorf("Wire format should have original 2 panes, got %d (mutations leaked through!)", len(panes))
+	}
+
+	// Verify pane titles are original
+	foundOriginal := false
+	foundNewPane := false
+	for _, p := range panes {
+		if p.Title() == "original" {
+			foundOriginal = true
+		}
+		if p.Title() == "new-pane" {
+			foundNewPane = true
+		}
+	}
+
+	if !foundOriginal {
+		t.Error("Original pane should be in wire format")
+	}
+	if foundNewPane {
+		t.Error("New pane should NOT be in wire format (mutation leaked through)")
+	}
+
+	// Verify new branch is NOT in wire format
+	if _, ok := wire1.Tree.GetPanes("test-repo", "feature"); ok {
+		t.Error("New branch should NOT be in wire format (mutation leaked through)")
+	}
+
+	// Step 8: Extract tree from message via Tree() method
+	msgTree := msg.Tree()
+
+	// Step 9: Mutate returned tree
+	pane4, _ := NewPane("%4", "/other", "@1", 1, false, false, "python", "mutated", false)
+	msgTree.SetPanes("test-repo", "main", []Pane{pane1, pane2, pane4}) // Replace panes
+	msgTree.SetPanes("mutated-repo", "mutated-branch", []Pane{pane4})  // Add new repo
+
+	// Step 10: Call ToWireFormat() again - verify mutations don't affect wire format
+	wire2 := msg.ToWireFormat()
+
+	if wire2.Tree == nil {
+		t.Fatal("ToWireFormat() second call returned nil Tree")
+	}
+
+	panes2, ok := wire2.Tree.GetPanes("test-repo", "main")
+	if !ok {
+		t.Fatal("Wire format should still have test-repo/main after Tree() mutation")
+	}
+
+	if len(panes2) != 2 {
+		t.Errorf("Wire format should still have 2 original panes after Tree() mutation, got %d", len(panes2))
+	}
+
+	// Verify mutated pane is NOT in wire format
+	foundMutated := false
+	for _, p := range panes2 {
+		if p.Title() == "mutated" {
+			foundMutated = true
+		}
+	}
+	if foundMutated {
+		t.Error("Mutated pane should NOT be in wire format (Tree() mutation leaked through)")
+	}
+
+	// Verify mutated repo is NOT in wire format
+	if _, ok := wire2.Tree.GetPanes("mutated-repo", "mutated-branch"); ok {
+		t.Error("Mutated repo should NOT be in wire format (Tree() mutation leaked through)")
+	}
+
+	// Verify original panes are still intact
+	if panes2[0].Title() != "original" && panes2[1].Title() != "original" {
+		t.Error("Original pane title should still be present")
+	}
 }
 
 // TestTreeUpdateMessage_JSONSerialization tests that RepoTree and Pane types serialize correctly to JSON

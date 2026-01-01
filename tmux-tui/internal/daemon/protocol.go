@@ -198,6 +198,9 @@ type HealthStatus struct {
 
 // NewHealthStatus creates a validated HealthStatus with current timestamp.
 // Returns error if any count fields are negative.
+//
+// Deprecated: Use NewHealthStatusBuilder() for better readability and maintainability.
+// This function is preserved for backward compatibility with existing tests and callers.
 func NewHealthStatus(
 	broadcastFailures int64,
 	lastBroadcastError string,
@@ -311,6 +314,117 @@ func (h HealthStatus) GetActiveAlerts() int { return h.activeAlerts }
 
 // GetBlockedBranches returns the current number of blocked branches
 func (h HealthStatus) GetBlockedBranches() int { return h.blockedBranches }
+
+// HealthStatusBuilder provides a fluent API for constructing HealthStatus instances.
+// This builder pattern improves readability compared to the 15-parameter NewHealthStatus constructor.
+//
+// Example usage:
+//
+//	status, err := NewHealthStatusBuilder().
+//	    WithBroadcastMetrics(failures, lastErr).
+//	    WithWatcherMetrics(errors, lastErr).
+//	    WithConnectionMetrics(closeErrors, lastErr).
+//	    WithAudioMetrics(failures, lastErr).
+//	    WithTreeBroadcastMetrics(errors, lastErr).
+//	    WithTreeConstructMetrics(errors, lastErr).
+//	    WithCounters(clients, alerts, blocked).
+//	    Build()
+type HealthStatusBuilder struct {
+	broadcastFailures       int64
+	lastBroadcastError      string
+	watcherErrors           int64
+	lastWatcherError        string
+	connectionCloseErrors   int64
+	lastCloseError          string
+	audioBroadcastFailures  int64
+	lastAudioBroadcastErr   string
+	treeBroadcastErrors     int64
+	lastTreeBroadcastErr    string
+	treeMsgConstructErrors  int64
+	lastTreeMsgConstructErr string
+	connectedClients        int
+	activeAlerts            int
+	blockedBranches         int
+}
+
+// NewHealthStatusBuilder creates a new HealthStatusBuilder with zero values.
+// Use the With* methods to set values, then call Build() to create the HealthStatus.
+func NewHealthStatusBuilder() *HealthStatusBuilder {
+	return &HealthStatusBuilder{}
+}
+
+// WithBroadcastMetrics sets broadcast failure metrics.
+func (b *HealthStatusBuilder) WithBroadcastMetrics(failures int64, lastErr string) *HealthStatusBuilder {
+	b.broadcastFailures = failures
+	b.lastBroadcastError = lastErr
+	return b
+}
+
+// WithWatcherMetrics sets watcher error metrics.
+func (b *HealthStatusBuilder) WithWatcherMetrics(errors int64, lastErr string) *HealthStatusBuilder {
+	b.watcherErrors = errors
+	b.lastWatcherError = lastErr
+	return b
+}
+
+// WithConnectionMetrics sets connection close error metrics.
+func (b *HealthStatusBuilder) WithConnectionMetrics(closeErrors int64, lastErr string) *HealthStatusBuilder {
+	b.connectionCloseErrors = closeErrors
+	b.lastCloseError = lastErr
+	return b
+}
+
+// WithAudioMetrics sets audio broadcast failure metrics.
+func (b *HealthStatusBuilder) WithAudioMetrics(failures int64, lastErr string) *HealthStatusBuilder {
+	b.audioBroadcastFailures = failures
+	b.lastAudioBroadcastErr = lastErr
+	return b
+}
+
+// WithTreeBroadcastMetrics sets tree broadcast error metrics.
+func (b *HealthStatusBuilder) WithTreeBroadcastMetrics(errors int64, lastErr string) *HealthStatusBuilder {
+	b.treeBroadcastErrors = errors
+	b.lastTreeBroadcastErr = lastErr
+	return b
+}
+
+// WithTreeConstructMetrics sets tree message construction error metrics.
+func (b *HealthStatusBuilder) WithTreeConstructMetrics(errors int64, lastErr string) *HealthStatusBuilder {
+	b.treeMsgConstructErrors = errors
+	b.lastTreeMsgConstructErr = lastErr
+	return b
+}
+
+// WithCounters sets current state counters (clients, alerts, blocked branches).
+func (b *HealthStatusBuilder) WithCounters(clients, alerts, blocked int) *HealthStatusBuilder {
+	b.connectedClients = clients
+	b.activeAlerts = alerts
+	b.blockedBranches = blocked
+	return b
+}
+
+// Build creates a validated HealthStatus from the builder's current state.
+// Returns error if any count fields are negative.
+func (b *HealthStatusBuilder) Build() (HealthStatus, error) {
+	// Delegate to NewHealthStatus for validation and construction
+	return NewHealthStatus(
+		b.broadcastFailures,
+		b.lastBroadcastError,
+		b.watcherErrors,
+		b.lastWatcherError,
+		b.connectionCloseErrors,
+		b.lastCloseError,
+		b.audioBroadcastFailures,
+		b.lastAudioBroadcastErr,
+		b.treeBroadcastErrors,
+		b.lastTreeBroadcastErr,
+		b.treeMsgConstructErrors,
+		b.lastTreeMsgConstructErr,
+		b.connectedClients,
+		b.activeAlerts,
+		b.blockedBranches,
+	)
+}
 
 // MarshalJSON implements custom JSON marshaling to maintain wire protocol compatibility
 func (h HealthStatus) MarshalJSON() ([]byte, error) {

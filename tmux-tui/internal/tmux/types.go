@@ -328,6 +328,17 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 		}
 	}
 
-	rt.tree = tempTree
+	// Deep copy to prevent sharing map pointers with unmarshaled data.
+	// This ensures full isolation, mirroring Clone() behavior.
+	rt.tree = make(map[string]map[string][]Pane, len(tempTree))
+	for repo, branches := range tempTree {
+		rt.tree[repo] = make(map[string][]Pane, len(branches))
+		for branch, panes := range branches {
+			panesCopy := make([]Pane, len(panes))
+			copy(panesCopy, panes)
+			rt.tree[repo][branch] = panesCopy
+		}
+	}
+
 	return nil
 }

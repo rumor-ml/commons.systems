@@ -64,8 +64,8 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 	}
 
 	// Wait for tree_update message (daemon broadcasts immediately on start + every 30s)
-	// watchTree() calls collectAndBroadcastTree() immediately after daemon starts,
-	// so we should receive the first broadcast within ~1-2 seconds (depends on goroutine scheduling)
+	// watchTree() calls collectAndBroadcastTree() immediately, but allow generous timeout
+	// for goroutine scheduling + tree collection latency in test environments
 	err = waitForCondition(t, WaitCondition{
 		Name: "client receives tree_update",
 		CheckFunc: func() (bool, error) {

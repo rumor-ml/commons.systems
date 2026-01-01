@@ -728,10 +728,9 @@ type TreeUpdateMessageV2 struct {
 }
 
 // NewTreeUpdateMessage creates a validated TreeUpdateMessage.
-// Tree is cloned via tree.Clone() which creates new map structures but shares Pane values.
-// This is safe because Pane is an immutable value type. Prevents data races during
-// concurrent broadcasting - the daemon can continue mutating its tree state while
-// messages are being serialized/sent to multiple clients.
+// The tree parameter is cloned (tree.Clone() creates new map structures but shares immutable Pane values).
+// This prevents data races during concurrent broadcasting - the daemon can continue mutating its tree state
+// while messages are being serialized/sent to multiple clients.
 // Caller may safely mutate the original tree after passing it - the message will not be affected.
 func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV2 {
 	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}
@@ -740,19 +739,19 @@ func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV
 func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
 func (m *TreeUpdateMessageV2) SeqNumber() uint64   { return m.seqNum }
 func (m *TreeUpdateMessageV2) ToWireFormat() Message {
-	// Create local copy to prevent aliasing with message's internal state
-	treeCopy := m.tree
+	// Clone to prevent aliasing - Message.Tree must not share map pointers between instances
+	cloned := m.tree.Clone()
 	return Message{
 		Type:   MsgTypeTreeUpdate,
 		SeqNum: m.seqNum,
-		Tree:   &treeCopy,
+		Tree:   &cloned,
 	}
 }
 
-// Tree returns the tmux tree state by value. Map pointers are shared but this is safe
-// since the message is immutable and callers receive their own struct copy.
-// Callers should not mutate the returned tree - use tree.Clone() if modification is needed.
-func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree }
+// Tree returns a defensive clone of the tree state.
+// Returns tree.Clone() to prevent callers from mutating the message's internal state.
+// This ensures message immutability even if callers modify the returned tree.
+func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree.Clone() }
 
 // 20. TreeErrorMessageV2 represents a tree collection failure
 type TreeErrorMessageV2 struct {
