@@ -49,8 +49,22 @@ async function globalSetup() {
 
     console.log('✓ Firebase emulators started successfully');
   } catch (error) {
-    // TODO(#1134): Add structured error logging with context and actionable guidance
-    console.error('Failed to start Firebase emulators:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const stderr = (error as any).stderr?.toString() || '';
+
+    console.error('FATAL: Failed to start Firebase emulators');
+    console.error('');
+    console.error('Error:', errorMessage);
+    if (stderr) {
+      console.error('Script output:', stderr);
+    }
+    console.error('');
+    console.error('Troubleshooting:');
+    console.error('1. Verify jq is installed: command -v jq');
+    console.error('2. Check firebase.json exists and is valid JSON');
+    console.error(`3. Verify script is executable: ${scriptPath}`);
+    console.error('4. Check ports in FIREBASE_PORTS:', JSON.stringify(FIREBASE_PORTS));
+    console.error('');
     throw error;
   }
 }
@@ -73,8 +87,18 @@ async function isPortInUse(port: number): Promise<boolean> {
       socket.destroy();
       resolve(false);
     });
-    socket.on('error', () => {
+    socket.on('error', (error: Error) => {
       socket.destroy();
+
+      // ECONNREFUSED means port is not in use (expected)
+      if ((error as any).code === 'ECONNREFUSED') {
+        resolve(false);
+        return;
+      }
+
+      // Other errors indicate system problems - log and treat conservatively
+      console.error(`Unexpected error checking port ${port}:`, error);
+      console.error('This may indicate a system configuration issue');
       resolve(false);
     });
 

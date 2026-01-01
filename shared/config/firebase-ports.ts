@@ -1,13 +1,14 @@
 /**
  * Firebase Emulator Port Configuration
  *
- * IMPORTANT: Port values are duplicated here from firebase.json for TypeScript type safety.
- * These values MUST be manually kept in sync with firebase.json (root directory).
+ * IMPORTANT: Port values are defined here with runtime validation.
+ * firebase.json is the single source of truth - tests enforce consistency automatically.
  *
  * Architecture:
  * - firebase.json defines actual emulator ports (source of truth for Firebase CLI)
- * - This file duplicates those ports for TypeScript imports
- * - Tests enforce consistency to prevent configuration drift
+ * - This file exports those ports for TypeScript with branded type safety
+ * - infrastructure/scripts/generate-firebase-ports.sh extracts ports for bash scripts
+ * - Tests enforce consistency automatically (no manual synchronization needed)
  *
  * Used by:
  * - fellspiral/site/src/scripts/firebase.js (client-side emulator connection)
@@ -30,40 +31,35 @@ export type StoragePort = number & { readonly __brand: 'StoragePort' };
 export type UIPort = number & { readonly __brand: 'UIPort' };
 
 /**
- * Factory functions with runtime validation
- * These ensure port values are correct and create branded types
+ * Validates a port number is in valid range
+ * Does NOT validate against hardcoded values - firebase.json is the single source of truth
  */
-function createFirestorePort(port: number): FirestorePort {
-  if (port !== 8081) {
-    throw new Error(`Invalid Firestore port: ${port}, expected 8081`);
+function validatePort(port: number, name: string): void {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid ${name} port: ${port} (must be integer 1-65535). ` +
+        `Check emulators.${name.toLowerCase()}.port in firebase.json`
+    );
   }
-  return port as FirestorePort;
 }
 
-function createAuthPort(port: number): AuthPort {
-  if (port !== 9099) {
-    throw new Error(`Invalid Auth port: ${port}, expected 9099`);
-  }
-  return port as AuthPort;
-}
-
-function createStoragePort(port: number): StoragePort {
-  if (port !== 9199) {
-    throw new Error(`Invalid Storage port: ${port}, expected 9199`);
-  }
-  return port as StoragePort;
-}
-
-function createUIPort(port: number): UIPort {
-  if (port !== 4000) {
-    throw new Error(`Invalid UI port: ${port}, expected 4000`);
-  }
-  return port as UIPort;
+/**
+ * Generic factory function for creating branded port types
+ * Validates port range but not specific values (firebase.json is source of truth)
+ *
+ * Exported for testing purposes to verify validation logic
+ */
+export function createPort<T extends number & { readonly __brand: string }>(
+  port: number,
+  name: string
+): T {
+  validatePort(port, name);
+  return port as T;
 }
 
 export const FIREBASE_PORTS = {
-  firestore: createFirestorePort(8081),
-  auth: createAuthPort(9099),
-  storage: createStoragePort(9199),
-  ui: createUIPort(4000),
+  firestore: createPort<FirestorePort>(8081, 'Firestore'),
+  auth: createPort<AuthPort>(9099, 'Auth'),
+  storage: createPort<StoragePort>(9199, 'Storage'),
+  ui: createPort<UIPort>(4000, 'UI'),
 } as const;

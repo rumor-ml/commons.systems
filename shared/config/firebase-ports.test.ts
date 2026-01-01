@@ -20,7 +20,14 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FIREBASE_PORTS } from './firebase-ports.ts';
+import {
+  FIREBASE_PORTS,
+  createPort,
+  type FirestorePort,
+  type AuthPort,
+  type StoragePort,
+  type UIPort,
+} from './firebase-ports.ts';
 
 describe('Firebase port configuration consistency', () => {
   test('firebase-ports.ts matches firebase.json emulator ports', () => {
@@ -83,5 +90,81 @@ describe('Firebase port configuration consistency', () => {
       FIREBASE_PORTS.ui > 0 && FIREBASE_PORTS.ui <= 65535,
       'UI port must be valid (1-65535)'
     );
+  });
+
+  test('factory function validates correct port values', () => {
+    // These should succeed with valid port numbers
+    assert.doesNotThrow(
+      () => createPort<FirestorePort>(8081, 'Firestore'),
+      'createPort should accept valid Firestore port 8081'
+    );
+    assert.doesNotThrow(
+      () => createPort<AuthPort>(9099, 'Auth'),
+      'createPort should accept valid Auth port 9099'
+    );
+    assert.doesNotThrow(
+      () => createPort<StoragePort>(9199, 'Storage'),
+      'createPort should accept valid Storage port 9199'
+    );
+    assert.doesNotThrow(
+      () => createPort<UIPort>(4000, 'UI'),
+      'createPort should accept valid UI port 4000'
+    );
+
+    // Verify the factory function returns the expected values
+    assert.strictEqual(createPort<FirestorePort>(8081, 'Firestore'), 8081);
+    assert.strictEqual(createPort<AuthPort>(9099, 'Auth'), 9099);
+    assert.strictEqual(createPort<StoragePort>(9199, 'Storage'), 9199);
+    assert.strictEqual(createPort<UIPort>(4000, 'UI'), 4000);
+  });
+
+  test('factory function rejects invalid port values with helpful error messages', () => {
+    // Test invalid port values (out of range)
+    assert.throws(
+      () => createPort<FirestorePort>(0, 'Firestore'),
+      {
+        name: 'Error',
+        message: /Invalid Firestore port: 0 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for port 0'
+    );
+
+    assert.throws(
+      () => createPort<AuthPort>(65536, 'Auth'),
+      {
+        name: 'Error',
+        message: /Invalid Auth port: 65536 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for port above 65535'
+    );
+
+    assert.throws(
+      () => createPort<StoragePort>(-1, 'Storage'),
+      {
+        name: 'Error',
+        message: /Invalid Storage port: -1 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for negative port'
+    );
+
+    assert.throws(
+      () => createPort<UIPort>(1.5, 'UI'),
+      {
+        name: 'Error',
+        message: /Invalid UI port: 1.5 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for non-integer port'
+    );
+
+    // Verify error message includes helpful guidance
+    try {
+      createPort<FirestorePort>(0, 'Firestore');
+      assert.fail('Should have thrown error');
+    } catch (error) {
+      assert.ok(
+        error instanceof Error && error.message.includes('firebase.json'),
+        'Error message should reference firebase.json for troubleshooting'
+      );
+    }
   });
 });

@@ -72,8 +72,10 @@ fi
 # Multiple worktrees connect to the same emulator instance
 # The generator script extracts ports from firebase.json (single source of truth)
 
-# Capture generate-firebase-ports.sh output and errors explicitly
-# This ensures we show actual error messages to users instead of generic troubleshooting
+# Capture generate-firebase-ports.sh output and errors to temporary files
+# Why: Direct sourcing via source <(script) swallows stderr, making failures opaque
+# This approach lets us show the actual jq/firebase.json errors to users
+# instead of generic troubleshooting steps
 GEN_STDERR=$(mktemp)
 GEN_OUTPUT=$(mktemp)
 trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT'" RETURN
@@ -90,8 +92,9 @@ if ! "${SCRIPT_DIR}/generate-firebase-ports.sh" > "$GEN_OUTPUT" 2> "$GEN_STDERR"
   echo "Check that:" >&2
   echo "1. jq is installed: command -v jq" >&2
   echo "2. firebase.json exists at: ${WORKTREE_ROOT}/firebase.json" >&2
-  echo "3. firebase.json is valid JSON with .emulators.{auth,firestore,storage,ui}.port" >&2
-  echo "4. generate-firebase-ports.sh is executable: ${SCRIPT_DIR}/generate-firebase-ports.sh" >&2
+  echo "3. firebase.json is valid JSON" >&2
+  echo "4. firebase.json contains .emulators.{auth,firestore,storage,ui}.port" >&2
+  echo "5. generate-firebase-ports.sh is executable: ${SCRIPT_DIR}/generate-firebase-ports.sh" >&2
   exit_or_return 1
 fi
 

@@ -13,11 +13,13 @@ if [ ! -f "$FIREBASE_JSON" ]; then
   exit 1
 fi
 
-# Extract ports using jq and output to stdout as shell variable assignments
-# This can be sourced by other scripts via: source <(generate-firebase-ports.sh)
-# The heredoc at the end outputs lines like "AUTH_PORT=9099" which are evaluated when sourced
-# Exits with status 1 if firebase.json is missing, jq is not installed, or ports are invalid
-# Sourcing scripts should validate port variables are set after sourcing
+# Extract ports from firebase.json and output as shell variables for sourcing
+# Purpose: Makes firebase.json the single source of truth - bash scripts source this
+#          instead of hardcoding ports, preventing configuration drift
+# Usage: source <(generate-firebase-ports.sh)
+# Output: Lines like "AUTH_PORT=9099" that are evaluated when sourced
+# Exits: Status 1 if firebase.json is missing, jq unavailable, or ports invalid
+# Note: Sourcing scripts should validate all port variables are set after sourcing
 
 # Validate jq is available
 if ! command -v jq >/dev/null 2>&1; then
@@ -37,7 +39,6 @@ declare -A ports=(
 for emulator in "${!ports[@]}"; do
   var_name="${ports[$emulator]}"
 
-  # Extract port value with proper error handling
   jq_stderr=$(mktemp)
   if ! port_value=$(jq -r ".emulators.${emulator}.port" "$FIREBASE_JSON" 2>"$jq_stderr"); then
     echo "ERROR: jq failed for ${emulator} port extraction" >&2
@@ -72,7 +73,6 @@ for emulator in "${!ports[@]}"; do
   fi
 
   # Store validated port for use in output heredoc below
-  # TODO(#1129): No validation that declare -g actually exported variables
   declare -g "$var_name=$port_value"
 done
 
