@@ -33,6 +33,12 @@ APP_NAME=$(basename "$APP_PATH_ABS")
 
 echo "=== E2E Tests: $APP_NAME ($APP_TYPE) ==="
 
+# Source port utilities for sandbox detection
+source "$SCRIPT_DIR/port-utils.sh"
+
+# Check sandbox requirement BEFORE any emulator operations
+check_sandbox_requirement "Running E2E tests with Firebase emulators" || exit 1
+
 # Allocate ports based on worktree
 source "$SCRIPT_DIR/allocate-test-ports.sh" || {
   echo "FATAL: Port allocation failed" >&2

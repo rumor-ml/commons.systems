@@ -7,6 +7,62 @@
 # Includes: VoIP (SIP: 5060-5061), IRC (6665-6669), X11 (6000), and commonly-blocked ports (5000, 5001, 8000)
 RESERVED_PORTS=(5000 5001 5060 5061 6000 6665 6666 6667 6668 6669 8000)
 
+# Detect if running in Claude Code sandbox environment
+# Returns:
+#   0 if in sandbox, 1 if not in sandbox
+is_sandbox_environment() {
+  # Check for CLAUDE_SANDBOX environment variable (set by Claude Code)
+  if [ "${CLAUDE_SANDBOX:-}" = "true" ]; then
+    return 0  # In sandbox
+  fi
+
+  # Check for other sandbox indicators if needed
+  # (Can be extended with additional detection methods)
+
+  return 1  # Not in sandbox
+}
+
+# Check if operation requires sandbox to be disabled
+# Displays clear error message if in sandbox
+# Args:
+#   $1 (operation): Description of operation being attempted
+# Returns:
+#   0 if sandbox disabled (safe to proceed), 1 if in sandbox (must abort)
+check_sandbox_requirement() {
+  local operation="${1:-this operation}"
+
+  if is_sandbox_environment; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "ERROR: Sandbox Restriction Detected" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "" >&2
+    echo "Operation: ${operation}" >&2
+    echo "" >&2
+    echo "This operation requires Unix socket and process group operations that" >&2
+    echo "are restricted in sandboxed environments. The emulator scripts must run" >&2
+    echo "with sandbox disabled." >&2
+    echo "" >&2
+    echo "SOLUTION:" >&2
+    echo "  Run this command with dangerouslyDisableSandbox: true" >&2
+    echo "" >&2
+    echo "Example (Bash tool):" >&2
+    echo "  {" >&2
+    echo "    \"command\": \"infrastructure/scripts/start-emulators.sh\"," >&2
+    echo "    \"dangerouslyDisableSandbox\": true" >&2
+    echo "  }" >&2
+    echo "" >&2
+    echo "Why this is needed:" >&2
+    echo "  - Firebase emulator requires Unix socket creation" >&2
+    echo "  - Process group management requires unrestricted signal handling" >&2
+    echo "  - Port allocation may require access to system networking APIs" >&2
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    return 1  # Must abort
+  fi
+
+  return 0  # Safe to proceed
+}
+
 # Validate parameter is a positive integer
 # Args:
 #   $1 (value): Value to validate

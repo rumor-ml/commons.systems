@@ -20,6 +20,10 @@ APP_NAME="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/port-utils.sh"
+
+# Check sandbox requirement BEFORE any emulator operations
+check_sandbox_requirement "Starting Firebase emulators" || exit 1
+
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
 # Configuration
