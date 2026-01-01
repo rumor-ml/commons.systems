@@ -455,6 +455,9 @@ startxref
     }
     this.listeners.clear();
 
+    // Deduplicate userIDs to prevent double-deletion errors
+    const uniqueUserIDs = [...new Set(this.createdUserIDs)];
+
     // Parallel cleanup
     await Promise.all([
       ...this.createdFileIDs.map((id) =>
@@ -471,7 +474,7 @@ startxref
           .delete()
           .catch(() => {})
       ),
-      ...this.createdUserIDs.map((id) => this.authHelper.deleteUser(id).catch(() => {})),
+      ...uniqueUserIDs.map((id) => this.authHelper.deleteUser(id).catch(() => {})),
       ...this.createdFilePaths.map((filePath) => fs.unlink(filePath).catch(() => {})),
     ]);
 
