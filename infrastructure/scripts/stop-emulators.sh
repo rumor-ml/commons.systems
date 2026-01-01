@@ -1,53 +1,77 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stop Firebase emulators for this worktree
-# Each worktree runs isolated emulators with unique ports
+# Stop Firebase emulators (backend and hosting)
 
-# Source port allocation script to get worktree-specific paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# Source port utilities for process management
+source "${SCRIPT_DIR}/port-utils.sh"
+
+# Source allocate-test-ports.sh to get PROJECT_ID
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
-# Worktree-specific PID and log files (use WORKTREE_TMP_DIR from allocate-test-ports.sh)
-PID_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.pid"
-LOG_FILE="${WORKTREE_TMP_DIR}/firebase-emulators.log"
-TEMP_FIREBASE_JSON="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}/firebase.${WORKTREE_HASH}.json"
+# PID files for backend and hosting emulators
+BACKEND_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.pid"
+HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.pid"
 
-echo "Stopping Firebase emulators for this worktree..."
-echo "  PID file: $PID_FILE"
+# Log files
+BACKEND_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.log"
+HOSTING_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.log"
 
-if [ ! -f "$PID_FILE" ]; then
-  echo "No emulator PID file found"
-  echo "Emulators may not be running or were started manually."
-  exit 0
-fi
+# Temp config file
+TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
-EMULATOR_PID=$(cat "$PID_FILE")
-
-echo "Stopping Firebase emulators (PID: ${EMULATOR_PID})..."
-
-# Kill the emulator process
-if kill "$EMULATOR_PID" 2>/dev/null; then
-  echo "✓ Successfully stopped emulator process ${EMULATOR_PID}"
-else
-  echo "⚠️  Process ${EMULATOR_PID} not found (may have already stopped)"
-fi
-
-# Clean up PID file
-rm -f "$PID_FILE"
-echo "✓ Cleaned up PID file"
-
-# Clean up log file
-if [ -f "$LOG_FILE" ]; then
-  rm -f "$LOG_FILE"
-  echo "✓ Cleaned up log file"
-fi
-
-# Clean up temporary firebase config
-if [ -f "$TEMP_FIREBASE_JSON" ]; then
-  rm -f "$TEMP_FIREBASE_JSON"
-  echo "✓ Cleaned up temporary firebase config"
-fi
-
+echo "Stopping Firebase emulators..."
 echo ""
-echo "✓ Firebase emulators stopped successfully"
+
+# Stop hosting emulator (per-worktree)
+if [ -f "$HOSTING_PID_FILE" ]; then
+  echo "Stopping hosting emulator..."
+
+  # Use port-utils.sh functions for PID file parsing and process killing
+  if parse_pid_file "$HOSTING_PID_FILE"; then
+    kill_process_group "$PARSED_PID" "$PARSED_PGID"
+    echo "✓ Successfully stopped hosting emulator"
+  else
+    echo "WARNING: PID file exists but could not be parsed" >&2
+    echo "Skipping PID-based cleanup - will attempt port-based cleanup" >&2
+  fi
+
+  # Clean up hosting PID file
+  rm -f "$HOSTING_PID_FILE"
+  echo "✓ Cleaned up hosting PID file"
+
+  # Clean up hosting log file
+  if [ -f "$HOSTING_LOG_FILE" ]; then
+    rm -f "$HOSTING_LOG_FILE"
+    echo "✓ Cleaned up hosting log file"
+  fi
+
+  # Clean up temp config
+  if [ -f "$TEMP_CONFIG" ]; then
+    rm -f "$TEMP_CONFIG"
+    echo "✓ Cleaned up temp config"
+  fi
+  echo ""
+else
+  echo "No hosting emulator PID file found (may not be running)"
+  echo ""
+fi
+
+# Stop backend emulators (shared - only stop if requested)
+if [ -f "$BACKEND_PID_FILE" ]; then
+  echo "Backend emulators are shared across worktrees."
+  echo "PID file: ${BACKEND_PID_FILE}"
+  echo ""
+  echo "To stop backend emulators (will affect all worktrees):"
+  echo "  kill \$(cat ${BACKEND_PID_FILE})"
+  echo "  rm -f ${BACKEND_PID_FILE}"
+  echo ""
+else
+  echo "No backend emulator PID file found (may not be running)"
+  echo ""
+fi
+
+echo "✓ Hosting emulator stopped successfully"

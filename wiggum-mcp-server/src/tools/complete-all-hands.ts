@@ -2,7 +2,7 @@
  * Tool: wiggum_complete_all_hands
  *
  * Called after all /all-hands-review agents complete (both review and implementation).
- * Reads manifests internally, applies 2-strike logic, and returns next step instructions.
+ * Reads manifests internally, counts high-priority in-scope issues, and returns next step instructions.
  */
 
 // TODO(#1017): Consider integration tests for complete-all-hands.ts workflow

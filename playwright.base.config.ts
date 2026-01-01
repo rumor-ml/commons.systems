@@ -1,16 +1,11 @@
 // playwright.base.config.ts
 import { defineConfig, devices, PlaywrightTestConfig } from '@playwright/test';
 
-// TODO(#486): Add runtime validation with zod for SiteConfig
-export interface SiteConfig {
+// Base configuration shared by both modes
+interface BaseSiteConfig {
   siteName: string;
-  port: number;
   deployedUrl?: string;
   testDir?: string;
-  webServerCommand?: {
-    local: string;
-    ci: string;
-  };
   env?: Record<string, string>;
   timeout?: number;
   expect?: { timeout?: number };
@@ -18,11 +13,27 @@ export interface SiteConfig {
   globalTeardown?: string;
 }
 
+// Modern: Uses Firebase Hosting emulator (no web server command needed)
+export interface HostingEmulatorConfig extends BaseSiteConfig {
+  mode: 'hosting-emulator';
+  port: number; // Port where hosting emulator is running
+}
+
+// Legacy: Uses custom web server command
+export interface WebServerConfig extends BaseSiteConfig {
+  mode: 'web-server';
+  port: number; // Port where web server will run
+  webServerCommand: {
+    local: string;
+    ci: string;
+  };
+}
+
+// Discriminated union: only valid state combinations are representable
+export type SiteConfig = HostingEmulatorConfig | WebServerConfig;
+
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
   const isDeployed = process.env.DEPLOYED === 'true';
-  // Use existing server by default to avoid sandbox port binding issues
-  // Can be overridden with START_SERVER=true
-  const shouldStartServer = process.env.START_SERVER === 'true';
 
   // Set environment variables for test process
   if (site.env) {
@@ -40,6 +51,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     // Retry strategy: 2 retries in CI for better stability with UI/timing-dependent tests
     // Database/API tests typically fail fast (deterministic), but UI tests benefit from retries
     // Individual test suites can override with test.describe().configure({ retries: N })
+    // TODO(#1089): Comment explains retry strategy but doesn't mention when 0 retries is appropriate
     retries: process.env.CI ? 2 : 0,
     workers: process.env.CI ? 4 : undefined,
     timeout: site.timeout || 60000,
@@ -111,20 +123,23 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
             },
           ],
 
-    webServer:
-      isDeployed || !shouldStartServer
-        ? undefined
-        : {
-            command: process.env.CI
-              ? site.webServerCommand?.ci || `cd ../site && npm run preview`
-              : site.webServerCommand?.local || `cd ../site && npm run dev`,
+    webServer: isDeployed
+      ? undefined
+      : site.mode === 'web-server'
+        ? {
+            // Legacy: Apps still using webServerCommand (not yet migrated to hosting emulator)
+            command: process.env.CI ? site.webServerCommand.ci : site.webServerCommand.local,
             url: `http://localhost:${site.port}`,
             reuseExistingServer: true,
             timeout: 120 * 1000,
             env: {
-              ...process.env,
+              // Filter out undefined values from process.env
+              ...(Object.fromEntries(
+                Object.entries(process.env).filter(([_, v]) => v !== undefined)
+              ) as Record<string, string>),
               ...(site.env || {}),
             },
-          },
+          }
+        : undefined, // Modern: No webServer needed, emulators started externally
   });
 }

@@ -1,6 +1,7 @@
 import { createPlaywrightConfig } from '../../playwright.base.config';
 
 export default createPlaywrightConfig({
+  mode: 'web-server',
   siteName: 'fellspiral',
   port: 3000,
   deployedUrl: 'https://fellspiral.commons.systems',

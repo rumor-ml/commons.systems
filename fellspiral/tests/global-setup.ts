@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { getCardsCollectionName } from '../scripts/lib/collection-names.js';
+import { FIREBASE_PORTS } from '../../shared/config/firebase-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -79,23 +80,11 @@ async function globalSetup() {
     return;
   }
 
-  // Track setup state for debugging partial failures
-  const setupState = {
-    cardsLoaded: false,
-    adminImported: false,
-    adminInitialized: false,
-    firestoreConnected: false,
-    existingCardsCleared: false,
-    cardsSeeded: false,
-    qaUserSeeded: false,
-  };
+  // Firebase emulator port from shared config
+  const firestoreHost = 'localhost';
+  const firestorePort = FIREBASE_PORTS.firestore;
 
-  // Get emulator host from environment or use default
-  // Use 127.0.0.1 instead of localhost to avoid IPv6 ::1 which sandbox blocks
-  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
-  const [host, port] = firestoreHost.split(':');
-
-  console.log(`Seeding Firestore emulator at ${firestoreHost}...`);
+  console.log(`📦 Seeding Firestore emulator at ${firestoreHost}:${firestorePort}...`);
 
   // Step 1: Load cards data
   const cardsPath = join(__dirname, '../site/src/data/cards.json');
@@ -111,7 +100,6 @@ async function globalSetup() {
     if (!Array.isArray(cardsData) || cardsData.length === 0) {
       throw new Error(`Invalid data: expected non-empty array, got ${typeof cardsData}`);
     }
-    setupState.cardsLoaded = true;
     console.log(`   ✓ Loaded ${cardsData.length} cards from file`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -128,67 +116,101 @@ async function globalSetup() {
   let admin: typeof import('firebase-admin');
   try {
     const adminModule = await import('firebase-admin');
-    admin = adminModule.default;
-    setupState.adminImported = true;
-    console.log(`   ✓ Imported firebase-admin`);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Failed to import firebase-admin:\n` +
-        `   Error: ${errorMsg}\n` +
-        `   Setup state: ${JSON.stringify(setupState)}\n` +
-        `   Action: Run 'pnpm install' to install dependencies`
-    );
-  }
 
-  // Step 3: Initialize Firebase Admin
-  console.log(`   Initializing Firebase Admin...`);
-  try {
+    // Validate that firebase-admin module loaded correctly
+    if (!adminModule || !adminModule.default) {
+      throw new Error(
+        'Failed to import firebase-admin module - module is undefined or missing default export'
+      );
+    }
+
+    admin = adminModule.default;
+
+    // Validate admin object has required methods
+    if (typeof admin.initializeApp !== 'function' || typeof admin.firestore !== 'function') {
+      throw new Error(
+        'firebase-admin module is missing required methods (initializeApp or firestore)'
+      );
+    }
+
+    // Initialize Firebase Admin with emulator
+    // Use per-worktree project ID for data isolation
+    // Integration tests in infrastructure/scripts/tests/firestore-isolation.test.sh verify
+    // that different project IDs correctly isolate Firestore data when using the same emulator.
+    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
     if (!admin.apps.length) {
-      admin.initializeApp({ projectId: PROJECT_ID });
-      console.log(`   ✓ Initialized Firebase Admin (projectId: ${PROJECT_ID})`);
+      admin.initializeApp({
+        projectId,
+      });
+      console.log(`   ✓ Initialized Firebase Admin (projectId: ${projectId})`);
     } else {
       console.log(`   ✓ Using existing Firebase Admin app`);
     }
-    setupState.adminInitialized = true;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Failed to initialize Firebase Admin SDK:\n` +
-        `   Project ID: ${PROJECT_ID}\n` +
         `   Error: ${errorMsg}\n` +
-        `   Setup state: ${JSON.stringify(setupState)}\n` +
-        `   Action: Check Firebase Admin SDK installation`
+        `   Action: Run 'pnpm install' to install dependencies`
     );
   }
 
-  // Step 4: Connect to Firestore emulator
+  // Step 3: Connect to Firestore emulator
   console.log(`   Connecting to Firestore emulator...`);
   let db: FirebaseFirestore.Firestore;
   let cardsCollection: FirebaseFirestore.CollectionReference;
   try {
     db = admin.firestore();
     db.settings({
-      host: `${host}:${port}`,
+      host: `${firestoreHost}:${firestorePort}`,
       ssl: false,
     });
+    console.log(`   ✓ Connected to Firestore emulator at ${firestoreHost}:${firestorePort}`);
+
     const collectionName = getCardsCollectionName();
+
+    // Validate collection name is not empty or invalid
+    if (!collectionName || typeof collectionName !== 'string' || collectionName.trim() === '') {
+      throw new Error(
+        'Invalid collection name returned from getCardsCollectionName() - expected non-empty string'
+      );
+    }
+
+    // Validate collection name format (Firestore requires specific format)
+    // Collection names must not contain: / \ . (anywhere), start/end with __, or be longer than 1500 bytes
+    if (
+      collectionName.includes('/') ||
+      collectionName.includes('\\') ||
+      collectionName.includes('.')
+    ) {
+      throw new Error(
+        `Invalid collection name format: "${collectionName}" - cannot contain / \\ or .`
+      );
+    }
+
+    if (collectionName.startsWith('__') || collectionName.endsWith('__')) {
+      throw new Error(
+        `Invalid collection name format: "${collectionName}" - cannot start or end with __`
+      );
+    }
+
+    if (Buffer.byteLength(collectionName, 'utf8') > 1500) {
+      throw new Error(`Invalid collection name: "${collectionName}" - exceeds 1500 bytes`);
+    }
+
     cardsCollection = db.collection(collectionName);
-    setupState.firestoreConnected = true;
-    console.log(`   ✓ Connected to Firestore emulator at ${host}:${port}`);
     console.log(`   Using collection: ${collectionName}`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Failed to connect to Firestore emulator:\n` +
-        `   Host: ${firestoreHost}\n` +
+        `   Host: ${firestoreHost}:${firestorePort}\n` +
         `   Error: ${errorMsg}\n` +
-        `   Setup state: ${JSON.stringify(setupState)}\n` +
         `   Action: Run './infrastructure/scripts/start-emulators.sh' to start emulator`
     );
   }
 
-  // Step 5: Clear existing cards
+  // Step 4: Clear existing cards
   console.log('   Clearing existing cards from emulator...');
   try {
     const existingCards = await cardsCollection.get();
@@ -212,19 +234,17 @@ async function globalSetup() {
     } else {
       console.log('   No existing cards found');
     }
-    setupState.existingCardsCleared = true;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Failed to clear existing cards from Firestore:\n` +
-        `   Host: ${firestoreHost}\n` +
+        `   Host: ${firestoreHost}:${firestorePort}\n` +
         `   Error: ${errorMsg}\n` +
-        `   Setup state: ${JSON.stringify(setupState)}\n` +
         `   Action: Check Firestore emulator connectivity`
     );
   }
 
-  // Step 6: Seed cards to Firestore
+  // Step 5: Seed cards to Firestore
   console.log(`   Writing ${cardsData.length} cards to Firestore...`);
   try {
     const batch = db.batch();
@@ -236,34 +256,66 @@ async function globalSetup() {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     }
-    await batch.commit();
-    setupState.cardsSeeded = true;
-    console.log(`SUCCESS: Seeded ${cardsData.length} cards to Firestore`);
+
+    // Commit batch and validate the write succeeded
+    const batchWriteResult = await batch.commit();
+
+    // Validate batch write result
+    if (!batchWriteResult || !Array.isArray(batchWriteResult)) {
+      throw new Error(
+        'Batch write returned invalid result - expected array of WriteResult objects'
+      );
+    }
+
+    // Firestore batch.commit() returns array of WriteResult, one per operation
+    // Empty array would indicate no writes occurred
+    if (batchWriteResult.length === 0) {
+      throw new Error(
+        'Batch write completed but no write results returned - expected results for all operations'
+      );
+    }
+
+    // Expected number of writes should match number of cards
+    if (batchWriteResult.length !== cardsData.length) {
+      throw new Error(
+        `Batch write mismatch: wrote ${batchWriteResult.length} documents but expected ${cardsData.length}`
+      );
+    }
+
+    // Verify all documents were actually written by querying the collection
+    console.log('   Verifying batch write success...');
+    const verifyWritten = await cardsCollection.get();
+
+    if (verifyWritten.empty) {
+      throw new Error(
+        'Batch write verification failed - no documents found in collection after write'
+      );
+    }
+
+    if (verifyWritten.size !== cardsData.length) {
+      throw new Error(
+        `Batch write verification failed - found ${verifyWritten.size} documents but expected ${cardsData.length}`
+      );
+    }
+
+    console.log(`   ✓ Verified ${verifyWritten.size} cards written successfully`);
+    console.log(`✅ SUCCESS: Seeded ${cardsData.length} cards to Firestore`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Failed to seed cards to Firestore:\n` +
         `   Cards count: ${cardsData.length}\n` +
-        `   Host: ${firestoreHost}\n` +
+        `   Host: ${firestoreHost}:${firestorePort}\n` +
         `   Error: ${errorMsg}\n` +
-        `   Setup state: ${JSON.stringify(setupState)}\n` +
         `   Action: Check Firestore emulator connectivity and batch write limits`
     );
   }
 
-  // Step 7: Seed QA test user (seedQaTestUser throws on failure)
+  // Step 6: Seed QA test user (seedQaTestUser throws on failure)
   console.log('Seeding Auth emulator with QA test user...');
-  try {
-    await seedQaTestUser(admin);
-    setupState.qaUserSeeded = true;
-  } catch (error) {
-    // Re-throw with setup state context
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`${errorMsg}\n` + `   Setup state: ${JSON.stringify(setupState)}`);
-  }
+  await seedQaTestUser(admin);
 
-  console.log('Global setup complete');
-  console.log(`   Final state: ${JSON.stringify(setupState)}`);
+  console.log('✅ Global setup complete');
 }
 
 export default globalSetup;
