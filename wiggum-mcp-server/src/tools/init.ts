@@ -1,17 +1,30 @@
 /**
  * Tool: wiggum_init
  *
- * Initialization/entry point tool. Analyzes current state and determines next action.
- * This tool should only be called ONCE at the start of the workflow.
+ * Entry point for the wiggum workflow. Analyzes current state and returns next action.
+ *
+ * USAGE: Call this tool ONCE at the start of each wiggum invocation. After init returns,
+ * follow the instructions provided - completion tools (wiggum_complete_*) will return
+ * next step instructions directly. Only call wiggum_init again when:
+ * - Starting a new wiggum session
+ * - Resuming after a workflow halt (e.g., iteration limit reached)
+ * - Restarting after an error recovery
  */
 
 import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { logger } from '../utils/logger.js';
-import { MAX_ITERATIONS } from '../constants.js';
+import { generateIterationLimitInstructions } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import {
+  StateDetectionError,
+  StateApiError,
+  McpError,
+  createErrorResult,
+} from '../utils/errors.js';
+import { isIterationLimitReached, getEffectiveMaxIterations } from '../state/state-utils.js';
 
 export const WiggumInitInputSchema = z.object({});
 
@@ -20,11 +33,43 @@ export type WiggumInitInput = z.infer<typeof WiggumInitInputSchema>;
 /**
  * Initialize wiggum flow and determine the next step based on current state
  *
- * IMPORTANT: This tool should only be called ONCE at the start of the workflow.
- * After initialization, completion tools will provide next step instructions directly.
+ * See module-level docs for usage guidelines on when to call this tool.
  */
 export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
-  const state = await detectCurrentState();
+  let state;
+  try {
+    state = await detectCurrentState();
+  } catch (error) {
+    if (error instanceof StateDetectionError) {
+      logger.error('wiggum_init: state detection failed - race condition or rapid state changes', {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        context: error.context,
+      });
+      return createErrorResult(error);
+    }
+    if (error instanceof StateApiError) {
+      logger.error('wiggum_init: GitHub API error during state detection', {
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        operation: error.operation,
+        resourceType: error.resourceType,
+        resourceId: error.resourceId,
+      });
+      return createErrorResult(error);
+    }
+    // Handle unexpected errors gracefully
+    logger.error('wiggum_init: unexpected error during state detection', {
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+
+    // Return error result instead of throwing
+    const unexpectedError =
+      error instanceof Error ? error : new McpError(String(error), 'UNEXPECTED_ERROR');
+    return createErrorResult(unexpectedError);
+  }
 
   logger.info('wiggum_init', {
     branch: state.git.currentBranch,
@@ -33,23 +78,18 @@ export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
   });
 
   // Check iteration limit
-  if (state.wiggum.iteration >= MAX_ITERATIONS) {
+  if (isIterationLimitReached(state.wiggum)) {
+    const effectiveLimit = getEffectiveMaxIterations(state.wiggum);
     logger.warn('wiggum_init - max iterations reached', {
       iteration: state.wiggum.iteration,
-      maxIterations: MAX_ITERATIONS,
+      maxIterations: effectiveLimit,
+      isCustomLimit: state.wiggum.maxIterations !== undefined,
     });
     const output = {
       current_step: 'Iteration Limit Reached',
       step_number: 'max',
       iteration_count: state.wiggum.iteration,
-      instructions: `Maximum iteration limit (${MAX_ITERATIONS}) reached.
-
-Please:
-1. Summarize all work completed in this PR
-2. List any remaining issues or failures
-3. Notify the user that manual intervention is required
-
-The workflow will not continue automatically beyond this point.`,
+      instructions: generateIterationLimitInstructions(state.wiggum, effectiveLimit),
       steps_completed_by_tool: [],
       context: {
         pr_number: state.pr.exists ? state.pr.number : undefined,

@@ -2,12 +2,22 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 import { setupMobileViewport } from './test-helpers.js';
 
 test.describe('Homepage', () => {
-  test('should load successfully', async ({ page }) => {
+  test('@smoke should load successfully', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveTitle(/Fellspiral/);
   });
 
-  test('should display introduction section', async ({ page }) => {
+  test('hosting emulator serves on correct port', async ({ page, baseURL }) => {
+    // Verify baseURL matches HOSTING_PORT env var
+    const expectedPort = process.env.HOSTING_PORT || '5002';
+    expect(baseURL).toContain(`:${expectedPort}`);
+
+    // Verify actual connection to hosting emulator
+    await page.goto('/');
+    await expect(page).toHaveTitle(/Fellspiral/);
+  });
+
+  test('@smoke should display introduction section', async ({ page }) => {
     await page.goto('/');
 
     // Check introduction content
@@ -21,7 +31,7 @@ test.describe('Homepage', () => {
     await expect(introDescription).toContainText('tactical tabletop RPG');
   });
 
-  test('should have working sidebar navigation', async ({ page }) => {
+  test('@smoke should have working sidebar navigation', async ({ page }) => {
     await page.goto('/');
 
     // Wait for sidebar navigation to be ready

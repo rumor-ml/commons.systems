@@ -2,6 +2,7 @@
 import { createPlaywrightConfig } from '../../playwright.base.config';
 
 export default createPlaywrightConfig({
+  mode: 'web-server',
   siteName: 'printsync',
   port: 8080,
   deployedUrl: 'https://printsync.commons.systems',

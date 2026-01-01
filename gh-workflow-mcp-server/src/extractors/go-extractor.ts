@@ -32,6 +32,16 @@ export class GoExtractor implements FrameworkExtractor {
     return match ? line.slice(match[0].length) : line;
   }
 
+  /**
+   * Detect Go test framework from log output
+   *
+   * Searches for Go test JSON format (-json flag) or text format markers.
+   * Handles GitHub Actions timestamp prefixes. Samples first 500 lines due
+   * to Actions preamble.
+   *
+   * @param logText - Raw log text to analyze
+   * @returns Detection result with confidence level and format type, or null if not Go
+   */
   detect(logText: string): DetectionResult | null {
     const lines = logText.split('\n');
     let jsonLineCount = 0;
@@ -85,6 +95,20 @@ export class GoExtractor implements FrameworkExtractor {
     return null;
   }
 
+  /**
+   * Extract test failures and errors from Go test logs
+   *
+   * Handles both JSON (-json flag) and text output formats. For JSON, parses
+   * structured test events. For text, extracts failure messages using pattern
+   * matching. Includes test summary statistics when available.
+   *
+   * @param logText - Raw log text containing Go test output
+   * @param maxErrors - Maximum number of errors to extract (default: 10)
+   * @returns Extraction result with framework name, errors, and summary statistics
+   *   - Returns empty errors array if no valid test events found
+   *   - Skips malformed JSON lines (e.g., build output, dependency downloads)
+   *   - Continues extraction even if individual test events are malformed
+   */
   extract(logText: string, maxErrors = 10): ExtractionResult {
     const detection = this.detect(logText);
 
@@ -111,25 +135,32 @@ export class GoExtractor implements FrameworkExtractor {
     let testEventParseErrors = 0;
     const validationTracker = new ValidationErrorTracker();
 
-    // ARCHITECTURAL PATTERN: Three-stage error handling with narrow catch scopes
+    // Architecture: Three-stage processing with two error handling boundaries
     //
-    // STAGE 1 (parseGoTestJson: JSON.parse loop): JSON.parse() wrapped in minimal try-catch
-    //   - ONLY catches JSON syntax errors (malformed JSON)
-    //   - Expected errors: build output, compilation messages, GitHub Actions logs
-    //   - Action: Skip line and log diagnostics
+    // WHY THIS COMPLEXITY EXISTS:
+    // Go test output (`go test -json`) intermingles valid test events with build messages,
+    // compilation errors, and GitHub Actions log lines. We need to:
+    // 1. Parse valid JSON from mixed content (some lines aren't JSON at all)
+    // 2. Filter test events from other JSON (build output can also be valid JSON)
+    // 3. Validate extracted data meets our ExtractedError schema
     //
-    // STAGE 2 (parseGoTestJson: Test event validation): Test event validation (NO catch - structural bugs propagate)
-    //   - Validates parsed JSON has required test event fields (Time, Action, Package)
-    //   - No catch block: bugs in field access should crash for debugging
-    //   - Action: Skip non-test-event JSON
+    // STAGE 1 (JSON.parse): Error handling boundary - catches syntax errors
+    //   - Wraps JSON.parse() in try-catch
+    //   - Expected errors: non-JSON lines (build output, GH Actions logs, compiler messages)
+    //   - Action: Skip line, track diagnostic samples for user visibility
     //
-    // STAGE 3 (parseGoTestJson/parseGoTestText: safeValidateExtractedError calls): Schema validation with fallback errors
-    //   - safeValidateExtractedError() catches Zod validation errors
-    //   - Creates fallback ExtractedError with diagnostics
+    // STAGE 2 (Field validation): NO error handling - validation only
+    //   - Checks parsed JSON has required test event fields (Time, Action, Package)
+    //   - No catch block: bugs in field access propagate for debugging
+    //   - Action: Skip non-test-event JSON (e.g., build metadata)
+    //
+    // STAGE 3 (Schema validation): Error handling boundary - catches schema errors
+    //   - safeValidateExtractedError() catches Zod validation failures
+    //   - Creates fallback ExtractedError with full diagnostics
     //   - Ensures we NEVER silently drop test failures
     //
     // This separation ensures:
-    // 1. JSON syntax errors don't mask validation issues
+    // 1. JSON syntax errors don't mask structural validation issues
     // 2. Validation errors get full diagnostic context (line number, raw JSON)
     // 3. Bugs in extraction code propagate for visibility (not caught accidentally)
 
@@ -179,14 +210,6 @@ export class GoExtractor implements FrameworkExtractor {
         } else {
           // Malformed JSON that doesn't look like a test event
           // This could be build output, dependency downloads, etc.
-          if (skippedNonJsonLines < 3) {
-            const lineSnippet = line.length > 100 ? line.substring(0, 100) + '...' : line;
-            console.error(
-              `[DEBUG] Go extractor: skipped malformed JSON (not a test event)\n` +
-                `  Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}\n` +
-                `  Line content: ${lineSnippet}`
-            );
-          }
           skippedNonJsonLines++;
         }
         continue; // Skip this line
@@ -195,12 +218,6 @@ export class GoExtractor implements FrameworkExtractor {
       // SECTION 2: Validate test event structure (NO catch - bugs should propagate)
       if (!('Time' in event && 'Action' in event && 'Package' in event)) {
         // Valid JSON but not a test event - likely build output JSON
-        if (skippedNonJsonLines < 3) {
-          console.error(
-            `[DEBUG] Go extractor: skipped valid JSON that is not a test event. ` +
-              `Fields present: ${Object.keys(event).join(', ')}`
-          );
-        }
         skippedNonJsonLines++;
         continue;
       }
@@ -310,6 +327,7 @@ export class GoExtractor implements FrameworkExtractor {
     const passed = Array.from(testResults.values()).filter((r) => r === 'pass').length;
     const summary = failed > 0 ? `${failed} failed, ${passed} passed` : undefined;
 
+    // TODO(#329): Include sample validation errors in user-facing warning message
     // Build parse warnings from test event parsing errors and validation errors
     const warnings: string[] = [];
     if (testEventParseErrors > 0) {

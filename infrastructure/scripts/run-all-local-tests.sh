@@ -36,6 +36,23 @@ app_has_changes() {
   return 1
 }
 
+# Check if an app has a Firebase hosting configuration
+app_has_firebase_config() {
+  local app_name="$1"
+  local firebase_json="$REPO_ROOT/firebase.json"
+
+  if [ ! -f "$firebase_json" ]; then
+    return 1
+  fi
+
+  # Check if firebase.json has a hosting config for this site
+  if jq -e ".hosting[] | select(.site == \"$app_name\")" "$firebase_json" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
 # Discover and test Firebase apps
 test_firebase_apps() {
   echo "=== Discovering Firebase Apps ==="
@@ -52,6 +69,12 @@ test_firebase_apps() {
 
     # Check for Firebase app: has site/ with package.json and tests/ with playwright
     if [ -d "$dir/site" ] && [ -f "$dir/site/package.json" ] && [ -d "$dir/tests" ]; then
+      # Verify app has a Firebase hosting configuration
+      if ! app_has_firebase_config "$app_name"; then
+        echo "Skipping $app_name (no Firebase hosting config in firebase.json)"
+        continue
+      fi
+
       if ! app_has_changes "$app_name"; then
         echo "Skipping $app_name (no changes)"
         continue

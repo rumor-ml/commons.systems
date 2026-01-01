@@ -12,15 +12,18 @@ import {
   TimeoutError,
   ValidationError,
   NetworkError,
+  GitHubCliError,
+  ParsingError,
+  FormattingError,
   createErrorResult,
   isTerminalError,
 } from './errors.js';
 
 describe('Error Classes', () => {
   it('McpError includes error code', () => {
-    const error = new McpError('Test error', 'TEST_CODE');
+    const error = new McpError('Test error', 'TIMEOUT');
     assert.equal(error.message, 'Test error');
-    assert.equal(error.code, 'TEST_CODE');
+    assert.equal(error.code, 'TIMEOUT');
     assert.equal(error.name, 'McpError');
   });
 
@@ -43,6 +46,35 @@ describe('Error Classes', () => {
     assert.equal(error.message, 'Connection failed');
     assert.equal(error.code, 'NETWORK_ERROR');
     assert.equal(error.name, 'NetworkError');
+  });
+
+  it('GitHubCliError has GH_CLI_ERROR code', () => {
+    const error = new GitHubCliError('Command failed', 1, 'stderr output');
+    assert.equal(error.message, 'Command failed');
+    assert.equal(error.code, 'GH_CLI_ERROR');
+    assert.equal(error.exitCode, 1);
+    assert.equal(error.stderr, 'stderr output');
+    assert.equal(error.name, 'GitHubCliError');
+  });
+
+  it('GitHubCliError includes cause', () => {
+    const cause = new Error('Original error');
+    const error = new GitHubCliError('Command failed', undefined, undefined, undefined, cause);
+    assert.equal(error.cause, cause);
+  });
+
+  it('ParsingError has PARSING_ERROR code', () => {
+    const error = new ParsingError('Failed to parse JSON');
+    assert.equal(error.message, 'Failed to parse JSON');
+    assert.equal(error.code, 'PARSING_ERROR');
+    assert.equal(error.name, 'ParsingError');
+  });
+
+  it('FormattingError has FORMATTING_ERROR code', () => {
+    const error = new FormattingError('Invalid format');
+    assert.equal(error.message, 'Invalid format');
+    assert.equal(error.code, 'FORMATTING_ERROR');
+    assert.equal(error.name, 'FormattingError');
   });
 });
 
@@ -76,6 +108,33 @@ describe('createErrorResult', () => {
     assert.equal((result._meta as any)?.errorCode, 'NETWORK_ERROR');
   });
 
+  it('categorizes GitHubCliError correctly', () => {
+    const error = new GitHubCliError('CLI failed');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any)?.errorType, 'GitHubCliError');
+    assert.equal((result._meta as any)?.errorCode, 'GH_CLI_ERROR');
+  });
+
+  it('categorizes ParsingError correctly', () => {
+    const error = new ParsingError('Parse failed');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any)?.errorType, 'ParsingError');
+    assert.equal((result._meta as any)?.errorCode, 'PARSING_ERROR');
+  });
+
+  it('categorizes FormattingError correctly', () => {
+    const error = new FormattingError('Invalid format');
+    const result = createErrorResult(error);
+
+    assert.equal(result.isError, true);
+    assert.equal((result._meta as any)?.errorType, 'FormattingError');
+    assert.equal((result._meta as any)?.errorCode, 'FORMATTING_ERROR');
+  });
+
   it('handles generic Error', () => {
     const error = new Error('Generic error');
     const result = createErrorResult(error);
@@ -100,6 +159,12 @@ describe('isTerminalError', () => {
     assert.equal(isTerminalError(error), true);
   });
 
+  it('FormattingError is terminal (like ValidationError)', () => {
+    const error = new FormattingError('Invalid format');
+    // FormattingError is now explicitly terminal like ValidationError
+    assert.equal(isTerminalError(error), true);
+  });
+
   it('TimeoutError is not terminal (may be retryable)', () => {
     const error = new TimeoutError('Timed out');
     assert.equal(isTerminalError(error), false);
@@ -107,6 +172,11 @@ describe('isTerminalError', () => {
 
   it('NetworkError is not terminal (may be retryable)', () => {
     const error = new NetworkError('Connection failed');
+    assert.equal(isTerminalError(error), false);
+  });
+
+  it('ParsingError is not terminal (may be retryable)', () => {
+    const error = new ParsingError('Parse failed');
     assert.equal(isTerminalError(error), false);
   });
 

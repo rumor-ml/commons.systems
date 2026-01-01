@@ -39,26 +39,39 @@ fi
 # Rebuild binaries before spawning
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-(cd "$PROJECT_ROOT" && make build >/dev/null 2>&1)
+if ! (cd "$PROJECT_ROOT" && make build >/dev/null 2>&1); then
+  echo "$(date): ERROR: Build failed in $PROJECT_ROOT" >> /tmp/claude/spawn-debug.log
+  # TODO(#427): Verify cached binary exists before proceeding
+  tmux display-message -d 3000 "WARNING: tmux-tui build failed - using cached binary" 2>/dev/null || true
+fi
 
 # Start daemon if not already running
+# ONLY spawn from main branch or if TMUX_TUI_RESTART=1 (from restart-tui.sh)
 DAEMON_BIN="$PROJECT_ROOT/build/tmux-tui-daemon"
 if [ -f "$DAEMON_BIN" ]; then
-  # Daemon auto-detects namespace from $TMUX
-  # It will exit immediately if already running
-  "$DAEMON_BIN" >/dev/null 2>&1 &
+  # Check if this is main branch (~/commons.systems) or explicit restart
+  MAIN_BRANCH_DIR="$HOME/commons.systems/tmux-tui"
+  if [ "$PROJECT_ROOT" = "$MAIN_BRANCH_DIR" ] || [ "$TMUX_TUI_RESTART" = "1" ]; then
+    # Daemon auto-detects namespace from $TMUX
+    # It will exit immediately if already running (via lock file)
+    "$DAEMON_BIN" >> /tmp/claude/daemon-output.log 2>&1 &
+    DAEMON_PID=$!
+    sleep 0.3
+    # TODO(#427): Add tmux display message for daemon start failures (not just log to file)
+    if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+      echo "$(date): ERROR: Daemon failed to start (check /tmp/claude/daemon-output.log)" >> /tmp/claude/spawn-debug.log
+    fi
+  fi
 fi
 
 # Get the current pane in THIS window (before split, there's only one pane)
 CURRENT_PANE=$(tmux list-panes -t "$WINDOW_ID" -F "#{pane_id}" | head -1)
 
-# Debug: Log to temp file
 echo "$(date): WINDOW_ID=$WINDOW_ID CURRENT_PANE=$CURRENT_PANE" >> /tmp/claude/spawn-debug.log
 
 # Create 40-column left pane and capture its ID
 NEW_PANE=$(tmux split-window -h -b -l 40 -t "$WINDOW_ID" -c "#{pane_current_path}" -P -F "#{pane_id}") || exit 0
 
-# Debug: Log new pane
 echo "$(date): NEW_PANE=$NEW_PANE" >> /tmp/claude/spawn-debug.log
 
 # Store TUI pane ID in window option

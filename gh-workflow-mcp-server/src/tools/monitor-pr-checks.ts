@@ -3,6 +3,7 @@
  * Monitor all status checks for a pull request until completion
  */
 
+// TODO(#867): Make polling interval defaults configurable via environment variables
 import { z } from 'zod';
 import type { ToolResult } from '../types.js';
 import {
@@ -11,11 +12,11 @@ import {
   MIN_POLL_INTERVAL,
   MAX_POLL_INTERVAL,
   MAX_TIMEOUT,
-  IN_PROGRESS_STATUSES,
   FAILURE_CONCLUSIONS,
 } from '../constants.js';
-import { getWorkflowRunsForPR, getPR, resolveRepo, sleep } from '../utils/gh-cli.js';
+import { getWorkflowRunsForPR, getPR, resolveRepo } from '../utils/gh-cli.js';
 import { TimeoutError, ValidationError, createErrorResult } from '../utils/errors.js';
+import { watchPRChecks, getCheckIcon, determineOverallStatus } from '../utils/gh-watch.js';
 
 export const MonitorPRChecksInputSchema = z
   .object({
@@ -33,6 +34,15 @@ export const MonitorPRChecksInputSchema = z
       .default(true)
       .describe(
         'Exit immediately on first failure detection. Set to false to wait for all checks to complete.'
+      ),
+    max_single_call_timeout_seconds: z
+      .number()
+      .int()
+      .positive()
+      .max(60)
+      .optional()
+      .describe(
+        'Max duration for a single monitoring call. If checks not complete, returns "still running" for caller to retry. Used by wiggum to avoid MCP SDK 60s timeout.'
       ),
   })
   .strict();
@@ -58,12 +68,47 @@ interface PRData {
   mergeStateStatus: string; // "BLOCKED" | "BEHIND" | "CLEAN" | "DIRTY" | "UNSTABLE" etc.
 }
 
+/**
+ * Monitor all status checks for a pull request until completion
+ *
+ * Polls PR status checks until all complete or first failure occurs. Provides
+ * merge conflict detection and overall PR mergeability status. Useful for
+ * automated workflows waiting on CI/CD checks.
+ *
+ * @param input - Monitor configuration
+ * @param input.pr_number - Pull request number to monitor
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ * @param input.poll_interval_seconds - Polling frequency (default: 10s)
+ * @param input.timeout_seconds - Maximum wait time (default: 600s)
+ * @param input.fail_fast - Exit on first failure (default: true)
+ *
+ * @returns Summary with overall status, check counts, and merge state
+ *
+ * @throws {ValidationError} If PR not found or not in open state
+ * @throws {TimeoutError} If checks don't complete within timeout
+ *
+ * @example
+ * // Monitor PR checks with fail-fast
+ * await monitorPRChecks({ pr_number: 42, fail_fast: true });
+ *
+ * @example
+ * // Wait for all checks to complete
+ * await monitorPRChecks({ pr_number: 42, fail_fast: false });
+ */
 export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);
-    const pollIntervalMs = input.poll_interval_seconds * 1000;
-    const timeoutMs = input.timeout_seconds * 1000;
     const startTime = Date.now();
+
+    // Calculate effective timeout
+    let effectiveTimeout = input.timeout_seconds * 1000;
+
+    // If max_single_call_timeout specified, cap the timeout
+    if (input.max_single_call_timeout_seconds) {
+      effectiveTimeout = Math.min(effectiveTimeout, input.max_single_call_timeout_seconds * 1000);
+    }
+
+    const timeoutMs = effectiveTimeout;
 
     // Get PR details first
     const pr = (await getPR(input.pr_number, resolvedRepo)) as PRData;
@@ -72,62 +117,62 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       throw new ValidationError(`PR #${input.pr_number} is ${pr.state}, not open`);
     }
 
-    // Poll until all checks complete or timeout
     let checks: CheckData[] = [];
-    let iterationCount = 0;
-    let allComplete = false;
     let failedEarly = false;
 
-    while (Date.now() - startTime < timeoutMs) {
-      iterationCount++;
-      checks = (await getWorkflowRunsForPR(input.pr_number, resolvedRepo)) as CheckData[];
+    // Use native watch with fail-fast flag (no redundant polling)
+    const watchResult = await watchPRChecks(input.pr_number, {
+      timeout: timeoutMs,
+      repo: resolvedRepo,
+      failFast: input.fail_fast,
+    });
 
-      if (!checks || checks.length === 0) {
-        // No checks yet, keep waiting
-        await sleep(pollIntervalMs);
-        continue;
-      }
-
-      // Check for fail-fast condition before checking if all complete
-      if (input.fail_fast) {
-        const failedCheck = checks.find(
-          (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
-        );
-
-        if (failedCheck) {
-          failedEarly = true;
-          break;
-        }
-      }
-
-      // Check if all checks are complete
-      allComplete = checks.every((check) => !IN_PROGRESS_STATUSES.includes(check.status));
-
-      if (allComplete) {
-        break;
-      }
-
-      await sleep(pollIntervalMs);
+    // If timed out AND using chunked mode, return "still running" with structured metadata
+    if (watchResult.timedOut && input.max_single_call_timeout_seconds) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'CHECKS_RUNNING: PR checks still in progress. Monitoring will continue automatically.',
+          },
+        ],
+        isError: false,
+        meta: {
+          status: 'in_progress',
+          chunked_timeout: true,
+          continue_monitoring: true,
+          pr_number: input.pr_number,
+          elapsed_seconds: input.max_single_call_timeout_seconds,
+        },
+      };
     }
 
-    if (!allComplete && !failedEarly) {
+    // If timed out WITHOUT chunked mode, throw timeout error (original behavior)
+    if (watchResult.timedOut) {
       throw new TimeoutError(`PR checks did not complete within ${input.timeout_seconds} seconds`);
     }
 
-    // Summarize results
-    const successCount = checks.filter((c) => c.conclusion === 'success').length;
-    const failureCount = checks.filter(
-      (c) => c.conclusion === 'failure' || c.conclusion === 'timed_out'
-    ).length;
-    const otherCount = checks.length - successCount - failureCount;
+    // Fetch structured data after watch completes
+    const checksResult = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
+    checks = checksResult.runs as CheckData[];
+    const unknownStates = checksResult.unknownStates;
+
+    // Re-check for fail-fast condition to set failedEarly flag (if not already set)
+    if (input.fail_fast && !failedEarly) {
+      const failedCheck = checks.find(
+        (check) => check.conclusion && FAILURE_CONCLUSIONS.includes(check.conclusion)
+      );
+      if (failedCheck) {
+        failedEarly = true;
+      }
+    }
+
+    // Summarize results using new utilities
+    const overallStatusData = determineOverallStatus(checks);
+    const { successCount, failureCount, otherCount } = overallStatusData;
 
     const checkSummaries = checks.map((check) => {
-      const icon =
-        check.conclusion === 'success'
-          ? '✓'
-          : check.conclusion === 'failure' || check.conclusion === 'timed_out'
-            ? '✗'
-            : '○';
+      const icon = getCheckIcon(check.conclusion);
       return `  ${icon} ${check.name}: ${check.conclusion || check.status}`;
     });
 
@@ -145,13 +190,34 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
         overallStatus = 'MIXED';
       }
     } else {
-      // Standard check-based status
-      overallStatus =
-        failureCount > 0 ? 'FAILED' : successCount === checks.length ? 'SUCCESS' : 'MIXED';
+      // Standard check-based status (from utility)
+      overallStatus = overallStatusData.status;
     }
 
     const headerSuffix = failedEarly ? ' (early exit)' : '';
     const monitoringSuffix = failedEarly ? ' (fail-fast enabled)' : '';
+    const totalDurationSeconds = Math.round((Date.now() - startTime) / 1000);
+
+    // Build unknown states warning if any were encountered - make it prominent
+    const unknownStatesWarning =
+      unknownStates.length > 0
+        ? [
+            ``,
+            `---`,
+            `CRITICAL: Unknown GitHub check states detected: ${unknownStates.join(', ')}`,
+            ``,
+            `This may indicate a GitHub API change that requires code updates.`,
+            `Monitoring treated these as 'in_progress' which may be incorrect.`,
+            ``,
+            `Action Required:`,
+            `  1. Verify these states at: ${pr.url}/checks`,
+            `  2. Add valid terminal states to PR_CHECK_TERMINAL_STATES in constants.ts`,
+            `  3. Report to maintainers if GitHub API changed`,
+            ``,
+            `Impact: If these are terminal states, monitoring may timeout waiting for completion.`,
+            `---`,
+          ]
+        : [];
 
     const summary = [
       `PR #${pr.number} Checks ${failedEarly ? 'Failed' : 'Completed'}${headerSuffix}: ${pr.title}`,
@@ -163,8 +229,9 @@ export async function monitorPRChecks(input: MonitorPRChecksInput): Promise<Tool
       ``,
       `Checks (${checks.length}):`,
       ...checkSummaries,
+      ...unknownStatesWarning,
       ``,
-      `Monitoring completed after ${iterationCount} checks over ${Math.round((Date.now() - startTime) / 1000)}s${monitoringSuffix}`,
+      `Monitoring completed in ${totalDurationSeconds}s${monitoringSuffix}`,
     ].join('\n');
 
     return {

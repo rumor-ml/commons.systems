@@ -1,0 +1,906 @@
+/**
+ * Manifest file utilities for agent completion tracking
+ *
+ * Provides functions to read manifest files created by review agents
+ * and determine which agents have completed their work (zero high-priority in-scope issues).
+ *
+ * This module exports shared utility functions used by:
+ * - read-manifests.ts (reads and aggregates manifests by scope)
+ * - record-review-issue.ts (writes issues to manifest files)
+ *
+ * Consolidation reduces code duplication and ensures consistent behavior
+ * across all manifest operations.
+ *
+ * TODO(#987): Add performance tests for manifest file operations - test read/write scaling
+ * with large issue counts, concurrent writes from multiple agents to different manifest files
+ * (each agent writes to its own file, so no locking needed), and cleanup with many files.
+ */
+
+// TODO(#1015): Add performance tests for manifest file operations with large issue counts
+import { existsSync, readdirSync, readFileSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { logger } from '../utils/logger.js';
+import { FilesystemError } from '../utils/errors.js';
+import type {
+  IssueRecord,
+  AgentManifest,
+  IssueScope,
+  ManifestFilenameComponents,
+  ReviewAgentName,
+} from './manifest-types.js';
+import {
+  isIssueRecordArray,
+  REVIEW_AGENT_NAME_VALUES,
+  createAgentManifest,
+} from './manifest-types.js';
+
+// Re-export types for consumers that import from manifest-utils
+export type { IssueRecord, AgentManifest, IssueScope, ManifestFilenameComponents, ReviewAgentName };
+export {
+  isIssueRecord,
+  isIssueRecordArray,
+  isReviewAgentName,
+  createAgentManifest,
+  AgentManifestInvariantError,
+} from './manifest-types.js';
+
+/**
+ * All review agent names
+ *
+ * Re-exported from manifest-types.ts for backward compatibility.
+ * Used to filter agents by completion status.
+ *
+ * @see ReviewAgentName for the corresponding type
+ */
+export const REVIEW_AGENT_NAMES: readonly ReviewAgentName[] = REVIEW_AGENT_NAME_VALUES;
+
+/**
+ * Get manifest directory path
+ *
+ * Returns the path to the manifest directory: $(pwd)/tmp/wiggum/
+ * This is where all manifest JSON files are stored.
+ *
+ * NOTE: This function does NOT create the directory.
+ * - Writers (record-review-issue.ts) create it before writing via mkdirSync(dir, { recursive: true })
+ * - Readers (this module) treat missing directory as "no manifests exist yet" (returns empty arrays)
+ * - Directory is created on-demand by first write operation
+ *
+ * @returns Absolute path to the manifest directory
+ */
+export function getManifestDir(): string {
+  const cwd = process.cwd();
+  return join(cwd, 'tmp', 'wiggum');
+}
+
+/**
+ * Check if filename matches the manifest pattern
+ *
+ * Requires both .json extension AND scope marker (-in-scope- or -out-of-scope-).
+ *
+ * @param filename - Filename to check (not full path)
+ * @returns true if filename matches the manifest pattern
+ *
+ * @example
+ * isManifestFile('code-reviewer-in-scope-1234567890-abc123.json') // true
+ * isManifestFile('code-reviewer-out-of-scope-1234567890-abc123.json') // true
+ * isManifestFile('code-reviewer-in-scope-1234567890.bak') // false - not .json
+ * isManifestFile('random-file.json') // false - no scope marker
+ */
+export function isManifestFile(filename: string): boolean {
+  return (
+    filename.endsWith('.json') &&
+    (filename.includes('-in-scope-') || filename.includes('-out-of-scope-'))
+  );
+}
+
+/**
+ * Extract scope from manifest filename
+ *
+ * Helper function to determine if a file matches a specific scope.
+ * Uses the filename pattern convention: {agent-name}-{scope}-{timestamp}-{random}.json
+ *
+ * This function is exported to avoid duplication in tools that need to filter
+ * manifest files by scope without needing the full parsed components.
+ *
+ * @param filename - Filename to extract scope from (not full path)
+ * @returns 'in-scope' or 'out-of-scope' if found, otherwise undefined
+ *
+ * @example
+ * extractScopeFromFilename('code-reviewer-in-scope-1234567890-abc123.json')
+ * // Returns: 'in-scope'
+ *
+ * extractScopeFromFilename('code-reviewer-out-of-scope-1234567890-abc123.json')
+ * // Returns: 'out-of-scope'
+ *
+ * extractScopeFromFilename('random-file.json')
+ * // Returns: undefined
+ */
+export function extractScopeFromFilename(filename: string): IssueScope | undefined {
+  if (filename.includes('-in-scope-')) {
+    return 'in-scope';
+  }
+  if (filename.includes('-out-of-scope-')) {
+    return 'out-of-scope';
+  }
+  return undefined;
+}
+
+/**
+ * Extract agent name and scope from manifest filename
+ *
+ * Parses the manifest filename pattern: {agent-name}-{scope}-{timestamp}-{random}.json
+ *
+ * @param filename - Filename to parse (not full path)
+ * @returns Parsed components or null if filename doesn't match pattern
+ *
+ * @example
+ * parseManifestFilename('code-reviewer-in-scope-1234567890-abc123.json')
+ * // Returns: { agentName: 'code-reviewer', scope: 'in-scope' }
+ *
+ * parseManifestFilename('invalid-filename.json')
+ * // Returns: null
+ */
+export function parseManifestFilename(filename: string): ManifestFilenameComponents | null {
+  // Extract scope first
+  let scope: IssueScope;
+  if (filename.includes('-in-scope-')) {
+    scope = 'in-scope';
+  } else if (filename.includes('-out-of-scope-')) {
+    scope = 'out-of-scope';
+  } else {
+    return null;
+  }
+
+  // TODO(#1006): Duplicate scope extraction patterns in parseIssueId and parseManifestFilename
+  // Extract agent name (everything before -{scope}-)
+  const scopeMarker = scope === 'in-scope' ? '-in-scope-' : '-out-of-scope-';
+  const agentName = filename.split(scopeMarker)[0];
+
+  if (!agentName) {
+    return null;
+  }
+
+  return { agentName, scope };
+}
+
+/**
+ * Parse issue ID into components
+ *
+ * Issue ID format: {agent-name}-{scope}-{index}
+ * Example: "code-reviewer-in-scope-0"
+ *
+ * This function is shared between get-issue.ts and update-issue.ts to avoid
+ * code duplication. It extracts the agent name, scope, and numeric index
+ * from a composite issue ID.
+ *
+ * @param id - Issue ID to parse (e.g., "code-reviewer-in-scope-0")
+ * @returns Parsed components or null if ID doesn't match expected pattern
+ *
+ * @example
+ * parseIssueId('code-reviewer-in-scope-0')
+ * // Returns: { agentName: 'code-reviewer', scope: 'in-scope', index: 0 }
+ *
+ * parseIssueId('silent-failure-hunter-out-of-scope-5')
+ * // Returns: { agentName: 'silent-failure-hunter', scope: 'out-of-scope', index: 5 }
+ *
+ * parseIssueId('invalid-id-format')
+ * // Returns: null
+ */
+export function parseIssueId(id: string): {
+  agentName: string;
+  scope: IssueScope;
+  index: number;
+} | null {
+  // Extract scope first
+  let scope: IssueScope;
+  let scopeMarker: string;
+
+  if (id.includes('-in-scope-')) {
+    scope = 'in-scope';
+    scopeMarker = '-in-scope-';
+  } else if (id.includes('-out-of-scope-')) {
+    scope = 'out-of-scope';
+    scopeMarker = '-out-of-scope-';
+  } else {
+    return null;
+  }
+
+  // Split by scope marker
+  const parts = id.split(scopeMarker);
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const agentName = parts[0];
+  const indexStr = parts[1];
+
+  // Parse index
+  const index = parseInt(indexStr, 10);
+  if (isNaN(index) || index < 0) {
+    return null;
+  }
+
+  return { agentName, scope, index };
+}
+
+/**
+ * Read and parse a single manifest file
+ *
+ * Reads a JSON manifest file and validates its contents as an array of IssueRecords.
+ * Uses runtime type validation via isIssueRecordArray to ensure data integrity.
+ *
+ * Error handling strategy:
+ * - ENOENT (file not found): Returns empty array - agent may not have run yet
+ * - All other errors: Throws FilesystemError to prevent silent data loss
+ *   - EACCES/EROFS (permission errors): Critical filesystem issue
+ *   - JSON parse errors: Manifest corruption (partial writes, disk errors)
+ *   - Schema validation errors: Data format corruption
+ *   - Other errors: Unexpected filesystem issues
+ *
+ * This function throws on errors (except ENOENT) because returning an empty array
+ * would cause callers to incorrectly believe the agent found zero issues, leading to:
+ * - Agents being incorrectly marked as complete
+ * - Review findings being silently lost
+ * - Workflow proceeding without critical feedback
+ *
+ * The completion detection logic interprets empty arrays as "agent found zero issues"
+ * (a successful review outcome). Throwing on read failures ensures corrupted or
+ * unreadable data is never mistaken for a successful zero-issue completion.
+ *
+ * @param filepath - Full path to the manifest file
+ * @returns Array of IssueRecords, or empty array if file does not exist
+ * @throws {FilesystemError} If file exists but cannot be read or parsed correctly
+ */
+export function readManifestFile(filepath: string): IssueRecord[] {
+  try {
+    const content = readFileSync(filepath, 'utf-8');
+    const parsed = JSON.parse(content);
+
+    if (!Array.isArray(parsed)) {
+      logger.error('Manifest file is not an array - data corruption detected', {
+        filepath,
+        actualType: typeof parsed,
+        impact: 'Review data from this agent will be lost if not thrown',
+      });
+      throw new FilesystemError(
+        `Manifest file ${filepath} is corrupted (expected array, got ${typeof parsed}). ` +
+          `Review data from this agent cannot be recovered. ` +
+          `Check for partial writes or disk errors.`,
+        filepath,
+        new Error(`Expected array, got ${typeof parsed}`)
+      );
+    }
+
+    // Validate each issue record has the expected structure
+    if (!isIssueRecordArray(parsed)) {
+      logger.error('Manifest file contains invalid issue records - schema validation failed', {
+        filepath,
+        issueCount: parsed.length,
+        impact: 'Review data structure is corrupt',
+      });
+      throw new FilesystemError(
+        `Manifest file ${filepath} contains invalid issue records. ` +
+          `Schema validation failed for IssueRecord[]. ` +
+          `Check manifest file format.`,
+        filepath,
+        new Error('Schema validation failed for IssueRecord[]')
+      );
+    }
+
+    return parsed;
+  } catch (error) {
+    // Re-throw FilesystemError from validation failures above
+    if (error instanceof FilesystemError) {
+      throw error;
+    }
+
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as NodeJS.ErrnoException).code;
+
+    // File not found is acceptable - agent may not have completed yet
+    if (errorCode === 'ENOENT') {
+      logger.debug('Manifest file does not exist - agent may not have completed yet', {
+        filepath,
+      });
+      return [];
+    }
+
+    // Permission errors indicate filesystem issues - must throw to prevent data loss
+    if (errorCode === 'EACCES' || errorCode === 'EROFS') {
+      logger.error('Cannot read manifest file due to filesystem permission error', {
+        filepath,
+        errorCode,
+        error: errorMsg,
+        impact: 'Review data will be lost if not thrown',
+      });
+      throw new FilesystemError(
+        `Cannot read manifest file ${filepath} due to ${errorCode}. ` +
+          `Review data from this agent cannot be accessed. ` +
+          `Check file permissions on tmp/wiggum directory.`,
+        filepath,
+        error instanceof Error ? error : new Error(errorMsg),
+        undefined,
+        errorCode
+      );
+    }
+
+    // JSON parse errors indicate corruption - must throw to prevent data loss
+    if (error instanceof SyntaxError) {
+      logger.error('Failed to parse manifest file - JSON is malformed', {
+        filepath,
+        error: errorMsg,
+        impact: 'Review data is corrupted',
+      });
+      throw new FilesystemError(
+        `Manifest file ${filepath} contains malformed JSON. ` +
+          `Review data is corrupted. ` +
+          `Check if file was partially written or truncated.`,
+        filepath,
+        error
+      );
+    }
+
+    // Other unexpected errors - must throw to prevent silent data loss
+    logger.error('Failed to read manifest file - unexpected error', {
+      filepath,
+      errorCode,
+      error: errorMsg,
+      errorStack: error instanceof Error ? error.stack : undefined,
+    });
+    throw new FilesystemError(
+      `Failed to read manifest file ${filepath}: ${errorMsg}. ` +
+        `Review data from this agent cannot be accessed.`,
+      filepath,
+      error instanceof Error ? error : new Error(errorMsg),
+      undefined,
+      errorCode
+    );
+  }
+}
+
+/**
+ * Read all manifest files and group by agent name
+ * Returns a map of agent name to their manifest data
+ */
+// TODO(#1011): Refactor: Extract shared manifest file iteration helper
+export function readManifestFiles(): Map<string, AgentManifest> {
+  const manifestDir = getManifestDir();
+  const agentManifests = new Map<string, AgentManifest>();
+
+  // Check if directory exists
+  if (!existsSync(manifestDir)) {
+    logger.warn('Manifest directory does not exist - agents may not have executed', {
+      path: manifestDir,
+      impact: 'Unable to determine if agents ran or found zero issues',
+      expectedBehavior: 'Directory should be created by first agent execution',
+      action: 'Verify /all-hands-review command was executed successfully',
+    });
+    return agentManifests;
+  }
+
+  // Read all files in directory
+  const files = readdirSync(manifestDir);
+  const manifestFiles = files.filter(isManifestFile);
+
+  // Warn if directory exists but contains no manifest files
+  if (manifestFiles.length === 0) {
+    logger.warn('No manifest files found in directory - agents may have crashed', {
+      path: manifestDir,
+      totalFiles: files.length,
+      impact: 'Cannot distinguish between "no issues" and "agents failed"',
+      action: 'Check agent logs for execution errors or crashes',
+    });
+  }
+
+  // Filter and process manifest files
+  // Track skipped files for summary warning
+  const skippedFiles: Array<{ filename: string; error: string }> = [];
+
+  for (const filename of files) {
+    if (!isManifestFile(filename)) {
+      continue;
+    }
+
+    const parsed = parseManifestFilename(filename);
+    if (!parsed) {
+      logger.warn('Failed to parse manifest filename - skipping', { filename });
+      continue;
+    }
+
+    const filepath = join(manifestDir, filename);
+
+    // TODO(#1004): Duplicate manifest reading and failure collection logic
+    // Wrap readManifestFile in try-catch to prevent one corrupted file
+    // from causing loss of all valid issues from other agents.
+    // IMPORTANT: Only catch FilesystemError which indicates expected corruption
+    // or permission issues. Let unexpected errors (TypeError, ReferenceError, etc.)
+    // propagate to fail fast and reveal bugs.
+    let issues: IssueRecord[];
+    try {
+      issues = readManifestFile(filepath);
+    } catch (error) {
+      // Only catch FilesystemError - these are expected errors from corruption,
+      // permission issues, or malformed JSON that we can safely skip
+      if (error instanceof FilesystemError) {
+        const errorMsg = error.message;
+        skippedFiles.push({ filename, error: errorMsg });
+        logger.error('Failed to read manifest file - skipping this file', {
+          filepath,
+          filename,
+          error: errorMsg,
+          impact: 'Issues from this agent will be missing from results',
+          action: 'Check file for corruption and delete if necessary',
+        });
+        // Continue processing other files - partial data better than no data
+        continue;
+      }
+      // Unexpected error (TypeError, ReferenceError, etc.) - re-throw to fail fast
+      // This ensures programming bugs in readManifestFile are not silently swallowed
+      throw error;
+    }
+
+    if (issues.length === 0) {
+      continue;
+    }
+
+    // Create or update agent manifest
+    const key = `${parsed.agentName}-${parsed.scope}`;
+    const existingManifest = agentManifests.get(key);
+
+    if (existingManifest) {
+      // Merge issues from multiple files (shouldn't happen but handle it)
+      const mergedIssues = [...existingManifest.issues, ...issues];
+      agentManifests.set(key, createAgentManifest(parsed.agentName, parsed.scope, mergedIssues));
+    } else {
+      agentManifests.set(key, createAgentManifest(parsed.agentName, parsed.scope, issues));
+    }
+  }
+
+  // Log summary warning if any files were skipped
+  if (skippedFiles.length > 0) {
+    logger.warn('Some manifest files could not be read', {
+      skippedCount: skippedFiles.length,
+      totalFiles: files.length,
+      skippedFiles,
+      userGuidance:
+        'Review data may be incomplete. Check tmp/wiggum directory for corrupted files.',
+    });
+  }
+
+  // Check for complete data loss: all manifest files failed to read
+  if (manifestFiles.length > 0 && agentManifests.size === 0 && skippedFiles.length > 0) {
+    logger.error('All manifest files failed to read - complete data loss detected', {
+      totalFiles: manifestFiles.length,
+      skippedFiles,
+      impact: 'All review findings lost - workflow state may be corrupted',
+    });
+    throw new FilesystemError(
+      `Failed to read any manifest files. All ${manifestFiles.length} files encountered errors. ` +
+        `This indicates a serious filesystem issue. Check tmp/wiggum directory for corruption. ` +
+        `Failed files: ${skippedFiles.map((f) => f.filename).join(', ')}`,
+      manifestDir,
+      new Error('All manifest files failed to read'),
+      undefined,
+      'COMPLETE_READ_FAILURE'
+    );
+  }
+
+  logger.info('Read manifest files', {
+    totalFiles: files.length,
+    manifestCount: agentManifests.size,
+    agents: Array.from(agentManifests.keys()),
+    skippedCount: skippedFiles.length,
+  });
+
+  return agentManifests;
+}
+
+/**
+ * Determine which agents should be marked complete (DEPRECATED - use countHighPriorityInScopeIssues)
+ *
+ * An agent is complete if:
+ * 1. No in-scope manifest exists (found zero issues), OR
+ * 2. Has in-scope manifest but zero high-priority issues
+ *
+ * @deprecated Use countHighPriorityInScopeIssues instead for completion determination
+ * @param manifests - Map of agent manifests from readManifestFiles
+ * @returns Array of agent names that are complete
+ */
+export function getCompletedAgents(manifests: Map<string, AgentManifest>): string[] {
+  const completedAgents: string[] = [];
+
+  // Check each known review agent
+  for (const agentName of REVIEW_AGENT_NAMES) {
+    const inScopeKey = `${agentName}-in-scope`;
+    const inScopeManifest = manifests.get(inScopeKey);
+
+    // Agent is complete if no in-scope manifest OR no high-priority issues
+    if (!inScopeManifest || inScopeManifest.high_priority_count === 0) {
+      completedAgents.push(agentName);
+      logger.info('Agent marked complete', {
+        agentName,
+        reason: !inScopeManifest ? 'no in-scope manifest' : 'zero high-priority in-scope issues',
+        highPriorityCount: inScopeManifest?.high_priority_count ?? 0,
+      });
+    } else {
+      logger.info('Agent still has work', {
+        agentName,
+        highPriorityCount: inScopeManifest.high_priority_count,
+      });
+    }
+  }
+
+  return completedAgents;
+}
+
+/**
+ * Group items by a key extracted via a callback function
+ *
+ * Generic utility function for grouping arrays by a string key.
+ * This is a shared implementation used by groupIssuesByAgent and similar functions.
+ *
+ * @param items - Array of items to group
+ * @param keyFn - Function to extract the grouping key from each item
+ * @returns Map with keys as group identifiers and values as arrays of items
+ *
+ * @example
+ * const grouped = groupBy(issues, (issue) => issue.agent_name);
+ * // Returns Map<string, IssueRecord[]>
+ */
+export function groupBy<T>(items: readonly T[], keyFn: (item: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key)!.push(item);
+  }
+  return grouped;
+}
+
+/**
+ * Group issues by agent name
+ *
+ * Shared utility to avoid code duplication across manifest tools.
+ * Used in read-manifests.ts and list-issues.ts for formatting output.
+ *
+ * @param issues - Array of issues to group (IssueRecord or IssueReference)
+ * @returns Map with agent names as keys and arrays of issues as values
+ *
+ * @example
+ * const issuesByAgent = groupIssuesByAgent(issues);
+ * for (const [agentName, agentIssues] of issuesByAgent) {
+ *   console.log(`${agentName}: ${agentIssues.length} issues`);
+ * }
+ */
+export function groupIssuesByAgent<T extends { agent_name: string }>(
+  issues: readonly T[]
+): Map<string, T[]> {
+  return groupBy(issues, (issue) => issue.agent_name);
+}
+
+/**
+ * Count total high-priority issues across all in-scope manifests
+ *
+ * This helper centralizes the logic for determining if there are any
+ * high-priority in-scope issues remaining, which is used to decide
+ * whether to advance to the next step or continue iteration.
+ *
+ * **Note:** Issues where not_fixed === true are excluded from the count.
+ * The count is read from manifest.high_priority_count which is computed by
+ * createAgentManifest() and already excludes not_fixed issues.
+ *
+ * @param manifests - Map of agent manifests from readManifestFiles
+ * @returns Total count of high-priority issues in all in-scope manifests (excluding not_fixed)
+ *
+ * @example
+ * const manifests = readManifestFiles();
+ * const count = countHighPriorityInScopeIssues(manifests);
+ * if (count === 0) {
+ *   // No high-priority issues - advance to next step
+ * }
+ */
+export function countHighPriorityInScopeIssues(manifests: Map<string, AgentManifest>): number {
+  let total = 0;
+  for (const [key, manifest] of manifests.entries()) {
+    if (key.endsWith('-in-scope')) {
+      total += manifest.high_priority_count;
+    }
+  }
+  return total;
+}
+
+/**
+ * Minimal issue reference for token-efficient listing
+ *
+ * Contains only the essential fields needed to identify and describe an issue.
+ * Full details can be retrieved via getIssue() using the ID.
+ */
+export interface IssueReference {
+  readonly id: string; // Unique identifier: "{agent}-{scope}-{index}"
+  readonly agent_name: string;
+  readonly scope: IssueScope;
+  readonly priority: 'high' | 'low';
+  readonly title: string; // Just the title, not full description
+}
+
+/**
+ * Result from collecting manifest issues with references
+ *
+ * Contains both the minimal references (for listing) and full records (for batching/details).
+ */
+export interface CollectedManifestIssues {
+  readonly references: IssueReference[];
+  readonly records: IssueRecord[];
+}
+
+/**
+ * Collect all manifest issues matching a scope filter and create stable references
+ *
+ * This is a shared utility that consolidates the manifest reading and reference
+ * creation logic from get-issue.ts and list-issues.ts. It:
+ * 1. Reads all manifest files from the tmp/wiggum directory
+ * 2. Filters by scope (in-scope, out-of-scope, or all)
+ * 3. Groups issues by agent-scope key for stable ID generation
+ * 4. Creates IssueReference objects with unique IDs
+ *
+ * Error handling:
+ * - If a manifest file is corrupted, it is skipped and a warning is logged
+ * - Partial results are returned rather than failing completely
+ *
+ * @param scope - Filter for issue scope ('in-scope', 'out-of-scope', or 'all')
+ * @returns Object with references (minimal) and records (full details)
+ *
+ * @example
+ * const { references, records } = collectManifestIssuesWithReferences('in-scope');
+ * for (const ref of references) {
+ *   console.log(`[${ref.id}] ${ref.title}`);
+ * }
+ */
+export function collectManifestIssuesWithReferences(
+  scope: 'in-scope' | 'out-of-scope' | 'all'
+): CollectedManifestIssues {
+  const manifestDir = getManifestDir();
+
+  // Check if directory exists
+  if (!existsSync(manifestDir)) {
+    logger.info('Manifest directory does not exist - no issues recorded yet', {
+      path: manifestDir,
+    });
+    return { references: [], records: [] };
+  }
+
+  // Read all files in directory
+  const files = readdirSync(manifestDir);
+
+  // Filter manifest files by scope
+  const matchingFiles = files.filter((filename) => {
+    if (!isManifestFile(filename)) {
+      return false;
+    }
+
+    if (scope === 'all') {
+      return true;
+    }
+
+    const fileScope = extractScopeFromFilename(filename);
+    return fileScope === scope;
+  });
+
+  logger.info('Found manifest files for collection', {
+    totalFiles: files.length,
+    matchingFiles: matchingFiles.length,
+    scope,
+  });
+
+  // Read and group issues by agent-scope key for stable ID generation
+  const issuesByAgentScope = new Map<string, IssueRecord[]>();
+  const allIssueRecords: IssueRecord[] = [];
+  const skippedFiles: Array<{ filename: string; error: string }> = [];
+
+  for (const filename of matchingFiles) {
+    const filepath = join(manifestDir, filename);
+
+    // Wrap readManifestFile in try-catch to prevent one corrupted file
+    // from causing loss of all valid issues from other agents.
+    // IMPORTANT: Only catch FilesystemError which indicates expected corruption
+    // or permission issues. Let unexpected errors (TypeError, ReferenceError, etc.)
+    // propagate to fail fast and reveal bugs.
+    let issues: IssueRecord[];
+    try {
+      issues = readManifestFile(filepath);
+    } catch (error) {
+      // Only catch FilesystemError - these are expected errors from corruption,
+      // permission issues, or malformed JSON that we can safely skip
+      if (error instanceof FilesystemError) {
+        const errorMsg = error.message;
+        skippedFiles.push({ filename, error: errorMsg });
+        logger.error('Failed to read manifest file - skipping this file', {
+          filepath,
+          filename,
+          error: errorMsg,
+          impact: 'Issues from this agent will be missing from results',
+          action: 'Check file for corruption and delete if necessary',
+        });
+        // Continue processing other files - partial data better than no data
+        continue;
+      }
+      // Unexpected error (TypeError, ReferenceError, etc.) - re-throw to fail fast
+      // This ensures programming bugs in readManifestFile are not silently swallowed
+      throw error;
+    }
+
+    for (const issue of issues) {
+      allIssueRecords.push(issue);
+      const key = `${issue.agent_name}-${issue.scope}`;
+      if (!issuesByAgentScope.has(key)) {
+        issuesByAgentScope.set(key, []);
+      }
+      issuesByAgentScope.get(key)!.push(issue);
+    }
+  }
+
+  // Log summary warning if any files were skipped
+  if (skippedFiles.length > 0) {
+    logger.warn('Some manifest files could not be read', {
+      skippedCount: skippedFiles.length,
+      totalFiles: matchingFiles.length,
+      skippedFiles,
+      userGuidance:
+        'Review data may be incomplete. Check tmp/wiggum directory for corrupted files.',
+    });
+  }
+
+  // Check for complete data loss: all files failed to read
+  if (matchingFiles.length > 0 && allIssueRecords.length === 0 && skippedFiles.length > 0) {
+    logger.error('All manifest files failed to read - complete data loss detected', {
+      totalFiles: matchingFiles.length,
+      skippedFiles,
+      scope,
+      impact: 'All review findings lost - workflow state may be corrupted',
+    });
+    throw new FilesystemError(
+      `Failed to read any manifest files. All ${matchingFiles.length} files encountered errors. ` +
+        `This indicates a serious filesystem issue. Check tmp/wiggum directory for corruption. ` +
+        `Failed files: ${skippedFiles.map((f) => f.filename).join(', ')}`,
+      getManifestDir(),
+      new Error('All manifest files failed to read'),
+      undefined,
+      'COMPLETE_READ_FAILURE'
+    );
+  }
+
+  // Create issue references with stable IDs
+  const issueReferences: IssueReference[] = [];
+  for (const [key, issues] of issuesByAgentScope) {
+    issues.forEach((issue, index) => {
+      issueReferences.push({
+        id: `${key}-${index}`,
+        agent_name: issue.agent_name,
+        scope: issue.scope,
+        priority: issue.priority,
+        title: issue.title,
+      });
+    });
+  }
+
+  logger.info('Collected manifest issues with references', {
+    totalReferences: issueReferences.length,
+    scope,
+  });
+
+  return { references: issueReferences, records: allIssueRecords };
+}
+
+/**
+ * Delete all manifest files in the manifest directory
+ *
+ * Called after processing manifests to clean up for next iteration.
+ * Manifest cleanup is critical for workflow correctness - stale manifests
+ * cause incorrect agent completion tracking.
+ *
+ * Error Handling:
+ * - ENOENT: Acceptable - file may have been deleted by concurrent cleanup
+ * - Other errors (EACCES, EBUSY, EROFS, EIO, etc.): Fatal - throws FilesystemError
+ *
+ * @throws {FilesystemError} If any manifest file cannot be deleted (non-ENOENT error)
+ */
+export async function cleanupManifestFiles(): Promise<void> {
+  const manifestDir = getManifestDir();
+
+  // Check if directory exists
+  if (!existsSync(manifestDir)) {
+    logger.info('Manifest directory does not exist - nothing to clean up', {
+      path: manifestDir,
+    });
+    return;
+  }
+
+  // Read all files in directory
+  const files = readdirSync(manifestDir);
+  let deletedCount = 0;
+  const failures: Array<{ filepath: string; error: string; errorCode?: string }> = [];
+
+  // Delete all JSON manifest files
+  for (const filename of files) {
+    if (filename.endsWith('.json')) {
+      const filepath = join(manifestDir, filename);
+      try {
+        unlinkSync(filepath);
+        deletedCount++;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorCode = (error as NodeJS.ErrnoException).code;
+
+        // ENOENT is acceptable - file may have been deleted by another process
+        if (errorCode === 'ENOENT') {
+          logger.debug('Manifest file already deleted (concurrent cleanup)', { filepath });
+          deletedCount++; // Count as success - file is gone
+          continue;
+        }
+
+        // All other errors are critical - manifest cleanup is required for correctness
+        failures.push({ filepath, error: errorMsg, errorCode });
+        logger.error('Failed to delete manifest file - will halt cleanup', {
+          filepath,
+          errorCode,
+          error: errorMsg,
+          impact: 'Stale manifests will cause incorrect agent completion tracking',
+        });
+      }
+    }
+  }
+
+  // If any deletions failed, throw to halt the workflow
+  if (failures.length > 0) {
+    logger.error('Manifest cleanup failed - halting workflow', {
+      totalFiles: files.length,
+      deletedCount,
+      failedCount: failures.length,
+      failures,
+      path: manifestDir,
+      impact: 'Workflow state will be corrupted by stale manifests',
+    });
+
+    throw new FilesystemError(
+      `Failed to clean up ${failures.length} manifest file(s). ` +
+        `Stale manifests will corrupt agent completion tracking. ` +
+        `Check filesystem permissions and disk health. ` +
+        `Failed files: ${failures.map((f) => f.filepath).join(', ')}`,
+      manifestDir,
+      new Error(failures.map((f) => f.error).join('; '))
+    );
+  }
+
+  logger.info('Cleaned up manifest files', {
+    totalFiles: files.length,
+    deletedCount,
+    path: manifestDir,
+  });
+}
+
+/**
+ * Safely clean up manifest files with non-fatal error handling
+ *
+ * Wraps cleanupManifestFiles() with try-catch to handle cleanup failures gracefully.
+ * Cleanup failures are logged but do not throw - this is appropriate when:
+ * - State has already been persisted to GitHub
+ * - Workflow correctness doesn't depend on immediate cleanup
+ * - Manual cleanup is acceptable as a fallback
+ *
+ * Use cleanupManifestFiles() directly if cleanup failure should halt the workflow.
+ *
+ * @returns Promise that always resolves (never throws)
+ */
+export async function safeCleanupManifestFiles(): Promise<void> {
+  try {
+    await cleanupManifestFiles();
+  } catch (error) {
+    logger.warn('Failed to clean up manifest files - continuing anyway', {
+      error: error instanceof Error ? error.message : String(error),
+      impact: 'Old manifest files may accumulate in tmp/wiggum',
+      recommendation: 'Manually delete tmp/wiggum/*.json files if needed',
+    });
+  }
+}

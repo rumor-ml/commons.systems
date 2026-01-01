@@ -3,6 +3,8 @@
  */
 
 // Standard viewport sizes for responsive testing
+// TODO(#491): Add test coverage for E2E test helper error paths
+// TODO(#490): Add comprehensive error handling to E2E test helpers
 export const VIEWPORTS = {
   mobile: { width: 375, height: 667 },
   tablet: { width: 768, height: 1024 },

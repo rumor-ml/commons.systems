@@ -56,6 +56,28 @@ You are NOT responsible for:
 - Step sequencing (tools determine what's next)
 - Deciding when steps are complete (tools handle this)
 
+### Unsupervised Implementation Flow
+
+When in-scope issues are found during reviews, wiggum launches the unsupervised-implement agent:
+
+**Standard Flow (no clarification needed):**
+
+1. Agent explores codebase and creates plan
+2. Agent invokes accept-edits to implement fixes
+3. Agent validates with tests
+4. Returns `{status: "complete", fixes_applied: [...], tests_passed: true}`
+5. Proceed to /commit-merge-push
+
+**Clarification Flow:**
+
+1. Agent detects ambiguity during exploration/planning
+2. Returns `{status: "needs_clarification", questions: [...], context: {...}}`
+3. Main thread calls AskUserQuestion with questions
+4. Main thread re-invokes agent with user answers in previous_context
+5. Agent resumes from planning/implementation phase
+6. Returns completion status
+7. Proceed to /commit-merge-push
+
 ## Wiggum Two-Phase Workflow
 
 **CRITICAL: Wiggum operates in TWO distinct phases. Understand which phase you're in to avoid confusion.**
@@ -65,7 +87,7 @@ You are NOT responsible for:
 Execute BEFORE creating the PR to ensure code quality:
 
 1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
-2. **p1-2: Code Review (Pre-PR)** - Run `/pr-review-toolkit:review-pr` on local branch
+2. **p1-2: Code Review (Pre-PR)** - Invoke all-hands agent (creates summary), then launch 6 review agents
 3. **p1-3: Security Review (Pre-PR)** - Run `/security-review` on local branch
 4. **p1-4: Create PR** - Only after all pre-PR checks pass
 
@@ -78,7 +100,7 @@ Execute AFTER PR is created for final validation:
 1. **p2-1: Monitor Workflow** - PR workflow must pass (includes deployments + E2E tests)
 2. **p2-2: Monitor PR Checks** - All PR checks must pass
 3. **p2-3: Code Quality** - Address code quality bot comments
-4. **p2-4: PR Review (Post-PR)** - Run `/pr-review-toolkit:review-pr` on PR
+4. **p2-4: PR Review (Post-PR)** - Run `/review` on actual PR
 5. **p2-5: Security Review (Post-PR)** - Run `/security-review` on PR
 6. **approval: Add "needs review" label** - Ready for human review
 
@@ -89,6 +111,81 @@ Execute AFTER PR is created for final validation:
 - **Phase 1** catches issues early (before PR creation noise)
 - **Phase 2** validates the PR in its final state (after all CI/CD)
 - This structure prevents creating PRs with known issues
+
+---
+
+## Step-by-Step Orchestration
+
+### Step p1-2: Code Review (Pre-PR)
+
+**Phase 1: Prepare Context**
+
+1. Invoke all-hands agent:
+
+   ```
+   Task tool with subagent_type="all-hands"
+   ```
+
+   - Agent validates git state
+   - Creates issue summary document at `$(pwd)/tmp/wiggum/issue-summary.md`
+   - Returns instructions listing 6 review agents to launch
+
+**Phase 2: Launch Review Agents**
+
+2. Follow the all-hands agent's instructions to launch 6 review agents in PARALLEL:
+   - code-reviewer
+   - silent-failure-hunter
+   - code-simplifier
+   - comment-analyzer
+   - pr-test-analyzer
+   - type-design-analyzer
+
+   Each agent will read `$(pwd)/tmp/wiggum/issue-summary.md` for context.
+
+**CRITICAL:** Launch ALL 6 agents in parallel (single response with 6 Task calls).
+
+**Phase 3: List & Organize**
+
+3. After ALL review agents complete, call `wiggum_list_issues({ scope: 'all' })`
+4. Create TODO list from the response:
+   - One item per IN-SCOPE BATCH: `[batch-{N}] {file_count} files, {issue_count} issues`
+   - One item per OUT-OF-SCOPE ISSUE: `[out-of-scope] {issue_id}: {title}`
+   - One item for "Validate all implementations"
+
+**Phase 4: Parallel Implementation**
+
+5. Launch in PARALLEL using Task tool:
+   - For each in-scope batch:
+     - `subagent_type="unsupervised-implement"`
+     - Pass batch_id from wiggum_list_issues
+     - Instructions: "Implement fixes for batch-{N}. You may run unit tests scoped to your edits. However, full validation outside your edit scope may fail because other agents are concurrently editing other parts of the codebase. If you encounter validation errors outside your edit scope, include them in your response for the validation agent to resolve."
+   - For each out-of-scope issue:
+     - `subagent_type="out-of-scope-tracker"`
+     - Pass issue_id from wiggum_list_issues
+     - Instructions: "Track out-of-scope issue: {issue_id}. Main issue number: {state.issue.number}. Call wiggum_get_issue to get full details and follow the tracking workflow."
+
+**CRITICAL:** Launch ALL agents in parallel (single response with multiple Task calls). Wait for ALL to complete before proceeding.
+
+**Phase 5: Sequential Validation**
+
+6. After ALL Phase 4 agents complete, invoke SINGLE unsupervised-implement agent:
+   - `subagent_type="unsupervised-implement"`
+   - Instructions: "Validate all implementations for batches [batch-0, batch-1, ...]. Run full test suite and verify all fixes are correct. Resolve any out-of-scope validation errors reported by the parallel implementation agents: [include any errors from Phase 4 responses]."
+   - Pass list of all batch IDs that were implemented
+
+**Why two stages?**
+
+- Parallel agents can run scoped unit tests but may see failures in code being edited by other agents
+- Final validation agent runs after all edits complete, so it can run full test suite without race conditions
+- Any cross-batch issues are resolved by the validation agent
+
+**Phase 6: Commit and Complete**
+
+7. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
+8. Call `wiggum_complete_all_hands({})`
+9. Follow the instructions returned by the tool
+
+---
 
 ## Reading Tool Responses
 
@@ -243,33 +340,50 @@ The `steps_completed_by_tool` field lists exactly what was done. **DO NOT repeat
 
 **After calling this tool ONCE, follow the instructions it returns. DO NOT call it again.**
 
-### wiggum_complete_pr_review
+### wiggum_complete_all_hands
 
-Call after executing `/pr-review-toolkit:review-pr`.
+Call after all-hands agent completes AND ALL TODO items are addressed (both review and implementation agents finish).
 
-**Used in TWO contexts:**
+**CRITICAL: One iteration = all-hands agent + fix ALL issues. Do NOT call this tool until ALL TODO items are addressed.**
 
-- **Phase 1 (p1-2):** Pre-PR code review on local branch
-- **Phase 2 (p2-4):** Post-PR review on actual PR
+**Used in Phase 1 (p1-2) only:** Pre-PR all-hands code review on local branch
 
 **Returns next step instructions.**
 
+**CRITICAL: This tool reads manifests internally. Do NOT pass file paths.**
+
 ```typescript
-mcp__wiggum__wiggum_complete_pr_review({
-  command_executed: true,
-  verbatim_response: 'full review output here',
-  high_priority_issues: 0,
-  medium_priority_issues: 0,
-  low_priority_issues: 0,
+mcp__wiggum__wiggum_complete_all_hands({
+  maxIterations: 15, // Optional: override default iteration limit
 });
 ```
 
+**What this tool does automatically:**
+
+- **Increments iteration count** (each call = one complete review+fix cycle)
+- Reads manifest files from `tmp/wiggum/` directory
+- Counts high-priority in-scope issues across all manifests
+- Determines if step is complete (0 high-priority in-scope issues)
+- Cleans up manifest files after processing
+- Returns next step instructions
+
+**Completion Logic:**
+
+The tool determines completion based on high-priority in-scope issues:
+
+1. **Reads manifest files** from tmp/wiggum/ directory
+2. **Counts high-priority in-scope issues** across all agent manifests
+3. **If count is 0** → All issues have been fixed or marked as not_fixed → Advances to next step
+4. **If count > 0** → Issues remain → Returns instructions to continue iteration with Plan+Fix cycle
+
+The simplified procedure: proceed to next step when no review agents produce high priority in-scope issues (which are fixed by the implementor agent, not rejected as already fixed).
+
 IMPORTANT:
 
-- `command_executed` must be `true`
-- `verbatim_response` must contain COMPLETE output
-- Count ALL issues by priority
-- Tool returns next step instructions (either fix instructions or next step)
+- Tool handles all manifest reading internally
+- No file paths needed as input
+- Only advances step when high-priority in-scope issue count is 0
+- `maxIterations` is optional - use when user approves increasing limit
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
 
@@ -284,21 +398,33 @@ Call after executing `/security-review`.
 
 **Returns next step instructions.**
 
+**CRITICAL: Pass file paths directly from security review agents. Do NOT create intermediate summary files.**
+
 ```typescript
 mcp__wiggum__wiggum_complete_security_review({
   command_executed: true,
-  verbatim_response: 'full security review output here',
-  high_priority_issues: 0,
-  medium_priority_issues: 0,
-  low_priority_issues: 0,
+  in_scope_result_files: [
+    '$(pwd)/tmp/wiggum/security-agent-1-in-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/security-agent-2-in-scope-{timestamp}.md',
+    // ... all security review agent in-scope files
+  ],
+  out_of_scope_result_files: [
+    '$(pwd)/tmp/wiggum/security-agent-1-out-of-scope-{timestamp}.md',
+    '$(pwd)/tmp/wiggum/security-agent-2-out-of-scope-{timestamp}.md',
+    // ... all security review agent out-of-scope files
+  ],
+  in_scope_issue_count: 5,
+  out_of_scope_issue_count: 3,
 });
 ```
 
 IMPORTANT:
 
 - `command_executed` must be `true`
-- `verbatim_response` must contain COMPLETE output
-- Count ALL issues by priority
+- `in_scope_result_files` and `out_of_scope_result_files` contain file paths directly from security review agents (each file may contain multiple issues)
+- `in_scope_issue_count` and `out_of_scope_issue_count` are the total issue counts across all agents (not file counts)
+- **Do NOT create summary files** - agents write individual files, tool concatenates them server-side
+- Tool reads files, aggregates results, and posts to GitHub comment
 - Tool returns next step instructions (either fix instructions or next step)
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
@@ -310,14 +436,47 @@ Call after completing any Plan+Fix cycle. **Returns next step instructions.**
 ```typescript
 mcp__wiggum__wiggum_complete_fix({
   fix_description: 'Brief description of what was fixed',
+  out_of_scope_issues: [123, 456], // Optional: issue numbers for out-of-scope recommendations
 });
 ```
 
-The tool:
+**Parameters:**
 
-- Posts fix documentation to PR
-- Clears completed steps to re-verify from current step
-- Returns instructions to re-verify the step where issues were found
+- `fix_description` (required): Brief description of what was fixed
+- `out_of_scope_issues` (optional): Array of issue numbers for recommendations that should be tracked separately
+- `has_in_scope_fixes` (DEPRECATED): This parameter is ignored. The tool now reads manifests to determine fix status automatically.
+
+**Tool Behavior:**
+
+The tool reads manifest files to determine fix completion status:
+
+1. **Counts high-priority in-scope issues** across all agent manifests
+2. **If count is 0** → All issues have been fixed or marked as not_fixed → Proceeds to next step
+3. **If count > 0** → Issues remain → Increments iteration and returns Plan+Fix instructions
+
+**Agent Completion Tracking:**
+
+When implementing fixes, the tool tracks which agents have been addressed:
+
+- Agents with 0 high-priority in-scope issues are marked as complete
+- The workflow proceeds when all high-priority issues have been addressed
+
+This ensures all review feedback is properly handled before continuing.
+
+**Common Scenarios:**
+
+```typescript
+// Scenario 1: After implementing fixes
+wiggum_complete_fix({
+  fix_description: 'Fixed type errors in manifest-utils.ts and added validation',
+});
+
+// Scenario 2: With out-of-scope issues to track
+wiggum_complete_fix({
+  fix_description: 'Fixed code quality issues',
+  out_of_scope_issues: [567, 568, 569],
+});
+```
 
 **Call this tool ONCE. It will return instructions for the next step. Do not call it again.**
 

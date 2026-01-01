@@ -88,6 +88,31 @@ function extractDeploymentUrls(logText: string, jobName: string): DeploymentUrl[
   return urls;
 }
 
+/**
+ * Extract deployment URLs from workflow run logs
+ *
+ * Scans job logs for deployment-related URLs (preview deployments, production
+ * deploys, etc.). Uses keyword detection and pattern matching to identify
+ * deployment URLs while filtering out common noise.
+ *
+ * @param input - Extraction configuration
+ * @param input.run_id - Specific workflow run ID
+ * @param input.pr_number - PR number (uses most recent run)
+ * @param input.branch - Branch name (uses most recent run)
+ * @param input.repo - Repository in format "owner/repo" (defaults to current)
+ *
+ * @returns List of deployment URLs with job context
+ *
+ * @throws {ValidationError} If no identifier provided or run not found
+ *
+ * @example
+ * // Extract deployment URLs from PR's most recent run
+ * await getDeploymentUrls({ pr_number: 42 });
+ *
+ * @example
+ * // Extract from specific run
+ * await getDeploymentUrls({ run_id: 123456 });
+ */
 export async function getDeploymentUrls(input: GetDeploymentUrlsInput): Promise<ToolResult> {
   try {
     // Validate input - must have exactly one of run_id, pr_number, or branch
@@ -106,7 +131,8 @@ export async function getDeploymentUrls(input: GetDeploymentUrlsInput): Promise<
     if (input.run_id) {
       runId = input.run_id;
     } else if (input.pr_number) {
-      const checks = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
+      const checksResult = await getWorkflowRunsForPR(input.pr_number, resolvedRepo);
+      const checks = checksResult.runs;
       if (!Array.isArray(checks) || checks.length === 0) {
         throw new ValidationError(`No workflow runs found for PR #${input.pr_number}`);
       }

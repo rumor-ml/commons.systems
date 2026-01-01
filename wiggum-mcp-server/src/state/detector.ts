@@ -2,6 +2,10 @@
  * State detection for Wiggum flow
  */
 
+// TODO(#1005): Duplicate throwStateApiError helper functions (may be resolved)
+
+// TODO(#1009): detectCurrentState() recursion limit error message could be more actionable
+// TODO(#788): Improve recursion depth validation error messages in detectCurrentState
 import {
   getCurrentBranch,
   hasUncommittedChanges,
@@ -11,11 +15,17 @@ import {
   extractIssueNumberFromBranch,
 } from '../utils/git.js';
 import { getCurrentRepo, getPR, type GitHubPR } from '../utils/gh-cli.js';
-import { getWiggumState } from './comments.js';
-import { getWiggumStateFromIssue } from './issue-comments.js';
-import { STEP_PHASE1_MONITOR_WORKFLOW } from '../constants.js';
+import { getWiggumStateFromPRBody, getWiggumStateFromIssueBody } from './body-state.js';
+import { STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_WORKFLOW } from '../constants.js';
 import { logger } from '../utils/logger.js';
-import type { GitState, PRState, CurrentState, IssueState } from './types.js';
+import { StateDetectionError, StateApiError } from '../utils/errors.js';
+import type { GitState, PRState, CurrentState, IssueState, WiggumState } from './types.js';
+import {
+  validateCurrentState,
+  createIssueExists,
+  createIssueDoesNotExist,
+  createGitState,
+} from './types.js';
 import type { WiggumPhase } from '../constants.js';
 
 /**
@@ -43,13 +53,13 @@ export async function detectGitState(): Promise<GitState> {
   const remoteTracking = await hasRemoteTracking(currentBranch);
   const pushed = await isBranchPushed(currentBranch);
 
-  return {
+  return createGitState({
     currentBranch,
     isMainBranch,
     hasUncommittedChanges: uncommitted,
     isRemoteTracking: remoteTracking,
     isPushed: pushed,
-  };
+  });
 }
 
 /**
@@ -73,20 +83,25 @@ export async function detectGitState(): Promise<GitState> {
 export async function detectPRState(repo?: string): Promise<PRState> {
   let resolvedRepo: string;
 
+  // TODO(#477): Explain when repo parameter used vs getCurrentRepo() call
   try {
     resolvedRepo = repo || (await getCurrentRepo());
   } catch (repoError) {
-    // Failed to determine repository - log and return no PR exists
+    // Failed to determine repository - throw StateApiError with guidance
     const errorMsg = repoError instanceof Error ? repoError.message : String(repoError);
-    const errorType = repoError instanceof Error ? repoError.constructor.name : typeof repoError;
-    logger.warn('detectPRState: failed to determine repository', {
+    logger.error('detectPRState: failed to determine repository', {
       providedRepo: repo,
       errorMessage: errorMsg,
-      errorType,
+      errorType: repoError instanceof Error ? repoError.constructor.name : typeof repoError,
     });
-    return {
-      exists: false,
-    };
+    throw StateApiError.create(
+      `Failed to detect PR state: Could not determine current repository. ` +
+        `Ensure you are in a git repository with a GitHub remote. Error: ${errorMsg}`,
+      'read',
+      'pr',
+      undefined,
+      repoError instanceof Error ? repoError : undefined
+    );
   }
 
   try {
@@ -119,31 +134,121 @@ export async function detectPRState(repo?: string): Promise<PRState> {
       baseRefName: result.baseRefName,
     };
   } catch (error) {
-    // Expected: no PR exists for current branch (GitHubCliError)
-    // Log unexpected errors with full context
-    if (error instanceof Error) {
-      const isExpectedError = error.message.includes('no pull requests found');
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const lowerMsg = errorMsg.toLowerCase();
 
-      if (!isExpectedError) {
-        // Unexpected error - provide full diagnostic information
-        logger.warn('detectPRState: unexpected error while checking for PR', {
-          repo: resolvedRepo,
-          errorMessage: error.message,
-          errorType: error.constructor.name,
-          stack: error.stack?.split('\n').slice(0, 3).join('\n'), // First 3 lines of stack
-        });
-      }
-    } else {
-      // Non-Error thrown - log it
-      logger.warn('detectPRState: unexpected non-Error thrown', {
+    // TODO(#478): Extract shared error classification patterns
+    // Expected error: no PR exists for current branch
+    if (
+      lowerMsg.includes('no pull requests found') ||
+      lowerMsg.includes('could not resolve to a pullrequest')
+    ) {
+      // INFO level: This is a normal workflow state (Phase 1 has no PR yet)
+      // Log the matched pattern to aid debugging if expectations change
+      const matchedPattern = lowerMsg.includes('no pull requests found')
+        ? 'no pull requests found'
+        : 'could not resolve to a pullrequest';
+      logger.info('detectPRState: no PR found for current branch', {
         repo: resolvedRepo,
-        error: String(error),
+        matchedPattern,
       });
+      return {
+        exists: false,
+      };
     }
 
-    return {
-      exists: false,
-    };
+    // Rate limit errors - throw StateApiError with specific guidance
+    if (lowerMsg.includes('rate limit') || lowerMsg.includes('api rate limit exceeded')) {
+      const matchedPattern = lowerMsg.includes('api rate limit exceeded')
+        ? 'api rate limit exceeded'
+        : 'rate limit';
+      logger.error('detectPRState: GitHub API rate limit exceeded', {
+        repo: resolvedRepo,
+        errorMessage: errorMsg,
+        matchedPattern,
+      });
+      throw StateApiError.create(
+        `Failed to detect PR state: GitHub API rate limit exceeded. ` +
+          `Check rate limit status with: gh api rate_limit`,
+        'read',
+        'pr',
+        undefined,
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    // Auth errors - throw StateApiError with auth guidance
+    if (
+      lowerMsg.includes('forbidden') ||
+      lowerMsg.includes('unauthorized') ||
+      lowerMsg.includes('http 403') ||
+      lowerMsg.includes('http 401')
+    ) {
+      const matchedPattern = lowerMsg.includes('http 401')
+        ? 'http 401'
+        : lowerMsg.includes('http 403')
+          ? 'http 403'
+          : lowerMsg.includes('unauthorized')
+            ? 'unauthorized'
+            : 'forbidden';
+      logger.error('detectPRState: GitHub authentication failed', {
+        repo: resolvedRepo,
+        errorMessage: errorMsg,
+        matchedPattern,
+      });
+      throw StateApiError.create(
+        `Failed to detect PR state: GitHub authentication failed. ` +
+          `Check auth status with: gh auth status`,
+        'read',
+        'pr',
+        undefined,
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    // Network errors - throw StateApiError (retryable)
+    if (
+      lowerMsg.includes('network') ||
+      lowerMsg.includes('timeout') ||
+      lowerMsg.includes('econnrefused') ||
+      lowerMsg.includes('enotfound')
+    ) {
+      const matchedPattern = lowerMsg.includes('enotfound')
+        ? 'enotfound'
+        : lowerMsg.includes('econnrefused')
+          ? 'econnrefused'
+          : lowerMsg.includes('timeout')
+            ? 'timeout'
+            : 'network';
+      logger.error('detectPRState: Network error while checking for PR', {
+        repo: resolvedRepo,
+        errorMessage: errorMsg,
+        matchedPattern,
+      });
+      throw StateApiError.create(
+        `Failed to detect PR state: Network error. ` +
+          `Check connectivity and retry. Error: ${errorMsg}`,
+        'read',
+        'pr',
+        undefined,
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    // Unknown error - throw StateApiError with full context
+    logger.error('detectPRState: unexpected error while checking for PR', {
+      repo: resolvedRepo,
+      errorMessage: errorMsg,
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      stack: error instanceof Error ? error.stack?.split('\n').slice(0, 3).join('\n') : undefined,
+    });
+    throw StateApiError.create(
+      `Failed to detect PR state: Unexpected error. ${errorMsg}`,
+      'read',
+      'pr',
+      undefined,
+      error instanceof Error ? error : undefined
+    );
   }
 }
 
@@ -166,13 +271,13 @@ export async function detectPRState(repo?: string): Promise<PRState> {
  * }
  * ```
  */
-async function detectIssueState(git: GitState): Promise<IssueState> {
+function detectIssueState(git: GitState): IssueState {
   const issueNumber = extractIssueNumberFromBranch(git.currentBranch);
 
-  return {
-    exists: issueNumber !== null,
-    number: issueNumber ?? undefined,
-  };
+  if (issueNumber !== null) {
+    return createIssueExists(issueNumber);
+  }
+  return createIssueDoesNotExist();
 }
 
 /**
@@ -204,61 +309,132 @@ async function detectIssueState(git: GitState): Promise<IssueState> {
 export async function detectCurrentState(repo?: string, depth = 0): Promise<CurrentState> {
   const MAX_RECURSION_DEPTH = 3;
 
+  // Validate depth parameter before state detection work
+  // Catches undefined, NaN, negative, non-integer, or unreasonably large values
+  if (!Number.isSafeInteger(depth) || depth < 0 || depth > MAX_RECURSION_DEPTH) {
+    throw new StateDetectionError(
+      `Invalid recursion depth parameter: ${depth}. Must be non-negative integer <= ${MAX_RECURSION_DEPTH}.`,
+      { depth, maxDepth: MAX_RECURSION_DEPTH }
+    );
+  }
+
+  // Check depth limit: MAX_RECURSION_DEPTH=3 means depths 0,1,2 allowed; 3+ rejected
+  if (depth >= MAX_RECURSION_DEPTH) {
+    logger.error('detectCurrentState: maximum recursion depth exceeded', {
+      depth,
+      maxDepth: MAX_RECURSION_DEPTH,
+      action: 'State is changing too rapidly - manual intervention required',
+    });
+    throw new StateDetectionError(
+      `State detection failed: exceeded maximum recursion depth (${MAX_RECURSION_DEPTH}). ` +
+        `This indicates rapid state changes preventing reliable detection. ` +
+        `Manual intervention required.`,
+      { depth, maxDepth: MAX_RECURSION_DEPTH }
+    );
+  }
+
   const startTime = Date.now();
   const git = await detectGitState();
   const pr = await detectPRState(repo);
-  const issue = await detectIssueState(git);
+  logger.debug('detectCurrentState: PR detection complete', {
+    prExists: pr.exists,
+    prNumber: pr.exists ? pr.number : undefined,
+    prState: pr.exists ? pr.state : undefined,
+    prTitle: pr.exists ? pr.title : undefined,
+  });
+  const issue = detectIssueState(git);
+  logger.debug('detectCurrentState: issue detection complete', {
+    issueExists: issue.exists,
+    issueNumber: issue.exists ? issue.number : undefined,
+  });
   const stateDetectionTime = Date.now() - startTime;
 
   // Determine phase based on PR existence
   const phase: WiggumPhase = pr.exists ? 'phase2' : 'phase1';
+  logger.info('detectCurrentState: phase determined', {
+    phase,
+    reason: pr.exists ? 'PR exists (open)' : 'No open PR',
+  });
 
-  let wiggum;
+  let wiggum: WiggumState;
   if (phase === 'phase2' && pr.exists) {
-    // Phase 2: Read state from PR comments
-    wiggum = await getWiggumState(pr.number, repo);
-    wiggum.phase = 'phase2';
+    // Phase 2: Read state from PR body
+    const prWiggum = await getWiggumStateFromPRBody(pr.number, repo);
+    logger.info('detectCurrentState: read state from PR body', {
+      prNumber: pr.number,
+      stateFound: prWiggum !== null,
+      stateValue: prWiggum,
+    });
+    wiggum = prWiggum
+      ? { ...prWiggum, phase: 'phase2' }
+      : { iteration: 0, step: STEP_PHASE2_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase2' };
+    logger.info('detectCurrentState: wiggum state for phase2', {
+      wiggum,
+      wasInitialized: prWiggum === null,
+    });
 
-    // If state detection took longer than 5 seconds, re-validate PR state exists
-    // This helps detect race conditions where PR might have been closed/modified
+    // If state detection took longer than 5 seconds, re-validate PR state
+    // to detect race conditions where PR might have been closed/modified during the slow API call.
+    // Note: Race conditions can trigger recursive redetection, with maximum depth controlled by MAX_RECURSION_DEPTH.
     if (stateDetectionTime > 5000) {
       const revalidatedPr = await detectPRState(repo);
+      // Only retry if a DIFFERENT PR is now current - indicates race condition
+      // If revalidatedPr matches original pr.number, or PR no longer exists, original state is valid
       if (revalidatedPr.exists && revalidatedPr.number !== pr.number) {
-        if (depth >= MAX_RECURSION_DEPTH) {
-          logger.error(
-            'detectCurrentState: maximum recursion depth exceeded during PR revalidation',
-            {
-              depth,
-              maxDepth: MAX_RECURSION_DEPTH,
-              previousPrNumber: pr.number,
-              newPrNumber: revalidatedPr.number,
-              stateDetectionTime,
-            }
+        // Check if recursion would exceed limit BEFORE making the recursive call
+        // This prevents wasted work when depth=2 and next call would immediately fail at depth=3
+        if (depth + 1 >= MAX_RECURSION_DEPTH) {
+          logger.error('detectCurrentState: would exceed recursion limit on retry - aborting', {
+            currentDepth: depth,
+            maxDepth: MAX_RECURSION_DEPTH,
+            originalPrNumber: pr.number,
+            newPrNumber: revalidatedPr.number,
+            stateDetectionTime,
+            action: 'Aborting before wasting API calls on doomed retry',
+            impact: 'State detection cannot proceed - manual intervention required',
+          });
+          throw new StateDetectionError(
+            `State detection failed: PR state changed during detection (PR #${pr.number} -> #${revalidatedPr.number}) ` +
+              `but retry would exceed maximum recursion depth (${MAX_RECURSION_DEPTH}). ` +
+              `This indicates rapid PR state changes. Manual intervention required.`,
+            { depth: depth + 1, maxDepth: MAX_RECURSION_DEPTH }
           );
-          // Return current state rather than failing - caller can handle unstable state
-          // This prevents infinite recursion in pathological cases where PR keeps changing
-          return {
-            git,
-            pr,
-            issue,
-            wiggum,
-          };
         }
 
-        logger.warn('detectCurrentState: PR state changed during detection, revalidating', {
-          depth,
-          previousPrNumber: pr.number,
-          newPrNumber: revalidatedPr.number,
-          stateDetectionTime,
-        });
-        // Retry with incremented depth counter to track recursion
+        // ERROR level - this is a race condition that discards work and retries
+        // Users need visibility that original state detection was wasted
+        logger.error(
+          'detectCurrentState: PR state race condition detected - discarding original state',
+          {
+            depth,
+            newDepth: depth + 1,
+            originalPrNumber: pr.number,
+            newPrNumber: revalidatedPr.number,
+            stateDetectionTime,
+            action: 'Recursively redetecting entire state',
+            impact: 'Original state detection wasted - all API calls will be repeated',
+            maxDepthRemaining: MAX_RECURSION_DEPTH - depth - 1,
+          }
+        );
+        // Retry with incremented depth
         return detectCurrentState(repo, depth + 1);
       }
     }
   } else if (phase === 'phase1' && issue.exists && issue.number) {
-    // Phase 1: Read state from issue comments
-    wiggum = await getWiggumStateFromIssue(issue.number, repo);
-    wiggum.phase = 'phase1';
+    // Phase 1: Read state from issue body
+    const issueWiggum = await getWiggumStateFromIssueBody(issue.number, repo);
+    logger.info('detectCurrentState: read state from issue body', {
+      issueNumber: issue.number,
+      stateFound: issueWiggum !== null,
+      stateValue: issueWiggum,
+    });
+    wiggum = issueWiggum
+      ? { ...issueWiggum, phase: 'phase1' }
+      : { iteration: 0, step: STEP_PHASE1_MONITOR_WORKFLOW, completedSteps: [], phase: 'phase1' };
+    logger.info('detectCurrentState: wiggum state for phase1', {
+      wiggum,
+      wasInitialized: issueWiggum === null,
+    });
   } else {
     // No issue or PR, return initial Phase 1 state
     wiggum = {
@@ -269,10 +445,54 @@ export async function detectCurrentState(repo?: string, depth = 0): Promise<Curr
     };
   }
 
-  return {
+  // Validate state before returning to catch invalid data from external sources
+  // This ensures state conforms to expected types and constraints
+  const state = {
     git,
     pr,
     issue,
     wiggum,
   };
+
+  try {
+    return validateCurrentState(state);
+  } catch (error) {
+    const zodError = error instanceof Error ? error : new Error(String(error));
+
+    // Determine state source for error message
+    const stateSource =
+      phase === 'phase2' && pr.exists
+        ? `PR #${pr.number} body`
+        : issue.exists && issue.number
+          ? `Issue #${issue.number} body`
+          : 'created initial state';
+
+    logger.error('detectCurrentState: STATE VALIDATION FAILED', {
+      phase,
+      stateSource,
+      validationError: zodError.message,
+      invalidState: JSON.stringify(state.wiggum),
+      prExists: pr.exists,
+      prNumber: pr.exists ? pr.number : undefined,
+      issueExists: issue.exists,
+      issueNumber: issue.exists ? issue.number : undefined,
+      userAction: 'Check the state source and manually remove/fix the wiggum-state HTML comment',
+    });
+
+    throw new StateDetectionError(
+      `State validation failed for state from ${stateSource}: ${zodError.message}\n\n` +
+        `Invalid state: ${JSON.stringify(state.wiggum, null, 2)}\n\n` +
+        `This indicates corrupted state data. To fix:\n` +
+        `1. View the ${stateSource}\n` +
+        `2. Locate the HTML comment: <!-- wiggum-state:... -->\n` +
+        `3. Remove the comment entirely to reset the workflow\n` +
+        `4. Or fix the JSON to ensure completedSteps only contains steps before the current step`,
+      {
+        depth,
+        maxDepth: MAX_RECURSION_DEPTH,
+        previousState: 'validation failed',
+        currentState: 'validation failed',
+      }
+    );
+  }
 }

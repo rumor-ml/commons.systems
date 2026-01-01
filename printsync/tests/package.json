@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test",
-    "test:ui": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --ui",
-    "test:headed": ". ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --headed",
+    "test": "bash -c '. ../../infrastructure/scripts/allocate-test-ports.sh && playwright test'",
+    "test:ui": "bash -c '. ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --ui'",
+    "test:headed": "bash -c '. ../../infrastructure/scripts/allocate-test-ports.sh && playwright test --headed'",
     "test:deployed": "DEPLOYED=true playwright test"
   },
   "devDependencies": {

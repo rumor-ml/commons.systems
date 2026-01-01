@@ -1,5 +1,14 @@
 /**
  * Firebase and Firestore initialization
+ *
+ * Documentation and error handling improvements:
+ * - JSDoc for key functions explaining error handling
+ * - Improved comments for IPv4 address requirement (emulator binding)
+ * - Improved comments for module binding patterns
+ * - Better error logging with structured context objects
+ * - Enhanced error messages for Firebase operations
+ *
+ * Related: #305 for general documentation and error handling improvements
  */
 
 import { initializeApp, getApp } from 'firebase/app';
@@ -20,6 +29,7 @@ import {
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
+import { FIREBASE_PORTS } from '../../../../shared/config/firebase-ports.ts';
 
 // Initialize Firebase with config
 let app, db, auth, cardsCollection;
@@ -58,6 +68,35 @@ async function getFirebaseConfig() {
 }
 
 /**
+ * Retry an async operation with exponential backoff
+ * @param {Function} operation - Async function to retry
+ * @param {number} maxAttempts - Maximum number of attempts
+ * @param {number} initialDelay - Initial delay in milliseconds
+ * @returns {Promise} Result of the operation
+ */
+async function retryWithBackoff(operation, maxAttempts = 3, initialDelay = 100) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === maxAttempts) {
+        break;
+      }
+
+      const delay = initialDelay * Math.pow(2, attempt - 1);
+      console.debug(`[Firebase] Retry attempt ${attempt}/${maxAttempts} after ${delay}ms`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * Initialize Firebase app and services
  * This is called lazily on first use to allow async config loading
  */
@@ -87,16 +126,45 @@ async function initFirebase() {
 
     // Connect to emulators in test/dev environment
     if (
-      import.meta.env.MODE === 'development' ||
-      import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+      import.meta.env?.MODE === 'development' ||
+      import.meta.env?.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
-      const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || 'localhost:8081';
-      const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
+      // Use localhost consistently (hosting emulator runs on same machine)
+      // Firebase emulator ports from shared config
+      const firestoreHost = 'localhost';
+      const firestorePort = FIREBASE_PORTS.firestore;
+      const authHost = 'localhost';
+      const authPort = FIREBASE_PORTS.auth;
 
-      const [firestoreHostname, firestorePort] = firestoreHost.split(':');
-      connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
+      try {
+        await retryWithBackoff(
+          async () => {
+            connectFirestoreEmulator(db, firestoreHost, firestorePort);
+            connectAuthEmulator(auth, `http://${authHost}:${authPort}`, { disableWarnings: true });
+          },
+          3,
+          100
+        );
+      } catch (error) {
+        // TODO: See issue #327 - Make emulator error detection more specific (check error codes vs string matching)
+        const msg = error.message || '';
 
-      connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+        // Expected: already connected (happens on HTMX page swaps)
+        if (msg.includes('already')) {
+          console.debug('[Firebase] Emulators already connected');
+          return { app, db, auth, cardsCollection };
+        }
+
+        // Unexpected emulator connection errors after retry attempts
+        // TODO(#1084): firebase.js throws error after logging it, but no user-facing error message in UI
+        console.error('[Firebase] Emulator connection failed after retries:', {
+          error: msg,
+          firestoreHost: `${firestoreHost}:${firestorePort}`,
+          authHost: `${authHost}:${authPort}`,
+          env: import.meta.env?.MODE,
+        });
+        throw error;
+      }
     }
 
     // Collection reference
@@ -179,8 +247,23 @@ export async function getCard(cardId) {
 // Create a new card
 export async function createCard(cardData) {
   await initFirebase();
+
+  // Validate required fields before making Firestore call
+  if (!cardData.title?.trim()) {
+    throw new Error('Card title is required');
+  }
+  if (!cardData.type?.trim()) {
+    throw new Error('Card type is required');
+  }
+  if (!cardData.subtype?.trim()) {
+    throw new Error('Card subtype is required');
+  }
+
+  // Use getAuthInstance() to get the current auth instance
+  // This ensures we get window.__testAuth if it exists (for tests)
+  const authInstance = getAuthInstance();
   try {
-    const user = auth.currentUser;
+    const user = authInstance.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to create cards');
     }
@@ -195,7 +278,12 @@ export async function createCard(cardData) {
     });
     return docRef.id;
   } catch (error) {
-    console.error('Error creating card:', error);
+    console.error('[Firebase] Error creating card:', {
+      title: cardData.title,
+      type: cardData.type,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }
@@ -204,7 +292,8 @@ export async function createCard(cardData) {
 export async function updateCard(cardId, cardData) {
   await initFirebase();
   try {
-    const user = auth.currentUser;
+    const authInstance = getAuthInstance();
+    const user = authInstance.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to update cards');
     }
@@ -217,7 +306,11 @@ export async function updateCard(cardId, cardData) {
       lastModifiedAt: serverTimestamp(),
     });
   } catch (error) {
-    console.error('Error updating card:', error);
+    console.error('[Firebase] Error updating card:', {
+      cardId,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }
@@ -226,7 +319,8 @@ export async function updateCard(cardId, cardData) {
 export async function deleteCard(cardId) {
   await initFirebase();
   try {
-    const user = auth.currentUser;
+    const authInstance = getAuthInstance();
+    const user = authInstance.currentUser;
     if (!user) {
       throw new Error('User must be authenticated to delete cards');
     }
@@ -234,7 +328,11 @@ export async function deleteCard(cardId) {
     const cardRef = doc(db, getCardsCollectionName(), cardId);
     await deleteDoc(cardRef);
   } catch (error) {
-    console.error('Error deleting card:', error);
+    console.error('[Firebase] Error deleting card:', {
+      cardId,
+      message: error.message,
+      code: error.code,
+    });
     throw error;
   }
 }
@@ -291,6 +389,18 @@ export async function getFirestoreDb() {
 
 export async function getFirebaseAuth() {
   await initFirebase();
+  return auth;
+}
+
+// Synchronous getter for auth instance (returns current value without initialization)
+// This fixes module binding issue where auth is undefined at import time
+// IMPORTANT: Checks window.__testAuth first to handle test mode where
+// the signed-in user is on the test auth instance, not firebase.js's auth
+export function getAuthInstance() {
+  // In test mode, always prefer window.__testAuth if it exists
+  if (typeof window !== 'undefined' && window.__testAuth) {
+    return window.__testAuth;
+  }
   return auth;
 }
 

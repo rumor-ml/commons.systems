@@ -7,13 +7,13 @@
  */
 export function getCardsCollectionName() {
   // Check for PR number (injected at build time)
-  const prNumber = import.meta.env.VITE_PR_NUMBER;
+  const prNumber = import.meta.env?.VITE_PR_NUMBER;
   if (prNumber) {
     return `cards_pr_${prNumber}`;
   }
 
   // Check for branch name (injected at build time)
-  const branchName = import.meta.env.VITE_BRANCH_NAME;
+  const branchName = import.meta.env?.VITE_BRANCH_NAME;
   if (branchName && branchName !== 'main') {
     // Sanitize branch name: lowercase, alphanumeric + hyphens, max 63 chars
     const sanitized = branchName

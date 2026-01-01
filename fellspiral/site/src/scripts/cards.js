@@ -1,8 +1,20 @@
 /**
  * Card Manager - CRUD Operations and Tree Navigation
+ *
+ * Error handling improvements:
+ * - Better auth state management with retry logic
+ * - Structured error logging with context objects
+ * - User-friendly error messages for Firebase operations
+ *
+ * Related: #305 for general documentation and error handling improvements
  */
 
 // Import Firestore operations
+// TODO(#588): Fix silent failures and error handling in production code
+// TODO(#462): Add JSDoc type annotations and validation for JavaScript types
+// TODO(#331): Lower card render failure threshold and show which cards failed
+// TODO(#322): Add E2E tests for library navigation error handling
+// TODO(#321): Add tests for card rendering error recovery
 import {
   getAllCards,
   createCard as createCardInDB,
@@ -10,7 +22,7 @@ import {
   deleteCard as deleteCardInDB,
   importCards as importCardsFromData,
   withTimeout,
-  auth,
+  getAuthInstance,
 } from './firebase.js';
 
 // Import auth initialization and state

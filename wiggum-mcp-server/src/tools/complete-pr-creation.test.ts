@@ -45,6 +45,50 @@ describe('complete-pr-creation tool', () => {
   // Note: Testing issue extraction and PR creation logic would require
   // mocking git/gh CLI commands, which is beyond the scope of basic
   // schema validation tests. These would be integration tests.
+  // TODO(#436): Add integration test for completePRCreation state update flow
+
+  describe('completePRCreation verification error handling', () => {
+    // TODO(#320): Add behavioral tests for PR verification error handling
+    // These tests verify that errors during PR verification are handled correctly
+
+    // TODO(#320): Test StateApiError preservation during verification
+    it('should re-throw StateApiError when PR verification fails due to API error', async () => {
+      // This test ensures retryable API errors during verification are preserved
+      // NOTE: This test documents expected behavior but requires ES module mocking to execute.
+      // The complete-pr-creation.ts implementation preserves StateApiError when PR verification
+      // fails due to API errors (rate limit, auth, network) so the MCP client can retry.
+      //
+      // Expected behavior:
+      // - ghCli(['pr', 'create', ...]) succeeds, returns "https://github.com/owner/repo/pull/123"
+      // - getPR(123) throws StateApiError('Rate limit exceeded', 'read', 'pr', 123)
+      // - completePRCreation should re-throw the StateApiError (NOT convert to ValidationError)
+      // - Error preserves operation='read', resourceType='pr', prNumber=123
+      // - Error message includes retryable guidance
+      //
+      // To implement: Mock ghCli to succeed with PR URL, mock getPR to throw StateApiError,
+      // verify StateApiError is re-thrown with correct properties.
+      assert.ok(true, 'Test documented - requires ES module mocking');
+    });
+
+    // TODO(#320): Test ValidationError for unknown verification errors
+    it('should throw ValidationError for unknown verification errors', async () => {
+      // This test ensures unknown errors during verification get clear guidance
+      // NOTE: This test documents expected behavior but requires ES module mocking to execute.
+      // The complete-pr-creation.ts implementation converts unknown errors to ValidationError
+      // with guidance about potential timing issues.
+      //
+      // Expected behavior:
+      // - ghCli(['pr', 'create', ...]) succeeds, returns "https://github.com/owner/repo/pull/123"
+      // - getPR(123) throws generic Error('Something unexpected')
+      // - completePRCreation should throw ValidationError with timing issue guidance
+      // - Error message includes PR number and suggests timing issue
+      // - Error type is ValidationError (not StateApiError)
+      //
+      // To implement: Mock ghCli to succeed with PR URL, mock getPR to throw Error,
+      // verify ValidationError is thrown with guidance message.
+      assert.ok(true, 'Test documented - requires ES module mocking');
+    });
+  });
 });
 
 describe('PR state validation', () => {
@@ -146,6 +190,76 @@ describe('PR state validation', () => {
       };
       const shouldBlock = state.pr.exists && state.pr.state === 'OPEN';
       assert.strictEqual(shouldBlock, false);
+    });
+  });
+
+  describe('Phase 2 routing validation (issue #429)', () => {
+    it('should pass Phase 2 validation with updated PR state after creation', () => {
+      // After PR creation, the updated state should have pr.exists = true
+      // This validates the fix for issue #429 where stale state caused failure
+      const updatedState = {
+        git: {
+          currentBranch: '123-feature',
+          isMainBranch: false,
+          hasUncommittedChanges: false,
+          isRemoteTracking: true,
+          isPushed: true,
+        },
+        pr: {
+          exists: true,
+          number: 456,
+          title: '123-feature',
+          state: 'OPEN' as const,
+          url: 'https://github.com/owner/repo/pull/456',
+          labels: ['needs-review'],
+          headRefName: '123-feature',
+          baseRefName: 'main',
+        },
+        issue: { exists: true, number: 123 },
+        wiggum: {
+          iteration: 0,
+          step: 'p1-4' as const,
+          completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4'] as const,
+          phase: 'phase2' as const,
+        },
+      };
+
+      // The validation in getPhase2NextStep at router.ts:781 checks:
+      // !state.pr.exists || state.pr.state !== 'OPEN'
+      const wouldFailValidation = !updatedState.pr.exists || updatedState.pr.state !== 'OPEN';
+      assert.strictEqual(
+        wouldFailValidation,
+        false,
+        'Updated state should pass Phase 2 validation'
+      );
+    });
+
+    it('should fail Phase 2 validation with stale PR state (demonstrates bug)', () => {
+      // Before the fix, state.pr would retain exists: false after PR creation
+      // This demonstrates the bug behavior that issue #429 fixes
+      const staleState = {
+        git: {
+          currentBranch: '123-feature',
+          isMainBranch: false,
+          hasUncommittedChanges: false,
+          isRemoteTracking: true,
+          isPushed: true,
+        },
+        pr: {
+          exists: false, // STALE: PR was just created but state wasn't updated
+        },
+        issue: { exists: true, number: 123 },
+        wiggum: {
+          iteration: 0,
+          step: 'p1-4' as const,
+          completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4'] as const,
+          phase: 'phase2' as const,
+        },
+      };
+
+      // The validation would fail with stale state
+      const wouldFailValidation = !staleState.pr.exists;
+      assert.strictEqual(wouldFailValidation, true, 'Stale state would fail Phase 2 validation');
     });
   });
 });

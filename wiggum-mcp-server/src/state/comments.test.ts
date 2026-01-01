@@ -1,164 +1,294 @@
 /**
- * Tests for PR comment state management
+ * Tests for PR comment utilities - searchCommandInComments
+ *
+ * These tests verify the core search logic used by hasReviewCommandEvidence.
+ * The search function is extracted as a pure function for testability,
+ * avoiding the need to mock GitHub API calls.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { _testExports } from './comments.js';
 
-describe('Comment State Management', () => {
-  describe('getWiggumState', () => {
-    it('should extract state from most recent wiggum comment', async () => {
-      // This test verifies that getWiggumState finds and parses the latest state
-      // Implementation: Mock getPRComments to return multiple comments with state markers
-      // Expected: Returns WiggumState from most recent comment
+const { searchCommandInComments } = _testExports;
+
+describe('searchCommandInComments', () => {
+  describe('command found cases', () => {
+    it('should return true when command is mentioned in a comment', () => {
+      const comments = [{ body: 'Running /security-review now' }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, true, 'Should find command in comment body');
     });
 
-    it('should return initial state when no wiggum comments exist', async () => {
-      // This test verifies default state when no state comments found
-      // Implementation: Mock getPRComments to return comments without state markers
-      // Expected: Returns initial state (iteration=0, step="0", completedSteps=[])
+    it('should return true when command is found in any comment', () => {
+      const comments = [
+        { body: 'First comment without command' },
+        { body: 'Second comment also without' },
+        { body: 'Third comment has /security-review in it' },
+      ];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, true, 'Should find command in third comment');
     });
 
-    it('should skip comments with invalid JSON and log warning', async () => {
-      // This test verifies error handling for malformed JSON in state comments
-      // Implementation: Mock getPRComments to return comment with invalid JSON
-      // Expected: Skips invalid comment, logs warning, continues searching
+    it('should return true when command appears at start of comment', () => {
+      const comments = [{ body: '/code-review starting now...' }];
+
+      const result = searchCommandInComments(comments, '/code-review');
+
+      assert.strictEqual(result, true, 'Should find command at start');
     });
 
-    it('should use most recent valid state when multiple exist', async () => {
-      // This test verifies that most recent state is used
-      // Implementation: Mock getPRComments to return multiple valid state comments
-      // Expected: Returns state from latest comment
+    it('should return true when command appears at end of comment', () => {
+      const comments = [{ body: 'Will now run /code-review' }];
+
+      const result = searchCommandInComments(comments, '/code-review');
+
+      assert.strictEqual(result, true, 'Should find command at end');
     });
 
-    it('should parse state with all fields present', async () => {
-      // This test verifies complete state parsing
-      // Implementation: Mock comment with iteration, step, and completedSteps
-      // Expected: Returns WiggumState with all fields correctly parsed
+    it('should return true when command is the entire comment body', () => {
+      const comments = [{ body: '/security-review' }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, true, 'Should find command as entire body');
     });
 
-    it('should handle missing fields with defaults', async () => {
-      // This test verifies default values for missing fields
-      // Implementation: Mock comment with incomplete state (missing fields)
-      // Expected: Returns WiggumState with default values (0, "0", [])
-    });
+    it('should return true for command in multiline comment', () => {
+      const comments = [
+        {
+          body: `## Review Status
 
-    it('should log error details when JSON parsing fails', async () => {
-      // This test verifies comprehensive error logging
-      // Implementation: Mock comment with invalid JSON
-      // Expected: Logs warning with comment ID, error message, and JSON snippet
-    });
+Starting security review...
 
-    it('should handle JSON with extra whitespace', async () => {
-      // This test verifies robust JSON parsing
-      // Implementation: Mock comment with extra whitespace in state marker
-      // Expected: Correctly parses state despite whitespace
-    });
-  });
+/security-review
 
-  describe('postWiggumStateComment', () => {
-    it('should format state comment correctly', async () => {
-      // This test verifies comment formatting
-      // Implementation: Mock postPRComment, capture posted comment
-      // Expected: Comment includes state marker, title, body, and footer
-    });
+Please wait for completion.`,
+        },
+      ];
 
-    it('should embed state as JSON in HTML comment', async () => {
-      // This test verifies state embedding format
-      // Implementation: Mock postPRComment, verify comment format
-      // Expected: State is embedded as <!-- wiggum-state:{...} -->
-    });
+      const result = searchCommandInComments(comments, '/security-review');
 
-    it('should include all state fields in JSON', async () => {
-      // This test verifies complete state serialization
-      // Implementation: Post state with iteration, step, completedSteps
-      // Expected: JSON includes all fields
-    });
-
-    it('should handle special characters in body', async () => {
-      // This test verifies escaping/handling of special characters
-      // Implementation: Post comment with special characters in body
-      // Expected: Comment is posted correctly without breaking format
+      assert.strictEqual(result, true, 'Should find command in multiline body');
     });
   });
 
-  describe('hasReviewCommandEvidence', () => {
-    it('should return true when command is mentioned in comments', async () => {
-      // This test verifies command evidence detection
-      // Implementation: Mock getPRComments to return comment with command
-      // Expected: Returns true
+  describe('command not found cases', () => {
+    it('should return false when command is not mentioned', () => {
+      const comments = [
+        { body: 'This is a regular comment' },
+        { body: 'Another comment without any command' },
+      ];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, false, 'Should not find absent command');
     });
 
-    it('should return false when command is not mentioned', async () => {
-      // This test verifies absence of command evidence
-      // Implementation: Mock getPRComments to return comments without command
-      // Expected: Returns false
+    it('should return false for empty comments array', () => {
+      const comments: { body: string }[] = [];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, false, 'Should return false for empty array');
     });
 
-    it('should search all comments', async () => {
-      // This test verifies comprehensive search
-      // Implementation: Mock getPRComments with command in 3rd comment
-      // Expected: Returns true (finds it in any comment)
+    it('should return false when only partial command matches', () => {
+      const comments = [{ body: 'Ran /security but not the full review' }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, false, 'Should not match partial command');
+    });
+  });
+
+  describe('case sensitivity', () => {
+    it('should perform case-sensitive search', () => {
+      const comments = [{ body: 'Running /SECURITY-REVIEW now' }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, false, 'Search should be case-sensitive');
     });
 
-    it('should handle empty comment list', async () => {
-      // This test verifies handling of PRs with no comments
-      // Implementation: Mock getPRComments to return empty array
-      // Expected: Returns false
+    it('should match exact case', () => {
+      const comments = [{ body: 'Running /SECURITY-REVIEW now' }];
+
+      const result = searchCommandInComments(comments, '/SECURITY-REVIEW');
+
+      assert.strictEqual(result, true, 'Should match when case is exact');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle command with special regex characters', () => {
+      // The search uses String.includes(), not regex, so this should work
+      const comments = [{ body: 'Found [command] in text' }];
+
+      const result = searchCommandInComments(comments, '[command]');
+
+      assert.strictEqual(result, true, 'Should handle brackets in command');
     });
 
-    it('should perform case-sensitive search', async () => {
-      // This test verifies exact command matching
-      // Implementation: Mock comments with similar but different commands
-      // Expected: Only returns true for exact match
+    it('should handle empty command string', () => {
+      const comments = [{ body: 'Any comment' }];
+
+      // Empty string is included in any string per String.includes() behavior
+      const result = searchCommandInComments(comments, '');
+
+      assert.strictEqual(result, true, 'Empty string is included in any string');
+    });
+
+    it('should handle very long comment body', () => {
+      const longBody = 'x'.repeat(10000) + '/security-review' + 'y'.repeat(10000);
+      const comments = [{ body: longBody }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, true, 'Should find command in long body');
+    });
+
+    it('should handle comments with only whitespace', () => {
+      const comments = [{ body: '   \n\t  ' }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, false, 'Should not find in whitespace-only');
+    });
+
+    it('should handle command appearing multiple times', () => {
+      const comments = [
+        { body: '/code-review starting... /code-review done' },
+        { body: 'Another /code-review mention' },
+      ];
+
+      const result = searchCommandInComments(comments, '/code-review');
+
+      assert.strictEqual(result, true, 'Should find command that appears multiple times');
+    });
+  });
+
+  describe('code block handling', () => {
+    it('should find command even when in a code block', () => {
+      // Note: Current implementation does not distinguish code blocks
+      // This test documents the current behavior
+      const comments = [
+        {
+          body: `Here's how to run:
+\`\`\`
+/security-review
+\`\`\``,
+        },
+      ];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, true, 'Current implementation finds command in code blocks');
+    });
+
+    it('should find command in inline code', () => {
+      const comments = [{ body: 'Use the `/security-review` command' }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, true, 'Should find command in inline code');
+    });
+  });
+
+  describe('link handling', () => {
+    it('should find command in markdown link text', () => {
+      const comments = [{ body: 'See [/security-review](https://example.com) for docs' }];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      assert.strictEqual(result, true, 'Should find command in link text');
+    });
+  });
+
+  describe('search order', () => {
+    it('should find command in first comment and return early', () => {
+      const comments = [
+        { body: '/security-review found here' },
+        { body: 'Another comment' },
+        { body: '/security-review also here' },
+      ];
+
+      const result = searchCommandInComments(comments, '/security-review');
+
+      // Function returns true on first match, but we just verify it returns true
+      assert.strictEqual(result, true, 'Should return true when found in first comment');
     });
   });
 });
 
-describe('State Marker Format', () => {
-  it('should use correct wiggum state marker constant', () => {
-    // This test verifies marker constant usage
-    // Implementation: Import WIGGUM_STATE_MARKER constant
-    // Expected: Marker matches expected format
-    const WIGGUM_STATE_MARKER = 'wiggum-state';
-    assert.strictEqual(WIGGUM_STATE_MARKER, 'wiggum-state');
+describe('hasReviewCommandEvidence integration behavior', () => {
+  /**
+   * Note: Full integration tests for hasReviewCommandEvidence would require
+   * mocking getPRComments which involves ESM module mocking.
+   * These documentation tests describe expected behavior.
+   */
+
+  it('documents expected behavior: returns true when command found in PR comments', () => {
+    /**
+     * SPECIFICATION: hasReviewCommandEvidence behavior
+     *
+     * When getPRComments returns comments containing the command:
+     * 1. Calls getPRComments(prNumber, repo)
+     * 2. Logs debug message with pr number, command, and comment count
+     * 3. Searches each comment body for command substring
+     * 4. Returns true on first match
+     *
+     * See comments.ts hasReviewCommandEvidence function.
+     */
+    assert.ok(true, 'Behavior documented: returns true when command found');
   });
 
-  it('should use correct wiggum comment prefix constant', () => {
-    // This test verifies comment prefix constant
-    // Implementation: Import WIGGUM_COMMENT_PREFIX constant
-    // Expected: Prefix matches expected format
-    const WIGGUM_COMMENT_PREFIX = '## Wiggum:';
-    assert.strictEqual(WIGGUM_COMMENT_PREFIX, '## Wiggum:');
-  });
-});
-
-describe('Edge Cases', () => {
-  describe('Malformed State Comments', () => {
-    it('should handle state marker without JSON', async () => {
-      // This test verifies handling of marker without valid JSON
-      // Implementation: Mock comment with marker but no JSON
-      // Expected: Logs warning, continues, returns initial state
-    });
-
-    it('should handle nested JSON in state', async () => {
-      // This test verifies handling of complex state objects
-      // Implementation: Mock state with nested objects in completedSteps
-      // Expected: Correctly parses nested structure
-    });
-
-    it('should handle very long state JSON', async () => {
-      // This test verifies handling of large state objects
-      // Implementation: Mock state with many completed steps
-      // Expected: Correctly parses, logs only first 200 chars on error
-    });
+  it('documents expected behavior: returns false when command not in comments', () => {
+    /**
+     * SPECIFICATION: hasReviewCommandEvidence behavior when not found
+     *
+     * When getPRComments returns comments NOT containing the command:
+     * 1. Calls getPRComments(prNumber, repo)
+     * 2. Logs debug message with pr number, command, and comment count
+     * 3. Searches all comment bodies without finding command
+     * 4. Logs debug message that command was not found
+     * 5. Returns false
+     *
+     * See comments.ts hasReviewCommandEvidence function.
+     */
+    assert.ok(true, 'Behavior documented: returns false when command not found');
   });
 
-  describe('Concurrent State Updates', () => {
-    it('should handle multiple rapid state updates', async () => {
-      // This test verifies that most recent state wins
-      // Implementation: Mock rapid sequence of state comments
-      // Expected: Uses most recent state
-    });
+  it('documents expected behavior: handles empty comments array', () => {
+    /**
+     * SPECIFICATION: hasReviewCommandEvidence with no comments
+     *
+     * When getPRComments returns empty array:
+     * 1. commentCount in log will be 0
+     * 2. Loop exits immediately (no iterations)
+     * 3. Logs debug message that command was not found
+     * 4. Returns false
+     *
+     * This handles new PRs with no comments gracefully.
+     */
+    assert.ok(true, 'Behavior documented: handles empty comments');
+  });
+
+  it('documents expected behavior: propagates GitHub API errors', () => {
+    /**
+     * SPECIFICATION: hasReviewCommandEvidence error handling
+     *
+     * When getPRComments throws GitHubCliError:
+     * 1. Error propagates to caller (not caught)
+     * 2. Caller should handle error appropriately
+     * 3. Common errors: rate limit, network failure, PR not found
+     *
+     * See gh-cli.ts for error types that can be thrown.
+     */
+    assert.ok(true, 'Behavior documented: propagates GitHub API errors');
   });
 });

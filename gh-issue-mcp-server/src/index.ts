@@ -31,7 +31,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'gh_get_issue_context',
         description:
-          'Get comprehensive hierarchical context for a GitHub issue. Fetches the issue details, all ancestors (parent chain to root), all children (sub-issues), and all siblings. Returns structured JSON with the complete issue hierarchy.',
+          'Get comprehensive hierarchical context for a GitHub issue. Fetches the issue details, all ancestors (parent chain to root), all children (sub-issues), and all siblings. Returns structured JSON with the complete issue hierarchy. Supports body-only mode for performance optimization.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -42,6 +42,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             repo: {
               type: 'string',
               description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+            include_comments: {
+              type: 'boolean',
+              description:
+                'Whether to include comments in the response (default: true). Set to false for body-only mode to reduce response size by 60-90% and improve performance.',
             },
           },
           required: ['issue_number'],

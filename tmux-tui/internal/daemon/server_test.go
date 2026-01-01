@@ -2622,10 +2622,14 @@ func TestConnectionCloseErrors_ThresholdMonitoring(t *testing.T) {
 	// Create 12 clients (exceeds threshold of 10)
 	for i := 0; i < 12; i++ {
 		r, w := io.Pipe()
-		w.Close() // Force close error
+		w.Close() // Force write error for broadcast
 
 		daemon.clients[fmt.Sprintf("client-%d", i)] = &clientConnection{
-			conn:    &mockConn{reader: r, writer: w},
+			conn: &mockConn{
+				reader:   r,
+				writer:   w,
+				closeErr: errors.New("simulated close error"), // Force close error
+			},
 			encoder: json.NewEncoder(w),
 		}
 	}
@@ -2644,4 +2648,117 @@ func TestConnectionCloseErrors_ThresholdMonitoring(t *testing.T) {
 	}
 
 	t.Logf("Successfully triggered threshold monitoring (%d errors)", closeErrors)
+}
+
+// setupTestDaemonForDeduplication creates a minimal daemon for testing deduplication
+func setupTestDaemonForDeduplication(t *testing.T) (*AlertDaemon, func()) {
+	t.Helper()
+
+	// Create minimal daemon struct for deduplication testing
+	daemon := &AlertDaemon{
+		recentEvents: make(map[eventKey]time.Time),
+	}
+
+	cleanup := func() {
+		// No cleanup needed for minimal struct
+	}
+
+	return daemon, cleanup
+}
+
+// TestIsDuplicateEvent_BasicDeduplication tests basic event deduplication
+func TestIsDuplicateEvent_BasicDeduplication(t *testing.T) {
+	daemon, cleanup := setupTestDaemonForDeduplication(t)
+	defer cleanup()
+
+	paneID := "%1"
+	eventType := "idle"
+
+	// First event should not be a duplicate
+	if daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("First event should not be marked as duplicate")
+	}
+
+	// Immediate second event should be a duplicate
+	if !daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("Immediate second event should be marked as duplicate")
+	}
+}
+
+// TestIsDuplicateEvent_WindowExpiration tests that duplicates expire after the window
+func TestIsDuplicateEvent_WindowExpiration(t *testing.T) {
+	daemon, cleanup := setupTestDaemonForDeduplication(t)
+	defer cleanup()
+
+	paneID := "%2"
+	eventType := "stop"
+
+	// First event
+	if daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("First event should not be duplicate")
+	}
+
+	// Wait for deduplication window to expire (100ms)
+	time.Sleep(150 * time.Millisecond)
+
+	// After window expires, same event should not be duplicate
+	if daemon.isDuplicateEvent(paneID, eventType, true) {
+		t.Error("Event after window expiration should not be duplicate")
+	}
+}
+
+// TestIsDuplicateEvent_CleanupPreventsMemoryLeak verifies that the cleanup logic
+// prevents unbounded growth of the recentEvents map by removing old entries.
+func TestIsDuplicateEvent_CleanupPreventsMemoryLeak(t *testing.T) {
+	daemon, cleanup := setupTestDaemonForDeduplication(t)
+	defer cleanup()
+
+	// Create 5 old events (>1 second old) by manipulating the map directly
+	oldTime := time.Now().Add(-1100 * time.Millisecond)
+	oldEvents := []eventKey{
+		{paneID: "%10", eventType: "idle", created: true},
+		{paneID: "%11", eventType: "stop", created: true},
+		{paneID: "%12", eventType: "permission", created: true},
+		{paneID: "%13", eventType: "elicitation", created: true},
+		{paneID: "%14", eventType: "working", created: true},
+	}
+
+	// Add old events to the map
+	for _, key := range oldEvents {
+		daemon.recentEvents[key] = oldTime
+	}
+
+	// Verify all 5 old events are in the map
+	if len(daemon.recentEvents) != 5 {
+		t.Fatalf("Expected 5 events in map, got %d", len(daemon.recentEvents))
+	}
+
+	// Wait for cleanup threshold (1100ms) to ensure old events are stale
+	time.Sleep(1100 * time.Millisecond)
+
+	// Trigger cleanup by creating a new event
+	// The isDuplicateEvent function cleans up entries > eventCleanupThreshold (1 second)
+	newPaneID := "%99"
+	newEventType := "idle"
+	if daemon.isDuplicateEvent(newPaneID, newEventType, true) {
+		t.Error("New event should not be marked as duplicate")
+	}
+
+	// Verify cleanup removed old events and only new event remains
+	if len(daemon.recentEvents) != 1 {
+		t.Errorf("Expected 1 event after cleanup, got %d", len(daemon.recentEvents))
+	}
+
+	// Verify the remaining event is the new one
+	newKey := eventKey{paneID: newPaneID, eventType: newEventType, created: true}
+	if _, exists := daemon.recentEvents[newKey]; !exists {
+		t.Error("New event should be in recentEvents map")
+	}
+
+	// Verify old events were removed
+	for _, oldKey := range oldEvents {
+		if _, exists := daemon.recentEvents[oldKey]; exists {
+			t.Errorf("Old event %+v should have been cleaned up", oldKey)
+		}
+	}
 }
