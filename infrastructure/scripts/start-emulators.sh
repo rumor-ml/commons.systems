@@ -54,7 +54,7 @@ echo ""
 # PHASE 1: Start Shared Backend Emulators (if not already running)
 # ============================================================================
 
-if nc -z localhost $AUTH_PORT 2>/dev/null; then
+if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"
   echo "  Multiple worktrees can connect to the same backend"
 else
@@ -373,7 +373,7 @@ echo "Log file: $HOSTING_LOG_FILE"
 echo "Waiting for hosting emulator on port ${HOSTING_PORT}..."
 RETRY_COUNT=0
 MAX_HOSTING_RETRIES=15  # Hosting starts faster than backend
-while ! nc -z localhost ${HOSTING_PORT} 2>/dev/null; do
+while ! nc -z 127.0.0.1 ${HOSTING_PORT} 2>/dev/null; do
   RETRY_COUNT=$((RETRY_COUNT + 1))
   if [ $RETRY_COUNT -ge $MAX_HOSTING_RETRIES ]; then
     echo "ERROR: Hosting emulator failed to start after ${MAX_HOSTING_RETRIES} seconds"

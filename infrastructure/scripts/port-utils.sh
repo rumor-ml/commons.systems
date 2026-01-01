@@ -92,7 +92,7 @@ is_port_available() {
   fi
 
   # Check 2: nc confirms port not listening
-  if nc -z localhost $port 2>/dev/null; then
+  if nc -z 127.0.0.1 $port 2>/dev/null; then
     return 1  # Port in use
   fi
 
@@ -254,7 +254,7 @@ wait_for_port() {
   echo "Waiting for $service_name on port ${port}..."
   local retry_count=0
 
-  while ! nc -z localhost ${port} 2>/dev/null; do
+  while ! nc -z 127.0.0.1 ${port} 2>/dev/null; do
     # Check if process is still running (if PID provided)
     if [ -n "$pid" ] && ! kill -0 $pid 2>/dev/null; then
       echo "ERROR: $service_name process (PID $pid) crashed during startup" >&2
