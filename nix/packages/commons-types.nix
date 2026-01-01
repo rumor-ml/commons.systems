@@ -1,7 +1,7 @@
 # commons-types: Shared branded types for type safety across commons.systems
 #
 # This package provides branded type utilities for type-safe IDs and values:
-# - Branded type definitions (Brand, Branded)
+# - Branded type definitions (Brand)
 # - Type safety utilities
 #
 # Build process:
@@ -49,9 +49,32 @@ buildNpmPackage {
   npmDepsHash = "sha256-KWjsYQblTA5kN+5SpjBNEU+kOHhZPS2r/3IswM23oHs=";
   forceEmptyCache = true;
 
+  # TODO(#1127): Consider adding integration test for Nix build output and package exports
   # Simple build - just TypeScript compilation
   # buildNpmPackage handles: npm ci && npm run build
   # No special hooks needed since there are no workspace dependencies
+
+  # Verify build output completeness
+  doInstallCheck = true;
+  installCheckPhase = ''
+    # Verify expected outputs exist
+    if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js" ]; then
+      echo "ERROR: Missing compiled JavaScript output"
+      exit 1
+    fi
+
+    if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.d.ts" ]; then
+      echo "ERROR: Missing TypeScript declaration files"
+      exit 1
+    fi
+
+    if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js.map" ]; then
+      echo "ERROR: Missing source maps"
+      exit 1
+    fi
+
+    echo "Build verification complete: all expected outputs present"
+  '';
 
   meta = with lib; {
     description = "Shared branded types for type safety across commons.systems";

@@ -23,11 +23,15 @@ import { z } from 'zod';
  *
  * @example
  * ```typescript
- * type UserId = Brand<string, 'UserId'>;
- * type OrderId = Brand<string, 'OrderId'>;
+ * type MyUserId = Brand<string, 'MyUserId'>;
  *
- * const userId: UserId = 'user123'; // Type error!
- * const userId: UserId = createUserId('user123'); // OK with factory
+ * const userId: MyUserId = 'user123'; // Type error!
+ *
+ * // Use a factory function to create branded types
+ * function createMyUserId(s: string): MyUserId {
+ *   return s as MyUserId;
+ * }
+ * const validId: MyUserId = createMyUserId('user123'); // OK
  * ```
  */
 declare const __brand: unique symbol;
@@ -120,8 +124,8 @@ export const PortSchema = z.number().int().min(0).max(65535).brand<'Port'>();
  * @returns Branded Port type
  * @throws ZodError if port is not in valid range (0-65535)
  */
-// Zod's branded type is structurally identical to our Brand type
-// TypeScript requires double casting to bridge the type systems
+// Zod's branded type uses a different internal symbol than our Brand type
+// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
 export const parsePort = (n: unknown): Port => PortSchema.parse(n) as unknown as Port;
 
 /**
@@ -142,8 +146,8 @@ export const URLSchema = z.string().url().brand<'URL'>();
  * @returns Branded URL type
  * @throws ZodError if URL is malformed
  */
-// Zod's branded type is structurally identical to our Brand type
-// TypeScript requires double casting to bridge the type systems
+// Zod's branded type uses a different internal symbol than our Brand type
+// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
 export const parseURL = (s: unknown): URL => URLSchema.parse(s) as unknown as URL;
 
 /**
@@ -164,8 +168,8 @@ export const TimestampSchema = z.number().finite().nonnegative().brand<'Timestam
  * @returns Branded Timestamp
  * @throws ZodError if timestamp is negative or not finite
  */
-// Zod's branded type is structurally identical to our Brand type
-// TypeScript requires double casting to bridge the type systems
+// Zod's branded type uses a different internal symbol than our Brand type
+// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
 export const parseTimestamp = (ms: unknown): Timestamp =>
   TimestampSchema.parse(ms) as unknown as Timestamp;
 
@@ -187,8 +191,8 @@ export const SessionIDSchema = z.string().min(1).max(256).brand<'SessionID'>();
  * @returns Branded SessionID
  * @throws ZodError if session ID is empty or too long
  */
-// Zod's branded type is structurally identical to our Brand type
-// TypeScript requires double casting to bridge the type systems
+// Zod's branded type uses a different internal symbol than our Brand type
+// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
 export const parseSessionID = (s: unknown): SessionID =>
   SessionIDSchema.parse(s) as unknown as SessionID;
 
@@ -210,8 +214,8 @@ export const UserIDSchema = z.string().min(1).max(256).brand<'UserID'>();
  * @returns Branded UserID
  * @throws ZodError if user ID is empty or too long
  */
-// Zod's branded type is structurally identical to our Brand type
-// TypeScript requires double casting to bridge the type systems
+// Zod's branded type uses a different internal symbol than our Brand type
+// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
 export const parseUserID = (s: unknown): UserID => UserIDSchema.parse(s) as unknown as UserID;
 
 /**
@@ -232,8 +236,8 @@ export const FileIDSchema = z.string().min(1).max(256).brand<'FileID'>();
  * @returns Branded FileID
  * @throws ZodError if file ID is empty or too long
  */
-// Zod's branded type is structurally identical to our Brand type
-// TypeScript requires double casting to bridge the type systems
+// Zod's branded type uses a different internal symbol than our Brand type
+// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
 export const parseFileID = (s: unknown): FileID => FileIDSchema.parse(s) as unknown as FileID;
 
 /**
@@ -277,8 +281,12 @@ export function createURL(s: string): URL {
     new globalThis.URL(s); // Validate using globalThis.URL constructor
     return s as URL;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid URL: ${s} (${message})`);
+    // Only catch TypeError which is what URL constructor throws for invalid URLs
+    if (error instanceof TypeError) {
+      throw new Error(`Invalid URL: ${s} (${error.message})`);
+    }
+    // Re-throw unexpected errors
+    throw error;
   }
 }
 
@@ -423,7 +431,7 @@ export function createFileID(s: string): FileID {
  * ```
  */
 export function unwrap<T>(branded: Brand<T, any>): T {
-  // Type-erasing operation that trusts the caller to use correctly.
-  // The 'any' brand is intentional for flexibility across all branded types.
+  // Type-erasing no-op that removes the brand at compile time.
+  // The 'any' brand parameter accepts all branded types for convenience.
   return branded as T;
 }

@@ -42,6 +42,7 @@ describe('createPort', () => {
   });
 
   it('rejects negative ports', () => {
+    // TODO(#1126): Use exact error message matching instead of partial string matching
     expect(() => createPort(-1)).toThrow('Port must be between 0 and 65535');
   });
 
@@ -52,6 +53,10 @@ describe('createPort', () => {
 
   it('rejects non-integer ports', () => {
     expect(() => createPort(3000.5)).toThrow('Port must be an integer');
+  });
+
+  it('rejects NaN ports', () => {
+    expect(() => createPort(NaN)).toThrow('Port must be an integer');
   });
 
   it('returns branded Port type', () => {
@@ -142,8 +147,18 @@ describe('createSessionID', () => {
   });
 
   it('rejects non-string session IDs', () => {
-    expect(() => createSessionID(123 as any)).toThrow('SessionID must be a string');
-    expect(() => createSessionID(null as any)).toThrow('SessionID must be a string');
+    expect(() => createSessionID(123 as any)).toThrow('SessionID must be a string, got number');
+    expect(() => createSessionID(null as any)).toThrow('SessionID must be a string, got object');
+  });
+
+  it('rejects undefined session IDs with specific error message', () => {
+    expect(() => createSessionID(undefined as any)).toThrow(
+      'SessionID must be a string, got undefined'
+    );
+  });
+
+  it('rejects boolean session IDs with specific error message', () => {
+    expect(() => createSessionID(true as any)).toThrow('SessionID must be a string, got boolean');
   });
 
   it('rejects session IDs that are too long', () => {
@@ -173,7 +188,16 @@ describe('createUserID', () => {
   });
 
   it('rejects non-string user IDs', () => {
-    expect(() => createUserID(123 as any)).toThrow('UserID must be a string');
+    expect(() => createUserID(123 as any)).toThrow('UserID must be a string, got number');
+    expect(() => createUserID(null as any)).toThrow('UserID must be a string, got object');
+  });
+
+  it('rejects undefined user IDs with specific error message', () => {
+    expect(() => createUserID(undefined as any)).toThrow('UserID must be a string, got undefined');
+  });
+
+  it('rejects boolean user IDs with specific error message', () => {
+    expect(() => createUserID(true as any)).toThrow('UserID must be a string, got boolean');
   });
 
   it('rejects user IDs that are too long', () => {
@@ -203,7 +227,16 @@ describe('createFileID', () => {
   });
 
   it('rejects non-string file IDs', () => {
-    expect(() => createFileID(123 as any)).toThrow('FileID must be a string');
+    expect(() => createFileID(123 as any)).toThrow('FileID must be a string, got number');
+    expect(() => createFileID(null as any)).toThrow('FileID must be a string, got object');
+  });
+
+  it('rejects undefined file IDs with specific error message', () => {
+    expect(() => createFileID(undefined as any)).toThrow('FileID must be a string, got undefined');
+  });
+
+  it('rejects boolean file IDs with specific error message', () => {
+    expect(() => createFileID(true as any)).toThrow('FileID must be a string, got boolean');
   });
 
   it('rejects file IDs that are too long', () => {
@@ -383,6 +416,16 @@ describe('Zod Schema Validation', () => {
       }
     });
 
+    it('safeParse provides detailed error for type mismatch', () => {
+      const result = PortSchema.safeParse('not a number');
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].code).toBe('invalid_type');
+        expect(result.error.issues[0].expected).toBe('number');
+        expect(result.error.issues[0].received).toBe('string');
+      }
+    });
+
     it('parsePort helper works correctly', () => {
       expect(parsePort(3000)).toBe(3000);
       expect(() => parsePort(-1)).toThrow(ZodError);
@@ -430,6 +473,16 @@ describe('Zod Schema Validation', () => {
       expect(invalidResult.success).toBe(false);
     });
 
+    it('safeParse provides detailed error for type mismatch', () => {
+      const result = URLSchema.safeParse(123);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].code).toBe('invalid_type');
+        expect(result.error.issues[0].expected).toBe('string');
+        expect(result.error.issues[0].received).toBe('number');
+      }
+    });
+
     it('parseURL helper works correctly', () => {
       expect(parseURL('https://example.com')).toBe('https://example.com');
       expect(() => parseURL('invalid')).toThrow(ZodError);
@@ -472,6 +525,16 @@ describe('Zod Schema Validation', () => {
 
       const invalidResult = TimestampSchema.safeParse(-1);
       expect(invalidResult.success).toBe(false);
+    });
+
+    it('safeParse provides detailed error for type mismatch', () => {
+      const result = TimestampSchema.safeParse('not a number');
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].code).toBe('invalid_type');
+        expect(result.error.issues[0].expected).toBe('number');
+        expect(result.error.issues[0].received).toBe('string');
+      }
     });
 
     it('parseTimestamp helper works correctly', () => {
@@ -518,6 +581,16 @@ describe('Zod Schema Validation', () => {
       expect(invalidResult.success).toBe(false);
     });
 
+    it('safeParse provides detailed error for type mismatch', () => {
+      const result = SessionIDSchema.safeParse(123);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].code).toBe('invalid_type');
+        expect(result.error.issues[0].expected).toBe('string');
+        expect(result.error.issues[0].received).toBe('number');
+      }
+    });
+
     it('parseSessionID helper works correctly', () => {
       expect(parseSessionID('session123')).toBe('session123');
       expect(() => parseSessionID('')).toThrow(ZodError);
@@ -559,6 +632,16 @@ describe('Zod Schema Validation', () => {
       expect(invalidResult.success).toBe(false);
     });
 
+    it('safeParse provides detailed error for type mismatch', () => {
+      const result = UserIDSchema.safeParse(123);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].code).toBe('invalid_type');
+        expect(result.error.issues[0].expected).toBe('string');
+        expect(result.error.issues[0].received).toBe('number');
+      }
+    });
+
     it('parseUserID helper works correctly', () => {
       expect(parseUserID('user123')).toBe('user123');
       expect(() => parseUserID('')).toThrow(ZodError);
@@ -598,6 +681,16 @@ describe('Zod Schema Validation', () => {
 
       const invalidResult = FileIDSchema.safeParse('');
       expect(invalidResult.success).toBe(false);
+    });
+
+    it('safeParse provides detailed error for type mismatch', () => {
+      const result = FileIDSchema.safeParse(123);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].code).toBe('invalid_type');
+        expect(result.error.issues[0].expected).toBe('string');
+        expect(result.error.issues[0].received).toBe('number');
+      }
     });
 
     it('parseFileID helper works correctly', () => {
