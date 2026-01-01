@@ -39,14 +39,32 @@ describe('Firebase port configuration consistency', () => {
       firebaseJsonContent = readFileSync(firebaseJsonPath, 'utf-8');
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
+      const code = err.code ?? 'UNKNOWN';
+
+      let troubleshooting = '';
+      if (code === 'ENOENT') {
+        troubleshooting =
+          `File not found. Check that:\n` +
+          `1. firebase.json exists in the repository root\n` +
+          `2. You're running tests from the correct directory`;
+      } else if (code === 'EACCES' || code === 'EPERM') {
+        troubleshooting =
+          `Permission denied. Check that:\n` +
+          `1. The file has read permissions\n` +
+          `2. Parent directories are accessible`;
+      } else {
+        troubleshooting =
+          `Unexpected filesystem error (${code}). This may indicate:\n` +
+          `- Filesystem corruption\n` +
+          `- Insufficient memory\n` +
+          `- Hardware problems`;
+      }
+
       throw new Error(
         `Failed to read firebase.json: ${err.message}\n` +
           `Expected path: ${firebaseJsonPath}\n` +
-          `This file is required for Firebase emulator configuration.\n` +
-          `Check that:\n` +
-          `1. firebase.json exists in the repository root\n` +
-          `2. The file has read permissions\n` +
-          `3. You're running tests from the correct directory`
+          `Error code: ${code}\n` +
+          `${troubleshooting}`
       );
     }
 
@@ -64,6 +82,16 @@ describe('Firebase port configuration consistency', () => {
     // Extract emulator ports from firebase.json
     const emulators = firebaseConfig.emulators;
     assert.ok(emulators, 'firebase.json must have emulators configuration');
+
+    // Validate each emulator exists with port field
+    const requiredEmulators = ['firestore', 'auth', 'storage', 'ui'];
+    for (const emulator of requiredEmulators) {
+      assert.ok(emulators[emulator], `firebase.json missing emulators.${emulator} configuration`);
+      assert.ok(
+        typeof emulators[emulator].port === 'number',
+        `firebase.json emulators.${emulator}.port must be a number, got ${typeof emulators[emulator]?.port}`
+      );
+    }
 
     // Verify each port matches
     assert.strictEqual(
@@ -101,25 +129,8 @@ describe('Firebase port configuration consistency', () => {
   });
 
   test('factory function validates correct port values', () => {
-    // These should succeed with valid port numbers
-    assert.doesNotThrow(
-      () => createPort<FirestorePort>(8081, 'Firestore'),
-      'createPort should accept valid Firestore port 8081'
-    );
-    assert.doesNotThrow(
-      () => createPort<AuthPort>(9099, 'Auth'),
-      'createPort should accept valid Auth port 9099'
-    );
-    assert.doesNotThrow(
-      () => createPort<StoragePort>(9199, 'Storage'),
-      'createPort should accept valid Storage port 9199'
-    );
-    assert.doesNotThrow(
-      () => createPort<UIPort>(4000, 'UI'),
-      'createPort should accept valid UI port 4000'
-    );
-
     // Verify the factory function returns the expected values
+    // (strictEqual already validates that the function succeeds without throwing)
     assert.strictEqual(createPort<FirestorePort>(8081, 'Firestore'), 8081);
     assert.strictEqual(createPort<AuthPort>(9099, 'Auth'), 9099);
     assert.strictEqual(createPort<StoragePort>(9199, 'Storage'), 9199);
@@ -174,6 +185,35 @@ describe('Firebase port configuration consistency', () => {
         'Error message should reference firebase.json for troubleshooting'
       );
     }
+  });
+
+  test('factory function rejects non-finite and special numeric values', () => {
+    assert.throws(
+      () => createPort<FirestorePort>(NaN, 'Firestore'),
+      {
+        name: 'Error',
+        message: /Invalid Firestore port: NaN \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for NaN'
+    );
+
+    assert.throws(
+      () => createPort<AuthPort>(Infinity, 'Auth'),
+      {
+        name: 'Error',
+        message: /Invalid Auth port: Infinity \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for Infinity'
+    );
+
+    assert.throws(
+      () => createPort<StoragePort>(-Infinity, 'Storage'),
+      {
+        name: 'Error',
+        message: /Invalid Storage port: -Infinity \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for negative Infinity'
+    );
   });
 
   test('branded types document intent and provide runtime behavior', () => {

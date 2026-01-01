@@ -17,8 +17,8 @@ fi
 # Purpose: Makes firebase.json the single source of truth - bash scripts source this
 #          instead of hardcoding ports, preventing configuration drift
 # Usage: source <(generate-firebase-ports.sh)
-# Output: Lines like "AUTH_PORT=9099" using heredoc for atomic output
-#         (heredoc ensures consistent formatting and proper newlines when sourced)
+# Output: Lines like "AUTH_PORT=9099" using heredoc for consistent formatting
+#         and reliable line endings when sourced
 # Exits: Status 1 if firebase.json is missing, jq unavailable, or ports invalid
 # Note: Sourcing scripts should validate all port variables are set after sourcing
 
@@ -37,11 +37,21 @@ declare -A ports=(
   [ui]="UI_PORT"
 )
 
+# Create temp file for jq stderr (reused for all emulators)
+jq_stderr=$(mktemp) || {
+  echo "FATAL: Failed to create temporary file" >&2
+  echo "This indicates a filesystem problem (disk full, permissions, etc.)" >&2
+  echo "Check /tmp space: df -h /tmp" >&2
+  echo "Check /tmp permissions: ls -ld /tmp" >&2
+  exit 1
+}
+trap 'rm -f "$jq_stderr"' EXIT
+
 for emulator in "${!ports[@]}"; do
   var_name="${ports[$emulator]}"
 
-  jq_stderr=$(mktemp)
-  trap 'rm "$jq_stderr" 2>/dev/null || echo "Warning: Could not delete temporary file $jq_stderr" >&2' EXIT RETURN
+  # Truncate temp file for reuse
+  : > "$jq_stderr"
 
   if ! port_value=$(jq -r ".emulators.${emulator}.port" "$FIREBASE_JSON" 2>"$jq_stderr"); then
     echo "ERROR: jq failed for ${emulator} port extraction" >&2

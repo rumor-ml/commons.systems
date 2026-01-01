@@ -59,7 +59,7 @@ fi
 # Calculate offset
 PORT_OFFSET=$(($HASH % 100))
 
-# TODO(#1168): Simplify verbose comment - remove redundant defensive programming note
+# TODO(#1224): Simplify verbose comment - remove redundant defensive programming note
 # Validate offset is in expected range (defensive programming - mathematically should always pass)
 if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   echo "FATAL: PORT_OFFSET out of range: $PORT_OFFSET (expected 0-99)" >&2
@@ -73,12 +73,23 @@ fi
 # The generator script extracts ports from firebase.json (single source of truth)
 
 # Capture generate-firebase-ports.sh output and errors to temporary files
-# Why: Process substitution source <(script) makes it difficult to capture stderr separately
-# This approach preserves both stdout (for sourcing) and stderr (for error reporting)
-# so users see actual jq/firebase.json errors instead of generic troubleshooting steps
-GEN_STDERR=$(mktemp)
-GEN_OUTPUT=$(mktemp)
-trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT' || echo 'Warning: Failed to clean up temp files' >&2" RETURN
+# This allows us to show actual jq/firebase.json errors instead of generic failure messages
+GEN_STDERR=$(mktemp) || {
+  echo "FATAL: Failed to create temporary file for stderr capture" >&2
+  echo "This indicates a filesystem problem:" >&2
+  echo "- Disk space: df -h /tmp" >&2
+  echo "- Permissions: ls -ld /tmp" >&2
+  echo "- Mount options: mount | grep /tmp" >&2
+  exit_or_return 1
+}
+
+GEN_OUTPUT=$(mktemp) || {
+  echo "FATAL: Failed to create temporary file for output capture" >&2
+  rm -f "$GEN_STDERR"  # Clean up first temp file
+  exit_or_return 1
+}
+
+trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT' 2>/dev/null || true" RETURN
 
 if ! "${SCRIPT_DIR}/generate-firebase-ports.sh" > "$GEN_OUTPUT" 2> "$GEN_STDERR"; then
   echo "FATAL: generate-firebase-ports.sh failed" >&2
@@ -119,6 +130,12 @@ if [ -n "$missing_ports" ]; then
   echo "4. Ensure jq is installed: command -v jq" >&2
   exit_or_return 1
 fi
+
+# Validate loaded ports are numeric and in valid range
+validate_port "$AUTH_PORT" "AUTH" || exit_or_return 1
+validate_port "$FIRESTORE_PORT" "FIRESTORE" || exit_or_return 1
+validate_port "$STORAGE_PORT" "STORAGE" || exit_or_return 1
+validate_port "$UI_PORT" "UI" || exit_or_return 1
 
 # UNIQUE APP SERVER PORT - Different per worktree
 # Prevents conflicts when running multiple app servers concurrently

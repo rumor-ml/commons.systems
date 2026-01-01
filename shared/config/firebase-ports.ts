@@ -9,7 +9,7 @@
  * - This file provides TypeScript constants with branded type safety
  * - infrastructure/scripts/generate-firebase-ports.sh automatically extracts ports for bash scripts
  * - Tests enforce consistency to catch configuration drift
- * - No manual synchronization required - just update firebase.json and run tests
+ * - To update ports: modify firebase.json and this file, then run tests to verify consistency
  *
  * Used by test setup files, client-side code, and infrastructure scripts.
  * See generate-firebase-ports.sh for bash script integration.
@@ -26,18 +26,17 @@ const StoragePortBrand: unique symbol = Symbol('StoragePort');
 const UIPortBrand: unique symbol = Symbol('UIPort');
 
 // Branded types prevent mixing port types at compile time
+// WARNING: TypeScript's structural type system cannot prevent branded type mixing via 'as' casts.
+// These types provide documentation and IDE support, not compile-time guarantees.
+// Use createPort() factory function to ensure runtime validation.
+// TODO(#1231): TypeScript structural typing allows type mixing via 'as' casts - consider nominal types
 export type FirestorePort = number & { readonly [FirestorePortBrand]: true };
 export type AuthPort = number & { readonly [AuthPortBrand]: true };
 export type StoragePort = number & { readonly [StoragePortBrand]: true };
 export type UIPort = number & { readonly [UIPortBrand]: true };
 
-// Union of valid port brands for type safety
-type ValidPortBrand = FirestorePort | AuthPort | StoragePort | UIPort;
-
 /**
  * Validates a port number is in valid TCP/IP range (1-65535)
- * Does not validate correctness of port assignments (e.g., that 8081 is used for Firestore)
- * - firebase-ports.test.ts verifies port values match firebase.json
  */
 function validatePort(port: number, name: string): void {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -52,14 +51,23 @@ function validatePort(port: number, name: string): void {
  * Generic factory function for creating branded port types
  * Validates port range (1-65535) and creates branded type
  *
- * Used by FIREBASE_PORTS constant and exported for testing validation logic
+ * Exported to allow tests to verify validation behavior independently of FIREBASE_PORTS
+ * TODO(#1232): Consider semantic validation of port-to-service mapping against firebase.json
  */
-export function createPort<T extends ValidPortBrand>(port: number, name: string): T {
+export function createPort<T extends FirestorePort | AuthPort | StoragePort | UIPort>(
+  port: number,
+  name: string
+): T {
   validatePort(port, name);
   return port as T;
 }
 
-// Explicit readonly type that preserves branded types
+/**
+ * Configuration for all Firebase emulator ports
+ *
+ * IMPORTANT: Do not construct this type directly. Use the FIREBASE_PORTS constant
+ * or createPort() factory functions to ensure all ports are validated.
+ */
 export type FirebasePorts = {
   readonly firestore: FirestorePort;
   readonly auth: AuthPort;

@@ -11,7 +11,7 @@
 # Related files:
 # - firebase.json: Source of truth for emulator configuration
 # - shared/config/firebase-ports.ts: TypeScript constants exported to apps
-# - fellspiral/site/src/scripts/firebase.js: Uses FIREBASE_PORTS for emulator connection
+# - printsync/tests/global-setup.ts: Uses FIREBASE_PORTS for emulator connection in tests
 # - infrastructure/scripts/allocate-test-ports.sh: Bash script with port constants
 
 set -euo pipefail
@@ -47,10 +47,10 @@ run_test() {
   $test_name
 }
 
-# TODO(#1171): Add unit tests for validate_port function
+# TODO(#1225): Add unit tests for validate_port function
 # Validates that a port value is numeric and in valid range (1-65535)
 # Args: $1 = port name (e.g., "firestore"), $2 = port value
-# Returns: Echoes error message if invalid, empty string if valid (always exits 0)
+# Output: Echoes error message if invalid, nothing if valid
 # Usage: error=$(validate_port "name" "$value"); if [ -n "$error" ]; then ...; fi
 validate_port() {
   local name=$1
@@ -65,6 +65,52 @@ validate_port() {
     echo "${name} out of range: $value"
     return
   fi
+}
+
+# Validates all four Firebase ports at once
+# Args: $1 = prefix (e.g., "firebase.json" or "sh" or "generated")
+#       $2 = firestore port, $3 = auth port, $4 = storage port, $5 = ui port
+# Returns: Echoes concatenated error messages if any invalid, empty string if all valid
+validate_all_firebase_ports() {
+  local prefix=$1
+  local firestore=$2
+  local auth=$3
+  local storage=$4
+  local ui=$5
+
+  local errors=""
+  for port_info in "firestore:$firestore" "auth:$auth" "storage:$storage" "ui:$ui"; do
+    local name="${port_info%%:*}"
+    local value="${port_info#*:}"
+    local error=$(validate_port "$name port in $prefix" "$value")
+    [ -n "$error" ] && errors="${errors}${error}; "
+  done
+  echo "$errors"
+}
+
+# Compares all four Firebase ports between two sources
+# Args: $1 = source1 name, $2 = source2 name
+#       $3 = firestore1, $4 = firestore2, $5 = auth1, $6 = auth2
+#       $7 = storage1, $8 = storage2, $9 = ui1, ${10} = ui2
+# Returns: Echoes concatenated mismatch messages if any differ, empty string if all match
+compare_firebase_ports() {
+  local source1_name=$1
+  local source2_name=$2
+  local firestore1=$3
+  local firestore2=$4
+  local auth1=$5
+  local auth2=$6
+  local storage1=$7
+  local storage2=$8
+  local ui1=$9
+  local ui2=${10}
+
+  local mismatches=""
+  [ "$firestore1" != "$firestore2" ] && mismatches="${mismatches}Firestore: ${source1_name}=$firestore1, ${source2_name}=$firestore2; "
+  [ "$auth1" != "$auth2" ] && mismatches="${mismatches}Auth: ${source1_name}=$auth1, ${source2_name}=$auth2; "
+  [ "$storage1" != "$storage2" ] && mismatches="${mismatches}Storage: ${source1_name}=$storage1, ${source2_name}=$storage2; "
+  [ "$ui1" != "$ui2" ] && mismatches="${mismatches}UI: ${source1_name}=$ui1, ${source2_name}=$ui2; "
+  echo "$mismatches"
 }
 
 # ============================================================================
@@ -111,23 +157,11 @@ test_firebase_ports_ts_matches_json() {
   local ui_ts=$(grep 'ui: createPort' "$firebase_ports_ts" | grep -o 'createPort<[^>]*>([0-9]*' | grep -o '[0-9]*')
 
   # Compare ports
-  local mismatches=""
-
-  if [ "$firestore_json" != "$firestore_ts" ]; then
-    mismatches="${mismatches}Firestore: json=$firestore_json, ts=$firestore_ts; "
-  fi
-
-  if [ "$auth_json" != "$auth_ts" ]; then
-    mismatches="${mismatches}Auth: json=$auth_json, ts=$auth_ts; "
-  fi
-
-  if [ "$storage_json" != "$storage_ts" ]; then
-    mismatches="${mismatches}Storage: json=$storage_json, ts=$storage_ts; "
-  fi
-
-  if [ "$ui_json" != "$ui_ts" ]; then
-    mismatches="${mismatches}UI: json=$ui_json, ts=$ui_ts; "
-  fi
+  local mismatches=$(compare_firebase_ports "json" "ts" \
+    "$firestore_json" "$firestore_ts" \
+    "$auth_json" "$auth_ts" \
+    "$storage_json" "$storage_ts" \
+    "$ui_json" "$ui_ts")
 
   if [ -n "$mismatches" ]; then
     test_fail "firebase-ports.ts matches firebase.json" "Port mismatches: $mismatches"
@@ -201,38 +235,30 @@ test_allocate_test_ports_matches_json() {
   local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json" 2>/dev/null)
 
   # Validate firebase.json ports before proceeding
-  local json_errors=""
-
-  # TODO(#1174): Log validation errors immediately, not just on failure
-  local error=$(validate_port "firestore port in firebase.json" "$firestore_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
-
-  error=$(validate_port "auth port in firebase.json" "$auth_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
-
-  error=$(validate_port "storage port in firebase.json" "$storage_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
-
-  error=$(validate_port "ui port in firebase.json" "$ui_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
+  # TODO(#1227): Log validation errors immediately, not just on failure
+  local json_errors=$(validate_all_firebase_ports "firebase.json" \
+    "$firestore_json" "$auth_json" "$storage_json" "$ui_json")
 
   if [ -n "$json_errors" ]; then
     test_fail "allocate-test-ports.sh matches firebase.json" "firebase.json has invalid port configuration: $json_errors"
     return
   fi
 
-  # TODO(#1172): Check mktemp success to avoid confusing errors if /tmp is full
-  # Use unique temp files to avoid race conditions
-  local temp_output="/tmp/allocate_ports_output_$$.txt"
-  local temp_errors="/tmp/allocate_ports_errors_$$.txt"
+  # Create temp files atomically with validation
+  local temp_output
+  temp_output=$(mktemp) || {
+    test_fail "allocate-test-ports.sh matches firebase.json" "Failed to create temp file (check /tmp space: df -h /tmp)"
+    return
+  }
+
+  local temp_errors
+  temp_errors=$(mktemp) || {
+    rm -f "$temp_output"  # Clean up first temp file
+    test_fail "allocate-test-ports.sh matches firebase.json" "Failed to create temp file (check /tmp space: df -h /tmp)"
+    return
+  }
+
+  # TODO(#1228): Silent cleanup failures could hide filesystem issues (disk full, permissions)
   trap "rm -f '$temp_output' '$temp_errors'" RETURN
 
   # Verify no port variables are set before test
@@ -245,8 +271,8 @@ test_allocate_test_ports_matches_json() {
   # Source allocate-test-ports.sh to validate it loads ports from generate-firebase-ports.sh
   # This test verifies: (1) sourcing completes without errors, (2) all port variables are set,
   # (3) port values match firebase.json
-  # Uses subshell to isolate port variables (AUTH_PORT, FIRESTORE_PORT, etc.) and prevent
-  # them from persisting in parent environment, which would invalidate subsequent tests
+  # Uses subshell to isolate port variables - if they persisted to the parent shell,
+  # subsequent tests would fail their environment cleanliness checks (see vars_before)
 
   # Source allocate-test-ports.sh in subshell and capture exit status
   set +e  # Temporarily disable exit on error to capture status
@@ -308,27 +334,8 @@ test_allocate_test_ports_matches_json() {
   fi
 
   # Validate ports are numeric and in valid range before comparing
-  local validation_errors=""
-
-  local error=$(validate_port "firestore_sh" "$firestore_sh")
-  if [ -n "$error" ]; then
-    validation_errors="${validation_errors}${error}; "
-  fi
-
-  error=$(validate_port "auth_sh" "$auth_sh")
-  if [ -n "$error" ]; then
-    validation_errors="${validation_errors}${error}; "
-  fi
-
-  error=$(validate_port "storage_sh" "$storage_sh")
-  if [ -n "$error" ]; then
-    validation_errors="${validation_errors}${error}; "
-  fi
-
-  error=$(validate_port "ui_sh" "$ui_sh")
-  if [ -n "$error" ]; then
-    validation_errors="${validation_errors}${error}; "
-  fi
+  local validation_errors=$(validate_all_firebase_ports "sh" \
+    "$firestore_sh" "$auth_sh" "$storage_sh" "$ui_sh")
 
   if [ -n "$validation_errors" ]; then
     test_fail "allocate-test-ports.sh matches firebase.json" "Port validation errors: $validation_errors"
@@ -336,23 +343,11 @@ test_allocate_test_ports_matches_json() {
   fi
 
   # Compare ports
-  local mismatches=""
-
-  if [ "$firestore_json" != "$firestore_sh" ]; then
-    mismatches="${mismatches}Firestore: json=$firestore_json, sh=$firestore_sh; "
-  fi
-
-  if [ "$auth_json" != "$auth_sh" ]; then
-    mismatches="${mismatches}Auth: json=$auth_json, sh=$auth_sh; "
-  fi
-
-  if [ "$storage_json" != "$storage_sh" ]; then
-    mismatches="${mismatches}Storage: json=$storage_json, sh=$storage_sh; "
-  fi
-
-  if [ "$ui_json" != "$ui_sh" ]; then
-    mismatches="${mismatches}UI: json=$ui_json, sh=$ui_sh; "
-  fi
+  local mismatches=$(compare_firebase_ports "json" "sh" \
+    "$firestore_json" "$firestore_sh" \
+    "$auth_json" "$auth_sh" \
+    "$storage_json" "$storage_sh" \
+    "$ui_json" "$ui_sh")
 
   if [ -n "$mismatches" ]; then
     test_fail "allocate-test-ports.sh matches firebase.json" "Port mismatches: $mismatches"
@@ -455,27 +450,8 @@ test_generate_firebase_ports_works() {
   local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json" 2>/dev/null)
 
   # Validate firebase.json has valid port configuration
-  local json_errors=""
-
-  local error=$(validate_port "firestore port in firebase.json" "$firestore_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
-
-  error=$(validate_port "auth port in firebase.json" "$auth_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
-
-  error=$(validate_port "storage port in firebase.json" "$storage_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
-
-  error=$(validate_port "ui port in firebase.json" "$ui_json")
-  if [ -n "$error" ]; then
-    json_errors="${json_errors}${error}; "
-  fi
+  local json_errors=$(validate_all_firebase_ports "firebase.json" \
+    "$firestore_json" "$auth_json" "$storage_json" "$ui_json")
 
   if [ -n "$json_errors" ]; then
     test_fail "generate-firebase-ports.sh works correctly" "firebase.json validation failed: $json_errors"
@@ -503,51 +479,34 @@ test_generate_firebase_ports_works() {
   # Verify ports were loaded and match firebase.json
   local mismatches=""
 
-  # Validate FIRESTORE_PORT
+  # Check all ports are set
   if [ -z "${FIRESTORE_PORT:-}" ]; then
     mismatches="${mismatches}FIRESTORE_PORT not set; "
-  else
-    local error=$(validate_port "FIRESTORE_PORT" "$FIRESTORE_PORT")
-    if [ -n "$error" ]; then
-      mismatches="${mismatches}${error}; "
-    elif [ "$firestore_json" != "$FIRESTORE_PORT" ]; then
-      mismatches="${mismatches}Firestore: json=$firestore_json, generated=$FIRESTORE_PORT; "
-    fi
   fi
-
-  # Validate AUTH_PORT
   if [ -z "${AUTH_PORT:-}" ]; then
     mismatches="${mismatches}AUTH_PORT not set; "
-  else
-    local error=$(validate_port "AUTH_PORT" "$AUTH_PORT")
-    if [ -n "$error" ]; then
-      mismatches="${mismatches}${error}; "
-    elif [ "$auth_json" != "$AUTH_PORT" ]; then
-      mismatches="${mismatches}Auth: json=$auth_json, generated=$AUTH_PORT; "
-    fi
   fi
-
-  # Validate STORAGE_PORT
   if [ -z "${STORAGE_PORT:-}" ]; then
     mismatches="${mismatches}STORAGE_PORT not set; "
-  else
-    local error=$(validate_port "STORAGE_PORT" "$STORAGE_PORT")
-    if [ -n "$error" ]; then
-      mismatches="${mismatches}${error}; "
-    elif [ "$storage_json" != "$STORAGE_PORT" ]; then
-      mismatches="${mismatches}Storage: json=$storage_json, generated=$STORAGE_PORT; "
-    fi
   fi
-
-  # Validate UI_PORT
   if [ -z "${UI_PORT:-}" ]; then
     mismatches="${mismatches}UI_PORT not set; "
-  else
-    local error=$(validate_port "UI_PORT" "$UI_PORT")
-    if [ -n "$error" ]; then
-      mismatches="${mismatches}${error}; "
-    elif [ "$ui_json" != "$UI_PORT" ]; then
-      mismatches="${mismatches}UI: json=$ui_json, generated=$UI_PORT; "
+  fi
+
+  if [ -z "$mismatches" ]; then
+    # All ports set - validate them
+    local validation_errors=$(validate_all_firebase_ports "generated" \
+      "$FIRESTORE_PORT" "$AUTH_PORT" "$STORAGE_PORT" "$UI_PORT")
+
+    if [ -n "$validation_errors" ]; then
+      mismatches="$validation_errors"
+    else
+      # Validation passed - compare with firebase.json
+      mismatches=$(compare_firebase_ports "json" "generated" \
+        "$firestore_json" "$FIRESTORE_PORT" \
+        "$auth_json" "$AUTH_PORT" \
+        "$storage_json" "$STORAGE_PORT" \
+        "$ui_json" "$UI_PORT")
     fi
   fi
 
@@ -590,9 +549,7 @@ test_printsync_global_setup_uses_firebase_ports() {
   fi
 
   # Verify isPortInUse calls use FIREBASE_PORTS, not hardcoded port numbers
-  # Pattern matches: lines with isPortInUse containing 4-digit numbers (e.g., 8081, 9099)
-  # Note: Only checks 4-digit patterns as all Firebase emulator ports are 4 digits
-  # This prevents drift where tests hardcode ports instead of using shared config
+  # Uses 4-digit pattern to catch typical port numbers (matches current Firebase emulator ports)
   local hardcoded_ports=$(grep -n 'isPortInUse' "$global_setup" | grep -E '[0-9]{4}' | grep -v 'FIREBASE_PORTS' || true)
 
   if [ -n "$hardcoded_ports" ]; then
@@ -658,7 +615,6 @@ test_allocate_test_ports_handles_missing_firebase_json() {
   trap "rm -rf '$test_dir'" RETURN
 
   # Set up directory structure that generate-firebase-ports.sh expects
-  # Scripts in infrastructure/scripts, firebase.json at repo root
   mkdir -p "${test_dir}/infrastructure/scripts"
   local test_allocate="${test_dir}/infrastructure/scripts/allocate-test-ports.sh"
   local test_generate="${test_dir}/infrastructure/scripts/generate-firebase-ports.sh"
@@ -671,8 +627,7 @@ test_allocate_test_ports_handles_missing_firebase_json() {
   # Make scripts executable
   chmod +x "$test_allocate" "$test_generate"
 
-  # Create a temporary git repository structure for the test
-  # allocate-test-ports.sh uses git rev-parse --show-toplevel
+  # Create a temporary git repository (required by allocate-test-ports.sh)
   (
     cd "$test_dir"
     git init -q
@@ -723,7 +678,6 @@ test_allocate_test_ports_handles_corrupted_firebase_json() {
   trap "rm -rf '$test_dir'" RETURN
 
   # Set up directory structure that generate-firebase-ports.sh expects
-  # Scripts in infrastructure/scripts, firebase.json at repo root
   mkdir -p "${test_dir}/infrastructure/scripts"
   local test_allocate="${test_dir}/infrastructure/scripts/allocate-test-ports.sh"
   local test_generate="${test_dir}/infrastructure/scripts/generate-firebase-ports.sh"
@@ -833,6 +787,60 @@ EOF
   test_pass "allocate-test-ports.sh handles missing port in firebase.json"
 }
 
+test_allocate_detects_incomplete_generator_output() {
+  local allocate_script="${REPO_ROOT}/infrastructure/scripts/allocate-test-ports.sh"
+
+  if [ ! -f "$allocate_script" ]; then
+    test_fail "allocate-test-ports.sh detects incomplete generator output" "allocate-test-ports.sh not found"
+    return
+  fi
+
+  # Create temp directory for test
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  # Set up directory structure
+  mkdir -p "${test_dir}/infrastructure/scripts"
+  local test_allocate="${test_dir}/infrastructure/scripts/allocate-test-ports.sh"
+  local test_port_utils="${test_dir}/infrastructure/scripts/port-utils.sh"
+
+  # Create a fake generate script that succeeds but outputs incomplete data
+  cat > "${test_dir}/infrastructure/scripts/generate-firebase-ports.sh" <<'INNER_EOF'
+#!/bin/bash
+echo "AUTH_PORT=9099"
+echo "FIRESTORE_PORT=8081"
+# Missing STORAGE_PORT and UI_PORT - simulates incomplete output
+exit 0
+INNER_EOF
+  chmod +x "${test_dir}/infrastructure/scripts/generate-firebase-ports.sh"
+
+  # Copy dependencies that allocate-test-ports.sh needs
+  cp "${REPO_ROOT}/infrastructure/scripts/port-utils.sh" "$test_port_utils"
+  cp "$allocate_script" "$test_allocate"
+
+  # Create minimal git repo for worktree detection
+  (
+    cd "$test_dir"
+    git init -q
+    git config user.email "test@example.com"
+    git config user.name "Test User"
+
+    # Verify allocate script detects missing ports
+    local output
+    output=$(SCRIPT_DIR="${test_dir}/infrastructure/scripts" bash "$test_allocate" 2>&1) && {
+      test_fail "allocate-test-ports.sh detects incomplete generator output" "Script should reject incomplete port configuration"
+      return
+    }
+
+    # Verify error message mentions specific missing ports
+    if echo "$output" | grep -q "STORAGE_PORT" && echo "$output" | grep -q "UI_PORT"; then
+      test_pass "allocate-test-ports.sh detects incomplete generator output"
+    else
+      test_fail "allocate-test-ports.sh detects incomplete generator output" "Error message should list missing ports (STORAGE_PORT, UI_PORT)"
+    fi
+  )
+}
+
 # ============================================================================
 # Run All Tests
 # ============================================================================
@@ -854,6 +862,7 @@ run_test test_printsync_global_setup_no_hardcoded_ports
 run_test test_allocate_test_ports_handles_missing_firebase_json
 run_test test_allocate_test_ports_handles_corrupted_firebase_json
 run_test test_allocate_test_ports_handles_missing_port_in_json
+run_test test_allocate_detects_incomplete_generator_output
 
 # ============================================================================
 # Test Summary

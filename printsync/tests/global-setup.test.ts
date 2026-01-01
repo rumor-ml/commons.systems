@@ -86,3 +86,56 @@ test('global-setup uses ports from FIREBASE_PORTS, not hardcoded values', async 
   console.log('✓ No hardcoded emulator port numbers found');
   console.log('✓ Verified uses FIREBASE_PORTS.auth, .firestore, and .storage');
 });
+
+test('global-setup uses correct FIREBASE_PORTS properties in runtime checks', async () => {
+  // This test verifies that global-setup.ts uses the correct FIREBASE_PORTS properties
+  // in isPortInUse() calls (e.g., FIREBASE_PORTS.auth, not FIREBASE_PORTS.typo)
+
+  // Read the global-setup source to find which FIREBASE_PORTS properties are used
+  const globalSetupPath = path.join(__dirname, 'global-setup.ts');
+  const sourceCode = await readFile(globalSetupPath, 'utf-8');
+
+  // Extract the port checks from the source code
+  // Looking for patterns like: await isPortInUse(FIREBASE_PORTS.auth)
+  const portCheckPattern = /await\s+isPortInUse\s*\(\s*FIREBASE_PORTS\.(\w+)\s*\)/g;
+  const portChecks = [...sourceCode.matchAll(portCheckPattern)];
+
+  assert.ok(
+    portChecks.length > 0,
+    'Should find at least one FIREBASE_PORTS usage in isPortInUse calls'
+  );
+
+  // Extract the property names being used
+  const propertiesUsed = new Set<string>();
+  for (const match of portChecks) {
+    const property = match[1]; // e.g., "auth", "firestore", "storage"
+    propertiesUsed.add(property);
+  }
+
+  // Verify the expected properties are used (matching the standard Firebase emulators)
+  assert.ok(propertiesUsed.has('auth'), 'Should check FIREBASE_PORTS.auth');
+  assert.ok(propertiesUsed.has('firestore'), 'Should check FIREBASE_PORTS.firestore');
+  assert.ok(propertiesUsed.has('storage'), 'Should check FIREBASE_PORTS.storage');
+
+  // Verify only valid property names are used (no typos)
+  const validProperties = new Set([
+    'auth',
+    'firestore',
+    'storage',
+    'functions',
+    'hosting',
+    'ui',
+    'logging',
+  ]);
+
+  for (const prop of propertiesUsed) {
+    assert.ok(
+      validProperties.has(prop),
+      `FIREBASE_PORTS.${prop} should be a valid Firebase emulator port property`
+    );
+  }
+
+  console.log('✓ Verified FIREBASE_PORTS properties used in isPortInUse calls');
+  console.log(`✓ Properties checked: ${Array.from(propertiesUsed).sort().join(', ')}`);
+  console.log('✓ All properties are valid Firebase emulator port names');
+});

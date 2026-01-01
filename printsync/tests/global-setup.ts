@@ -48,16 +48,13 @@ async function globalSetup() {
 
     console.log('✓ Firebase emulators started successfully');
   } catch (error) {
-    const err = error as NodeJS.ErrnoException & { stderr?: Buffer };
+    const err = error as NodeJS.ErrnoException;
     const errorMessage = err.message || String(error);
-    const stderr = err.stderr?.toString() || '';
 
     console.error('FATAL: Failed to start Firebase emulators');
     console.error('');
     console.error('Error:', errorMessage);
-    if (stderr) {
-      console.error('Script output:', stderr);
-    }
+    // Note: Script errors already displayed above due to stdio:'inherit'
     console.error('');
 
     // Provide targeted troubleshooting based on error type
@@ -80,9 +77,9 @@ async function globalSetup() {
 }
 
 /**
- * TODO(#1170): Add tests for error handling (EMFILE, EACCES, ENETUNREACH)
  * Check if a port is in use using Node.js net module
  * Cross-platform alternative to platform-specific commands like lsof/netstat
+ * Error handling tests: See global-setup.unit.test.ts
  */
 async function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -108,26 +105,23 @@ async function isPortInUse(port: number): Promise<boolean> {
       }
 
       // Other errors indicate system problems - fail loudly
-      try {
-        const err = error as NodeJS.ErrnoException;
-        const errorMsg =
-          `Failed to check if port ${port} is in use: ${err.code || 'UNKNOWN'} - ${err.message}\n` +
-          `This indicates a system-level problem, not just a port conflict.\n` +
-          `Common causes:\n` +
-          `- Too many open files (EMFILE): Increase file descriptor limit\n` +
-          `- Permission denied (EACCES): Check firewall or security settings\n` +
-          `- Network issues (ENETUNREACH): Check network configuration\n` +
-          `Error details: ${JSON.stringify({ code: err.code, errno: err.errno, syscall: err.syscall })}`;
+      const err = error as NodeJS.ErrnoException;
+      const code = err.code ?? 'UNKNOWN';
+      const message = err.message ?? 'Unknown error';
 
-        reject(new Error(errorMsg));
-      } catch (handlerError) {
-        // If error message construction fails, still reject with basic error
-        reject(
-          new Error(
-            `Failed to check port ${port}: ${error.message}. Additionally, error handler failed: ${handlerError}`
-          )
-        );
-      }
+      // Error details for debugging (errno properties are always simple types)
+      const errorDetails = `code=${code}, errno=${err.errno ?? 'unknown'}, syscall=${err.syscall ?? 'unknown'}`;
+
+      const errorMsg =
+        `Failed to check if port ${port} is in use: ${code} - ${message}\n` +
+        `This indicates a system-level problem, not just a port conflict.\n` +
+        `Common causes:\n` +
+        `- Too many open files (EMFILE): Increase file descriptor limit\n` +
+        `- Permission denied (EACCES): Check firewall or security settings\n` +
+        `- Network issues (ENETUNREACH): Check network configuration\n` +
+        `Error details: ${errorDetails}`;
+
+      reject(new Error(errorMsg));
     });
 
     socket.connect(port, 'localhost');

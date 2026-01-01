@@ -81,6 +81,7 @@ test_complete_port_flow() {
 
   if ! "$generate_script" > "$gen_output" 2> "$gen_errors"; then
     test_fail "complete port flow integration" "generate-firebase-ports.sh failed: $(cat "$gen_errors")"
+    # TODO(#1229): Silent cleanup failures could accumulate temp files until /tmp fills
     rm -f "$gen_output" "$gen_errors"
     return
   fi
@@ -323,6 +324,174 @@ test_cross_platform_compatibility() {
   test_pass "cross-platform compatibility"
 }
 
+test_concurrent_allocate_script_sourcing() {
+  # Verify allocate-test-ports.sh can be sourced concurrently by multiple processes
+  # without race conditions in temporary file creation/cleanup or port allocation
+  #
+  # This catches issues like:
+  # - mktemp collisions when multiple processes call generate-firebase-ports.sh
+  # - Trap cleanup in one process interfering with another's temp files
+  # - Port allocation conflicts from concurrent execution
+  # - File descriptor leaks under concurrent load
+
+  local allocate_script="${REPO_ROOT}/infrastructure/scripts/allocate-test-ports.sh"
+  local num_parallel=5
+  local pids=()
+  local temp_outputs=()
+  local failures=0
+
+  # Launch parallel processes that source the script
+  for i in $(seq 1 $num_parallel); do
+    local output_file=$(mktemp)
+    temp_outputs+=("$output_file")
+
+    (
+      # Change to repo root to ensure proper path resolution
+      cd "$REPO_ROOT" || exit 1
+
+      # Set SCRIPT_DIR to ensure proper path resolution in allocate-test-ports.sh
+      export SCRIPT_DIR="${REPO_ROOT}/infrastructure/scripts"
+
+      # Source the script and verify all ports are set
+      if source "$allocate_script" 2>&1; then
+        # Verify critical port variables are set and numeric
+        if [[ -n "$AUTH_PORT" ]] && [[ "$AUTH_PORT" =~ ^[0-9]+$ ]] && \
+           [[ -n "$FIRESTORE_PORT" ]] && [[ "$FIRESTORE_PORT" =~ ^[0-9]+$ ]] && \
+           [[ -n "$STORAGE_PORT" ]] && [[ "$STORAGE_PORT" =~ ^[0-9]+$ ]] && \
+           [[ -n "$UI_PORT" ]] && [[ "$UI_PORT" =~ ^[0-9]+$ ]] && \
+           [[ -n "$HOSTING_PORT" ]] && [[ "$HOSTING_PORT" =~ ^[0-9]+$ ]]; then
+          echo "SUCCESS"
+        else
+          echo "FAILURE: Port variables not set correctly" >&2
+          echo "AUTH_PORT=${AUTH_PORT:-unset}" >&2
+          echo "FIRESTORE_PORT=${FIRESTORE_PORT:-unset}" >&2
+          echo "STORAGE_PORT=${STORAGE_PORT:-unset}" >&2
+          echo "UI_PORT=${UI_PORT:-unset}" >&2
+          echo "HOSTING_PORT=${HOSTING_PORT:-unset}" >&2
+          exit 1
+        fi
+      else
+        echo "FAILURE: Script sourcing failed" >&2
+        exit 1
+      fi
+    ) > "$output_file" 2>&1 &
+    pids+=($!)
+  done
+
+  # Wait for all processes and count failures
+  for i in "${!pids[@]}"; do
+    if ! wait "${pids[$i]}"; then
+      failures=$((failures + 1))
+      # Capture failure output for debugging
+      if [ -s "${temp_outputs[$i]}" ]; then
+        echo "  Process $((i+1)) output:" >&2
+        cat "${temp_outputs[$i]}" >&2
+      fi
+    fi
+  done
+
+  # Clean up temp files
+  for output_file in "${temp_outputs[@]}"; do
+    rm -f "$output_file"
+  done
+
+  # Report results
+  if [ $failures -gt 0 ]; then
+    test_fail "concurrent allocate script sourcing" "$failures/$num_parallel processes failed"
+  else
+    test_pass "concurrent allocate script sourcing"
+  fi
+}
+
+test_port_modification_propagates_to_typescript() {
+  # Verify that changing firebase.json would be caught by TypeScript consistency tests
+  # This is the core integration promise: changes to firebase.json MUST fail if TypeScript
+  # code is not updated accordingly
+  #
+  # Without this test, we could have:
+  # 1. Developer changes firebase.json from auth:9099 to auth:9100
+  # 2. Bash scripts correctly extract 9100
+  # 3. TypeScript code still has hardcoded 9099
+  # 4. Tests pass but runtime connects to wrong port
+  #
+  # This test verifies the consistency check catches this scenario
+
+  local firebase_json="${REPO_ROOT}/firebase.json"
+  local firebase_ports_ts="${REPO_ROOT}/shared/config/firebase-ports.ts"
+  local temp_backup="${firebase_json}.backup-$$"
+
+  # Verify required files exist
+  if [ ! -f "$firebase_json" ]; then
+    test_fail "port modification propagates to typescript" "firebase.json not found"
+    return
+  fi
+
+  if [ ! -f "$firebase_ports_ts" ]; then
+    test_fail "port modification propagates to typescript" "firebase-ports.ts not found"
+    return
+  fi
+
+  # Check if node is available
+  if ! command -v node >/dev/null 2>&1; then
+    test_fail "port modification propagates to typescript" "node not found in PATH"
+    return
+  fi
+
+  # Backup original firebase.json
+  if ! cp "$firebase_json" "$temp_backup" 2>/dev/null; then
+    test_fail "port modification propagates to typescript" "Failed to backup firebase.json"
+    return
+  fi
+
+  # Extract original auth port
+  local original_port=$(jq -r '.emulators.auth.port' "$firebase_json" 2>/dev/null)
+  if [ -z "$original_port" ] || [ "$original_port" = "null" ]; then
+    mv "$temp_backup" "$firebase_json" 2>/dev/null || true
+    test_fail "port modification propagates to typescript" "Failed to extract original auth port"
+    return
+  fi
+
+  # Modify firebase.json auth port to a different value
+  local modified_port=$((original_port + 1))
+  if ! jq ".emulators.auth.port = $modified_port" "$firebase_json" > "${firebase_json}.tmp" 2>/dev/null; then
+    mv "$temp_backup" "$firebase_json" 2>/dev/null || true
+    test_fail "port modification propagates to typescript" "Failed to modify firebase.json"
+    return
+  fi
+
+  if ! mv "${firebase_json}.tmp" "$firebase_json" 2>/dev/null; then
+    mv "$temp_backup" "$firebase_json" 2>/dev/null || true
+    test_fail "port modification propagates to typescript" "Failed to save modified firebase.json"
+    return
+  fi
+
+  # Run TypeScript consistency test - should FAIL since TS code still has old port
+  cd "$REPO_ROOT" || {
+    mv "$temp_backup" "$firebase_json" 2>/dev/null || true
+    test_fail "port modification propagates to typescript" "Failed to cd to repo root"
+    return
+  }
+
+  # Run test and capture exit code (redirect output to reduce noise)
+  if node --test shared/config/firebase-ports.test.ts >/dev/null 2>&1; then
+    local test_exit_code=0
+  else
+    local test_exit_code=$?
+  fi
+
+  # Restore firebase.json before checking results
+  mv "$temp_backup" "$firebase_json" 2>/dev/null || true
+
+  # Test should fail (non-zero exit code)
+  if [ $test_exit_code -eq 0 ]; then
+    test_fail "port modification propagates to typescript" \
+      "Consistency test passed but should fail when firebase.json changes without updating TS"
+    return
+  fi
+
+  test_pass "port modification propagates to typescript"
+}
+
 # ============================================================================
 # Run All Tests
 # ============================================================================
@@ -334,9 +503,11 @@ echo "========================================"
 run_test test_complete_port_flow
 run_test test_runtime_typescript_import
 run_test test_port_modification_scenario
+run_test test_port_modification_propagates_to_typescript
 run_test test_environment_variable_propagation
 run_test test_parallel_script_execution
 run_test test_cross_platform_compatibility
+run_test test_concurrent_allocate_script_sourcing
 
 # ============================================================================
 # Test Summary
