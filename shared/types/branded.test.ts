@@ -119,6 +119,11 @@ describe('createTimestamp', () => {
     expect(() => createTimestamp(invalidDate)).toThrow('Invalid Date object');
   });
 
+  it('accepts zero timestamp (epoch)', () => {
+    const epochZero = createTimestamp(0);
+    expect(epochZero).toBe(0);
+  });
+
   it('returns branded Timestamp type', () => {
     const timestamp: Timestamp = createTimestamp();
     expect(typeof timestamp).toBe('number');
@@ -176,6 +181,11 @@ describe('createUserID', () => {
     expect(() => createUserID(tooLong)).toThrow('UserID too long');
   });
 
+  it('accepts user IDs up to 256 characters', () => {
+    const maxLength = 'a'.repeat(256);
+    expect(createUserID(maxLength)).toBe(maxLength);
+  });
+
   it('returns branded UserID type', () => {
     const userId: UserID = createUserID('user123');
     expect(userId).toBe('user123');
@@ -199,6 +209,11 @@ describe('createFileID', () => {
   it('rejects file IDs that are too long', () => {
     const tooLong = 'a'.repeat(257);
     expect(() => createFileID(tooLong)).toThrow('FileID too long');
+  });
+
+  it('accepts file IDs up to 256 characters', () => {
+    const maxLength = 'a'.repeat(256);
+    expect(createFileID(maxLength)).toBe(maxLength);
   });
 
   it('returns branded FileID type', () => {
@@ -347,6 +362,13 @@ describe('Zod Schema Validation', () => {
       expect(() => PortSchema.parse(Infinity)).toThrow(ZodError);
     });
 
+    it('rejects null, undefined, arrays, and objects', () => {
+      expect(() => PortSchema.parse(null)).toThrow(ZodError);
+      expect(() => PortSchema.parse(undefined)).toThrow(ZodError);
+      expect(() => PortSchema.parse([3000])).toThrow(ZodError);
+      expect(() => PortSchema.parse({ port: 3000 })).toThrow(ZodError);
+    });
+
     it('safeParse returns correct success/error objects', () => {
       const validResult = PortSchema.safeParse(3000);
       expect(validResult.success).toBe(true);
@@ -393,6 +415,13 @@ describe('Zod Schema Validation', () => {
       expect(() => URLSchema.parse(123)).toThrow(ZodError);
     });
 
+    it('rejects null, undefined, arrays, and objects', () => {
+      expect(() => URLSchema.parse(null)).toThrow(ZodError);
+      expect(() => URLSchema.parse(undefined)).toThrow(ZodError);
+      expect(() => URLSchema.parse(['https://example.com'])).toThrow(ZodError);
+      expect(() => URLSchema.parse({ url: 'https://example.com' })).toThrow(ZodError);
+    });
+
     it('safeParse returns correct success/error objects', () => {
       const validResult = URLSchema.safeParse('https://example.com');
       expect(validResult.success).toBe(true);
@@ -428,6 +457,13 @@ describe('Zod Schema Validation', () => {
       expect(() => TimestampSchema.parse(-Infinity)).toThrow(ZodError);
       expect(() => TimestampSchema.parse(NaN)).toThrow(ZodError);
       expect(() => TimestampSchema.parse('1704067200000')).toThrow(ZodError);
+    });
+
+    it('rejects null, undefined, arrays, and objects', () => {
+      expect(() => TimestampSchema.parse(null)).toThrow(ZodError);
+      expect(() => TimestampSchema.parse(undefined)).toThrow(ZodError);
+      expect(() => TimestampSchema.parse([1704067200000])).toThrow(ZodError);
+      expect(() => TimestampSchema.parse({ timestamp: 1704067200000 })).toThrow(ZodError);
     });
 
     it('safeParse returns correct success/error objects', () => {
@@ -467,6 +503,13 @@ describe('Zod Schema Validation', () => {
       expect(() => SessionIDSchema.parse(123)).toThrow(ZodError);
     });
 
+    it('rejects null, undefined, arrays, and objects', () => {
+      expect(() => SessionIDSchema.parse(null)).toThrow(ZodError);
+      expect(() => SessionIDSchema.parse(undefined)).toThrow(ZodError);
+      expect(() => SessionIDSchema.parse(['session123'])).toThrow(ZodError);
+      expect(() => SessionIDSchema.parse({ id: 'session123' })).toThrow(ZodError);
+    });
+
     it('safeParse returns correct success/error objects', () => {
       const validResult = SessionIDSchema.safeParse('session123');
       expect(validResult.success).toBe(true);
@@ -501,6 +544,13 @@ describe('Zod Schema Validation', () => {
       expect(() => UserIDSchema.parse(123)).toThrow(ZodError);
     });
 
+    it('rejects null, undefined, arrays, and objects', () => {
+      expect(() => UserIDSchema.parse(null)).toThrow(ZodError);
+      expect(() => UserIDSchema.parse(undefined)).toThrow(ZodError);
+      expect(() => UserIDSchema.parse(['user123'])).toThrow(ZodError);
+      expect(() => UserIDSchema.parse({ id: 'user123' })).toThrow(ZodError);
+    });
+
     it('safeParse returns correct success/error objects', () => {
       const validResult = UserIDSchema.safeParse('user123');
       expect(validResult.success).toBe(true);
@@ -533,6 +583,13 @@ describe('Zod Schema Validation', () => {
       expect(() => FileIDSchema.parse('')).toThrow(ZodError);
       expect(() => FileIDSchema.parse('a'.repeat(257))).toThrow(ZodError);
       expect(() => FileIDSchema.parse(123)).toThrow(ZodError);
+    });
+
+    it('rejects null, undefined, arrays, and objects', () => {
+      expect(() => FileIDSchema.parse(null)).toThrow(ZodError);
+      expect(() => FileIDSchema.parse(undefined)).toThrow(ZodError);
+      expect(() => FileIDSchema.parse(['hash123'])).toThrow(ZodError);
+      expect(() => FileIDSchema.parse({ id: 'hash123' })).toThrow(ZodError);
     });
 
     it('safeParse returns correct success/error objects', () => {

@@ -18,18 +18,20 @@ import { z } from 'zod';
  * Brand utility type
  *
  * Creates a branded type by intersecting the base type with a unique brand.
- * The __brand property is never actually present at runtime - it's a phantom type.
+ * The brand property is never actually present at runtime - it's a phantom type.
+ * Uses a unique symbol to ensure brands cannot be constructed literally.
  *
  * @example
  * ```typescript
  * type UserId = Brand<string, 'UserId'>;
  * type OrderId = Brand<string, 'OrderId'>;
  *
- * const userId: UserId = 'user123' as UserId; // Type error!
+ * const userId: UserId = 'user123'; // Type error!
  * const userId: UserId = createUserId('user123'); // OK with factory
  * ```
  */
-export type Brand<T, B> = T & { readonly __brand: B };
+declare const __brand: unique symbol;
+export type Brand<T, B> = T & { readonly [__brand]: B };
 
 /**
  * Port number (0-65535)
@@ -67,7 +69,7 @@ export type SessionID = Brand<string, 'SessionID'>;
 export type UserID = Brand<string, 'UserID'>;
 
 /**
- * File ID string (typically a hash)
+ * File ID string
  *
  * Prevents mixing up file IDs with other string identifiers.
  */
@@ -118,6 +120,8 @@ export const PortSchema = z.number().int().min(0).max(65535).brand<'Port'>();
  * @returns Branded Port type
  * @throws ZodError if port is not in valid range (0-65535)
  */
+// Zod's branded type is structurally identical to our Brand type
+// TypeScript requires double casting to bridge the type systems
 export const parsePort = (n: unknown): Port => PortSchema.parse(n) as unknown as Port;
 
 /**
@@ -138,6 +142,8 @@ export const URLSchema = z.string().url().brand<'URL'>();
  * @returns Branded URL type
  * @throws ZodError if URL is malformed
  */
+// Zod's branded type is structurally identical to our Brand type
+// TypeScript requires double casting to bridge the type systems
 export const parseURL = (s: unknown): URL => URLSchema.parse(s) as unknown as URL;
 
 /**
@@ -158,6 +164,8 @@ export const TimestampSchema = z.number().finite().nonnegative().brand<'Timestam
  * @returns Branded Timestamp
  * @throws ZodError if timestamp is negative or not finite
  */
+// Zod's branded type is structurally identical to our Brand type
+// TypeScript requires double casting to bridge the type systems
 export const parseTimestamp = (ms: unknown): Timestamp =>
   TimestampSchema.parse(ms) as unknown as Timestamp;
 
@@ -179,6 +187,8 @@ export const SessionIDSchema = z.string().min(1).max(256).brand<'SessionID'>();
  * @returns Branded SessionID
  * @throws ZodError if session ID is empty or too long
  */
+// Zod's branded type is structurally identical to our Brand type
+// TypeScript requires double casting to bridge the type systems
 export const parseSessionID = (s: unknown): SessionID =>
   SessionIDSchema.parse(s) as unknown as SessionID;
 
@@ -200,6 +210,8 @@ export const UserIDSchema = z.string().min(1).max(256).brand<'UserID'>();
  * @returns Branded UserID
  * @throws ZodError if user ID is empty or too long
  */
+// Zod's branded type is structurally identical to our Brand type
+// TypeScript requires double casting to bridge the type systems
 export const parseUserID = (s: unknown): UserID => UserIDSchema.parse(s) as unknown as UserID;
 
 /**
@@ -216,10 +228,12 @@ export const FileIDSchema = z.string().min(1).max(256).brand<'FileID'>();
 /**
  * Parse a FileID with Zod validation
  *
- * @param s - File ID string (hash)
+ * @param s - File ID string
  * @returns Branded FileID
  * @throws ZodError if file ID is empty or too long
  */
+// Zod's branded type is structurally identical to our Brand type
+// TypeScript requires double casting to bridge the type systems
 export const parseFileID = (s: unknown): FileID => FileIDSchema.parse(s) as unknown as FileID;
 
 /**
@@ -260,10 +274,11 @@ export function createPort(n: number): Port {
  */
 export function createURL(s: string): URL {
   try {
-    new globalThis.URL(s); // Validate using URL constructor
+    new globalThis.URL(s); // Validate using globalThis.URL constructor
     return s as URL;
   } catch (error) {
-    throw new Error(`Invalid URL: ${s}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid URL: ${s} (${message})`);
   }
 }
 
@@ -320,6 +335,27 @@ export function createTimestamp(input?: number | Date): Timestamp {
 }
 
 /**
+ * Helper function to create string-based IDs with validation
+ *
+ * @param s - ID string
+ * @param brandName - Name of the brand for error messages
+ * @returns Branded string type
+ * @throws Error if ID is invalid
+ */
+function createStringID<B extends string>(s: string, brandName: B): Brand<string, B> {
+  if (typeof s !== 'string') {
+    throw new Error(`${brandName} must be a string, got ${typeof s}`);
+  }
+  if (s.length === 0) {
+    throw new Error(`${brandName} cannot be empty`);
+  }
+  if (s.length > 256) {
+    throw new Error(`${brandName} too long (max 256 chars), got ${s.length}`);
+  }
+  return s as Brand<string, B>;
+}
+
+/**
  * Create a SessionID with validation
  *
  * @param s - Session ID string
@@ -333,16 +369,7 @@ export function createTimestamp(input?: number | Date): Timestamp {
  * ```
  */
 export function createSessionID(s: string): SessionID {
-  if (typeof s !== 'string') {
-    throw new Error(`SessionID must be a string, got ${typeof s}`);
-  }
-  if (s.length === 0) {
-    throw new Error('SessionID cannot be empty');
-  }
-  if (s.length > 256) {
-    throw new Error(`SessionID too long (max 256 chars), got ${s.length}`);
-  }
-  return s as SessionID;
+  return createStringID(s, 'SessionID');
 }
 
 /**
@@ -359,44 +386,26 @@ export function createSessionID(s: string): SessionID {
  * ```
  */
 export function createUserID(s: string): UserID {
-  if (typeof s !== 'string') {
-    throw new Error(`UserID must be a string, got ${typeof s}`);
-  }
-  if (s.length === 0) {
-    throw new Error('UserID cannot be empty');
-  }
-  if (s.length > 256) {
-    throw new Error(`UserID too long (max 256 chars), got ${s.length}`);
-  }
-  return s as UserID;
+  return createStringID(s, 'UserID');
 }
 
 /**
  * Create a FileID with validation
  *
- * File IDs are typically SHA-256 hashes (64 hex characters).
+ * File IDs are string identifiers for files.
  *
- * @param s - File ID string (hash)
+ * @param s - File ID string
  * @returns Branded FileID
- * @throws Error if file ID is empty or invalid format
+ * @throws Error if file ID is empty or too long
  *
  * @example
  * ```typescript
- * const fileId = createFileID('abc123...'); // OK for hash
+ * const fileId = createFileID('abc123'); // OK
  * const invalid = createFileID(''); // throws Error
  * ```
  */
 export function createFileID(s: string): FileID {
-  if (typeof s !== 'string') {
-    throw new Error(`FileID must be a string, got ${typeof s}`);
-  }
-  if (s.length === 0) {
-    throw new Error('FileID cannot be empty');
-  }
-  if (s.length > 256) {
-    throw new Error(`FileID too long (max 256 chars), got ${s.length}`);
-  }
-  return s as FileID;
+  return createStringID(s, 'FileID');
 }
 
 /**
@@ -414,5 +423,7 @@ export function createFileID(s: string): FileID {
  * ```
  */
 export function unwrap<T>(branded: Brand<T, any>): T {
+  // Type-erasing operation that trusts the caller to use correctly.
+  // The 'any' brand is intentional for flexibility across all branded types.
   return branded as T;
 }
