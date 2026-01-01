@@ -180,12 +180,28 @@ test_allocate_test_ports_matches_json() {
   local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
   local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
 
-  # Extract ports from allocate-test-ports.sh using grep
-  # Match patterns like: FIRESTORE_PORT=8081
-  local firestore_sh=$(grep -o 'FIRESTORE_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
-  local auth_sh=$(grep -o 'AUTH_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
-  local storage_sh=$(grep -o 'STORAGE_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
-  local ui_sh=$(grep -o 'UI_PORT=[0-9]*' "$allocate_script" | grep -o '[0-9]*')
+  # Source allocate-test-ports.sh to get the ports it loads
+  # This validates that the script correctly sources ports from generate-firebase-ports.sh
+  # Note: We need to source in a subshell to avoid polluting current shell
+  (
+    # Unset any existing port variables to ensure clean test
+    unset AUTH_PORT FIRESTORE_PORT STORAGE_PORT UI_PORT
+
+    # Source the script (it will load ports via generate-firebase-ports.sh)
+    source "$allocate_script" 2>/dev/null
+
+    # Export ports for parent shell to verify
+    echo "FIRESTORE_PORT=${FIRESTORE_PORT}"
+    echo "AUTH_PORT=${AUTH_PORT}"
+    echo "STORAGE_PORT=${STORAGE_PORT}"
+    echo "UI_PORT=${UI_PORT}"
+  ) > /tmp/allocate_ports_output.txt
+
+  # Read the sourced ports
+  local firestore_sh=$(grep '^FIRESTORE_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
+  local auth_sh=$(grep '^AUTH_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
+  local storage_sh=$(grep '^STORAGE_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
+  local ui_sh=$(grep '^UI_PORT=' /tmp/allocate_ports_output.txt | cut -d= -f2)
 
   # Compare ports
   local mismatches=""
@@ -214,6 +230,99 @@ test_allocate_test_ports_matches_json() {
   test_pass "allocate-test-ports.sh matches firebase.json"
 }
 
+test_generate_firebase_ports_works() {
+  local generate_script="${REPO_ROOT}/infrastructure/scripts/generate-firebase-ports.sh"
+  local firebase_json="${REPO_ROOT}/firebase.json"
+
+  if [ ! -f "$generate_script" ] || [ ! -f "$firebase_json" ]; then
+    test_fail "generate-firebase-ports.sh works correctly" "Required files not found"
+    return
+  fi
+
+  # Source the generated ports
+  source <("$generate_script")
+
+  # Extract expected ports from firebase.json
+  local firestore_json=$(jq -r '.emulators.firestore.port' "$firebase_json")
+  local auth_json=$(jq -r '.emulators.auth.port' "$firebase_json")
+  local storage_json=$(jq -r '.emulators.storage.port' "$firebase_json")
+  local ui_json=$(jq -r '.emulators.ui.port' "$firebase_json")
+
+  # Verify ports were loaded and match firebase.json
+  local mismatches=""
+
+  if [ -z "${FIRESTORE_PORT:-}" ]; then
+    mismatches="${mismatches}FIRESTORE_PORT not set; "
+  elif [ "$firestore_json" != "$FIRESTORE_PORT" ]; then
+    mismatches="${mismatches}Firestore: json=$firestore_json, generated=$FIRESTORE_PORT; "
+  fi
+
+  if [ -z "${AUTH_PORT:-}" ]; then
+    mismatches="${mismatches}AUTH_PORT not set; "
+  elif [ "$auth_json" != "$AUTH_PORT" ]; then
+    mismatches="${mismatches}Auth: json=$auth_json, generated=$AUTH_PORT; "
+  fi
+
+  if [ -z "${STORAGE_PORT:-}" ]; then
+    mismatches="${mismatches}STORAGE_PORT not set; "
+  elif [ "$storage_json" != "$STORAGE_PORT" ]; then
+    mismatches="${mismatches}Storage: json=$storage_json, generated=$STORAGE_PORT; "
+  fi
+
+  if [ -z "${UI_PORT:-}" ]; then
+    mismatches="${mismatches}UI_PORT not set; "
+  elif [ "$ui_json" != "$UI_PORT" ]; then
+    mismatches="${mismatches}UI: json=$ui_json, generated=$UI_PORT; "
+  fi
+
+  if [ -n "$mismatches" ]; then
+    test_fail "generate-firebase-ports.sh works correctly" "Port mismatches or missing variables: $mismatches"
+    return
+  fi
+
+  test_pass "generate-firebase-ports.sh works correctly"
+}
+
+test_printsync_global_setup_uses_firebase_ports() {
+  local global_setup="${REPO_ROOT}/printsync/tests/global-setup.ts"
+
+  if [ ! -f "$global_setup" ]; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "File not found at $global_setup"
+    return
+  fi
+
+  # Check if it imports FIREBASE_PORTS from shared config
+  if ! grep -q "from.*shared/config/firebase-ports" "$global_setup"; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "No import from shared/config/firebase-ports found"
+    return
+  fi
+
+  # Check if it uses FIREBASE_PORTS.auth, FIREBASE_PORTS.firestore, FIREBASE_PORTS.storage
+  if ! grep -q "FIREBASE_PORTS\.auth" "$global_setup"; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "No usage of FIREBASE_PORTS.auth found"
+    return
+  fi
+
+  if ! grep -q "FIREBASE_PORTS\.firestore" "$global_setup"; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "No usage of FIREBASE_PORTS.firestore found"
+    return
+  fi
+
+  if ! grep -q "FIREBASE_PORTS\.storage" "$global_setup"; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "No usage of FIREBASE_PORTS.storage found"
+    return
+  fi
+
+  # Check that it does NOT have hardcoded ports (e.g., 9099, 8081, 9199)
+  # Look for isPortInUse with numeric literals (but not FIREBASE_PORTS usage)
+  if grep -E 'isPortInUse\s*\(\s*[0-9]{4}\s*\)' "$global_setup" | grep -v "FIREBASE_PORTS" >/dev/null 2>&1; then
+    test_fail "printsync global-setup.ts uses FIREBASE_PORTS" "Found hardcoded port numbers in isPortInUse calls"
+    return
+  fi
+
+  test_pass "printsync global-setup.ts uses FIREBASE_PORTS"
+}
+
 # ============================================================================
 # Run All Tests
 # ============================================================================
@@ -227,6 +336,8 @@ run_test test_firebase_ports_ts_matches_json
 run_test test_firebase_js_imports_from_shared_config
 run_test test_no_hardcoded_ports_in_firebase_js
 run_test test_allocate_test_ports_matches_json
+run_test test_generate_firebase_ports_works
+run_test test_printsync_global_setup_uses_firebase_ports
 
 # ============================================================================
 # Test Summary

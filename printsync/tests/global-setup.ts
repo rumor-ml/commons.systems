@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as net from 'net';
+import { FIREBASE_PORTS } from '../../shared/config/firebase-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,9 +21,9 @@ async function globalSetup() {
   console.log('Checking Firebase emulators...');
 
   // Check if emulators are already running by testing ports
-  const isAuthRunning = await isPortInUse(9099);
-  const isFirestoreRunning = await isPortInUse(8081);
-  const isStorageRunning = await isPortInUse(9199);
+  const isAuthRunning = await isPortInUse(FIREBASE_PORTS.auth);
+  const isFirestoreRunning = await isPortInUse(FIREBASE_PORTS.firestore);
+  const isStorageRunning = await isPortInUse(FIREBASE_PORTS.storage);
 
   if (isAuthRunning && isFirestoreRunning && isStorageRunning) {
     console.log('✓ All Firebase emulators already running');

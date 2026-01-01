@@ -1,13 +1,21 @@
 /**
  * Firebase Emulator Port Configuration
  *
- * TODO(#1081): Integrate firebase-ports config into build process
+ * SINGLE SOURCE OF TRUTH: firebase.json (root directory)
+ * This file exports TypeScript constants validated against firebase.json
  *
- * Centralized port configuration used by:
+ * Used by:
  * - fellspiral/site/src/scripts/firebase.js (client-side emulator connection)
  * - fellspiral/tests/global-setup.ts (test setup)
- * - fellspiral/firebase.json (emulator configuration)
- * - infrastructure/scripts/allocate-test-ports.sh (port allocation)
+ * - printsync/tests/global-setup.ts (test setup)
+ * - infrastructure/scripts/allocate-test-ports.sh (via generate-firebase-ports.sh)
+ *
+ * Validation:
+ * - shared/config/firebase-ports.test.ts validates ports match firebase.json
+ * - infrastructure/scripts/tests/config-consistency.test.sh validates bash integration
+ *
+ * See also:
+ * - infrastructure/scripts/generate-firebase-ports.sh (bash port generation)
  */
 
 // TODO(#1087): FirestorePort, AuthPort, StoragePort, UIPort - Literal types provide no safety over number

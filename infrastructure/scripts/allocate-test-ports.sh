@@ -67,12 +67,16 @@ if [ "$PORT_OFFSET" -lt 0 ] || [ "$PORT_OFFSET" -gt 99 ]; then
   exit_or_return 1
 fi
 
-# SHARED EMULATOR PORTS - Standard Firebase emulator ports (match firebase.json)
+# SHARED EMULATOR PORTS - Loaded from firebase.json (single source of truth)
 # Multiple worktrees connect to the same emulator instance
-AUTH_PORT=9099
-FIRESTORE_PORT=8081
-STORAGE_PORT=9199
-UI_PORT=4000
+# Source ports from firebase.json via generator script
+source <("${SCRIPT_DIR}/generate-firebase-ports.sh")
+
+# Validate ports were loaded successfully
+if [ -z "${AUTH_PORT:-}" ] || [ -z "${FIRESTORE_PORT:-}" ] || [ -z "${STORAGE_PORT:-}" ] || [ -z "${UI_PORT:-}" ]; then
+  echo "FATAL: Failed to load Firebase emulator ports from firebase.json" >&2
+  exit_or_return 1
+fi
 
 # UNIQUE APP SERVER PORT - Different per worktree
 # Prevents conflicts when running multiple app servers concurrently
