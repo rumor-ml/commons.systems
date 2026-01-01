@@ -463,7 +463,15 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	collector, err := tmux.NewCollector()
 	if err != nil {
 		debug.Log("DAEMON_INIT_WARNING failed to create tree collector: %v - tree broadcasts will be disabled", err)
-		// Continue daemon startup without collector - clients will use fallback behavior
+		fmt.Fprintf(os.Stderr, "WARNING: Tree collector initialization failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "         Tree broadcasts will be disabled. Clients will show empty trees.\n")
+
+		// Store error for health endpoint
+		daemon.lastTreeError.Store(fmt.Sprintf("collector initialization failed: %v", err))
+		daemon.treeErrors.Add(1)
+
+		// Continue daemon startup without collector - clients will receive no tree_update messages
+		// and will show empty tree state (initialized with tmux.NewRepoTree())
 	} else {
 		daemon.collector = collector
 		daemon.currentTree = tmux.NewRepoTree()
@@ -581,6 +589,7 @@ func (d *AlertDaemon) watchTree() {
 
 // collectAndBroadcastTree collects current tmux tree state and broadcasts to all clients.
 // Errors are non-fatal - broadcasts tree_error and continues operation.
+// TODO(#1121): Add test to verify seqNum increases monotonically across multiple broadcasts
 func (d *AlertDaemon) collectAndBroadcastTree() {
 	// Lock collector for exclusive access during GetTree()
 	d.collectorMu.Lock()
@@ -599,6 +608,8 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
 		if msgErr != nil {
 			debug.Log("DAEMON_TREE_ERROR_MSG_FAILED error=%v", msgErr)
+			fmt.Fprintf(os.Stderr, "ERROR: Failed to construct tree error message: %v\n", msgErr)
+			fmt.Fprintf(os.Stderr, "       Original tree error: %s\n", errMsg)
 			return
 		}
 		d.broadcast(msg.ToWireFormat())
@@ -612,7 +623,23 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 	// Broadcast tree_update to all clients
 	msg, err := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
 	if err != nil {
-		debug.Log("DAEMON_TREE_UPDATE_MSG_FAILED error=%v", err)
+		// Message construction failed - treat as collection error and broadcast to clients
+		d.treeErrors.Add(1)
+		errMsg := fmt.Sprintf("tree update message construction failed: %v", err)
+		d.lastTreeError.Store(errMsg)
+		debug.Log("DAEMON_TREE_UPDATE_MSG_FAILED error=%v total_errors=%d", err, d.treeErrors.Load())
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct tree update message: %v\n", err)
+
+		// Broadcast tree_error to notify clients
+		errBroadcastMsg, errBroadcastErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
+		if errBroadcastErr != nil {
+			// Catastrophic failure - can't even construct error message
+			debug.Log("DAEMON_TREE_ERROR_MSG_DOUBLE_FAILED error=%v", errBroadcastErr)
+			fmt.Fprintf(os.Stderr, "CRITICAL: Cannot construct tree error message: %v (original error: %v)\n",
+				errBroadcastErr, err)
+			return
+		}
+		d.broadcast(errBroadcastMsg.ToWireFormat())
 		return
 	}
 	d.broadcast(msg.ToWireFormat())
