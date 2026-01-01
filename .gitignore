@@ -61,6 +61,7 @@ tmux-tui/build/
 tmux-tui/tmux-tui
 tmux-tui/tmux-tui-block
 tmux-tui/tmux-tui-daemon
+**/tmux-tui-daemon
 *.test
 *.out
 
