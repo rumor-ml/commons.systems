@@ -324,6 +324,14 @@ export async function getAllCards() {
     });
     return cards;
   } catch (error) {
+    // Log detailed error information for debugging (especially Firefox-specific issues)
+    console.error('[getAllCards] Firestore query failed:', {
+      errorMessage: error.message,
+      errorName: error.name,
+      errorStack: error.stack,
+      browser: navigator.userAgent,
+      timestamp: new Date().toISOString(),
+    });
     // Create enriched error with context for better debugging and error handling
     const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
     enrichedError.originalError = error;
