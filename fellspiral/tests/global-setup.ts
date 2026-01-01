@@ -80,6 +80,9 @@ async function globalSetup() {
     if (!admin.apps.length) {
       admin.initializeApp({
         projectId,
+        // For emulator: bypass security rules by setting auth variable override
+        // This allows Admin SDK to write test data without authentication
+        databaseAuthVariableOverride: null,
       });
       console.log(`   ✓ Initialized Firebase Admin (projectId: ${projectId})`);
     } else {
@@ -162,6 +165,7 @@ async function globalSetup() {
       batch.set(docRef, {
         ...card,
         isPublic: true, // Required by security rules for READ access
+        createdBy: 'qa-test-user-id', // Match the QA test user created in Auth emulator
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
