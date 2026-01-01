@@ -728,7 +728,7 @@ type TreeUpdateMessageV2 struct {
 }
 
 // NewTreeUpdateMessage creates a validated TreeUpdateMessage.
-// Tree is copied to prevent external mutation.
+// Tree is passed by value (shallow copy). Caller must not mutate tree after passing it.
 func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) (*TreeUpdateMessageV2, error) {
 	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree}, nil
 }
