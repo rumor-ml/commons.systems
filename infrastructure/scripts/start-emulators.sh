@@ -26,13 +26,21 @@ source "${SCRIPT_DIR}/allocate-test-ports.sh"
 MAX_RETRIES=30
 RETRY_INTERVAL=1
 
+# Shared directory for backend emulator state (shared across all worktrees)
+SHARED_EMULATOR_DIR="${HOME}/.firebase-emulators"
+mkdir -p "${SHARED_EMULATOR_DIR}"
+
 # PID and log files
-BACKEND_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.pid"
-BACKEND_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.log"
+# Backend emulator is SHARED across worktrees - use shared location
+BACKEND_PID_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.pid"
+BACKEND_LOG_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.log"
+BACKEND_LOCK_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.lock"
+
+# Hosting emulator is PER-WORKTREE - use worktree-local location
 HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.pid"
 HOSTING_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.log"
 
-# Ensure temp directory exists
+# Ensure temp directory exists (for hosting emulator files)
 mkdir -p "${PROJECT_ROOT}/tmp/infrastructure"
 
 echo "========================================="
@@ -54,6 +62,59 @@ echo ""
 # PHASE 1: Start Shared Backend Emulators (if not already running)
 # ============================================================================
 
+# Acquire lock to coordinate backend emulator startup across worktrees
+# This prevents race conditions when multiple worktrees try to start simultaneously
+# Uses cross-platform file-based locking with atomic operations
+
+LOCK_MAX_WAIT=30  # Maximum seconds to wait for lock
+LOCK_RETRY_INTERVAL=0.5  # Seconds between lock attempts
+
+echo "Acquiring backend emulator lock..."
+
+# Try to acquire lock with timeout
+LOCK_ACQUIRED=0
+LOCK_START_TIME=$(date +%s)
+
+while [ $LOCK_ACQUIRED -eq 0 ]; do
+  # Try to create lock file atomically using mkdir (portable across Linux/macOS)
+  # mkdir is atomic - either succeeds or fails, no race condition
+  if mkdir "$BACKEND_LOCK_FILE" 2>/dev/null; then
+    LOCK_ACQUIRED=1
+    # Store our PID in the lock directory for debugging
+    echo $$ > "$BACKEND_LOCK_FILE/pid"
+    break
+  fi
+
+  # Check if we've exceeded max wait time
+  CURRENT_TIME=$(date +%s)
+  ELAPSED=$((CURRENT_TIME - LOCK_START_TIME))
+
+  if [ $ELAPSED -ge $LOCK_MAX_WAIT ]; then
+    echo "ERROR: Failed to acquire backend emulator lock after ${LOCK_MAX_WAIT} seconds" >&2
+    echo "Lock holder PID: $(cat "$BACKEND_LOCK_FILE/pid" 2>/dev/null || echo 'unknown')" >&2
+    echo "If you're sure no other emulator startup is in progress, remove:" >&2
+    echo "  rm -rf \"$BACKEND_LOCK_FILE\"" >&2
+    exit 1
+  fi
+
+  # Wait before retrying
+  sleep $LOCK_RETRY_INTERVAL
+done
+
+echo "✓ Backend emulator lock acquired"
+
+# Cleanup function to release lock on exit
+cleanup_backend_lock() {
+  if [ -d "$BACKEND_LOCK_FILE" ]; then
+    rm -rf "$BACKEND_LOCK_FILE"
+    echo "✓ Backend emulator lock released"
+  fi
+}
+
+# Register cleanup on exit (trap fires even on early exits/errors)
+trap cleanup_backend_lock EXIT
+
+# Lock acquired - check if backend is already running
 if nc -z localhost $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"
   echo "  Multiple worktrees can connect to the same backend"
@@ -97,6 +158,8 @@ else
   }
   echo ""
 fi
+
+# Lock will be automatically released by trap on exit
 
 # ============================================================================
 # PHASE 2: Start Per-Worktree Hosting Emulator (ALWAYS start unless SKIP_HOSTING=1)
