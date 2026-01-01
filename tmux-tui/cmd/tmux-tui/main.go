@@ -80,7 +80,8 @@ func initialModel() model {
 	renderer := ui.NewTreeRenderer(80) // Default width
 	m.renderer = renderer
 
-	// Initialize empty tree - populated by daemon tree_update broadcasts (not client-side collection)
+	// Initialize empty tree - will be populated by daemon's first tree_update broadcast
+	// Client displays empty tree until daemon sends initial state (typically <1s after connection)
 	// Daemon collects tree once and broadcasts to all clients, eliminating redundant per-client queries
 	m.tree = tmux.NewRepoTree()
 
@@ -259,6 +260,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Show branch picker for specified pane (or toggle off if already blocked)
 			debug.Log("TUI_SHOW_PICKER paneID=%s", msg.msg.PaneID)
 
+			// TODO(#1195): Extract to helper method like FindBranchForPane(paneID string) (string, bool)
 			// Find which branch this pane is on
 			var currentBranch string
 			for _, repo := range m.tree.Repos() {
@@ -392,7 +394,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fmt.Fprintf(os.Stderr, "ERROR: Received invalid tree update from daemon (seqNum=%d)\n", msg.msg.SeqNum)
 				fmt.Fprintf(os.Stderr, "       Tree data is missing. This indicates a daemon bug or protocol mismatch.\n")
 
-				// Circuit breaker: disconnect after 3 consecutive nil updates
+				// Circuit breaker: Disconnect after 3 consecutive malformed updates
+				// This prevents infinite retries when daemon has a persistent bug
+				// Counter is reset to 0 on any successful tree_update (see below)
 				if m.consecutiveNilUpdates >= 3 {
 					fmt.Fprintf(os.Stderr, `CRITICAL: Received %d consecutive nil tree updates. Disconnecting from daemon.
 
@@ -403,7 +407,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 `, m.consecutiveNilUpdates)
 
 					if m.daemonClient != nil {
-						m.daemonClient.Close()
+						if err := m.daemonClient.Close(); err != nil {
+							fmt.Fprintf(os.Stderr, "WARNING: Failed to cleanly close daemon connection during circuit breaker disconnect: %v\n", err)
+							fmt.Fprintf(os.Stderr, "         Daemon may have stale client state\n")
+							debug.Log("TUI_CIRCUIT_BREAKER_CLOSE_ERROR error=%v", err)
+						} else {
+							debug.Log("TUI_CIRCUIT_BREAKER_CLOSE_SUCCESS")
+						}
 					}
 					m.daemonClient = nil
 					m.errorMu.Lock()

@@ -178,13 +178,13 @@ func NewWindow(id, name string, index int, active bool, panes []Pane) (Window, e
 // RepoTree is a nested map structure: repo -> branch -> panes.
 // Use NewRepoTree() to create and methods to access/modify safely.
 type RepoTree struct {
-	tree map[string]map[string][]Pane
+	_tree map[string]map[string][]Pane
 }
 
 // NewRepoTree creates a new empty RepoTree.
 func NewRepoTree() RepoTree {
 	return RepoTree{
-		tree: make(map[string]map[string][]Pane),
+		_tree: make(map[string]map[string][]Pane),
 	}
 }
 
@@ -192,7 +192,7 @@ func NewRepoTree() RepoTree {
 // Returns a defensive copy of the pane slice to prevent external mutation.
 // Returns nil and false if not found.
 func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
-	branches, ok := rt.tree[repo]
+	branches, ok := rt._tree[repo]
 	if !ok {
 		return nil, false
 	}
@@ -200,7 +200,6 @@ func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
 	if !ok {
 		return nil, false
 	}
-	// Defensive copy to prevent slice mutation
 	result := make([]Pane, len(panes))
 	copy(result, panes)
 	return result, true
@@ -215,21 +214,21 @@ func (rt *RepoTree) SetPanes(repo, branch string, panes []Pane) error {
 		return fmt.Errorf("branch name required")
 	}
 
-	if rt.tree[repo] == nil {
-		rt.tree[repo] = make(map[string][]Pane)
+	if rt._tree[repo] == nil {
+		rt._tree[repo] = make(map[string][]Pane)
 	}
 
 	// Defensive copy to prevent external mutation
 	panesCopy := make([]Pane, len(panes))
 	copy(panesCopy, panes)
-	rt.tree[repo][branch] = panesCopy
+	rt._tree[repo][branch] = panesCopy
 	return nil
 }
 
 // Repos returns a list of all repository names.
 func (rt RepoTree) Repos() []string {
-	result := make([]string, 0, len(rt.tree))
-	for repo := range rt.tree {
+	result := make([]string, 0, len(rt._tree))
+	for repo := range rt._tree {
 		result = append(result, repo)
 	}
 	return result
@@ -238,7 +237,7 @@ func (rt RepoTree) Repos() []string {
 // Branches returns a list of all branches for a given repository.
 // Returns nil if the repository doesn't exist.
 func (rt RepoTree) Branches(repo string) []string {
-	branches, ok := rt.tree[repo]
+	branches, ok := rt._tree[repo]
 	if !ok {
 		return nil
 	}
@@ -251,13 +250,13 @@ func (rt RepoTree) Branches(repo string) []string {
 
 // HasRepo returns true if the repository exists in the tree.
 func (rt RepoTree) HasRepo(repo string) bool {
-	_, ok := rt.tree[repo]
+	_, ok := rt._tree[repo]
 	return ok
 }
 
 // HasBranch returns true if the branch exists in the given repository.
 func (rt RepoTree) HasBranch(repo, branch string) bool {
-	branches, ok := rt.tree[repo]
+	branches, ok := rt._tree[repo]
 	if !ok {
 		return false
 	}
@@ -267,18 +266,18 @@ func (rt RepoTree) HasBranch(repo, branch string) bool {
 
 // TODO(#1175): Add performance benchmarks for Clone() with realistic tree sizes
 // Clone creates a structural copy of the RepoTree with independent map structures.
-// The returned tree has separate map instances (repo→branches, branch→panes) but
-// panes are copied by value (not deep-copied). Since Pane is a value type with no
-// pointer fields, this provides full isolation for concurrent access.
+// The returned tree has separate map instances (repo→branches, branch→panes) and
+// fully independent pane copies. Since Pane is a value type with no pointer fields,
+// slice copying provides complete isolation for concurrent access.
 func (rt RepoTree) Clone() RepoTree {
 	clone := NewRepoTree()
-	for repo, branches := range rt.tree {
-		clone.tree[repo] = make(map[string][]Pane)
+	for repo, branches := range rt._tree {
+		clone._tree[repo] = make(map[string][]Pane)
 		for branch, panes := range branches {
 			// Copy the slice
 			panesCopy := make([]Pane, len(panes))
 			copy(panesCopy, panes)
-			clone.tree[repo][branch] = panesCopy
+			clone._tree[repo][branch] = panesCopy
 		}
 	}
 	return clone
@@ -287,7 +286,7 @@ func (rt RepoTree) Clone() RepoTree {
 // TotalPanes returns the total count of panes across all repos and branches.
 func (rt RepoTree) TotalPanes() int {
 	total := 0
-	for _, branches := range rt.tree {
+	for _, branches := range rt._tree {
 		for _, panes := range branches {
 			total += len(panes)
 		}
@@ -297,13 +296,13 @@ func (rt RepoTree) TotalPanes() int {
 
 // MarshalJSON implements json.Marshaler for wire format.
 func (rt RepoTree) MarshalJSON() ([]byte, error) {
-	return json.Marshal(rt.tree)
+	return json.Marshal(rt._tree)
 }
 
 // UnmarshalJSON implements json.Unmarshaler for wire format.
 func (rt *RepoTree) UnmarshalJSON(data []byte) error {
-	if rt.tree == nil {
-		rt.tree = make(map[string]map[string][]Pane)
+	if rt._tree == nil {
+		rt._tree = make(map[string]map[string][]Pane)
 	}
 
 	var tempTree map[string]map[string][]Pane
@@ -330,14 +329,15 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 	}
 
 	// Deep copy to prevent sharing map pointers with unmarshaled data.
-	// This ensures full isolation, mirroring Clone() behavior.
-	rt.tree = make(map[string]map[string][]Pane, len(tempTree))
+	// This prevents external code from mutating the tree's internal state via retained
+	// references to the unmarshaled maps, ensuring the same isolation guarantee as Clone().
+	rt._tree = make(map[string]map[string][]Pane, len(tempTree))
 	for repo, branches := range tempTree {
-		rt.tree[repo] = make(map[string][]Pane, len(branches))
+		rt._tree[repo] = make(map[string][]Pane, len(branches))
 		for branch, panes := range branches {
 			panesCopy := make([]Pane, len(panes))
 			copy(panesCopy, panes)
-			rt.tree[repo][branch] = panesCopy
+			rt._tree[repo][branch] = panesCopy
 		}
 	}
 

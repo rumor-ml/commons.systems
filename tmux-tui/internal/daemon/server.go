@@ -469,12 +469,23 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 
 	// Create tmux tree collector (continue daemon startup even if initialization fails)
 	// Tree collection is a core feature but not required for alerts/blocking functionality
-	// If collector fails, daemon runs in degraded mode - clients receive tree_error on connect
+	// If collector fails, daemon runs in degraded mode:
+	// - Clients connect normally and can use alerts/blocking features
+	// - Each client receives tree_error on connect explaining why tree is empty
+	// - No tree_update broadcasts will be sent
 	collector, err := tmux.NewCollector()
 	if err != nil {
 		debug.Log("DAEMON_INIT_WARNING failed to create tree collector: %v - tree broadcasts will be disabled", err)
-		fmt.Fprintf(os.Stderr, "WARNING: Tree collector initialization failed: %v\n", err)
-		fmt.Fprintf(os.Stderr, "         Tree broadcasts will be disabled. Clients will show empty trees.\n")
+		fmt.Fprintf(os.Stderr, "ERROR: Tree collector initialization failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "       Tree broadcasts will be PERMANENTLY DISABLED until daemon restart.\n")
+		fmt.Fprintf(os.Stderr, "       Clients will show empty trees.\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "       To recover:\n")
+		fmt.Fprintf(os.Stderr, "         1. Fix tmux availability: ensure tmux is installed and in PATH\n")
+		fmt.Fprintf(os.Stderr, "         2. Kill this daemon: pkill tmux-tui-daemon\n")
+		fmt.Fprintf(os.Stderr, "         3. Restart daemon: tmux-tui-daemon &\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "       Daemon will continue running with alerts/blocking features only.\n")
 
 		// Store error for health endpoint
 		daemon.lastTreeError.Store(fmt.Sprintf("collector initialization failed: %v", err))
@@ -597,6 +608,7 @@ func (d *AlertDaemon) notifyTreeConstructionFailure(errMsg string) {
 	if treeErrMsg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg); msgErr == nil {
 		d.broadcastTree(treeErrMsg.ToWireFormat())
 	} else {
+		// TODO(#1196): Add debug logging and health metrics for nested tree_error construction failure
 		fmt.Fprintf(os.Stderr, "       CRITICAL: Cannot construct tree_error - clients orphaned: %v\n", msgErr)
 	}
 }
@@ -621,7 +633,8 @@ func (d *AlertDaemon) sendCollectorUnavailableError(client *clientConnection, cl
 	wireMsg := treeErrMsg.ToWireFormat()
 	if sendErr := client.sendMessage(wireMsg); sendErr != nil {
 		debug.Log("DAEMON_TREE_ERROR_SEND_FAILED client=%s error=%v", clientID, sendErr)
-		fmt.Fprintf(os.Stderr, "WARNING: Failed to send tree_error to client %s: %v\n", clientID, sendErr)
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to send tree_error to client %s: %v\n", clientID, sendErr)
+		fmt.Fprintf(os.Stderr, "       Client may remain connected but confused about tree state\n")
 	} else {
 		debug.Log("DAEMON_TREE_ERROR_SENT client=%s reason=%s", clientID, errMsg)
 	}
@@ -650,7 +663,7 @@ func (d *AlertDaemon) watchTree() {
 // collectAndBroadcastTree collects current tmux tree state and broadcasts to all clients.
 // Collection errors are non-fatal: broadcasts tree_error to notify clients and continues operation.
 // Message construction failures are logged and attempt to broadcast tree_error if possible.
-// Sequence numbers are tested in tree_broadcast_test.go
+// Sequence numbers increment for both successful updates and errors to maintain ordering.
 func (d *AlertDaemon) collectAndBroadcastTree() {
 	// Lock collector for exclusive access during GetTree()
 	d.collectorMu.Lock()
@@ -664,6 +677,8 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 		errMsg := fmt.Sprintf("tree collection failed: %v", err)
 		d.lastTreeError.Store(errMsg)
 		debug.Log("DAEMON_TREE_ERROR error=%v total_errors=%d", err, d.treeErrors.Load())
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to collect tmux tree: %v\n", err)
+		fmt.Fprintf(os.Stderr, "       Clients will receive stale tree data. Will retry in 30 seconds.\n")
 
 		// Broadcast tree_error to all clients
 		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
@@ -1366,6 +1381,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 			}
 
 			if syncFailures > 0 {
+				// TODO(#1197): Track sync_warning broadcast failures in health metrics to detect meta-failures
 				// CRITICAL: Sync warning cascade failure - some clients unaware of peer disconnections
 				fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning cascade failure (original=%s, sync_failures=%d/%d)\n",
 					msg.Type, syncFailures, len(successfulClients))
@@ -1399,6 +1415,7 @@ func (d *AlertDaemon) broadcastTree(msg Message) {
 //
 // Purpose:
 //   - Initial state synchronization when a client first connects
+//   - Sends tree_error if tree collector is unavailable (degraded mode)
 //   - Resynchronization when a client detects a sequence number gap
 //   - Recovery mechanism after broadcast failures (via forced reconnection)
 //

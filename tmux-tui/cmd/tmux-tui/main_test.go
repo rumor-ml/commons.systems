@@ -1574,3 +1574,76 @@ func TestReconcileAlerts_RaceWithAlertChange(t *testing.T) {
 		t.Error("Expected alert for %%1 to remain (pane still in tree)")
 	}
 }
+
+// TestTreeUpdate_CircuitBreakerDisconnectBehavior verifies that the circuit breaker
+// properly disconnects from daemon after 3 consecutive nil tree updates.
+// This test verifies:
+// 1. daemonClient is set to nil (indicating Close() was called and client disconnected)
+// 2. treeRefreshError contains actionable "disconnected after N failures" message
+// 3. consecutiveNilUpdates counter reaches threshold of 3
+// 4. Update() returns nil cmd (stops watching daemon)
+func TestTreeUpdate_CircuitBreakerDisconnectBehavior(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Create a real daemon client to verify actual disconnection behavior
+	// Note: We can't easily mock *daemon.DaemonClient since it's a concrete type,
+	// but we can verify the observable effects of circuit breaker activation
+	client := daemon.NewDaemonClient()
+	m.daemonClient = client
+
+	// Setup: Initial valid tree
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Send 3 consecutive nil tree updates to trigger circuit breaker
+	for i := 1; i <= 3; i++ {
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type:   daemon.MsgTypeTreeUpdate,
+				SeqNum: uint64(i),
+				Tree:   nil,
+			},
+		}
+		updatedModel, cmd := m.Update(msg)
+		m = updatedModel.(model)
+
+		// On iteration 3, circuit breaker should trigger
+		if i == 3 {
+			// Verify daemonClient was set to nil (client disconnected)
+			if m.daemonClient != nil {
+				t.Error("Circuit breaker should have set daemonClient to nil after 3 consecutive nil updates")
+			}
+
+			// Verify Update() returns nil cmd (stops watching daemon)
+			// Note: cmd is a tea.Cmd function type, so we check if it's nil
+			if cmd != nil {
+				t.Errorf("Circuit breaker should return nil cmd to stop watching daemon, got non-nil cmd")
+			}
+		}
+	}
+
+	// Verify error message is actionable and contains "disconnected after N failures"
+	m.errorMu.RLock()
+	err := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if err == nil {
+		t.Fatal("Expected treeRefreshError to be set after circuit breaker triggers")
+	}
+
+	errorText := err.Error()
+	if !strings.Contains(errorText, "disconnected after 3 failures") {
+		t.Errorf("Expected actionable error message with 'disconnected after 3 failures', got: %v", errorText)
+	}
+
+	// Verify consecutiveNilUpdates counter is at threshold
+	if m.consecutiveNilUpdates != 3 {
+		t.Errorf("Expected consecutiveNilUpdates=3, got %d", m.consecutiveNilUpdates)
+	}
+}

@@ -728,9 +728,10 @@ type TreeUpdateMessageV2 struct {
 }
 
 // NewTreeUpdateMessage creates a validated TreeUpdateMessage.
-// The tree parameter is cloned to prevent data races - the daemon can continue mutating
-// its tree state while messages are being serialized/sent to multiple clients.
-// Caller may safely mutate the original tree after passing it - the message will not be affected.
+// The tree parameter is cloned to prevent data races during JSON serialization.
+// Without cloning, the daemon could mutate its tree while client goroutines are
+// marshaling the same tree to JSON, violating Go's data race rules.
+// Caller may safely mutate the original tree after this call - the message is independent.
 func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV2 {
 	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}
 }
@@ -738,7 +739,10 @@ func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV
 func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
 func (m *TreeUpdateMessageV2) SeqNumber() uint64   { return m.seqNum }
 func (m *TreeUpdateMessageV2) ToWireFormat() Message {
-	// Clone to prevent aliasing - Message.Tree must not share map pointers between instances
+	// Clone to prevent aliasing - ensures returned Message.Tree is independent.
+	// Prevents mutations to the returned Message from affecting this TreeUpdateMessageV2 instance.
+	// This is the second clone (first is in NewTreeUpdateMessage) to ensure each wire Message
+	// has independent data, critical if ToWireFormat is called multiple times or Message.Tree is mutated.
 	cloned := m.tree.Clone()
 	return Message{
 		Type:   MsgTypeTreeUpdate,
@@ -748,7 +752,7 @@ func (m *TreeUpdateMessageV2) ToWireFormat() Message {
 }
 
 // Tree returns a clone to prevent caller mutations from affecting this message.
-// The message itself should be treated as immutable after construction.
+// The message is immutable after construction (enforced by unexported fields).
 func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree.Clone() }
 
 // 20. TreeErrorMessageV2 represents a tree collection failure
