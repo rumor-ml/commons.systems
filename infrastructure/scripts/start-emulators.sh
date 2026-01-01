@@ -70,7 +70,7 @@ echo ""
 # This prevents race conditions when multiple worktrees try to start simultaneously
 # Uses cross-platform file-based locking with atomic operations
 
-LOCK_MAX_WAIT=30  # Maximum seconds to wait for lock
+LOCK_MAX_WAIT=180  # Maximum seconds to wait for lock (increased for system overload)
 LOCK_RETRY_INTERVAL=0.5  # Seconds between lock attempts
 
 echo "Acquiring backend emulator lock..."
