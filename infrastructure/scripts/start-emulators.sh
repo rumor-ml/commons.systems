@@ -439,7 +439,7 @@ echo "Log file: $HOSTING_LOG_FILE"
 # Wait for hosting to be ready (check the assigned port)
 echo "Waiting for hosting emulator on port ${HOSTING_PORT}..."
 RETRY_COUNT=0
-MAX_HOSTING_RETRIES=15  # Hosting starts faster than backend
+MAX_HOSTING_RETRIES=120  # Increased to handle system overload (matches backend timeout)
 while ! nc -z localhost ${HOSTING_PORT} 2>/dev/null; do
   RETRY_COUNT=$((RETRY_COUNT + 1))
   if [ $RETRY_COUNT -ge $MAX_HOSTING_RETRIES ]; then
