@@ -245,8 +245,8 @@ test_allocate_test_ports_matches_json() {
   # Source allocate-test-ports.sh to validate it loads ports from generate-firebase-ports.sh
   # This test verifies: (1) sourcing completes without errors, (2) all port variables are set,
   # (3) port values match firebase.json
-  # Uses subshell to isolate port variables and prevent them from persisting,
-  # which would invalidate subsequent tests that check for missing port variables (line 238)
+  # Uses subshell to isolate port variables (AUTH_PORT, FIRESTORE_PORT, etc.) and prevent
+  # them from persisting in parent environment, which would invalidate subsequent tests
 
   # Source allocate-test-ports.sh in subshell and capture exit status
   set +e  # Temporarily disable exit on error to capture status

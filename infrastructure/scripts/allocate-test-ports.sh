@@ -72,8 +72,10 @@ fi
 # Multiple worktrees connect to the same emulator instance
 # The generator script extracts ports from firebase.json (single source of truth)
 
-# Use temp files to capture both stdout (for sourcing) and stderr (for error messages)
-# Process substitution source <(script) would hide stderr from users
+# Capture generate-firebase-ports.sh output and errors to temporary files
+# Why: Process substitution source <(script) makes it difficult to capture stderr separately
+# This approach preserves both stdout (for sourcing) and stderr (for error reporting)
+# so users see actual jq/firebase.json errors instead of generic troubleshooting steps
 GEN_STDERR=$(mktemp)
 GEN_OUTPUT=$(mktemp)
 trap "rm -f '$GEN_STDERR' '$GEN_OUTPUT' || echo 'Warning: Failed to clean up temp files' >&2" RETURN
