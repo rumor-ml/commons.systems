@@ -135,7 +135,27 @@
     }
   ],
   "firestore": {
-    "rules": "fellspiral/firestore.rules"
+    "rules": "fellspiral/firestore.rules",
+    "indexes": [
+      {
+        "collectionGroup": "cards",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublic",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "title",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ]
+      }
+    ]
   },
   "storage": {
     "rules": "shared/storage.rules"
