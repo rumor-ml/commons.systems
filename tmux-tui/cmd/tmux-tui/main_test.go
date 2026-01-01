@@ -255,3 +255,78 @@ func TestErrorBannerPriority(t *testing.T) {
 		})
 	}
 }
+
+func TestTreeUpdateNilHandling(t *testing.T) {
+	m := initialModel()
+
+	// Initialize with a tree
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Simulate malformed tree_update with nil Tree
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: nil, // Malformed
+		},
+	}
+
+	// Should not panic, should skip update
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Tree should remain unchanged (still has the initial tree)
+	if len(m.tree.Repos()) != 1 {
+		t.Errorf("Tree should not be updated with nil Tree field, expected 1 repo, got %d", len(m.tree.Repos()))
+	}
+}
+
+func TestTreeUpdateAlertReconciliationConcurrency(t *testing.T) {
+	m := initialModel()
+
+	// Populate with alerts
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "alert1",
+		"%2": "alert2",
+	}
+	m.alertsMu.Unlock()
+
+	// Concurrent tree updates with different states
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(iteration int) {
+			defer wg.Done()
+			// Create different tree states
+			tree := testTree(map[string]map[string][]tmux.Pane{
+				fmt.Sprintf("repo-%d", iteration): {
+					"main": {
+						testPane(fmt.Sprintf("%%%d", iteration+10), fmt.Sprintf("@%d", iteration+10), 0, true),
+					},
+				},
+			})
+			msg := daemonEventMsg{
+				msg: daemon.Message{
+					Type: daemon.MsgTypeTreeUpdate,
+					Tree: &tree,
+				},
+			}
+			m.Update(msg)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify no race detector warnings (test will fail under -race if races occur)
+	// Verify alerts are still accessible without panic
+	m.alertsMu.RLock()
+	_ = len(m.alerts)
+	m.alertsMu.RUnlock()
+}

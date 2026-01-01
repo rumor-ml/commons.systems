@@ -213,19 +213,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			debug.Log("TUI_DAEMON_STATE alerts=%d blocked=%d", len(msg.msg.Alerts), len(msg.msg.BlockedBranches))
 			// Continue watching daemon (tree updates come via tree_update messages)
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypePaneFocus:
 			// Pane focus changed - update active pane
 			debug.Log("TUI_PANE_FOCUS paneID=%s", msg.msg.ActivePaneID)
 			m.updateActivePane(msg.msg.ActivePaneID)
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeAlertChange:
 			// Single alert changed
@@ -243,10 +237,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.alertsMu.Unlock()
 
 			// Continue watching daemon events (no tree refresh needed - alert state is managed by daemon)
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeShowBlockPicker:
 			// Show branch picker for specified pane (or toggle off if already blocked)
@@ -289,10 +280,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				// Continue watching daemon
-				if m.daemonClient != nil {
-					return m, watchDaemonCmd(m.daemonClient)
-				}
-				return m, nil
+				return m, m.continueWatchingDaemon()
 			}
 
 			// Branch is not blocked - show picker to block it
@@ -319,10 +307,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pickingBranch = true
 
 			// Continue watching daemon
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeBlockChange:
 			// Block state changed for a branch
@@ -344,10 +329,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Continue watching daemon
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypePersistenceError:
 			// Persistence error from daemon
@@ -357,10 +339,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorMu.Unlock()
 
 			// Continue watching daemon
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeAudioError:
 			// Audio playback error from daemon
@@ -370,48 +349,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorMu.Unlock()
 
 			// Continue watching daemon
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeTreeUpdate:
 			// Tree update received from daemon
-			if msg.msg.Tree != nil {
-				m.tree = *msg.msg.Tree
-				// Reconcile alerts with lock held to prevent race with fast path
-				m.alertsMu.Lock()
-				alertsBefore := len(m.alerts)
-				m.alerts = reconcileAlerts(m.tree, m.alerts)
-				alertsAfter := len(m.alerts)
-				removed := alertsBefore - alertsAfter
+			if msg.msg.Tree == nil {
+				err := fmt.Errorf("received tree_update with nil Tree field (seq=%d)", msg.msg.SeqNum)
+				debug.Log("TUI_TREE_UPDATE_INVALID error=%v", err)
+				m.errorMu.Lock()
+				m.treeRefreshError = err
+				m.errorMu.Unlock()
 
-				// Count total panes in tree
-				totalPanes := 0
-				for _, repo := range m.tree.Repos() {
-					for _, branch := range m.tree.Branches(repo) {
-						panes, ok := m.tree.GetPanes(repo, branch)
-						if ok {
-							totalPanes += len(panes)
-						}
+				return m, m.continueWatchingDaemon()
+			}
+
+			m.tree = *msg.msg.Tree
+			// Reconcile alerts with lock held to prevent race with fast path
+			m.alertsMu.Lock()
+			alertsBefore := len(m.alerts)
+			m.alerts = reconcileAlerts(m.tree, m.alerts)
+			alertsAfter := len(m.alerts)
+			removed := alertsBefore - alertsAfter
+
+			// Count total panes in tree
+			totalPanes := 0
+			for _, repo := range m.tree.Repos() {
+				for _, branch := range m.tree.Branches(repo) {
+					panes, ok := m.tree.GetPanes(repo, branch)
+					if ok {
+						totalPanes += len(panes)
 					}
 				}
-
-				// Log reconciliation results
-				debug.Log("TUI_TREE_UPDATE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
-				m.alertsMu.Unlock()
-
-				// Clear any previous tree refresh error
-				m.errorMu.Lock()
-				m.treeRefreshError = nil
-				m.errorMu.Unlock()
 			}
 
-			// Continue watching daemon
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			// Log reconciliation results
+			debug.Log("TUI_TREE_UPDATE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
+			m.alertsMu.Unlock()
+
+			// Clear any previous tree refresh error
+			m.errorMu.Lock()
+			m.treeRefreshError = nil
+			m.errorMu.Unlock()
+
+			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeTreeError:
 			// Tree collection error from daemon
@@ -421,10 +401,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorMu.Unlock()
 
 			// Continue watching daemon
-			if m.daemonClient != nil {
-				return m, watchDaemonCmd(m.daemonClient)
-			}
-			return m, nil
+			return m, m.continueWatchingDaemon()
 
 		case "disconnect":
 			// Daemon disconnected
@@ -579,6 +556,7 @@ func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]st
 	return alerts
 }
 
+// TODO(#1120): Comment about updateActivePane function is outdated or misplaced
 // updateActivePane updates the WindowActive flag across all panes in the tree.
 // NOTE: With immutable Pane design, WindowActive is set during collection from tmux.
 // This function is currently a no-op as the WindowActive flag is read-only and comes
@@ -587,6 +565,14 @@ func (m *model) updateActivePane(activePaneID string) {
 	// No-op: Pane fields are now immutable and WindowActive is set during collection
 	// from tmux. The tree will be updated on the next refresh cycle.
 	return
+}
+
+// continueWatchingDaemon returns the appropriate command to continue watching daemon events
+func (m model) continueWatchingDaemon() tea.Cmd {
+	if m.daemonClient != nil {
+		return watchDaemonCmd(m.daemonClient)
+	}
+	return nil
 }
 
 func timeTickCmd() tea.Cmd {
