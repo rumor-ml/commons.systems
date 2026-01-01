@@ -333,13 +333,13 @@ export async function initLibraryNav() {
 
   const libraryNav = new LibraryNav(container, {
     onNavigate: ({ type, subtype }) => {
-      // TODO(#1031): Misleading comment about cards.html navigation behavior
-      // If we're on cards.html, trigger filtering via hash change
+      // Hash changes are handled differently depending on the page:
+      // - On cards.html: Hash change listener in cards.js handles filtering
+      // - On index.html: HTMX handles navigation to cards.html via boosted links
+      // No manual intervention needed here; external handlers manage both cases
       if (window.location.pathname.includes('cards.html')) {
-        // This will be handled by cards.js hash change listener
+        // Hash change listener in cards.js will handle the filtering
       }
-      // If we're on index.html, HTMX will handle the navigation to cards.html
-      // No need to manually set window.location.href
     },
   });
 

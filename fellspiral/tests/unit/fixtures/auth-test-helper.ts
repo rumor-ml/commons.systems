@@ -4,11 +4,37 @@ const PROJECT_ID = 'demo-test';
 
 /**
  * Branded type for Firebase user IDs to prevent invalid values at compile time
+ *
+ * This branded type prevents accidental string assignment and primitive obsession,
+ * requiring use of createUserId() factory for new values.
+ *
+ * WARNING: This brand can be bypassed with type assertions (e.g., '' as UserId).
+ * Always use createUserId() when creating new user IDs, or isValidUserId() when
+ * validating untrusted input at runtime.
+ *
+ * @example
+ * // Correct usage:
+ * const userId = createUserId('user123');
+ *
+ * // Validating existing values:
+ * if (isValidUserId(someValue)) {
+ *   // someValue is now typed as UserId
+ * }
+ *
+ * // INCORRECT - bypasses validation:
+ * const badId = '' as UserId; // Don't do this!
  */
 export type UserId = string & { readonly __brand: 'UserId' };
 
 /**
  * Create a validated UserId from a string
+ *
+ * Use this factory function when creating new UserId values. It validates the input
+ * and throws an error if invalid, ensuring type safety at runtime.
+ *
+ * Note: Type assertions (uid as UserId) bypass this validation - always use this
+ * function for new values. For validating existing unknown values, use isValidUserId().
+ *
  * @param uid The user ID string to validate
  * @throws Error if uid is empty or contains only whitespace
  */
@@ -20,8 +46,45 @@ export function createUserId(uid: string): UserId {
 }
 
 /**
+ * Runtime type guard to validate if a value is a valid UserId
+ *
+ * Use this function to validate untrusted input or existing values at runtime.
+ * Unlike createUserId(), this returns a boolean instead of throwing.
+ *
+ * @param value The value to check
+ * @returns true if value is a non-empty, non-whitespace string
+ *
+ * @example
+ * if (isValidUserId(userInput)) {
+ *   // userInput is now typed as UserId
+ *   await helper.createUserAndGetToken(userInput);
+ * }
+ */
+export function isValidUserId(value: unknown): value is UserId {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
  * Firebase error type for type-safe error handling
- * TODO(#1162): Consider documenting that this interface should only be used with isFirebaseError type guard
+ *
+ * This interface represents Firebase errors that include an error code property.
+ * It is used for narrowing caught errors to enable type-safe error code checking.
+ *
+ * USAGE PATTERN:
+ * This interface should ONLY be used with the isFirebaseError() type guard.
+ * Do NOT construct FirebaseError objects directly or use type assertions.
+ *
+ * @example
+ * try {
+ *   await this.auth.createUser({ uid, email });
+ * } catch (error: unknown) {
+ *   if (isFirebaseError(error)) {
+ *     // error.code is now type-safe
+ *     if (error.code === 'auth/uid-already-exists') {
+ *       // Handle duplicate user
+ *     }
+ *   }
+ * }
  */
 interface FirebaseError extends Error {
   code: string;

@@ -201,6 +201,30 @@ describe('Firestore Security Rules - Cards Collection', () => {
         });
       }, 'Create with excessively long title should be denied');
     });
+
+    it('should allow create with serverTimestamp() for createdAt', async () => {
+      const userDb = await helper.getFirestoreAsUser(USER_1);
+      const docRef = userDb.collection('cards').doc();
+
+      await docRef.set({
+        title: 'Timestamp Test',
+        type: 'task',
+        subtype: 'default',
+        createdBy: USER_1,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(), // CORRECT usage
+      });
+
+      // Verify create succeeded and timestamp was set
+      const doc = await docRef.get();
+      assert.strictEqual(doc.data()?.title, 'Timestamp Test');
+      assert.ok(doc.data()?.createdAt, 'createdAt should be set');
+      assert.ok(
+        doc.data()?.createdAt instanceof admin.firestore.Timestamp,
+        'createdAt should be a Timestamp'
+      );
+
+      console.log('✓ Create with serverTimestamp() for createdAt succeeded as expected');
+    });
   });
 
   describe('UPDATE operations', () => {
@@ -697,8 +721,6 @@ describe('Firestore Security Rules - Cards Collection', () => {
         subtype: 'default',
         createdBy: USER_1,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastModifiedBy: USER_1,
-        lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       batch.set(card2Ref, {
@@ -707,8 +729,6 @@ describe('Firestore Security Rules - Cards Collection', () => {
         subtype: 'default',
         createdBy: USER_1,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastModifiedBy: USER_1,
-        lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       await batch.commit();
@@ -742,8 +762,6 @@ describe('Firestore Security Rules - Cards Collection', () => {
           subtype: 'default',
           createdBy: USER_1,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          lastModifiedBy: USER_1,
-          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         // Invalid update (trying to change createdBy)
@@ -771,8 +789,6 @@ describe('Firestore Security Rules - Cards Collection', () => {
           subtype: 'default',
           createdBy: USER_2, // USER_1 trying to fake USER_2's creation
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          lastModifiedBy: USER_2,
-          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         await batch.commit();
@@ -849,8 +865,6 @@ describe('Firestore Security Rules - Cards Collection', () => {
           subtype: 'default',
           createdBy: USER_1,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          lastModifiedBy: USER_1,
-          lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         // Invalid create (missing required field)
@@ -944,6 +958,68 @@ describe('Firestore Security Rules - Cards Collection', () => {
             });
         }, `Create in ${collection} should be denied`);
       }
+    });
+  });
+
+  describe('Users collection security rules', () => {
+    it('should allow authenticated users to read any user profile', async () => {
+      // USER_1 creates their profile
+      const user1Db = await helper.getFirestoreAsUser(USER_1);
+      await user1Db.collection('users').doc(USER_1).set({
+        displayName: 'User 1',
+        email: 'user1@test.com',
+      });
+
+      // USER_2 reads USER_1's profile
+      const user2Db = await helper.getFirestoreAsUser(USER_2);
+      const doc = await user2Db.collection('users').doc(USER_1).get();
+
+      assert.ok(doc.exists, 'Authenticated user should read other user profiles');
+      assert.strictEqual(doc.data()?.displayName, 'User 1');
+    });
+
+    it('should deny unauthenticated read of user profiles', { skip: true }, async () => {
+      // SKIP: Firebase Admin SDK with @google-cloud/firestore doesn't properly simulate
+      // unauthenticated access (request.auth == null) in the Firestore Emulator.
+      // Evidence: @google-cloud/firestore always includes auth context when Authorization header is present,
+      // and omitting the header causes connection failures rather than simulating request.auth == null.
+      // Alternative: @firebase/rules-unit-testing library may support this, but requires migration.
+      // Verification: The rules DO deny unauthenticated access (verified via manual testing in Firebase Console).
+      // Tracking issue: #533
+      // Create a profile as USER_1
+      const user1Db = await helper.getFirestoreAsUser(USER_1);
+      await user1Db.collection('users').doc(USER_1).set({
+        displayName: 'User 1',
+      });
+
+      // Try to read as unauthenticated
+      await helper.assertPermissionDenied(async () => {
+        const unauthDb = helper.getFirestoreAsUnauthenticated();
+        await unauthDb.collection('users').doc(USER_1).get();
+      }, 'Unauthenticated read of user profile should be denied');
+    });
+
+    it('should allow users to write their own profile', async () => {
+      const userDb = await helper.getFirestoreAsUser(USER_1);
+      await userDb
+        .collection('users')
+        .doc(USER_1)
+        .set({
+          displayName: 'My Name',
+          preferences: { theme: 'dark' },
+        });
+
+      const doc = await userDb.collection('users').doc(USER_1).get();
+      assert.ok(doc.exists, 'User should create their own profile');
+    });
+
+    it('should deny users from writing other users profiles', async () => {
+      await helper.assertPermissionDenied(async () => {
+        const userDb = await helper.getFirestoreAsUser(USER_1);
+        await userDb.collection('users').doc(USER_2).set({
+          displayName: 'Fake Name',
+        });
+      }, 'User should not write to another user profile');
     });
   });
 });

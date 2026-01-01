@@ -168,8 +168,14 @@ if [ ! -f firebase.json ]; then
 fi
 
 # Validate firebase.json is valid JSON
-if ! jq empty firebase.json 2>/dev/null; then
+JQ_ERROR=$(jq empty firebase.json 2>&1)
+JQ_EXIT=$?
+if [ $JQ_EXIT -ne 0 ]; then
   echo "ERROR: firebase.json contains invalid JSON syntax" >&2
+  if [ -n "$JQ_ERROR" ]; then
+    echo "jq error:" >&2
+    echo "$JQ_ERROR" >&2
+  fi
   echo "Run: jq . firebase.json" >&2
   exit 1
 fi

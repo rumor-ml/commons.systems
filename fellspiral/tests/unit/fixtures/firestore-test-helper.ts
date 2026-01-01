@@ -9,11 +9,16 @@ const PROJECT_ID = 'demo-test';
  * Valid card data that satisfies all security rules.
  * Use this for creating cards that should succeed.
  * All required fields are enforced by TypeScript.
+ *
+ * NOTE: TypeScript cannot enforce non-empty string invariants at compile time.
+ * Fields like title, type, and subtype should be non-empty strings per security rules,
+ * but the type system allows empty strings. The createCardAsUser helper performs
+ * runtime validation. Use TestCardData when testing invalid states.
  */
 export interface ValidCardData {
   title: string;
   type: string;
-  subtype: string; // Required by security rules (added in #244)
+  subtype?: string; // Optional - defaults to 'default' if not provided (required by security rules since #244)
   description?: string;
 }
 
@@ -50,6 +55,13 @@ function parseEmulatorHost(hostString: string): { host: string; port: number } {
 
   const port = parseInt(portStr, 10);
   if (isNaN(port) || port < 1 || port > 65535) {
+    console.error('Invalid port in emulator host string', {
+      hostString,
+      portStr,
+      parsedPort: port,
+      isNaN: isNaN(port),
+      emulatorHost: process.env.FIRESTORE_EMULATOR_HOST,
+    });
     throw new Error(
       `Invalid port in emulator string: "${hostString}". Port must be a number between 1-65535.`
     );
@@ -180,7 +192,6 @@ export class FirestoreTestHelper {
    * @param collection Collection name (default: 'cards')
    * @returns Document reference
    */
-  // TODO(#1042): Test helper creates cards with both createdAt and lastModifiedAt on CREATE
   async createCardAsUser(
     uid: string,
     cardData: ValidCardData, // Enforces all required fields at compile time
@@ -195,8 +206,6 @@ export class FirestoreTestHelper {
       ...cardData, // cardData spreads after to allow override or explicit omission via undefined
       createdBy: uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastModifiedBy: uid,
-      lastModifiedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     console.log(`✓ Card ${docRef.id} created by user ${uid} in collection ${collection}`);
