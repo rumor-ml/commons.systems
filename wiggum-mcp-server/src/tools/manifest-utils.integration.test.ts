@@ -558,15 +558,15 @@ describe('manifest-utils integration tests', () => {
     });
   });
 
-  describe('2-strike logic with filesystem errors', () => {
+  describe('completion determination with filesystem errors', () => {
     /**
      * These tests verify that readManifestFiles properly handles corrupted manifests
-     * and doesn't cause incorrect agent completion status.
+     * and doesn't cause incorrect completion determination.
      *
-     * When manifest reads fail during agent completion tracking:
+     * When manifest reads fail during completion tracking:
      * - Corrupted files should be skipped (logged as warning)
      * - Valid files from other agents should still be processed
-     * - Agent completion status should reflect available data
+     * - Issue counting should reflect available data
      *
      * @see pr-test-analyzer-in-scope-3 for the issue that prompted these tests
      */

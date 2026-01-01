@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { getCardsCollectionName } from '../scripts/lib/collection-names.js';
+import { FIREBASE_PORTS } from '../../shared/config/firebase-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,12 +25,11 @@ async function globalSetup() {
     return;
   }
 
-  // Get emulator host from environment or use default
-  // Use 127.0.0.1 instead of localhost to avoid IPv6 ::1 which sandbox blocks
-  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
-  const [host, port] = firestoreHost.split(':');
+  // Firebase emulator port from shared config
+  const firestoreHost = 'localhost';
+  const firestorePort = FIREBASE_PORTS.firestore;
 
-  console.log(`📦 Seeding Firestore emulator at ${firestoreHost}...`);
+  console.log(`📦 Seeding Firestore emulator at ${firestoreHost}:${firestorePort}...`);
 
   try {
     // Load cards data with detailed path logging
@@ -55,14 +55,33 @@ async function globalSetup() {
     // Import Firestore Admin SDK
     console.log(`   Connecting to Firestore Admin SDK...`);
     const adminModule = await import('firebase-admin');
+
+    // Validate that firebase-admin module loaded correctly
+    if (!adminModule || !adminModule.default) {
+      throw new Error(
+        'Failed to import firebase-admin module - module is undefined or missing default export'
+      );
+    }
+
     const admin = adminModule.default;
 
+    // Validate admin object has required methods
+    if (typeof admin.initializeApp !== 'function' || typeof admin.firestore !== 'function') {
+      throw new Error(
+        'firebase-admin module is missing required methods (initializeApp or firestore)'
+      );
+    }
+
     // Initialize Firebase Admin with emulator
+    // Use per-worktree project ID for data isolation
+    // Integration tests in infrastructure/scripts/tests/firestore-isolation.test.sh verify
+    // that different project IDs correctly isolate Firestore data when using the same emulator.
+    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
     if (!admin.apps.length) {
       admin.initializeApp({
-        projectId: 'demo-test',
+        projectId,
       });
-      console.log(`   ✓ Initialized Firebase Admin (projectId: demo-test)`);
+      console.log(`   ✓ Initialized Firebase Admin (projectId: ${projectId})`);
     } else {
       console.log(`   ✓ Using existing Firebase Admin app`);
     }
@@ -70,12 +89,42 @@ async function globalSetup() {
     // Connect to Firestore emulator
     const db = admin.firestore();
     db.settings({
-      host: `${host}:${port}`,
+      host: `${firestoreHost}:${firestorePort}`,
       ssl: false,
     });
-    console.log(`   ✓ Connected to Firestore emulator at ${host}:${port}`);
+    console.log(`   ✓ Connected to Firestore emulator at ${firestoreHost}:${firestorePort}`);
 
     const collectionName = getCardsCollectionName();
+
+    // Validate collection name is not empty or invalid
+    if (!collectionName || typeof collectionName !== 'string' || collectionName.trim() === '') {
+      throw new Error(
+        'Invalid collection name returned from getCardsCollectionName() - expected non-empty string'
+      );
+    }
+
+    // Validate collection name format (Firestore requires specific format)
+    // Collection names must not contain: / \ . (anywhere), start/end with __, or be longer than 1500 bytes
+    if (
+      collectionName.includes('/') ||
+      collectionName.includes('\\') ||
+      collectionName.includes('.')
+    ) {
+      throw new Error(
+        `Invalid collection name format: "${collectionName}" - cannot contain / \\ or .`
+      );
+    }
+
+    if (collectionName.startsWith('__') || collectionName.endsWith('__')) {
+      throw new Error(
+        `Invalid collection name format: "${collectionName}" - cannot start or end with __`
+      );
+    }
+
+    if (Buffer.byteLength(collectionName, 'utf8') > 1500) {
+      throw new Error(`Invalid collection name: "${collectionName}" - exceeds 1500 bytes`);
+    }
+
     const cardsCollection = db.collection(collectionName);
     console.log(`   Using collection: ${collectionName}`);
 
@@ -117,8 +166,48 @@ async function globalSetup() {
       });
     }
 
-    await batch.commit();
+    // Commit batch and validate the write succeeded
+    const batchWriteResult = await batch.commit();
 
+    // Validate batch write result
+    if (!batchWriteResult || !Array.isArray(batchWriteResult)) {
+      throw new Error(
+        'Batch write returned invalid result - expected array of WriteResult objects'
+      );
+    }
+
+    // Firestore batch.commit() returns array of WriteResult, one per operation
+    // Empty array would indicate no writes occurred
+    if (batchWriteResult.length === 0) {
+      throw new Error(
+        'Batch write completed but no write results returned - expected results for all operations'
+      );
+    }
+
+    // Expected number of writes should match number of cards
+    if (batchWriteResult.length !== cardsData.length) {
+      throw new Error(
+        `Batch write mismatch: wrote ${batchWriteResult.length} documents but expected ${cardsData.length}`
+      );
+    }
+
+    // Verify all documents were actually written by querying the collection
+    console.log('   Verifying batch write success...');
+    const verifyWritten = await cardsCollection.get();
+
+    if (verifyWritten.empty) {
+      throw new Error(
+        'Batch write verification failed - no documents found in collection after write'
+      );
+    }
+
+    if (verifyWritten.size !== cardsData.length) {
+      throw new Error(
+        `Batch write verification failed - found ${verifyWritten.size} documents but expected ${cardsData.length}`
+      );
+    }
+
+    console.log(`   ✓ Verified ${verifyWritten.size} cards written successfully`);
     console.log(`✅ SUCCESS: Seeded ${cardsData.length} cards to Firestore`);
 
     // Seed QA test user in Auth emulator

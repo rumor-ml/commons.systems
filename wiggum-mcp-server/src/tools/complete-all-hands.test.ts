@@ -2,12 +2,12 @@
  * Tests for complete-all-hands tool
  *
  * Comprehensive test coverage for the all-hands review completion tool.
- * Tests cover input validation, 2-strike agent completion logic,
+ * Tests cover input validation, completion logic based on issue counts,
  * state transitions, and phase-based behavior.
  *
  * The complete-all-hands tool (wiggum_complete_all_hands) orchestrates the
- * entire all-hands review workflow with complex logic including:
- * - 2-strike agent completion verification
+ * entire all-hands review workflow with logic including:
+ * - High-priority in-scope issue counting for completion determination
  * - Manifest reading and cleanup
  * - State transitions via advanceToNextStep
  * - Phase-based state updates (PR vs issue)
@@ -166,116 +166,52 @@ describe('complete-all-hands tool', () => {
     });
   });
 
-  describe('2-strike agent completion verification (integration behavior)', () => {
+  describe('completion determination (integration behavior)', () => {
     /**
-     * These tests document the expected 2-strike verification behavior.
-     * The actual logic is in updateAgentCompletionStatus() from manifest-utils.ts.
+     * These tests document the expected completion behavior.
+     * The actual logic counts high-priority in-scope issues from manifests.
      *
-     * 2-Strike Rule Summary:
-     * - First time agent finds 0 high-priority in-scope issues -> "pending completion"
-     * - Second consecutive time with 0 issues -> marked "complete" (stops running)
-     * - If agent finds issues after being pending -> reset to "active"
-     * - Completed agents are NEVER reverted (completion is permanent)
+     * Completion Rule:
+     * - Count high-priority in-scope issues across all agent manifests
+     * - If count is 0, step is complete and workflow advances
+     * - If count > 0, continue iteration with Plan+Fix cycle
      */
 
-    it('should document first zero iteration marks agent as pending', () => {
+    it('should document zero issues triggers step advancement', () => {
       /**
-       * Integration test specification for first zero iteration
+       * Integration test specification for completion
        *
        * SETUP:
        * - Mock detectCurrentState() with phase2 state
-       * - Mock readManifestFiles() to return manifests with 0 high-priority issues
-       * - previousPending = []
-       * - previousCompleted = []
+       * - Mock readManifestFiles() to return manifests with 0 high-priority in-scope issues
        *
        * ACTION:
        * - Call completeAllHands({})
        *
        * EXPECTED STATE CHANGE:
-       * - Agent appears in pendingCompletionAgents array
-       * - Agent does NOT appear in completedAgents array
-       * - Workflow continues to next iteration (does NOT advance step)
+       * - Workflow advances to next step via advanceToNextStep()
+       * - State persisted to PR body
        */
-      assert.ok(true, 'Integration test needed: First zero marks agent pending, not complete');
+      assert.ok(true, 'Integration test needed: Zero issues advances step');
     });
 
-    it('should document second consecutive zero marks agent as complete', () => {
+    it('should document remaining issues continues iteration', () => {
       /**
-       * Integration test specification for second consecutive zero
+       * Integration test specification for continued iteration
        *
        * SETUP:
        * - Mock detectCurrentState() with phase2 state
-       * - Mock state.wiggum.pendingCompletionAgents = ['code-reviewer']
-       * - Mock readManifestFiles() to return manifests with 0 high-priority issues for code-reviewer
+       * - Mock readManifestFiles() to return manifests with N > 0 high-priority in-scope issues
        *
        * ACTION:
        * - Call completeAllHands({})
        *
        * EXPECTED STATE CHANGE:
-       * - code-reviewer appears in completedAgents array
-       * - code-reviewer removed from pendingCompletionAgents array
+       * - Iteration count incremented
+       * - Returns Plan+Fix instructions
+       * - Does NOT advance step
        */
-      assert.ok(true, 'Integration test needed: Second consecutive zero marks agent complete');
-    });
-
-    it('should document pending agent reset when issues found', () => {
-      /**
-       * Integration test specification for pending agent reset
-       *
-       * SETUP:
-       * - Mock detectCurrentState() with phase2 state
-       * - Mock state.wiggum.pendingCompletionAgents = ['code-reviewer']
-       * - Mock readManifestFiles() to return manifest WITH high-priority issues for code-reviewer
-       *
-       * ACTION:
-       * - Call completeAllHands({})
-       *
-       * EXPECTED STATE CHANGE:
-       * - code-reviewer removed from pendingCompletionAgents
-       * - code-reviewer does NOT appear in completedAgents
-       * - Agent is back to "active" state (will run next iteration)
-       */
-      assert.ok(true, 'Integration test needed: Pending agent reset when issues found');
-    });
-
-    it('should document completed agents are never reverted', () => {
-      /**
-       * Integration test specification for completed agent persistence
-       *
-       * SETUP:
-       * - Mock detectCurrentState() with phase2 state
-       * - Mock state.wiggum.completedAgents = ['code-reviewer']
-       * - Mock readManifestFiles() to return manifest WITH high-priority issues for code-reviewer
-       *
-       * ACTION:
-       * - Call completeAllHands({})
-       *
-       * EXPECTED STATE:
-       * - code-reviewer STILL in completedAgents
-       * - Once complete, agent never runs again (even if new issues appear)
-       */
-      assert.ok(true, 'Integration test needed: Completed agents never reverted');
-    });
-
-    it('should document all agents complete triggers step advancement', () => {
-      /**
-       * Integration test specification for all agents complete
-       *
-       * SETUP:
-       * - Mock detectCurrentState() with phase2 state, step = 'p2-4'
-       * - Mock readManifestFiles() to return empty map (all agents 0 issues)
-       * - Mock all agents in pendingCompletionAgents (second iteration)
-       * - Mock safeUpdatePRBodyState() to return { success: true }
-       *
-       * ACTION:
-       * - Call completeAllHands({})
-       *
-       * EXPECTED STATE CHANGE:
-       * - Step advances from 'p2-4' to next step
-       * - completedSteps includes 'p2-4'
-       * - safeCleanupManifestFiles() is called
-       */
-      assert.ok(true, 'Integration test needed: All agents complete triggers step advancement');
+      assert.ok(true, 'Integration test needed: Remaining issues continue iteration');
     });
   });
 

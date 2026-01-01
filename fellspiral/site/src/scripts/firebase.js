@@ -30,6 +30,7 @@ import {
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
+import { FIREBASE_PORTS } from '../../../../shared/config/firebase-ports.ts';
 
 // Initialize Firebase with config
 let app, db, auth, cardsCollection;
@@ -87,6 +88,35 @@ async function getFirebaseConfig() {
 }
 
 /**
+ * Retry an async operation with exponential backoff
+ * @param {Function} operation - Async function to retry
+ * @param {number} maxAttempts - Maximum number of attempts
+ * @param {number} initialDelay - Initial delay in milliseconds
+ * @returns {Promise} Result of the operation
+ */
+async function retryWithBackoff(operation, maxAttempts = 3, initialDelay = 100) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === maxAttempts) {
+        break;
+      }
+
+      const delay = initialDelay * Math.pow(2, attempt - 1);
+      console.debug(`[Firebase] Retry attempt ${attempt}/${maxAttempts} after ${delay}ms`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * Initialize Firebase app and services
  * This is called lazily on first use to allow async config loading
  */
@@ -116,18 +146,25 @@ async function initFirebase() {
 
     // Connect to emulators in test/dev environment
     if (
-      import.meta.env.MODE === 'development' ||
-      import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+      import.meta.env?.MODE === 'development' ||
+      import.meta.env?.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
-      // Use 127.0.0.1 to avoid IPv6 ::1 resolution (emulator only binds to IPv4)
-      const firestoreHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
-      const authHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+      // Use localhost consistently (hosting emulator runs on same machine)
+      // Firebase emulator ports from shared config
+      const firestoreHost = 'localhost';
+      const firestorePort = FIREBASE_PORTS.firestore;
+      const authHost = 'localhost';
+      const authPort = FIREBASE_PORTS.auth;
 
       try {
-        const [firestoreHostname, firestorePort] = firestoreHost.split(':');
-        connectFirestoreEmulator(db, firestoreHostname, parseInt(firestorePort));
-
-        connectAuthEmulator(auth, `http://${authHost}`, { disableWarnings: true });
+        await retryWithBackoff(
+          async () => {
+            connectFirestoreEmulator(db, firestoreHost, firestorePort);
+            connectAuthEmulator(auth, `http://${authHost}:${authPort}`, { disableWarnings: true });
+          },
+          3,
+          100
+        );
       } catch (error) {
         const msg = error.message || '';
         const code = error.code || '';
@@ -143,12 +180,13 @@ async function initFirebase() {
           return { app, db, auth, cardsCollection };
         }
 
-        // Unexpected: CRITICAL ERROR - emulator connection failed
-        console.error('[Firebase] CRITICAL: Emulator connection failed', {
-          message: msg,
-          firestoreHost,
-          authHost,
-          env: import.meta.env.MODE,
+        // Unexpected emulator connection errors after retry attempts
+        // TODO(#1084): firebase.js throws error after logging it, but no user-facing error message in UI
+        console.error('[Firebase] CRITICAL: Emulator connection failed after retries:', {
+          error: msg,
+          firestoreHost: `${firestoreHost}:${firestorePort}`,
+          authHost: `${authHost}:${authPort}`,
+          env: import.meta.env?.MODE,
         });
 
         // CRITICAL: Show blocking error screen and halt execution

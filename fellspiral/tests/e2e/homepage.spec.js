@@ -7,6 +7,16 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/Fellspiral/);
   });
 
+  test('hosting emulator serves on correct port', async ({ page, baseURL }) => {
+    // Verify baseURL matches HOSTING_PORT env var
+    const expectedPort = process.env.HOSTING_PORT || '5002';
+    expect(baseURL).toContain(`:${expectedPort}`);
+
+    // Verify actual connection to hosting emulator
+    await page.goto('/');
+    await expect(page).toHaveTitle(/Fellspiral/);
+  });
+
   test('@smoke should display introduction section', async ({ page }) => {
     await page.goto('/');
 
