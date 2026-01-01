@@ -5,9 +5,11 @@
  * This prevents accidentally passing a regular number where a Port is expected,
  * or mixing up different string-based IDs.
  *
- * This module provides two approaches to validation:
- * 1. Factory functions (createPort, createURL, etc.) - Simple runtime validation
- * 2. Zod schemas (PortSchema, URLSchema, etc.) - Schema-based validation with composability
+ * This module provides two approaches to validation (both produce compatible branded types):
+ * 1. Factory functions (createPort, createURL, etc.) - Direct runtime validation for simple cases
+ * 2. Zod schemas (PortSchema, URLSchema, etc.) - Schema-based validation for composability and detailed errors
+ *
+ * Use factory functions for simple validation, Zod schemas when composing into larger objects.
  *
  * @module branded
  */
@@ -124,8 +126,9 @@ export const PortSchema = z.number().int().min(0).max(65535).brand<'Port'>();
  * @returns Branded Port type
  * @throws ZodError if port is not in valid range (0-65535)
  */
+// TODO(#1140): Consolidate repetitive Zod brand explanation comments
 // Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
+// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
 export const parsePort = (n: unknown): Port => PortSchema.parse(n) as unknown as Port;
 
 /**
@@ -147,7 +150,7 @@ export const URLSchema = z.string().url().brand<'URL'>();
  * @throws ZodError if URL is malformed
  */
 // Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
+// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
 export const parseURL = (s: unknown): URL => URLSchema.parse(s) as unknown as URL;
 
 /**
@@ -169,7 +172,7 @@ export const TimestampSchema = z.number().finite().nonnegative().brand<'Timestam
  * @throws ZodError if timestamp is negative or not finite
  */
 // Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
+// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
 export const parseTimestamp = (ms: unknown): Timestamp =>
   TimestampSchema.parse(ms) as unknown as Timestamp;
 
@@ -192,7 +195,7 @@ export const SessionIDSchema = z.string().min(1).max(256).brand<'SessionID'>();
  * @throws ZodError if session ID is empty or too long
  */
 // Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
+// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
 export const parseSessionID = (s: unknown): SessionID =>
   SessionIDSchema.parse(s) as unknown as SessionID;
 
@@ -215,7 +218,7 @@ export const UserIDSchema = z.string().min(1).max(256).brand<'UserID'>();
  * @throws ZodError if user ID is empty or too long
  */
 // Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
+// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
 export const parseUserID = (s: unknown): UserID => UserIDSchema.parse(s) as unknown as UserID;
 
 /**
@@ -237,7 +240,7 @@ export const FileIDSchema = z.string().min(1).max(256).brand<'FileID'>();
  * @throws ZodError if file ID is empty or too long
  */
 // Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring double casting to bridge them
+// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
 export const parseFileID = (s: unknown): FileID => FileIDSchema.parse(s) as unknown as FileID;
 
 /**
@@ -433,5 +436,7 @@ export function createFileID(s: string): FileID {
 export function unwrap<T>(branded: Brand<T, any>): T {
   // Type-erasing no-op that removes the brand at compile time.
   // The 'any' brand parameter accepts all branded types for convenience.
+  // This is safe because the function simply returns the value unchanged,
+  // only removing the brand from the type signature.
   return branded as T;
 }

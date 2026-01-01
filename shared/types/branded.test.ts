@@ -59,6 +59,11 @@ describe('createPort', () => {
     expect(() => createPort(NaN)).toThrow('Port must be an integer');
   });
 
+  it('rejects infinite port numbers', () => {
+    expect(() => createPort(Infinity)).toThrow('Port must be an integer');
+    expect(() => createPort(-Infinity)).toThrow('Port must be an integer');
+  });
+
   it('returns branded Port type', () => {
     const port: Port = createPort(3000);
     expect(port).toBe(3000);
@@ -76,6 +81,23 @@ describe('createURL', () => {
     expect(() => createURL('not a url')).toThrow('Invalid URL');
     expect(() => createURL('')).toThrow('Invalid URL');
     expect(() => createURL('//example.com')).toThrow('Invalid URL');
+  });
+
+  it('re-throws unexpected errors from URL constructor', () => {
+    // Mock the URL constructor to throw a non-TypeError
+    const originalURL = globalThis.URL;
+    globalThis.URL = class {
+      constructor() {
+        throw new Error('Unexpected error');
+      }
+    } as any;
+
+    try {
+      expect(() => createURL('https://example.com')).toThrow('Unexpected error');
+      expect(() => createURL('https://example.com')).not.toThrow('Invalid URL');
+    } finally {
+      globalThis.URL = originalURL;
+    }
   });
 
   it('returns branded URL type', () => {
@@ -290,6 +312,20 @@ describe('unwrap', () => {
     const fileId = createFileID('hash123');
     const str: string = unwrap(fileId);
     expect(str).toBe('hash123');
+  });
+
+  it('unwraps multiple different branded types correctly', () => {
+    const port = createPort(3000);
+    const url = createURL('https://example.com');
+    const timestamp = createTimestamp(1704067200000);
+
+    // Unwrap in same expression
+    const combined = `${unwrap(url)}:${unwrap(port)} at ${unwrap(timestamp)}`;
+    expect(combined).toBe('https://example.com:3000 at 1704067200000');
+
+    // Unwrap in function call
+    const values = [unwrap(port), unwrap(timestamp)];
+    expect(values).toEqual([3000, 1704067200000]);
   });
 });
 

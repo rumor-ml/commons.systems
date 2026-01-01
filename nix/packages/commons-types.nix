@@ -5,7 +5,7 @@
 # - Type safety utilities
 #
 # Build process:
-# - buildNpmPackage automatically runs: npm ci && npm run build
+# - buildNpmPackage's default build phase runs: npm ci && npm run build
 # - The build script in package.json is "tsc" (TypeScript compilation)
 # - Outputs to dist/ directory with .js, .d.ts, and source map files
 #
@@ -50,9 +50,7 @@ buildNpmPackage {
   forceEmptyCache = true;
 
   # TODO(#1127): Consider adding integration test for Nix build output and package exports
-  # Simple build - just TypeScript compilation
-  # buildNpmPackage handles: npm ci && npm run build
-  # No special hooks needed since there are no workspace dependencies
+  # Simple build - just TypeScript compilation, no workspace dependencies or special hooks needed
 
   # Verify build output completeness
   doInstallCheck = true;
