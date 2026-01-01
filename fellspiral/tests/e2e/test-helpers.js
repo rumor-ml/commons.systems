@@ -204,6 +204,7 @@ export async function createCardViaUI(page, cardData) {
         emulatorHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
       });
 
+      // TODO(#1158): Enhance error message to distinguish between auth initialization and user sign-in issues
       throw new Error(
         `Auth not ready after 5s: ${JSON.stringify(authState)}\n` +
           `Possible causes:\n` +
@@ -283,6 +284,7 @@ async function getFirestoreAdmin() {
       _isFirestoreConfigured = true;
       _configuredFirestoreHost = firestoreHost;
     } catch (error) {
+      // TODO(#1161): Don't set _configuredFirestoreHost when already initialized - we don't know actual host
       // Handle the "already initialized" error explicitly
       if (error.message?.includes('already been initialized')) {
         console.warn('Firestore already configured, reusing existing settings');

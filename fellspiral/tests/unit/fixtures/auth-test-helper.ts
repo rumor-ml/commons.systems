@@ -21,6 +21,7 @@ export function createUserId(uid: string): UserId {
 
 /**
  * Firebase error type for type-safe error handling
+ * TODO(#1162): Consider documenting that this interface should only be used with isFirebaseError type guard
  */
 interface FirebaseError extends Error {
   code: string;

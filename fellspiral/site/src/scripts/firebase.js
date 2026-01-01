@@ -60,6 +60,7 @@ async function getFirebaseConfig() {
         return config;
       }
     } catch (error) {
+      // TODO(#1156): Distinguish between expected (localhost) and unexpected (hosting) config fetch failures
       const isTimeout = error.message?.includes('timeout');
       console.warn('[Firebase] Failed to fetch Firebase Hosting config, using local config:', {
         message: error.message,

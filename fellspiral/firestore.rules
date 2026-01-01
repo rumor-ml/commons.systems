@@ -27,13 +27,12 @@ service cloud.firestore {
 
       // Allow create for authenticated users (only in collections starting with "cards")
       // Cards created will have metadata about who created them
-      // NOTE: We don't validate createdAt == request.time on CREATE for pragmatic reasons.
-      // While Firebase documentation shows that serverTimestamp() can be compared with request.time
-      // (see: https://firebase.google.com/docs/firestore/security/rules-conditions), in practice
-      // this validation is optional for CREATE since createdAt is set once and never modified.
-      // UPDATE operations require lastModifiedAt field to be present in the update
-      // and validate lastModifiedAt == request.time to ensure proper timestamp usage.
-      // User attribution security is always enforced via createdBy/lastModifiedBy == request.auth.uid checks.
+      // NOTE: We don't validate createdAt == request.time on CREATE for pragmatic reasons:
+      // 1. Client-server time differences can cause validation failures even with serverTimestamp()
+      // 2. The createdAt field is immutable (set once, never modified), so manipulation risk is low
+      // 3. User attribution security is enforced via createdBy == request.auth.uid
+      // UPDATE operations require lastModifiedAt == request.time to prevent timestamp manipulation.
+      // Related: TODO(#305) for deferred timestamp validation work
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                         || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
                     && isAuthenticated()

@@ -6,31 +6,28 @@ import assert from 'node:assert';
 const PROJECT_ID = 'demo-test';
 
 /**
- * Card data interface for Firestore security rules testing.
- * Defines the expected structure for card documents.
- *
- * Required fields match Firestore security rules validation:
- * - title: Required by security rules
- * - type: Required by security rules
- * - subtype: Required by security rules (added in #244)
- *
- * Optional fields:
- * - description: Optional text content
- * - Additional fields allowed via index signature for testing flexibility
- *
- * NOTE: `subtype` is marked optional in TypeScript to support testing scenarios
- * where we intentionally omit required fields to verify security rules deny the
- * operation. The helper's `createCardAsUser` method provides a default subtype
- * value for valid card creation. For testing missing field validation, use
- * direct Firestore calls via `getFirestoreAsUser()`.
+ * Valid card data that satisfies all security rules.
+ * Use this for creating cards that should succeed.
+ * All required fields are enforced by TypeScript.
  */
-export interface CardData {
+export interface ValidCardData {
   title: string;
   type: string;
-  subtype?: string; // Optional to allow testing missing field scenarios
+  subtype: string; // Required by security rules (added in #244)
   description?: string;
-  [key: string]: unknown; // Allow additional fields for testing
 }
+
+/**
+ * Partial card data for testing security rule validation.
+ * Allows omitting required fields to test denial scenarios.
+ * Use this only when testing negative cases (permission denied).
+ */
+export type TestCardData = {
+  title?: string;
+  type?: string;
+  subtype?: string;
+  description?: string;
+} & Record<string, unknown>; // Allow extra fields only in test type
 
 /**
  * Parse emulator host string into host and port components
@@ -186,7 +183,7 @@ export class FirestoreTestHelper {
   // TODO(#1042): Test helper creates cards with both createdAt and lastModifiedAt on CREATE
   async createCardAsUser(
     uid: string,
-    cardData: CardData,
+    cardData: ValidCardData, // Enforces all required fields at compile time
     collection: string = 'cards'
   ): Promise<admin.firestore.DocumentReference> {
     this.usedCollections.add(collection);
@@ -210,13 +207,13 @@ export class FirestoreTestHelper {
    * Update a card as a specific user
    * @param uid User ID to update card as
    * @param cardId Card document ID
-   * @param updates Updates to apply (partial CardData)
+   * @param updates Updates to apply (partial ValidCardData)
    * @param collection Collection name (default: 'cards')
    */
   async updateCardAsUser(
     uid: string,
     cardId: string,
-    updates: Partial<CardData>,
+    updates: Partial<ValidCardData>, // Use ValidCardData for type safety
     collection: string = 'cards'
   ): Promise<void> {
     this.usedCollections.add(collection);
