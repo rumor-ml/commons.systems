@@ -1079,6 +1079,39 @@ func TestTreeUpdateMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("tree_getter_returns_independent_copy", func(t *testing.T) {
+		// Create message with tree
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path1", "@0", 0, true, false, "zsh", "title1", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1})
+
+		msg := NewTreeUpdateMessage(1, tree)
+
+		// Get tree from message
+		returnedTree := msg.Tree()
+
+		// Mutate RETURNED tree
+		pane2, _ := NewPane("%2", "/path2", "@1", 1, false, false, "vim", "title2", false)
+		returnedTree.SetPanes("repo1", "branch1", []Pane{pane1, pane2})
+		returnedTree.SetPanes("repo2", "branch2", []Pane{pane2})
+
+		// Get tree again - should be unchanged because Tree() returns a clone
+		tree2 := msg.Tree()
+
+		if len(tree2.Repos()) != 1 {
+			t.Errorf("Message tree was mutated by external code: got %d repos, want 1", len(tree2.Repos()))
+		}
+
+		panes, ok := tree2.GetPanes("repo1", "branch1")
+		if !ok || len(panes) != 1 {
+			t.Errorf("Message tree was mutated: got %d panes, want 1", len(panes))
+		}
+
+		if _, ok := tree2.GetPanes("repo2", "branch2"); ok {
+			t.Error("Message tree was mutated: repo2 should not exist")
+		}
+	})
+
 	t.Run("concurrent_mutation_safety", func(t *testing.T) {
 		// Test that tree can be safely mutated while message is being broadcast
 		tree := NewRepoTree()

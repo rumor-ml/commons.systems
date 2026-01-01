@@ -621,3 +621,202 @@ func TestTreeUpdate_NilTreePersistsErrorUntilRecovery(t *testing.T) {
 		t.Errorf("Expected 2 panes after recovery, got %d", len(panes))
 	}
 }
+
+// TestTreeUpdate_RaceWithAlertChange verifies correct behavior when:
+// 1. Client has tree with panes %1, %2, %3
+// 2. alert_change arrives for pane %2 (adds alert)
+// 3. tree_update arrives removing pane %2 (reconciles alerts)
+// Race: alert_change and tree_update both modify m.alerts
+func TestTreeUpdate_RaceWithAlertChange(t *testing.T) {
+	m := initialModel()
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {"main": {testPane("%1", "@1", 0, true), testPane("%2", "@2", 1, false)}},
+	})
+	m.tree = initialTree
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Goroutine 1: alert_change for pane %2
+	go func() {
+		defer wg.Done()
+		msg := daemonEventMsg{msg: daemon.Message{Type: daemon.MsgTypeAlertChange, PaneID: "%2", EventType: "stop", Created: true}}
+		m.Update(msg)
+	}()
+
+	// Goroutine 2: tree_update removing pane %2 (triggers reconciliation)
+	go func() {
+		defer wg.Done()
+		newTree := testTree(map[string]map[string][]tmux.Pane{
+			"test-repo": {"main": {testPane("%1", "@1", 0, true)}},
+		})
+		msg := daemonEventMsg{msg: daemon.Message{Type: daemon.MsgTypeTreeUpdate, Tree: &newTree}}
+		m.Update(msg)
+	}()
+
+	wg.Wait()
+
+	// Verify: No race detector warnings
+	// Verify: Alert state is consistent (either pane %2 exists with alert, or pane doesn't exist and alert is removed)
+	m.alertsMu.RLock()
+	_, hasAlert := m.alerts["%2"]
+	m.alertsMu.RUnlock()
+
+	panes, _ := m.tree.GetPanes("test-repo", "main")
+	hasPane2InTree := false
+	for _, p := range panes {
+		if p.ID() == "%2" {
+			hasPane2InTree = true
+			break
+		}
+	}
+
+	// Invariant: alert exists IFF pane exists in tree
+	if hasAlert != hasPane2InTree {
+		t.Errorf("Inconsistent state: hasAlert=%v, hasPane2InTree=%v", hasAlert, hasPane2InTree)
+	}
+}
+
+// TestTreeUpdate_InvalidTreeData verifies client behavior when tree_update contains
+// malformed Tree data (e.g., repos with empty names, branches with empty names).
+// While UnmarshalJSON validates during deserialization, this tests client-side defense.
+func TestTreeUpdate_InvalidTreeData(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupTree   func() tmux.RepoTree
+		expectError bool
+	}{
+		{
+			name: "empty_repo_name",
+			setupTree: func() tmux.RepoTree {
+				tree := tmux.NewRepoTree()
+				pane := testPane("%1", "@1", 0, true)
+				// Attempt to create invalid tree - SetPanes validates and returns error
+				err := tree.SetPanes("", "branch", []tmux.Pane{pane})
+				if err == nil {
+					t.Fatal("Expected SetPanes to reject empty repo name")
+				}
+				return tree
+			},
+			expectError: false, // Empty tree is valid (no repos)
+		},
+		{
+			name: "empty_branch_name",
+			setupTree: func() tmux.RepoTree {
+				tree := tmux.NewRepoTree()
+				pane := testPane("%1", "@1", 0, true)
+				// Attempt to create invalid tree - SetPanes validates and returns error
+				err := tree.SetPanes("repo", "", []tmux.Pane{pane})
+				if err == nil {
+					t.Fatal("Expected SetPanes to reject empty branch name")
+				}
+				return tree
+			},
+			expectError: false, // Empty tree is valid (no repos)
+		},
+		{
+			name: "valid_tree",
+			setupTree: func() tmux.RepoTree {
+				tree := tmux.NewRepoTree()
+				pane := testPane("%1", "@1", 0, true)
+				err := tree.SetPanes("valid-repo", "main", []tmux.Pane{pane})
+				if err != nil {
+					t.Fatalf("Unexpected error creating valid tree: %v", err)
+				}
+				return tree
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := initialModel()
+			tree := tt.setupTree()
+
+			msg := daemonEventMsg{
+				msg: daemon.Message{
+					Type: daemon.MsgTypeTreeUpdate,
+					Tree: &tree,
+				},
+			}
+
+			// Client should handle tree gracefully (either accept valid or reject invalid)
+			updatedModel, _ := m.Update(msg)
+			m = updatedModel.(model)
+
+			if tt.expectError {
+				// Verify client handled invalid data gracefully
+				m.errorMu.RLock()
+				hasError := m.treeRefreshError != nil
+				m.errorMu.RUnlock()
+
+				if !hasError {
+					t.Errorf("Expected client to detect and report invalid tree data")
+				}
+			} else {
+				// Verify client accepted valid tree without error
+				m.errorMu.RLock()
+				hasError := m.treeRefreshError != nil
+				m.errorMu.RUnlock()
+
+				if hasError {
+					t.Errorf("Expected client to accept valid tree, got error: %v", m.treeRefreshError)
+				}
+			}
+		})
+	}
+}
+
+// TestTreeError_MultipleConsecutiveFailures verifies that client correctly handles
+// multiple consecutive tree_error messages without a successful tree_update in between.
+// Daemon broadcasts tree_error every 30s if collection keeps failing.
+func TestTreeError_MultipleConsecutiveFailures(t *testing.T) {
+	m := initialModel()
+
+	// Setup: Client has valid initial tree
+	validTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {testPane("%1", "@1", 0, true)},
+		},
+	})
+	m.tree = validTree
+
+	// Receive 5 consecutive tree_error messages (simulating 2.5 minutes of failures)
+	for i := 1; i <= 5; i++ {
+		errMsg := daemonEventMsg{
+			msg: daemon.Message{
+				Type:   daemon.MsgTypeTreeError,
+				SeqNum: uint64(i),
+				Error:  fmt.Sprintf("collection failed: attempt %d", i),
+			},
+		}
+
+		updatedModel, _ := m.Update(errMsg)
+		m = updatedModel.(model)
+	}
+
+	// Verify: Error state is set with latest error
+	m.errorMu.RLock()
+	err := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if err == nil {
+		t.Fatal("Expected treeRefreshError to be set after consecutive failures")
+	}
+
+	if !strings.Contains(err.Error(), "attempt 5") {
+		t.Errorf("Expected error to contain latest failure message, got: %v", err)
+	}
+
+	// Verify: Tree preserved (not cleared)
+	if len(m.tree.Repos()) != 1 {
+		t.Errorf("Tree should preserve last good state, got %d repos", len(m.tree.Repos()))
+	}
+
+	// Verify: No memory leak (error doesn't accumulate)
+	errorLen := len(err.Error())
+	if errorLen > 500 {
+		t.Errorf("Error message suspiciously long (%d chars), possible accumulation", errorLen)
+	}
+}

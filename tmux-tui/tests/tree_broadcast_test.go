@@ -196,8 +196,14 @@ func TestTreeBroadcast_MultipleClients(t *testing.T) {
 // This test is skipped by default since simulating tree collection errors
 // requires special setup (e.g., tmux not running).
 func TestTreeBroadcast_CollectionError(t *testing.T) {
-	t.Skip("Requires special setup to simulate tree collection errors")
-	// TODO: Implement when we have a mechanism to inject collection errors
+	t.Skip("TODO(#482): Implement tree collection error test with dependency injection")
+	// Implementation plan:
+	// 1. Add Collector interface for dependency injection in daemon
+	// 2. Create FailingCollector test implementation that returns errors
+	// 3. Verify tree_error broadcast to all clients with correct error details
+	// 4. Verify error metrics tracking (treeBroadcastErrors, treeErrors)
+	// 5. Verify client stderr output formatting for tree errors
+	// 6. Verify recovery behavior when collector succeeds after failures
 }
 
 // TestTreeBroadcast_ClientReconnect verifies that a newly connected client
@@ -274,9 +280,9 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 			case msg := <-client2.Events():
 				if msg.Type == daemon.MsgTypeFullState {
 					t.Logf("Client 2 received full_state after reconnect")
-					// Note: full_state doesn't include tree by design - tree synchronization
-					// happens via tree_update broadcasts (see watchTree() in daemon)
-					// Tree will come in subsequent tree_update broadcast
+					// Note: full_state messages don't currently include tree (Tree field is nil).
+					// Tree synchronization happens via tree_update broadcasts (see watchTree() in daemon).
+					// Tree will come in subsequent tree_update broadcast (~1-2s after connection).
 					return true, nil
 				}
 				t.Logf("Waiting for full_state, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)

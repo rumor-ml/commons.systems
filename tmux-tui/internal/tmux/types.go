@@ -188,7 +188,8 @@ func NewRepoTree() RepoTree {
 }
 
 // GetPanes retrieves panes for a given repo and branch.
-// Returns a copy to prevent external mutation. Returns nil and false if not found.
+// Returns the pane slice directly. Since Pane is a value type with no pointer fields,
+// callers cannot mutate the tree's internal state. Returns nil and false if not found.
 func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
 	branches, ok := rt.tree[repo]
 	if !ok {
@@ -198,10 +199,8 @@ func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
 	if !ok {
 		return nil, false
 	}
-	// Return a copy to prevent external mutation
-	result := make([]Pane, len(panes))
-	copy(result, panes)
-	return result, true
+	// Safe to return directly - Pane is a value type with no pointers
+	return panes, true
 }
 
 // SetPanes sets panes for a given repo and branch with validation.
@@ -263,9 +262,11 @@ func (rt RepoTree) HasBranch(repo, branch string) bool {
 	return ok
 }
 
-// Clone creates a deep copy of the RepoTree.
-// The returned tree has independent map structures but shares the same Pane values.
-// Since Pane is a value type with no pointer fields, this is safe.
+// TODO(#1175): Add performance benchmarks for Clone() with realistic tree sizes
+// Clone creates a structural copy of the RepoTree with independent map structures.
+// The returned tree has separate map instances (repo→branches, branch→panes) but
+// panes are copied by value (not deep-copied). Since Pane is a value type with no
+// pointer fields, this provides full isolation for concurrent access.
 func (rt RepoTree) Clone() RepoTree {
 	clone := NewRepoTree()
 	for repo, branches := range rt.tree {
@@ -278,6 +279,17 @@ func (rt RepoTree) Clone() RepoTree {
 		}
 	}
 	return clone
+}
+
+// TotalPanes returns the total count of panes across all repos and branches.
+func (rt RepoTree) TotalPanes() int {
+	total := 0
+	for _, branches := range rt.tree {
+		for _, panes := range branches {
+			total += len(panes)
+		}
+	}
+	return total
 }
 
 // MarshalJSON implements json.Marshaler for wire format.

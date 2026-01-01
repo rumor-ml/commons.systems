@@ -44,13 +44,14 @@ type model struct {
 	// 4. persistenceError != "": Daemon persistence failure - displays warning banner
 	// 5. audioError != "": Audio playback failure - displays warning banner
 	// 6. treeRefreshError != nil: Tmux tree refresh failure - displays warning banner
-	err              error
-	alertsDisabled   bool
-	alertError       string
-	persistenceError string
-	audioError       string
-	treeRefreshError error         // NEW: tree refresh failure tracking
-	errorMu          *sync.RWMutex // NEW: protects all error fields
+	err                   error
+	alertsDisabled        bool
+	alertError            string
+	persistenceError      string
+	audioError            string
+	treeRefreshError      error         // NEW: tree refresh failure tracking
+	consecutiveNilUpdates int           // Circuit breaker for malformed tree updates
+	errorMu               *sync.RWMutex // NEW: protects all error fields
 
 	// UI state
 	width  int
@@ -216,9 +217,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypePaneFocus:
-			// Pane focus changed - update active pane
+			// Pane focus changed - logged for debugging, tree state comes via tree_update
 			debug.Log("TUI_PANE_FOCUS paneID=%s", msg.msg.ActivePaneID)
-			m.updateActivePane(msg.msg.ActivePaneID)
 			return m, m.continueWatchingDaemon()
 
 		case daemon.MsgTypeAlertChange:
@@ -276,10 +276,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				debug.Log("TUI_TOGGLE_UNBLOCK branch=%s", currentBranch)
 				if m.daemonClient != nil {
 					if err := m.daemonClient.UnblockBranch(currentBranch); err != nil {
-						fmt.Fprintf(os.Stderr, "Error unblocking branch: %v\n", err)
+						errMsg := fmt.Sprintf("Failed to unblock branch '%s': %v\nBranch remains blocked.", currentBranch, err)
+						fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+
+						// Make error visible in UI
+						m.errorMu.Lock()
+						m.persistenceError = errMsg
+						m.errorMu.Unlock()
+
+						return m, m.continueWatchingDaemon()
 					}
+					// Request sent successfully - waiting for daemon block_change confirmation
 				}
-				// Continue watching daemon
 				return m, m.continueWatchingDaemon()
 			}
 
@@ -354,12 +362,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case daemon.MsgTypeTreeUpdate:
 			// Tree update received from daemon
 			if msg.msg.Tree == nil {
+				m.consecutiveNilUpdates++
+
 				err := fmt.Errorf("received tree_update with nil Tree field (seq=%d)", msg.msg.SeqNum)
-				debug.Log("TUI_TREE_UPDATE_INVALID error=%v", err)
+				debug.Log("TUI_TREE_UPDATE_INVALID error=%v consecutive=%d", err, m.consecutiveNilUpdates)
 
 				// User-facing error notification
 				fmt.Fprintf(os.Stderr, "ERROR: Received invalid tree update from daemon (seqNum=%d)\n", msg.msg.SeqNum)
 				fmt.Fprintf(os.Stderr, "       Tree data is missing. This indicates a daemon bug or protocol mismatch.\n")
+
+				// Circuit breaker: disconnect after 3 consecutive nil updates
+				if m.consecutiveNilUpdates >= 3 {
+					fmt.Fprintf(os.Stderr, "CRITICAL: Received %d consecutive nil tree updates. Disconnecting from daemon.\n", m.consecutiveNilUpdates)
+					fmt.Fprintf(os.Stderr, "\n")
+					fmt.Fprintf(os.Stderr, "       To recover:\n")
+					fmt.Fprintf(os.Stderr, "       1. pkill tmux-tui-daemon\n")
+					fmt.Fprintf(os.Stderr, "       2. tmux-tui-daemon &\n")
+					fmt.Fprintf(os.Stderr, "       3. Restart tmux-tui clients\n")
+
+					if m.daemonClient != nil {
+						m.daemonClient.Close()
+					}
+					m.daemonClient = nil
+					m.errorMu.Lock()
+					m.treeRefreshError = fmt.Errorf("daemon sending malformed updates - disconnected after %d failures", m.consecutiveNilUpdates)
+					m.errorMu.Unlock()
+					return m, nil // Stop watching
+				}
+
 				fmt.Fprintf(os.Stderr, "       Tree display will show stale data. Consider restarting the daemon.\n")
 
 				m.errorMu.Lock()
@@ -368,6 +398,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				return m, m.continueWatchingDaemon()
 			}
+
+			// Valid tree received - reset circuit breaker
+			m.consecutiveNilUpdates = 0
 
 			m.tree = *msg.msg.Tree
 			// Reconcile alerts with lock held to prevent race with fast path
@@ -378,15 +411,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			removed := alertsBefore - alertsAfter
 
 			// Count total panes in tree
-			totalPanes := 0
-			for _, repo := range m.tree.Repos() {
-				for _, branch := range m.tree.Branches(repo) {
-					panes, ok := m.tree.GetPanes(repo, branch)
-					if ok {
-						totalPanes += len(panes)
-					}
-				}
-			}
+			totalPanes := m.tree.TotalPanes()
 
 			// Log reconciliation results
 			debug.Log("TUI_RECONCILE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
@@ -566,15 +591,6 @@ func reconcileAlerts(tree tmux.RepoTree, alerts map[string]string) map[string]st
 		}
 	}
 	return alerts
-}
-
-// updateActivePane is a no-op and may be removable in future refactoring.
-// This function was part of the legacy client-side tree collection architecture.
-// With the daemon-based tree broadcast model (#482), clients receive complete tree
-// state via tree_update messages. The WindowActive flag is set during daemon's tree
-// collection and broadcast to all clients.
-func (m *model) updateActivePane(activePaneID string) {
-	// No-op: Tree updates now come from daemon via tree_update messages.
 }
 
 // continueWatchingDaemon returns the appropriate command to continue watching daemon events

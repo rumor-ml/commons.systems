@@ -117,7 +117,7 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
-	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update only. Pointer enables omitempty to reduce message size.
+	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update only. Pointer enables omitempty to reduce message size. WARNING: JSON marshal/unmarshal creates shallow copy - internal map pointers are shared. See NewTreeUpdateMessage() for deep copy behavior.
 }
 
 // PROTOCOL V2 MIGRATION GUIDE
@@ -492,6 +492,7 @@ func ValidateMessage(msg Message) error {
 	case MsgTypeSyncWarning, MsgTypePersistenceError, MsgTypeAudioError:
 		// Error field is optional but recommended
 	case MsgTypeTreeUpdate, MsgTypeTreeError:
+		// TODO(#1176): Add Tree field validation for tree_update and Error field validation for tree_error
 		// Tree field is optional for tree_error (error case)
 		// Tree field validated when constructing TreeUpdateMessageV2 via FromWireFormat
 	default:

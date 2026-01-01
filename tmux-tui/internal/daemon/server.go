@@ -578,6 +578,7 @@ func (d *AlertDaemon) watchPaneFocus() {
 
 // watchTree monitors tmux tree state and broadcasts updates every 30 seconds.
 // This centralizes tree collection in the daemon, eliminating N×client redundant queries.
+// Tree is collected and broadcast immediately on daemon startup, then every 30s thereafter.
 func (d *AlertDaemon) watchTree() {
 	// Collect immediately on start
 	d.collectAndBroadcastTree()
@@ -635,7 +636,32 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 
 	// Broadcast tree_update to all clients
 	msg := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
-	d.broadcastTree(msg.ToWireFormat())
+
+	// Defensive: Verify message construction succeeded
+	if msg == nil {
+		d.treeMsgConstructErrors.Add(1)
+		errMsg := "tree_update message construction returned nil (possible OOM or data corruption)"
+		d.lastTreeMsgConstructErr.Store(errMsg)
+
+		debug.Log("DAEMON_TREE_MSG_CONSTRUCT_FAILED repos=%d error=%s", len(tree.Repos()), errMsg)
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+		fmt.Fprintf(os.Stderr, "       Clients will not receive this tree update\n")
+		return
+	}
+
+	// Verify wire format conversion succeeds
+	wireMsg := msg.ToWireFormat()
+	if wireMsg.Tree == nil {
+		d.treeMsgConstructErrors.Add(1)
+		errMsg := "ToWireFormat returned message with nil Tree field"
+		d.lastTreeMsgConstructErr.Store(errMsg)
+
+		debug.Log("DAEMON_WIRE_FORMAT_FAILED error=%s", errMsg)
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+		return
+	}
+
+	d.broadcastTree(wireMsg)
 }
 
 // isDuplicateEvent checks if an event is a duplicate within the deduplication window.
@@ -1358,6 +1384,25 @@ func (d *AlertDaemon) broadcastTree(msg Message) {
 //   - Sends the message without holding any locks (prevents blocking other operations)
 //   - Safe to call concurrently for different clients
 func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) error {
+	// If collector is nil, send tree_error to explain why tree is empty
+	if d.collector == nil {
+		errMsg, ok := d.lastTreeError.Load().(string)
+		if !ok || errMsg == "" {
+			errMsg = "tree collector initialization failed - tree broadcasts disabled"
+		}
+
+		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
+		if msgErr == nil {
+			wireMsg := msg.ToWireFormat()
+			if sendErr := client.sendMessage(wireMsg); sendErr != nil {
+				debug.Log("DAEMON_TREE_ERROR_SEND_FAILED client=%s error=%v", clientID, sendErr)
+			} else {
+				debug.Log("DAEMON_TREE_ERROR_SENT client=%s reason=%s", clientID, errMsg)
+			}
+		}
+		// Continue to send alerts and blocked branches
+	}
+
 	alertsCopy := d.copyAlerts()
 	blockedCopy := d.copyBlockedBranches()
 
