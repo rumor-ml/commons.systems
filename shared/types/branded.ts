@@ -20,8 +20,8 @@ import { z } from 'zod';
  * Brand utility type
  *
  * Creates a branded type by intersecting the base type with a unique brand.
- * The brand property exists only in TypeScript's type system and is completely
- * erased during compilation - it has no runtime representation.
+ * The brand property exists only in TypeScript's type system - there is no runtime
+ * representation. The __brand symbol is declared but never instantiated or accessed.
  * Uses a unique symbol to ensure brands cannot be constructed literally.
  *
  * @example
@@ -289,11 +289,12 @@ export function createPort(n: number): Port {
  */
 export function createURL(s: string): URL {
   try {
-    new globalThis.URL(s); // Validate using globalThis.URL constructor
+    // Validate URL by attempting to construct it (result discarded since we only need validation)
+    new globalThis.URL(s);
     return s as URL;
   } catch (error) {
     // The URL constructor throws TypeError for invalid URLs. We catch TypeError specifically
-    // to convert validation failures into our branded Error type. Other error types (e.g.,
+    // to convert validation failures into descriptive Error messages. Other error types (e.g.,
     // out of memory) represent unexpected system errors and should propagate unchanged.
     if (error instanceof TypeError) {
       throw new Error(`Invalid URL: ${s} (${error.message})`);
@@ -447,9 +448,9 @@ export function createFileID(s: string): FileID {
  * ```
  */
 export function unwrap<T>(branded: Brand<T, any>): T {
-  // Returns the input value unchanged. The return type annotation (T instead of Brand<T, any>)
-  // allows TypeScript to infer the base type, effectively "unwrapping" the brand at the type level.
+  // Returns the input value unchanged. The return type is explicitly typed as T
+  // (not Brand<T, any>), which removes the brand at the type level. This is a
+  // type-level cast that's safe because brands have no runtime representation.
   // The 'any' brand parameter accepts all branded types for convenience.
-  // This is safe because brands are phantom types with no runtime representation.
   return branded as T;
 }

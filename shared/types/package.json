@@ -12,7 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "prebuild": "npm run clean",
+    "build": "tsc && node -e \"['dist/branded.js','dist/branded.d.ts','dist/branded.js.map'].forEach(f=>{if(!require('fs').existsSync(f))throw new Error('Missing: '+f)})\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf dist"

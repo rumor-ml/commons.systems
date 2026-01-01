@@ -444,25 +444,28 @@ describe('Zod Schema Validation', () => {
     it('safeParse returns correct success/error objects', () => {
       const validResult = PortSchema.safeParse(3000);
       expect(validResult.success).toBe(true);
-      if (validResult.success) {
-        expect(validResult.data).toBe(3000);
+      if (!validResult.success) {
+        throw new Error('Expected successful parse but got error');
       }
+      expect(validResult.data).toBe(3000);
 
       const invalidResult = PortSchema.safeParse(-1);
       expect(invalidResult.success).toBe(false);
-      if (!invalidResult.success) {
-        expect(invalidResult.error).toBeInstanceOf(ZodError);
+      if (invalidResult.success) {
+        throw new Error('Expected parse failure but got success');
       }
+      expect(invalidResult.error).toBeInstanceOf(ZodError);
     });
 
     it('safeParse provides detailed error for type mismatch', () => {
       const result = PortSchema.safeParse('not a number');
       expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0].code).toBe('invalid_type');
-        expect(result.error.issues[0].expected).toBe('number');
-        expect(result.error.issues[0].received).toBe('string');
+      if (result.success) {
+        throw new Error('Expected parse failure for invalid type');
       }
+      expect(result.error.issues[0].code).toBe('invalid_type');
+      expect(result.error.issues[0].expected).toBe('number');
+      expect(result.error.issues[0].received).toBe('string');
     });
 
     it('parsePort helper works correctly', () => {
@@ -507,19 +510,28 @@ describe('Zod Schema Validation', () => {
     it('safeParse returns correct success/error objects', () => {
       const validResult = URLSchema.safeParse('https://example.com');
       expect(validResult.success).toBe(true);
+      if (!validResult.success) {
+        throw new Error('Expected successful parse but got error');
+      }
+      expect(validResult.data).toBe('https://example.com');
 
       const invalidResult = URLSchema.safeParse('not a url');
       expect(invalidResult.success).toBe(false);
+      if (invalidResult.success) {
+        throw new Error('Expected parse failure but got success');
+      }
+      expect(invalidResult.error).toBeInstanceOf(ZodError);
     });
 
     it('safeParse provides detailed error for type mismatch', () => {
       const result = URLSchema.safeParse(123);
       expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0].code).toBe('invalid_type');
-        expect(result.error.issues[0].expected).toBe('string');
-        expect(result.error.issues[0].received).toBe('number');
+      if (result.success) {
+        throw new Error('Expected parse failure for invalid type');
       }
+      expect(result.error.issues[0].code).toBe('invalid_type');
+      expect(result.error.issues[0].expected).toBe('string');
+      expect(result.error.issues[0].received).toBe('number');
     });
 
     it('parseURL helper works correctly', () => {
@@ -559,21 +571,31 @@ describe('Zod Schema Validation', () => {
     });
 
     it('safeParse returns correct success/error objects', () => {
-      const validResult = TimestampSchema.safeParse(Date.now());
+      const now = Date.now();
+      const validResult = TimestampSchema.safeParse(now);
       expect(validResult.success).toBe(true);
+      if (!validResult.success) {
+        throw new Error('Expected successful parse but got error');
+      }
+      expect(validResult.data).toBe(now);
 
       const invalidResult = TimestampSchema.safeParse(-1);
       expect(invalidResult.success).toBe(false);
+      if (invalidResult.success) {
+        throw new Error('Expected parse failure but got success');
+      }
+      expect(invalidResult.error).toBeInstanceOf(ZodError);
     });
 
     it('safeParse provides detailed error for type mismatch', () => {
       const result = TimestampSchema.safeParse('not a number');
       expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0].code).toBe('invalid_type');
-        expect(result.error.issues[0].expected).toBe('number');
-        expect(result.error.issues[0].received).toBe('string');
+      if (result.success) {
+        throw new Error('Expected parse failure for invalid type');
       }
+      expect(result.error.issues[0].code).toBe('invalid_type');
+      expect(result.error.issues[0].expected).toBe('number');
+      expect(result.error.issues[0].received).toBe('string');
     });
 
     it('parseTimestamp helper works correctly', () => {
@@ -615,19 +637,28 @@ describe('Zod Schema Validation', () => {
     it('safeParse returns correct success/error objects', () => {
       const validResult = SessionIDSchema.safeParse('session123');
       expect(validResult.success).toBe(true);
+      if (!validResult.success) {
+        throw new Error('Expected successful parse but got error');
+      }
+      expect(validResult.data).toBe('session123');
 
       const invalidResult = SessionIDSchema.safeParse('');
       expect(invalidResult.success).toBe(false);
+      if (invalidResult.success) {
+        throw new Error('Expected parse failure but got success');
+      }
+      expect(invalidResult.error).toBeInstanceOf(ZodError);
     });
 
     it('safeParse provides detailed error for type mismatch', () => {
       const result = SessionIDSchema.safeParse(123);
       expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0].code).toBe('invalid_type');
-        expect(result.error.issues[0].expected).toBe('string');
-        expect(result.error.issues[0].received).toBe('number');
+      if (result.success) {
+        throw new Error('Expected parse failure for invalid type');
       }
+      expect(result.error.issues[0].code).toBe('invalid_type');
+      expect(result.error.issues[0].expected).toBe('string');
+      expect(result.error.issues[0].received).toBe('number');
     });
 
     it('parseSessionID helper works correctly', () => {
@@ -666,19 +697,28 @@ describe('Zod Schema Validation', () => {
     it('safeParse returns correct success/error objects', () => {
       const validResult = UserIDSchema.safeParse('user123');
       expect(validResult.success).toBe(true);
+      if (!validResult.success) {
+        throw new Error('Expected successful parse but got error');
+      }
+      expect(validResult.data).toBe('user123');
 
       const invalidResult = UserIDSchema.safeParse('');
       expect(invalidResult.success).toBe(false);
+      if (invalidResult.success) {
+        throw new Error('Expected parse failure but got success');
+      }
+      expect(invalidResult.error).toBeInstanceOf(ZodError);
     });
 
     it('safeParse provides detailed error for type mismatch', () => {
       const result = UserIDSchema.safeParse(123);
       expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0].code).toBe('invalid_type');
-        expect(result.error.issues[0].expected).toBe('string');
-        expect(result.error.issues[0].received).toBe('number');
+      if (result.success) {
+        throw new Error('Expected parse failure for invalid type');
       }
+      expect(result.error.issues[0].code).toBe('invalid_type');
+      expect(result.error.issues[0].expected).toBe('string');
+      expect(result.error.issues[0].received).toBe('number');
     });
 
     it('parseUserID helper works correctly', () => {
@@ -717,19 +757,28 @@ describe('Zod Schema Validation', () => {
     it('safeParse returns correct success/error objects', () => {
       const validResult = FileIDSchema.safeParse('hash123');
       expect(validResult.success).toBe(true);
+      if (!validResult.success) {
+        throw new Error('Expected successful parse but got error');
+      }
+      expect(validResult.data).toBe('hash123');
 
       const invalidResult = FileIDSchema.safeParse('');
       expect(invalidResult.success).toBe(false);
+      if (invalidResult.success) {
+        throw new Error('Expected parse failure but got success');
+      }
+      expect(invalidResult.error).toBeInstanceOf(ZodError);
     });
 
     it('safeParse provides detailed error for type mismatch', () => {
       const result = FileIDSchema.safeParse(123);
       expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0].code).toBe('invalid_type');
-        expect(result.error.issues[0].expected).toBe('string');
-        expect(result.error.issues[0].received).toBe('number');
+      if (result.success) {
+        throw new Error('Expected parse failure for invalid type');
       }
+      expect(result.error.issues[0].code).toBe('invalid_type');
+      expect(result.error.issues[0].expected).toBe('string');
+      expect(result.error.issues[0].received).toBe('number');
     });
 
     it('parseFileID helper works correctly', () => {

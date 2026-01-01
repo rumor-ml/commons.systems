@@ -5,7 +5,7 @@
 # - Type safety utilities
 #
 # Build process:
-# - buildNpmPackage's default build phase runs: npm ci && npm run build
+# - buildNpmPackage's default build phase runs: npm ci --offline && npm run build
 # - The build script in package.json is "tsc" (TypeScript compilation)
 # - Outputs to dist/ directory with .js, .d.ts, and source map files
 #
@@ -55,19 +55,54 @@ buildNpmPackage {
   # Verify build output completeness
   doInstallCheck = true;
   installCheckPhase = ''
+    echo "=== Build Verification ==="
+    echo "Checking build outputs in: $out/lib/node_modules/@commons/types/dist/"
+
+    # Show what files were actually generated
+    echo "Files present in dist/:"
+    ls -la "$out/lib/node_modules/@commons/types/dist/" || echo "dist/ directory does not exist!"
+
+    # Track success/failure for all checks
+    CHECKS_PASSED=0
+    CHECKS_FAILED=0
+
     # Verify expected outputs exist
+    echo ""
+    echo "Checking compiled JavaScript output..."
     if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js" ]; then
-      echo "ERROR: Missing compiled JavaScript output"
-      exit 1
+      echo "  ❌ FAILED: Missing branded.js"
+      CHECKS_FAILED=$((CHECKS_FAILED + 1))
+    else
+      echo "  ✓ PASSED: branded.js present"
+      CHECKS_PASSED=$((CHECKS_PASSED + 1))
     fi
 
+    echo "Checking TypeScript declaration files..."
     if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.d.ts" ]; then
-      echo "ERROR: Missing TypeScript declaration files"
-      exit 1
+      echo "  ❌ FAILED: Missing branded.d.ts"
+      CHECKS_FAILED=$((CHECKS_FAILED + 1))
+    else
+      echo "  ✓ PASSED: branded.d.ts present"
+      CHECKS_PASSED=$((CHECKS_PASSED + 1))
     fi
 
+    echo "Checking source maps..."
     if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js.map" ]; then
-      echo "ERROR: Missing source maps"
+      echo "  ❌ FAILED: Missing branded.js.map"
+      CHECKS_FAILED=$((CHECKS_FAILED + 1))
+    else
+      echo "  ✓ PASSED: branded.js.map present"
+      CHECKS_PASSED=$((CHECKS_PASSED + 1))
+    fi
+
+    echo ""
+    echo "=== Verification Summary ==="
+    echo "Passed: $CHECKS_PASSED/3"
+    echo "Failed: $CHECKS_FAILED/3"
+
+    if [ $CHECKS_FAILED -gt 0 ]; then
+      echo ""
+      echo "Build verification FAILED. See errors above."
       exit 1
     fi
 
