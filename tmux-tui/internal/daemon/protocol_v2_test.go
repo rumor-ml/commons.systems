@@ -1030,7 +1030,7 @@ func TestTreeUpdateMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("tree_shared_reference", func(t *testing.T) {
+	t.Run("tree_immutability", func(t *testing.T) {
 		// Create initial tree
 		tree := NewRepoTree()
 		pane1, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
@@ -1045,15 +1045,21 @@ func TestTreeUpdateMessage(t *testing.T) {
 		pane2, _ := NewPane("%2", "/other", "@1", 1, false, false, "vim", "other", false)
 		tree.SetPanes("repo2", "branch2", []Pane{pane2})
 
-		// Note: RepoTree contains a map which is a reference type in Go.
-		// Modifications to the original tree WILL affect the message tree
-		// because they share the same underlying map.
-		// This test verifies that the message stores the tree by value,
-		// meaning both refer to the same map.
+		// Message should be immutable - mutations to original tree should NOT affect message
 		returnedTree := msg.Tree()
 		repos := returnedTree.Repos()
-		if len(repos) != 2 {
-			t.Errorf("Tree should reflect mutations (maps are reference types): repos = %v, want 2 repos", repos)
+		if len(repos) != 1 {
+			t.Errorf("Message tree should be immutable: got %d repos after mutation, want 1 (only repo1)", len(repos))
+		}
+
+		// Verify original repo/branch still present
+		if panes, ok := returnedTree.GetPanes("repo1", "branch1"); !ok || len(panes) != 1 {
+			t.Errorf("Original repo/branch should be preserved in message")
+		}
+
+		// Verify new repo/branch NOT present in message
+		if _, ok := returnedTree.GetPanes("repo2", "branch2"); ok {
+			t.Errorf("Mutations after message creation should not affect message")
 		}
 	})
 

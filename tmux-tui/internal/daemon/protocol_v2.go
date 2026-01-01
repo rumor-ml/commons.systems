@@ -728,9 +728,10 @@ type TreeUpdateMessageV2 struct {
 }
 
 // NewTreeUpdateMessage creates a validated TreeUpdateMessage.
-// Tree is passed by value (shallow copy). Caller must not mutate tree after passing it.
+// Tree is deep-copied to ensure message immutability. Caller may safely
+// mutate the original tree after passing it - the message will not be affected.
 func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) (*TreeUpdateMessageV2, error) {
-	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree}, nil
+	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}, nil
 }
 
 func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
@@ -757,7 +758,9 @@ type TreeErrorMessageV2 struct {
 func NewTreeErrorMessage(seqNum uint64, errorMsg string) (*TreeErrorMessageV2, error) {
 	errorMsg = strings.TrimSpace(errorMsg)
 	if errorMsg == "" {
-		return nil, errors.New("error_msg required - empty error messages provide no diagnostic value")
+		return nil, errors.New("error_msg required - empty error messages provide no diagnostic value\n" +
+			"Caller passed empty/whitespace-only string to NewTreeErrorMessage.\n" +
+			"Check that the underlying error is being formatted correctly.")
 	}
 	return &TreeErrorMessageV2{seqNum: seqNum, errorMsg: errorMsg}, nil
 }
@@ -934,7 +937,12 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 
 	case MsgTypeTreeUpdate:
 		if msg.Tree == nil {
-			return nil, fmt.Errorf("invalid %s message (seqNum=%d): tree_update requires tree",
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): tree_update requires tree\n\n"+
+				"This indicates a daemon bug or protocol version mismatch.\n"+
+				"Troubleshooting:\n"+
+				"  1. Check daemon and client versions match\n"+
+				"  2. Restart daemon to clear any state corruption\n"+
+				"  3. Report this error if it persists",
 				MsgTypeTreeUpdate, msg.SeqNum)
 		}
 		v2msg, err := NewTreeUpdateMessage(msg.SeqNum, *msg.Tree)

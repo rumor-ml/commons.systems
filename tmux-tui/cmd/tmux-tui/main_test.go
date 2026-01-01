@@ -330,3 +330,208 @@ func TestTreeUpdateAlertReconciliationConcurrency(t *testing.T) {
 	_ = len(m.alerts)
 	m.alertsMu.RUnlock()
 }
+
+func TestTreeUpdate_ConcurrentWithDaemonAlertChange(t *testing.T) {
+	// Test for race conditions between tree_update removing panes and
+	// daemon alert_change messages updating alerts for those panes
+	// This test verifies that alertsMu properly synchronizes alert map access
+	m := initialModel()
+
+	// Setup: Client with tree containing panes %1, %2, %3
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+				testPane("%3", "@3", 2, false),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Add alerts for panes %1 and %2
+	m.alertsMu.Lock()
+	m.alerts = map[string]string{
+		"%1": "idle",
+		"%2": "stop",
+	}
+	m.alertsMu.Unlock()
+
+	// Test concurrent message processing
+	// Both operations access m.alerts under alertsMu lock
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+
+	// Goroutine 1: Tree update that removes pane %2 and reconciles alerts
+	go func() {
+		defer wg.Done()
+		// Tree without pane %2
+		newTree := testTree(map[string]map[string][]tmux.Pane{
+			"test-repo": {
+				"main": {
+					testPane("%1", "@1", 0, true),
+					testPane("%3", "@3", 2, false),
+				},
+			},
+		})
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type: daemon.MsgTypeTreeUpdate,
+				Tree: &newTree,
+			},
+		}
+		// Update() acquires alertsMu during reconciliation
+		m.Update(msg)
+	}()
+
+	// Goroutine 2: Alert change for pane %2 (race with tree update)
+	go func() {
+		defer wg.Done()
+		msg := daemonEventMsg{
+			msg: daemon.Message{
+				Type:      daemon.MsgTypeAlertChange,
+				PaneID:    "%2",
+				EventType: "permission",
+				Created:   true,
+			},
+		}
+		// Update() acquires alertsMu when modifying alerts
+		m.Update(msg)
+	}()
+
+	wg.Wait()
+
+	// Verify: No race condition detected (run with -race)
+	// Both goroutines properly synchronized via alertsMu
+
+	m.alertsMu.RLock()
+	alerts := m.alerts
+	m.alertsMu.RUnlock()
+
+	// Verify no panic occurred during concurrent access
+	// Alert state may vary due to timing, but should be valid
+	_ = alerts
+}
+
+func TestTreeUpdate_ClearsErrorAfterRecovery(t *testing.T) {
+	// Test that tree errors are cleared when a successful tree_update arrives
+	// Scenario: Daemon has transient failure, broadcasts tree_error, then recovers
+	m := initialModel()
+
+	// Step 1: Receive tree_error
+	errMsg := daemonEventMsg{
+		msg: daemon.Message{
+			Type:  daemon.MsgTypeTreeError,
+			Error: "collection failed: tmux not responding",
+		},
+	}
+	updatedModel, _ := m.Update(errMsg)
+	m = updatedModel.(model)
+
+	// Verify error is set
+	m.errorMu.RLock()
+	if m.treeRefreshError == nil {
+		t.Fatal("Expected treeRefreshError to be set after tree_error message")
+	}
+	errorText := m.treeRefreshError.Error()
+	m.errorMu.RUnlock()
+
+	if !contains(errorText, "collection failed") {
+		t.Errorf("Expected error to contain 'collection failed', got: %v", errorText)
+	}
+
+	// Step 2: Receive successful tree_update (daemon recovered)
+	tree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+				testPane("%2", "@2", 1, false),
+			},
+		},
+	})
+	updateMsg := daemonEventMsg{
+		msg: daemon.Message{
+			Type: daemon.MsgTypeTreeUpdate,
+			Tree: &tree,
+		},
+	}
+	updatedModel, _ = m.Update(updateMsg)
+	m = updatedModel.(model)
+
+	// Verify error is cleared
+	m.errorMu.RLock()
+	if m.treeRefreshError != nil {
+		t.Errorf("Expected treeRefreshError to be cleared after successful update, got: %v", m.treeRefreshError)
+	}
+	m.errorMu.RUnlock()
+
+	// Verify tree was updated successfully
+	if len(m.tree.Repos()) != 1 {
+		t.Errorf("Expected 1 repo, got %d", len(m.tree.Repos()))
+	}
+	panes, ok := m.tree.GetPanes("test-repo", "main")
+	if !ok || len(panes) != 2 {
+		t.Errorf("Expected 2 panes in tree, got %d", len(panes))
+	}
+}
+
+func TestTreeUpdateNilHandling_Enhanced(t *testing.T) {
+	// Enhanced version of TestTreeUpdateNilHandling with additional assertions
+	// Tests client-side defense against malformed tree_update messages
+	m := initialModel()
+
+	// Initialize with a tree
+	initialTree := testTree(map[string]map[string][]tmux.Pane{
+		"test-repo": {
+			"main": {
+				testPane("%1", "@1", 0, true),
+			},
+		},
+	})
+	m.tree = initialTree
+
+	// Simulate malformed tree_update with nil Tree (bypassed protocol validation)
+	msg := daemonEventMsg{
+		msg: daemon.Message{
+			Type:   daemon.MsgTypeTreeUpdate,
+			SeqNum: 42,
+			Tree:   nil, // Malformed
+		},
+	}
+
+	// Should not panic, should skip update
+	updatedModel, cmd := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify treeRefreshError is set with appropriate message
+	m.errorMu.RLock()
+	refreshErr := m.treeRefreshError
+	m.errorMu.RUnlock()
+
+	if refreshErr == nil {
+		t.Fatal("Expected treeRefreshError to be set for nil Tree field")
+	}
+
+	errorText := refreshErr.Error()
+	if !contains(errorText, "nil Tree") {
+		t.Errorf("Expected error to mention 'nil Tree', got: %v", errorText)
+	}
+	if !contains(errorText, "seq=42") {
+		t.Errorf("Expected error to include sequence number, got: %v", errorText)
+	}
+
+	// Verify client continues watching daemon (returns watchDaemonCmd)
+	// Note: cmd will be nil in test since m.daemonClient is nil
+	// In production with daemonClient set, this would return continueWatchingDaemon
+	_ = cmd
+
+	// Verify tree remains unchanged (preserves last good state)
+	if len(m.tree.Repos()) != 1 {
+		t.Errorf("Tree should not be updated with nil Tree field, expected 1 repo, got %d", len(m.tree.Repos()))
+	}
+	panes, ok := m.tree.GetPanes("test-repo", "main")
+	if !ok || len(panes) != 1 {
+		t.Errorf("Expected tree to preserve last good state with 1 pane, got %d panes", len(panes))
+	}
+}

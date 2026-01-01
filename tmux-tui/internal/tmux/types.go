@@ -101,9 +101,24 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
-	p.id = aux.ID
+
+	// Validate using same logic as NewPane
+	id := strings.TrimSpace(aux.ID)
+	windowID := strings.TrimSpace(aux.WindowID)
+
+	if id == "" {
+		return fmt.Errorf("pane ID required")
+	}
+	if !strings.HasPrefix(id, "%") {
+		return fmt.Errorf("invalid pane ID format: %s (must start with %%)", id)
+	}
+	if aux.WindowIndex < 0 {
+		return fmt.Errorf("window index must be non-negative: %d", aux.WindowIndex)
+	}
+
+	p.id = id
 	p.path = aux.Path
-	p.windowID = aux.WindowID
+	p.windowID = windowID
 	p.windowIndex = aux.WindowIndex
 	p.windowActive = aux.WindowActive
 	p.windowBell = aux.WindowBell
@@ -254,6 +269,23 @@ func (rt RepoTree) HasBranch(repo, branch string) bool {
 	return ok
 }
 
+// Clone creates a deep copy of the RepoTree.
+// The returned tree has independent map structures but shares the same Pane values.
+// Since Pane is a value type with no pointer fields, this is safe.
+func (rt RepoTree) Clone() RepoTree {
+	clone := NewRepoTree()
+	for repo, branches := range rt.tree {
+		clone.tree[repo] = make(map[string][]Pane)
+		for branch, panes := range branches {
+			// Copy the slice
+			panesCopy := make([]Pane, len(panes))
+			copy(panesCopy, panes)
+			clone.tree[repo][branch] = panesCopy
+		}
+	}
+	return clone
+}
+
 // MarshalJSON implements json.Marshaler for wire format.
 func (rt RepoTree) MarshalJSON() ([]byte, error) {
 	return json.Marshal(rt.tree)
@@ -264,5 +296,24 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 	if rt.tree == nil {
 		rt.tree = make(map[string]map[string][]Pane)
 	}
-	return json.Unmarshal(data, &rt.tree)
+
+	var tempTree map[string]map[string][]Pane
+	if err := json.Unmarshal(data, &tempTree); err != nil {
+		return err
+	}
+
+	// Validate all repo and branch names
+	for repo, branches := range tempTree {
+		if repo == "" {
+			return fmt.Errorf("unmarshaled tree contains empty repo name")
+		}
+		for branch := range branches {
+			if branch == "" {
+				return fmt.Errorf("unmarshaled tree contains empty branch name in repo %q", repo)
+			}
+		}
+	}
+
+	rt.tree = tempTree
+	return nil
 }

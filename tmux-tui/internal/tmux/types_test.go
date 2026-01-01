@@ -276,3 +276,162 @@ func TestRepoTreeWithMultipleBranches(t *testing.T) {
 		t.Errorf("Expected 1 branch for repo2, got %d", len(repo2Branches))
 	}
 }
+
+// TestPaneUnmarshalJSON_InvalidInput tests that unmarshaling rejects invalid pane data
+func TestPaneUnmarshalJSON_InvalidInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantErr string
+	}{
+		{
+			name:    "empty_pane_id",
+			json:    `{"id":"","path":"/foo","window_id":"@0","window_index":0,"window_active":true,"window_bell":false,"command":"bash","title":"test","is_claude_pane":false}`,
+			wantErr: "pane ID required",
+		},
+		{
+			name:    "whitespace_only_pane_id",
+			json:    `{"id":"   ","path":"/foo","window_id":"@0","window_index":0,"window_active":true,"window_bell":false,"command":"bash","title":"test","is_claude_pane":false}`,
+			wantErr: "pane ID required",
+		},
+		{
+			name:    "invalid_pane_id_format",
+			json:    `{"id":"abc","path":"/foo","window_id":"@0","window_index":0,"window_active":true,"window_bell":false,"command":"bash","title":"test","is_claude_pane":false}`,
+			wantErr: "must start with %",
+		},
+		{
+			name:    "negative_window_index",
+			json:    `{"id":"%1","path":"/foo","window_id":"@0","window_index":-1,"window_active":true,"window_bell":false,"command":"bash","title":"test","is_claude_pane":false}`,
+			wantErr: "must be non-negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var pane Pane
+			err := json.Unmarshal([]byte(tt.json), &pane)
+			if err == nil {
+				t.Errorf("Expected error containing %q, got nil", tt.wantErr)
+			} else if !contains(err.Error(), tt.wantErr) {
+				t.Errorf("Error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestRepoTreeUnmarshalJSON_InvalidInput tests that unmarshaling rejects invalid tree data
+func TestRepoTreeUnmarshalJSON_InvalidInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantErr string
+	}{
+		{
+			name:    "empty_repo_name",
+			json:    `{"":{"main":[]}}`,
+			wantErr: "empty repo name",
+		},
+		{
+			name:    "empty_branch_name",
+			json:    `{"myrepo":{"":[]}}`,
+			wantErr: "empty branch name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var tree RepoTree
+			err := json.Unmarshal([]byte(tt.json), &tree)
+			if err == nil {
+				t.Errorf("Expected error containing %q, got nil", tt.wantErr)
+			} else if !contains(err.Error(), tt.wantErr) {
+				t.Errorf("Error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+// contains is a helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && hasSubstring(s, substr)))
+}
+
+func hasSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRepoTreeClone tests that Clone creates a deep copy
+func TestRepoTreeClone(t *testing.T) {
+	// Create original tree with data
+	original := NewRepoTree()
+	pane1, _ := NewPane("%1", "/path/one", "@0", 0, true, false, "zsh", "title1", false)
+	pane2, _ := NewPane("%2", "/path/two", "@1", 1, false, false, "vim", "title2", false)
+	original.SetPanes("repo1", "branch1", []Pane{pane1})
+	original.SetPanes("repo2", "branch2", []Pane{pane2})
+
+	// Clone the tree
+	clone := original.Clone()
+
+	// Verify clone has same data
+	repos := clone.Repos()
+	if len(repos) != 2 {
+		t.Errorf("Clone should have 2 repos, got %d", len(repos))
+	}
+
+	panes1, ok := clone.GetPanes("repo1", "branch1")
+	if !ok || len(panes1) != 1 {
+		t.Errorf("Clone should have panes for repo1/branch1")
+	}
+
+	panes2, ok := clone.GetPanes("repo2", "branch2")
+	if !ok || len(panes2) != 1 {
+		t.Errorf("Clone should have panes for repo2/branch2")
+	}
+
+	// Mutate original tree
+	pane3, _ := NewPane("%3", "/path/three", "@2", 2, false, false, "bash", "title3", false)
+	original.SetPanes("repo3", "branch3", []Pane{pane3})
+
+	// Verify clone is NOT affected by mutation
+	cloneRepos := clone.Repos()
+	if len(cloneRepos) != 2 {
+		t.Errorf("Clone should still have 2 repos after original mutation, got %d", len(cloneRepos))
+	}
+
+	if _, ok := clone.GetPanes("repo3", "branch3"); ok {
+		t.Errorf("Clone should NOT have repo3/branch3 added after cloning")
+	}
+
+	// Verify original was mutated
+	originalRepos := original.Repos()
+	if len(originalRepos) != 3 {
+		t.Errorf("Original should have 3 repos, got %d", len(originalRepos))
+	}
+}
+
+// TestRepoTreeClone_EmptyTree tests cloning an empty tree
+func TestRepoTreeClone_EmptyTree(t *testing.T) {
+	original := NewRepoTree()
+	clone := original.Clone()
+
+	repos := clone.Repos()
+	if len(repos) != 0 {
+		t.Errorf("Cloned empty tree should have 0 repos, got %d", len(repos))
+	}
+
+	// Mutate original
+	pane, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
+	original.SetPanes("repo1", "branch1", []Pane{pane})
+
+	// Verify clone still empty
+	cloneRepos := clone.Repos()
+	if len(cloneRepos) != 0 {
+		t.Errorf("Cloned tree should remain empty after original mutation, got %d repos", len(cloneRepos))
+	}
+}

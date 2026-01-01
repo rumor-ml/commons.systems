@@ -117,7 +117,7 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
-	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update, nil otherwise. Pointer required for omitempty JSON.
+	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Non-nil for tree_update, nil otherwise. Pointer required for omitempty to exclude nil from JSON serialization, reducing message size.
 }
 
 // PROTOCOL V2 MIGRATION GUIDE

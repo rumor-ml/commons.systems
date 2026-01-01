@@ -17,11 +17,14 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 
 	// Start daemon
 	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer cleanupDaemon()
 	defer cleanupStaleSockets() // Clean up after test
 
 	// Create a test pane to ensure tree has content
+	// TODO(#1138): Check error return value from tmux commands to fail early with clear errors
 	tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run()
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer tmuxCmd(socketName, "kill-session", "-t", sessionName).Run()
 
 	// Connect client
@@ -29,6 +32,7 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 	if err := client.Connect(); err != nil {
 		t.Fatalf("Client failed to connect: %v", err)
 	}
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer client.Close()
 
 	// Wait for full_state message first
@@ -92,11 +96,14 @@ func TestTreeBroadcast_MultipleClients(t *testing.T) {
 
 	// Start daemon
 	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer cleanupDaemon()
 	defer cleanupStaleSockets() // Clean up after test
 
 	// Create a test pane
+	// TODO(#1138): Check error return value from tmux commands to fail early with clear errors
 	tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run()
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer tmuxCmd(socketName, "kill-session", "-t", sessionName).Run()
 
 	// Connect 3 clients
@@ -106,6 +113,7 @@ func TestTreeBroadcast_MultipleClients(t *testing.T) {
 		if err := client.Connect(); err != nil {
 			t.Fatalf("Client %d failed to connect: %v", i, err)
 		}
+		// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 		defer client.Close()
 		clients[i] = client
 
@@ -184,11 +192,14 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 
 	// Start daemon
 	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer cleanupDaemon()
 	defer cleanupStaleSockets() // Clean up after test
 
 	// Create a test pane
+	// TODO(#1138): Check error return value from tmux commands to fail early with clear errors
 	tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run()
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer tmuxCmd(socketName, "kill-session", "-t", sessionName).Run()
 
 	// Connect first client and wait for initial tree_update
@@ -224,6 +235,7 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 	if err := client2.Connect(); err != nil {
 		t.Fatalf("Client 2 failed to connect: %v", err)
 	}
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
 	defer client2.Close()
 
 	// Wait for full_state message - it should include the current tree
