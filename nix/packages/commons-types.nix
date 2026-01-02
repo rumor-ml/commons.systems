@@ -5,10 +5,9 @@
 # - Zod schemas for runtime validation (PortSchema, URLSchema, etc.)
 # - Factory functions for creating branded values (createPort, createURL, etc.)
 #
-# TODO(#1236): Comment about build phases is misleading - npm ci is in configure phase, not build phase
 # Build process:
-# - buildNpmPackage's default build phase runs: npm ci --offline && npm run build
-#   This works for our package because package.json's build script runs 'tsc'
+# - Configure phase: npm ci --offline (installs dependencies from npmDepsHash)
+# - Build phase: npm run build (runs 'tsc' from package.json)
 # - Outputs to dist/ directory with .js, .d.ts, and source map files
 #
 # Usage in flake.nix:

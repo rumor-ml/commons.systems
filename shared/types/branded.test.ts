@@ -3,7 +3,6 @@
  */
 
 // TODO(#1219): Add strategic comments explaining test rationale for edge cases
-// TODO(#1240): Replace expect.fail() with descriptive Vitest assertions
 
 import { describe, it, expect } from 'vitest';
 import { ZodError } from 'zod';
@@ -85,6 +84,18 @@ describe('createURL', () => {
     expect(createURL('https://example.com/path?query=1')).toBe('https://example.com/path?query=1');
   });
 
+  it('accepts various valid URL protocols and formats', () => {
+    expect(createURL('ftp://ftp.example.com')).toBe('ftp://ftp.example.com');
+    expect(createURL('ws://example.com')).toBe('ws://example.com');
+    expect(createURL('https://example.com:8443')).toBe('https://example.com:8443');
+    expect(createURL('http://user:pass@example.com')).toBe('http://user:pass@example.com');
+  });
+
+  it('handles IPv6 URLs correctly', () => {
+    expect(createURL('http://[::1]')).toBe('http://[::1]');
+    expect(createURL('http://[2001:db8::1]:8080')).toBe('http://[2001:db8::1]:8080');
+  });
+
   it('rejects malformed URLs', () => {
     expect(() => createURL('not a url')).toThrow(BrandedTypeError);
     expect(() => createURL('')).toThrow(BrandedTypeError);
@@ -135,9 +146,10 @@ describe('createTimestamp', () => {
   it('throws BrandedTypeError (wrapping ZodError) for invalid Date objects', () => {
     const invalidDate = new Date('invalid');
 
+    expect(() => createTimestamp(invalidDate)).toThrow(BrandedTypeError);
     try {
       createTimestamp(invalidDate);
-      expect.fail('Should have thrown an error');
+      throw new Error('Test should have thrown');
     } catch (error) {
       // Factory functions now throw BrandedTypeError
       expect(error).toBeInstanceOf(BrandedTypeError);
@@ -431,13 +443,13 @@ describe('Zod Schema Validation', () => {
         const port: Port = validResult.data;
         expect(port).toBe(3000);
       } else {
-        expect.fail('Expected successful parse');
+        throw new Error('Expected successful parse but got error');
       }
 
       // Invalid case - demonstrate error handling
       const invalidResult = PortSchema.safeParse(invalidInput);
       if (invalidResult.success) {
-        expect.fail('Expected parse to fail');
+        throw new Error('Expected parse to fail but got success');
       } else {
         // Show that error.issues is accessible and useful
         const errorMessage = invalidResult.error.issues.map((i) => i.message).join(', ');
@@ -832,9 +844,10 @@ describe('Zod Schema Validation', () => {
 
   describe('Error Messages', () => {
     it('provides detailed error messages for invalid data', () => {
+      expect(() => PortSchema.parse(-1)).toThrow(ZodError);
       try {
         PortSchema.parse(-1);
-        expect.fail('Should have thrown ZodError');
+        throw new Error('Test should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(ZodError);
         const zodError = error as ZodError;
@@ -844,9 +857,10 @@ describe('Zod Schema Validation', () => {
     });
 
     it('provides error messages for type mismatches', () => {
+      expect(() => PortSchema.parse('not a number')).toThrow(ZodError);
       try {
         PortSchema.parse('not a number');
-        expect.fail('Should have thrown ZodError');
+        throw new Error('Test should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(ZodError);
         const zodError = error as ZodError;
@@ -924,6 +938,28 @@ describe('New Validations (batch-2)', () => {
       expect(() => createFileID('dir/../file')).toThrow(BrandedTypeError);
     });
 
+    it('rejects all path traversal patterns comprehensively', () => {
+      // Trailing path traversal
+      expect(() => createFileID('file/..')).toThrow(BrandedTypeError);
+      expect(() => createFileID('dir/subdir/..')).toThrow(BrandedTypeError);
+
+      // Absolute paths
+      expect(() => createFileID('/etc/passwd')).toThrow(BrandedTypeError);
+      expect(() => createFileID('C:\\Windows\\System32')).toThrow(BrandedTypeError);
+
+      // URL-encoded traversal
+      expect(() => createFileID('file%2e%2e')).toThrow(BrandedTypeError);
+      expect(() => createFileID('%2e%2e/etc/passwd')).toThrow(BrandedTypeError);
+
+      // Backslashes
+      expect(() => createFileID('dir\\..\\file')).toThrow(BrandedTypeError);
+      expect(() => createFileID('file\\name')).toThrow(BrandedTypeError);
+
+      // Multiple dots are safe (not path traversal)
+      expect(createFileID('file...')).toBe('file...');
+      expect(createFileID('file....')).toBe('file....');
+    });
+
     it('accepts valid file IDs with various characters', () => {
       expect(createFileID('abc123')).toBe('abc123');
       expect(createFileID('file-id_with-chars')).toBe('file-id_with-chars');
@@ -943,6 +979,22 @@ describe('New Validations (batch-2)', () => {
       expect(createTimestamp(maxTimestamp)).toBe(maxTimestamp);
       expect(createTimestamp(Date.now())).toBeGreaterThan(0);
     });
+
+    it('accepts timestamps exactly at upper boundary', () => {
+      const maxTimestamp = 253402300799999; // Dec 31, 9999 23:59:59.999 UTC
+      expect(createTimestamp(maxTimestamp)).toBe(maxTimestamp);
+
+      // One millisecond before max
+      expect(createTimestamp(maxTimestamp - 1)).toBe(maxTimestamp - 1);
+    });
+
+    it('rejects timestamps exactly one millisecond past boundary', () => {
+      const justOverMax = 253402300800000; // Jan 1, 10000 00:00:00.000 UTC
+      expect(() => createTimestamp(justOverMax)).toThrow(BrandedTypeError);
+
+      // Significantly over max
+      expect(() => createTimestamp(justOverMax + 1000)).toThrow(BrandedTypeError);
+    });
   });
 
   describe('SessionID validation', () => {
@@ -961,6 +1013,20 @@ describe('New Validations (batch-2)', () => {
       expect(createSessionID('session with spaces')).toBe('session with spaces');
       expect(createSessionID('session-123')).toBe('session-123');
       expect(createSessionID('session_abc')).toBe('session_abc');
+    });
+
+    it('rejects all control characters comprehensively', () => {
+      // Test full control character range: \x00-\x1F and \x7F
+      for (let i = 0; i <= 0x1f; i++) {
+        const withControlChar = `id${String.fromCharCode(i)}test`;
+        expect(() => createSessionID(withControlChar)).toThrow(BrandedTypeError);
+        expect(() => createUserID(withControlChar)).toThrow(BrandedTypeError);
+        expect(() => createFileID(withControlChar)).toThrow(BrandedTypeError);
+      }
+      // Test DEL character (\x7F)
+      expect(() => createSessionID('id\x7Ftest')).toThrow(BrandedTypeError);
+      expect(() => createUserID('id\x7Ftest')).toThrow(BrandedTypeError);
+      expect(() => createFileID('id\x7Ftest')).toThrow(BrandedTypeError);
     });
   });
 
@@ -985,9 +1051,10 @@ describe('New Validations (batch-2)', () => {
 
   describe('BrandedTypeError', () => {
     it('provides user-friendly error messages', () => {
+      expect(() => createPort(70000)).toThrow(BrandedTypeError);
       try {
         createPort(70000);
-        expect.fail('Should have thrown');
+        throw new Error('Test should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(BrandedTypeError);
         const brandedError = error as BrandedTypeError;
@@ -999,14 +1066,41 @@ describe('New Validations (batch-2)', () => {
     });
 
     it('preserves ZodError for programmatic handling', () => {
+      expect(() => createURL('not a url')).toThrow(BrandedTypeError);
       try {
         createURL('not a url');
-        expect.fail('Should have thrown');
+        throw new Error('Test should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(BrandedTypeError);
         const brandedError = error as BrandedTypeError;
         expect(brandedError.zodError).toBeInstanceOf(ZodError);
         expect(brandedError.zodError.issues.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('handles ZodError with empty issues array', () => {
+      const emptyIssuesError = new ZodError([]);
+      const error = new BrandedTypeError('TestType', 'test-value', emptyIssuesError);
+
+      expect(error.message).toBe('Invalid TestType: validation failed');
+      expect(error.type).toBe('TestType');
+      expect(error.value).toBe('test-value');
+      expect(error.zodError).toBe(emptyIssuesError);
+    });
+
+    it('includes all validation issues in message', () => {
+      // Empty string fails both min length and whitespace-only checks
+      try {
+        createFileID('');
+        throw new Error('Test should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BrandedTypeError);
+        const brandedError = error as BrandedTypeError;
+        expect(brandedError.message).toContain('Invalid FileID:');
+        // When there are multiple issues, they're formatted as a list
+        if (brandedError.zodError.issues.length > 1) {
+          expect(brandedError.message).toContain('\n  -');
+        }
       }
     });
   });
@@ -1070,6 +1164,34 @@ describe('New Validations (batch-2)', () => {
       const invalidFileID = '../etc/passwd' as FileID;
       if (process.env.NODE_ENV !== 'production') {
         expect(() => assertFileID(invalidFileID)).toThrow(ZodError);
+      }
+    });
+
+    it('assertion helpers are no-ops in production', () => {
+      const originalEnv = process.env.NODE_ENV;
+      try {
+        process.env.NODE_ENV = 'production';
+
+        // Invalid values should NOT throw in production
+        const invalidPort = 70000 as Port;
+        expect(() => assertPort(invalidPort)).not.toThrow();
+
+        const invalidURL = 'not a url' as URL;
+        expect(() => assertURL(invalidURL)).not.toThrow();
+
+        const invalidTimestamp = -1 as Timestamp;
+        expect(() => assertTimestamp(invalidTimestamp)).not.toThrow();
+
+        const invalidSessionID = '   ' as SessionID;
+        expect(() => assertSessionID(invalidSessionID)).not.toThrow();
+
+        const invalidUserID = '\x00' as UserID;
+        expect(() => assertUserID(invalidUserID)).not.toThrow();
+
+        const invalidFileID = '../etc/passwd' as FileID;
+        expect(() => assertFileID(invalidFileID)).not.toThrow();
+      } finally {
+        process.env.NODE_ENV = originalEnv;
       }
     });
   });

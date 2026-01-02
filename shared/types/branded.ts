@@ -6,10 +6,10 @@
  * - Zod schemas for validation and composition
  * - Factory functions for convenient creation
  *
- * TODO(#1237): Document parse* functions as a third approach
- * Two approaches (both produce identical Zod-branded types):
- * 1. Factory functions (createPort, etc.) - Convenient wrappers
- * 2. Zod schemas (PortSchema, etc.) - Full schema composability
+ * Three approaches for creating branded types (all produce identical Zod-branded types):
+ * 1. Factory functions (createPort, etc.) - User-friendly BrandedTypeError
+ * 2. Parse functions (parsePort, etc.) - ZodError for schema composition
+ * 3. Zod schemas (PortSchema.parse, etc.) - Full schema composability
  *
  * @module branded
  */
@@ -23,10 +23,10 @@ import { z } from 'zod';
 //   const badPort = 70000 as Port;  // No compile error, but invalid!
 //   server.listen(badPort);          // Runtime error: port out of range
 //
-// TODO(#1238): Clarify that ESLint can prevent type assertions, not just TypeScript
 // Type assertions violate the branded type's invariants and can cause production failures
-// (invalid ports, malformed URLs, negative timestamps). TypeScript's type system cannot
-// prevent these assertions, so always use the provided factory functions or schemas.
+// (invalid ports, malformed URLs, negative timestamps). While TypeScript allows type assertions,
+// you should configure ESLint (@typescript-eslint/consistent-type-assertions) to prevent them
+// and always use the provided factory functions or schemas.
 
 /**
  * Error thrown by branded type factory functions when validation fails.
@@ -41,7 +41,9 @@ export class BrandedTypeError extends Error {
     public readonly value: unknown,
     public readonly zodError: z.ZodError
   ) {
-    const zodMessage = zodError.issues[0]?.message || 'validation failed';
+    const messages = zodError.issues.map((issue) => issue.message);
+    const zodMessage =
+      messages.length > 1 ? `\n  - ${messages.join('\n  - ')}` : messages[0] || 'validation failed';
     super(`Invalid ${type}: ${zodMessage}`);
     this.name = 'BrandedTypeError';
   }
@@ -69,9 +71,6 @@ export class BrandedTypeError extends Error {
  *   url: URLSchema,
  * });
  *
- * // TODO(#1239): Move parse function example to dedicated parse function section
- * // Using parse functions for convenience
- * const port = parsePort(3000); // Port (throws on invalid)
  * ```
  */
 
@@ -198,7 +197,25 @@ export const FileIDSchema = z
   .max(256)
   .refine((s) => s.trim().length > 0, 'FileID cannot be whitespace-only')
   .refine((s) => !/[\x00-\x1F\x7F]/.test(s), 'FileID cannot contain control characters')
-  .refine((s) => !s.includes('..'), 'FileID cannot contain path traversal sequences')
+  .refine((s) => {
+    // Block path traversal patterns
+    // Match ".." but not "..." (3+ dots)
+    // Using negative lookahead to ensure we don't match when followed by more dots
+    if (/(?:^|\/)\.\.(?:\/|$)/.test(s)) return false; // ../path or /.. or path/..
+    if (/^\.\.(?!\.)/.test(s)) return false; // Starts with .. (but not ...)
+    if (/[^.]\.\.(?!\.)/.test(s)) return false; // Contains .. not preceded by dot (but not ...)
+
+    // Block absolute paths (Unix and Windows)
+    if (s.startsWith('/') || /^[A-Za-z]:[/\\]/.test(s)) return false;
+
+    // Block URL-encoded dots and slashes
+    if (/%2e/i.test(s) || /%2f/i.test(s) || /%5c/i.test(s)) return false;
+
+    // Block backslashes (Windows path separators)
+    if (s.includes('\\')) return false;
+
+    return true;
+  }, 'FileID cannot contain path traversal or absolute path sequences')
   .brand<'FileID'>();
 
 /**
@@ -332,14 +349,11 @@ export const parseFileID = (s: unknown): FileID => FileIDSchema.parse(s);
  * ```
  */
 export function createPort(n: number): Port {
-  try {
-    return PortSchema.parse(n);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new BrandedTypeError('Port', n, error);
-    }
-    throw error;
+  const result = PortSchema.safeParse(n);
+  if (!result.success) {
+    throw new BrandedTypeError('Port', n, result.error);
   }
+  return result.data;
 }
 
 /**
@@ -359,14 +373,11 @@ export function createPort(n: number): Port {
  * ```
  */
 export function createURL(s: string): URL {
-  try {
-    return URLSchema.parse(s);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new BrandedTypeError('URL', s, error);
-    }
-    throw error;
+  const result = URLSchema.safeParse(s);
+  if (!result.success) {
+    throw new BrandedTypeError('URL', s, result.error);
   }
+  return result.data;
 }
 
 /**
@@ -400,21 +411,20 @@ export function createTimestamp(date: Date): Timestamp;
  */
 export function createTimestamp(ms: number): Timestamp;
 export function createTimestamp(input?: number | Date): Timestamp {
-  try {
-    if (input === undefined) {
-      return TimestampSchema.parse(Date.now());
-    }
-    if (input instanceof Date) {
-      const ms = input.getTime();
-      return TimestampSchema.parse(ms);
-    }
-    return TimestampSchema.parse(input);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new BrandedTypeError('Timestamp', input, error);
-    }
-    throw error;
+  let value: number;
+  if (input === undefined) {
+    value = Date.now();
+  } else if (input instanceof Date) {
+    value = input.getTime();
+  } else {
+    value = input;
   }
+
+  const result = TimestampSchema.safeParse(value);
+  if (!result.success) {
+    throw new BrandedTypeError('Timestamp', input, result.error);
+  }
+  return result.data;
 }
 
 /**
@@ -434,14 +444,11 @@ export function createTimestamp(input?: number | Date): Timestamp {
  * ```
  */
 export function createSessionID(s: string): SessionID {
-  try {
-    return SessionIDSchema.parse(s);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new BrandedTypeError('SessionID', s, error);
-    }
-    throw error;
+  const result = SessionIDSchema.safeParse(s);
+  if (!result.success) {
+    throw new BrandedTypeError('SessionID', s, result.error);
   }
+  return result.data;
 }
 
 /**
@@ -461,14 +468,11 @@ export function createSessionID(s: string): SessionID {
  * ```
  */
 export function createUserID(s: string): UserID {
-  try {
-    return UserIDSchema.parse(s);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new BrandedTypeError('UserID', s, error);
-    }
-    throw error;
+  const result = UserIDSchema.safeParse(s);
+  if (!result.success) {
+    throw new BrandedTypeError('UserID', s, result.error);
   }
+  return result.data;
 }
 
 /**
@@ -478,12 +482,14 @@ export function createUserID(s: string): UserID {
  * or to catch ZodError directly, use FileIDSchema.parse() or parseFileID().
  * File IDs are string identifiers for files.
  *
- * TODO(#1241): Security concern - ensure validation properly prevents path traversal
- * Validates against:
- * - Empty strings
- * - Whitespace-only strings
- * - Control characters
- * - Path traversal sequences (..)
+ * Security validation prevents common path traversal attacks:
+ * - Rejects '..' sequences (e.g., '../etc/passwd')
+ * - Rejects absolute paths (Unix: '/', Windows: 'C:\')
+ * - Rejects URL-encoded traversal patterns (%2e%2e, %2f)
+ * - Rejects backslashes (Windows path separators)
+ *
+ * Note: FileIDs are opaque identifiers. If constructing file paths,
+ * always use path.basename() or equivalent normalization.
  *
  * @param s - File ID string
  * @returns Branded FileID
@@ -497,14 +503,11 @@ export function createUserID(s: string): UserID {
  * ```
  */
 export function createFileID(s: string): FileID {
-  try {
-    return FileIDSchema.parse(s);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new BrandedTypeError('FileID', s, error);
-    }
-    throw error;
+  const result = FileIDSchema.safeParse(s);
+  if (!result.success) {
+    throw new BrandedTypeError('FileID', s, result.error);
   }
+  return result.data;
 }
 
 /**
@@ -523,6 +526,11 @@ export function createFileID(s: string): FileID {
 /**
  * Assert that a value is a valid Port (for debugging only)
  *
+ * ⚠️ WARNING: This function DOES NOT VALIDATE in production!
+ * Production code will silently accept invalid Ports.
+ * Only use this for debugging type assertion misuse in development.
+ * NEVER rely on this for production data validation.
+ *
  * @param value - Value to validate as Port
  * @throws {z.ZodError} if value is not a valid Port (only in non-production)
  */
@@ -534,6 +542,11 @@ export function assertPort(value: Port): asserts value is Port {
 
 /**
  * Assert that a value is a valid URL (for debugging only)
+ *
+ * ⚠️ WARNING: This function DOES NOT VALIDATE in production!
+ * Production code will silently accept invalid URLs.
+ * Only use this for debugging type assertion misuse in development.
+ * NEVER rely on this for production data validation.
  *
  * @param value - Value to validate as URL
  * @throws {z.ZodError} if value is not a valid URL (only in non-production)
@@ -547,6 +560,11 @@ export function assertURL(value: URL): asserts value is URL {
 /**
  * Assert that a value is a valid Timestamp (for debugging only)
  *
+ * ⚠️ WARNING: This function DOES NOT VALIDATE in production!
+ * Production code will silently accept invalid Timestamps.
+ * Only use this for debugging type assertion misuse in development.
+ * NEVER rely on this for production data validation.
+ *
  * @param value - Value to validate as Timestamp
  * @throws {z.ZodError} if value is not a valid Timestamp (only in non-production)
  */
@@ -558,6 +576,11 @@ export function assertTimestamp(value: Timestamp): asserts value is Timestamp {
 
 /**
  * Assert that a value is a valid SessionID (for debugging only)
+ *
+ * ⚠️ WARNING: This function DOES NOT VALIDATE in production!
+ * Production code will silently accept invalid SessionIDs.
+ * Only use this for debugging type assertion misuse in development.
+ * NEVER rely on this for production data validation.
  *
  * @param value - Value to validate as SessionID
  * @throws {z.ZodError} if value is not a valid SessionID (only in non-production)
@@ -571,6 +594,11 @@ export function assertSessionID(value: SessionID): asserts value is SessionID {
 /**
  * Assert that a value is a valid UserID (for debugging only)
  *
+ * ⚠️ WARNING: This function DOES NOT VALIDATE in production!
+ * Production code will silently accept invalid UserIDs.
+ * Only use this for debugging type assertion misuse in development.
+ * NEVER rely on this for production data validation.
+ *
  * @param value - Value to validate as UserID
  * @throws {z.ZodError} if value is not a valid UserID (only in non-production)
  */
@@ -582,6 +610,11 @@ export function assertUserID(value: UserID): asserts value is UserID {
 
 /**
  * Assert that a value is a valid FileID (for debugging only)
+ *
+ * ⚠️ WARNING: This function DOES NOT VALIDATE in production!
+ * Production code will silently accept invalid FileIDs.
+ * Only use this for debugging type assertion misuse in development.
+ * NEVER rely on this for production data validation.
  *
  * @param value - Value to validate as FileID
  * @throws {z.ZodError} if value is not a valid FileID (only in non-production)
