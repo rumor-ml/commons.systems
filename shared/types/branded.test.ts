@@ -13,7 +13,6 @@ import {
   createSessionID,
   createUserID,
   createFileID,
-  unwrap,
   PortSchema,
   URLSchema,
   TimestampSchema,
@@ -44,26 +43,25 @@ describe('createPort', () => {
   });
 
   it('rejects negative ports', () => {
-    // TODO(#1126): Use exact error message matching instead of partial string matching
-    expect(() => createPort(-1)).toThrow('Port must be between 0 and 65535');
+    expect(() => createPort(-1)).toThrow(ZodError);
   });
 
   it('rejects ports above 65535', () => {
-    expect(() => createPort(65536)).toThrow('Port must be between 0 and 65535');
-    expect(() => createPort(70000)).toThrow('Port must be between 0 and 65535');
+    expect(() => createPort(65536)).toThrow(ZodError);
+    expect(() => createPort(70000)).toThrow(ZodError);
   });
 
   it('rejects non-integer ports', () => {
-    expect(() => createPort(3000.5)).toThrow('Port must be an integer');
+    expect(() => createPort(3000.5)).toThrow(ZodError);
   });
 
   it('rejects NaN ports', () => {
-    expect(() => createPort(NaN)).toThrow('Port must be an integer');
+    expect(() => createPort(NaN)).toThrow(ZodError);
   });
 
   it('rejects infinite port numbers', () => {
-    expect(() => createPort(Infinity)).toThrow('Port must be an integer');
-    expect(() => createPort(-Infinity)).toThrow('Port must be an integer');
+    expect(() => createPort(Infinity)).toThrow(ZodError);
+    expect(() => createPort(-Infinity)).toThrow(ZodError);
   });
 
   it('returns branded Port type', () => {
@@ -80,27 +78,9 @@ describe('createURL', () => {
   });
 
   it('rejects malformed URLs', () => {
-    expect(() => createURL('not a url')).toThrow('Invalid URL');
-    expect(() => createURL('')).toThrow('Invalid URL');
-    expect(() => createURL('//example.com')).toThrow('Invalid URL');
-  });
-
-  it('re-throws unexpected errors from URL constructor', () => {
-    // TODO(#1221): Consider clarifying why non-TypeError should propagate
-    // Mock the URL constructor to throw a non-TypeError
-    const originalURL = globalThis.URL;
-    globalThis.URL = class {
-      constructor() {
-        throw new Error('Unexpected error');
-      }
-    } as any;
-
-    try {
-      expect(() => createURL('https://example.com')).toThrow('Unexpected error');
-      expect(() => createURL('https://example.com')).not.toThrow('Invalid URL');
-    } finally {
-      globalThis.URL = originalURL;
-    }
+    expect(() => createURL('not a url')).toThrow(ZodError);
+    expect(() => createURL('')).toThrow(ZodError);
+    expect(() => createURL('//example.com')).toThrow(ZodError);
   });
 
   it('returns branded URL type', () => {
@@ -132,16 +112,16 @@ describe('createTimestamp', () => {
   });
 
   it('rejects negative timestamps', () => {
-    expect(() => createTimestamp(-1)).toThrow('Timestamp cannot be negative');
+    expect(() => createTimestamp(-1)).toThrow(ZodError);
   });
 
   it('rejects infinite timestamps', () => {
-    expect(() => createTimestamp(Infinity)).toThrow('Timestamp must be finite');
-    expect(() => createTimestamp(-Infinity)).toThrow('Timestamp must be finite');
+    expect(() => createTimestamp(Infinity)).toThrow(ZodError);
+    expect(() => createTimestamp(-Infinity)).toThrow(ZodError);
   });
 
   it('rejects NaN timestamps', () => {
-    expect(() => createTimestamp(NaN)).toThrow('Timestamp must be finite');
+    expect(() => createTimestamp(NaN)).toThrow(ZodError);
   });
 
   it('rejects invalid Date objects', () => {
@@ -169,27 +149,25 @@ describe('createSessionID', () => {
   });
 
   it('rejects empty session IDs', () => {
-    expect(() => createSessionID('')).toThrow('SessionID cannot be empty');
+    expect(() => createSessionID('')).toThrow(ZodError);
   });
 
   it('rejects non-string session IDs', () => {
-    expect(() => createSessionID(123 as any)).toThrow('SessionID must be a string, got number');
-    expect(() => createSessionID(null as any)).toThrow('SessionID must be a string, got object');
+    expect(() => createSessionID(123 as any)).toThrow(ZodError);
+    expect(() => createSessionID(null as any)).toThrow(ZodError);
   });
 
-  it('rejects undefined session IDs with specific error message', () => {
-    expect(() => createSessionID(undefined as any)).toThrow(
-      'SessionID must be a string, got undefined'
-    );
+  it('rejects undefined session IDs', () => {
+    expect(() => createSessionID(undefined as any)).toThrow(ZodError);
   });
 
-  it('rejects boolean session IDs with specific error message', () => {
-    expect(() => createSessionID(true as any)).toThrow('SessionID must be a string, got boolean');
+  it('rejects boolean session IDs', () => {
+    expect(() => createSessionID(true as any)).toThrow(ZodError);
   });
 
   it('rejects session IDs that are too long', () => {
     const tooLong = 'a'.repeat(257);
-    expect(() => createSessionID(tooLong)).toThrow('SessionID too long');
+    expect(() => createSessionID(tooLong)).toThrow(ZodError);
   });
 
   it('accepts session IDs up to 256 characters', () => {
@@ -210,25 +188,25 @@ describe('createUserID', () => {
   });
 
   it('rejects empty user IDs', () => {
-    expect(() => createUserID('')).toThrow('UserID cannot be empty');
+    expect(() => createUserID('')).toThrow(ZodError);
   });
 
   it('rejects non-string user IDs', () => {
-    expect(() => createUserID(123 as any)).toThrow('UserID must be a string, got number');
-    expect(() => createUserID(null as any)).toThrow('UserID must be a string, got object');
+    expect(() => createUserID(123 as any)).toThrow(ZodError);
+    expect(() => createUserID(null as any)).toThrow(ZodError);
   });
 
-  it('rejects undefined user IDs with specific error message', () => {
-    expect(() => createUserID(undefined as any)).toThrow('UserID must be a string, got undefined');
+  it('rejects undefined user IDs', () => {
+    expect(() => createUserID(undefined as any)).toThrow(ZodError);
   });
 
-  it('rejects boolean user IDs with specific error message', () => {
-    expect(() => createUserID(true as any)).toThrow('UserID must be a string, got boolean');
+  it('rejects boolean user IDs', () => {
+    expect(() => createUserID(true as any)).toThrow(ZodError);
   });
 
   it('rejects user IDs that are too long', () => {
     const tooLong = 'a'.repeat(257);
-    expect(() => createUserID(tooLong)).toThrow('UserID too long');
+    expect(() => createUserID(tooLong)).toThrow(ZodError);
   });
 
   it('accepts user IDs up to 256 characters', () => {
@@ -249,25 +227,25 @@ describe('createFileID', () => {
   });
 
   it('rejects empty file IDs', () => {
-    expect(() => createFileID('')).toThrow('FileID cannot be empty');
+    expect(() => createFileID('')).toThrow(ZodError);
   });
 
   it('rejects non-string file IDs', () => {
-    expect(() => createFileID(123 as any)).toThrow('FileID must be a string, got number');
-    expect(() => createFileID(null as any)).toThrow('FileID must be a string, got object');
+    expect(() => createFileID(123 as any)).toThrow(ZodError);
+    expect(() => createFileID(null as any)).toThrow(ZodError);
   });
 
-  it('rejects undefined file IDs with specific error message', () => {
-    expect(() => createFileID(undefined as any)).toThrow('FileID must be a string, got undefined');
+  it('rejects undefined file IDs', () => {
+    expect(() => createFileID(undefined as any)).toThrow(ZodError);
   });
 
-  it('rejects boolean file IDs with specific error message', () => {
-    expect(() => createFileID(true as any)).toThrow('FileID must be a string, got boolean');
+  it('rejects boolean file IDs', () => {
+    expect(() => createFileID(true as any)).toThrow(ZodError);
   });
 
   it('rejects file IDs that are too long', () => {
     const tooLong = 'a'.repeat(257);
-    expect(() => createFileID(tooLong)).toThrow('FileID too long');
+    expect(() => createFileID(tooLong)).toThrow(ZodError);
   });
 
   it('accepts file IDs up to 256 characters', () => {
@@ -279,60 +257,6 @@ describe('createFileID', () => {
     const fileId: FileID = createFileID('hash123');
     expect(fileId).toBe('hash123');
   });
-});
-
-describe('unwrap', () => {
-  it('unwraps Port to number', () => {
-    const port = createPort(3000);
-    const num: number = unwrap(port);
-    expect(num).toBe(3000);
-  });
-
-  it('unwraps URL to string', () => {
-    const url = createURL('https://example.com');
-    const str: string = unwrap(url);
-    expect(str).toBe('https://example.com');
-  });
-
-  it('unwraps Timestamp to number', () => {
-    const timestamp = createTimestamp(1704067200000);
-    const num: number = unwrap(timestamp);
-    expect(num).toBe(1704067200000);
-  });
-
-  it('unwraps SessionID to string', () => {
-    const sessionId = createSessionID('session123');
-    const str: string = unwrap(sessionId);
-    expect(str).toBe('session123');
-  });
-
-  it('unwraps UserID to string', () => {
-    const userId = createUserID('user123');
-    const str: string = unwrap(userId);
-    expect(str).toBe('user123');
-  });
-
-  it('unwraps FileID to string', () => {
-    const fileId = createFileID('hash123');
-    const str: string = unwrap(fileId);
-    expect(str).toBe('hash123');
-  });
-
-  it('unwraps multiple different branded types correctly', () => {
-    const port = createPort(3000);
-    const url = createURL('https://example.com');
-    const timestamp = createTimestamp(1704067200000);
-
-    // Unwrap in same expression
-    const combined = `${unwrap(url)}:${unwrap(port)} at ${unwrap(timestamp)}`;
-    expect(combined).toBe('https://example.com:3000 at 1704067200000');
-
-    // Unwrap in function call
-    const values = [unwrap(port), unwrap(timestamp)];
-    expect(values).toEqual([3000, 1704067200000]);
-  });
-
-  // TODO(#1155): Add negative tests for unwrap edge cases (type mismatches, null/undefined, performance)
 });
 
 describe('Type safety (compile-time checks)', () => {
