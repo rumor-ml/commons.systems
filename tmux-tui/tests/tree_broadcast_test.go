@@ -1,27 +1,43 @@
 package tests
 
 import (
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/commons-systems/tmux-tui/internal/daemon"
 )
 
+// setTestTmuxEnv sets the TMUX environment variable for test clients to connect to the test socket.
+// This allows DaemonClient to determine the correct namespace and socket path.
+func setTestTmuxEnv(socketName string) func() {
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	// Format: /path/to/socket,pid,pane_index
+	// PID doesn't matter for client namespace detection (only socket path is used)
+	tmuxEnv := fmt.Sprintf("%s,0,0", tmuxSocketPath)
+
+	oldTmux := os.Getenv("TMUX")
+	os.Setenv("TMUX", tmuxEnv)
+
+	// Return cleanup function to restore original TMUX env
+	return func() {
+		if oldTmux == "" {
+			os.Unsetenv("TMUX")
+		} else {
+			os.Setenv("TMUX", oldTmux)
+		}
+	}
+}
+
 // TestTreeBroadcast_SingleClient verifies that a single client receives tree_update messages
 // from the daemon's periodic tree collection.
 func TestTreeBroadcast_SingleClient(t *testing.T) {
-	t.Skip("TODO(#309): Enable tmux socket E2E tests in sandboxed/CI environments")
-
 	socketName := uniqueSocketName()
 	sessionName := "tree-single-test"
 
-	// Start daemon
-	cleanupDaemon := startDaemon(t, socketName, sessionName)
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer cleanupDaemon()
-	defer cleanupStaleSockets() // Clean up after test
-
-	// Create a test pane to ensure tree has content
+	// Create a test session first (daemon needs this to exist)
 	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
 		t.Fatalf("Failed to create test session: %v", err)
 	}
@@ -30,6 +46,16 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
 		}
 	}()
+
+	// Start daemon (after session exists)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
+	defer cleanupDaemon()
+	defer cleanupStaleSockets() // Clean up after test
+
+	// Set TMUX env so client connects to test socket
+	cleanupEnv := setTestTmuxEnv(socketName)
+	defer cleanupEnv()
 
 	// Connect client
 	client := daemon.NewDaemonClient()
@@ -97,18 +123,10 @@ func TestTreeBroadcast_SingleClient(t *testing.T) {
 // TestTreeBroadcast_MultipleClients verifies that all connected clients receive
 // identical tree_update messages with the same sequence number.
 func TestTreeBroadcast_MultipleClients(t *testing.T) {
-	t.Skip("TODO(#309): Enable tmux socket E2E tests in sandboxed/CI environments")
-
 	socketName := uniqueSocketName()
 	sessionName := "tree-multi-test"
 
-	// Start daemon
-	cleanupDaemon := startDaemon(t, socketName, sessionName)
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer cleanupDaemon()
-	defer cleanupStaleSockets() // Clean up after test
-
-	// Create a test pane
+	// Create a test session first (daemon needs this to exist)
 	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
 		t.Fatalf("Failed to create test session: %v", err)
 	}
@@ -117,6 +135,16 @@ func TestTreeBroadcast_MultipleClients(t *testing.T) {
 			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
 		}
 	}()
+
+	// Start daemon (after session exists)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
+	defer cleanupDaemon()
+	defer cleanupStaleSockets() // Clean up after test
+
+	// Set TMUX env so clients connect to test socket
+	cleanupEnv := setTestTmuxEnv(socketName)
+	defer cleanupEnv()
 
 	// Connect 3 clients
 	clients := make([]*daemon.DaemonClient, 3)
@@ -209,18 +237,17 @@ func TestTreeBroadcast_CollectionError(t *testing.T) {
 // TestTreeBroadcast_ClientReconnect verifies that a newly connected client
 // receives the current tree in the full_state message.
 func TestTreeBroadcast_ClientReconnect(t *testing.T) {
-	t.Skip("TODO(#309): Enable tmux socket E2E tests in sandboxed/CI environments")
+	t.Skip("TODO(#482): Reconnect test requires 30s timeout (tree broadcast interval) - too slow for CI")
+	// The daemon broadcasts tree updates every 30 seconds. A reconnected client
+	// receives full_state immediately but must wait for the next periodic broadcast
+	// to receive tree_update. Running this test would require >30s timeout per test,
+	// which is too slow for regular test runs.
+	// Core broadcast functionality is already covered by SingleClient and MultipleClients tests.
 
 	socketName := uniqueSocketName()
 	sessionName := "tree-reconnect-test"
 
-	// Start daemon
-	cleanupDaemon := startDaemon(t, socketName, sessionName)
-	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
-	defer cleanupDaemon()
-	defer cleanupStaleSockets() // Clean up after test
-
-	// Create a test pane
+	// Create a test session first (daemon needs this to exist)
 	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
 		t.Fatalf("Failed to create test session: %v", err)
 	}
@@ -229,6 +256,16 @@ func TestTreeBroadcast_ClientReconnect(t *testing.T) {
 			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
 		}
 	}()
+
+	// Start daemon (after session exists)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
+	defer cleanupDaemon()
+	defer cleanupStaleSockets() // Clean up after test
+
+	// Set TMUX env so clients connect to test socket
+	cleanupEnv := setTestTmuxEnv(socketName)
+	defer cleanupEnv()
 
 	// Connect first client and wait for initial tree_update
 	client1 := daemon.NewDaemonClient()

@@ -961,9 +961,6 @@ func TestBroadcast_TreeUpdatePartialFailure(t *testing.T) {
 	// Create tree and tree_update message
 	tree := tmux.NewRepoTree()
 	msg, err := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
 
 	// Broadcast tree_update (should partially fail)
 	daemon.broadcast(msg.ToWireFormat())
@@ -1275,17 +1272,10 @@ func TestBroadcast_FullStateDuringRapidClientChurn(t *testing.T) {
 
 // TestSendFullState tests the sendFullState helper method
 func TestSendFullState(t *testing.T) {
-	// Create a mock collector so sendFullState doesn't send tree_error
-	collector, err := tmux.NewCollector()
-	if err != nil {
-		t.Skip("Skipping test - collector initialization failed (tmux may not be available)")
-	}
-
 	daemon := &AlertDaemon{
 		clients:         make(map[string]*clientConnection),
 		alerts:          map[string]string{"pane-1": "stop", "pane-2": "idle"},
 		blockedBranches: map[string]string{"feature": "main"},
-		collector:       collector,
 	}
 	daemon.seqCounter.Store(42) // Set a specific sequence for testing
 
@@ -1344,12 +1334,6 @@ func TestHandleClient_ResyncRequest(t *testing.T) {
 	tmpDir := t.TempDir()
 	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
 
-	// Create collector so sendFullState doesn't send tree_error
-	collector, err := tmux.NewCollector()
-	if err != nil {
-		t.Skip("Skipping test - collector initialization failed (tmux may not be available)")
-	}
-
 	// Create daemon with test state
 	daemon := &AlertDaemon{
 		clients: make(map[string]*clientConnection),
@@ -1361,7 +1345,6 @@ func TestHandleClient_ResyncRequest(t *testing.T) {
 			"feature-1": "main",
 		},
 		blockedPath: blockedPath,
-		collector:   collector,
 	}
 	daemon.lastBroadcastError.Store("")
 
@@ -3030,9 +3013,6 @@ func TestNewTreeUpdateMessage_Validation(t *testing.T) {
 
 	// Test successful construction
 	msg, err := NewTreeUpdateMessage(seqNum, tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
 
 	if msg.MessageType() != MsgTypeTreeUpdate {
 		t.Errorf("Expected type %s, got %s", MsgTypeTreeUpdate, msg.MessageType())
@@ -3988,9 +3968,6 @@ func TestBroadcastTree_ErrorTracking(t *testing.T) {
 	// Create a tree_update message
 	tree := tmux.NewRepoTree()
 	msg, err := NewTreeUpdateMessage(1, tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
 	wireMsg := msg.ToWireFormat()
 
 	// Record initial error counts
@@ -4348,9 +4325,6 @@ func TestBroadcastTree_AllClientsFail(t *testing.T) {
 	// Create tree_update message
 	tree := tmux.NewRepoTree()
 	msg, err := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
 	wireMsg := msg.ToWireFormat()
 
 	// Broadcast tree_update - all 3 clients should fail
@@ -4472,9 +4446,6 @@ func TestBroadcastTree_PartialFailure(t *testing.T) {
 	// Create tree_update message
 	tree := tmux.NewRepoTree()
 	msg, err := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
 	wireMsg := msg.ToWireFormat()
 
 	// Broadcast tree_update - 1 client should fail, 2 should succeed
@@ -4580,10 +4551,7 @@ func TestTreeMessages_SequenceNumberMonotonicity(t *testing.T) {
 	tree := tmux.NewRepoTree()
 
 	// Send 2 tree_update messages
-	treeMsg1, err := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
+	treeMsg1 := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
 	daemon.broadcastTree(treeMsg1.ToWireFormat())
 
 	// Interleave with alert_change
@@ -4594,10 +4562,7 @@ func TestTreeMessages_SequenceNumberMonotonicity(t *testing.T) {
 	daemon.broadcast(alertMsg)
 
 	// Send another tree_update
-	treeMsg2, err := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
+	treeMsg2 := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
 	daemon.broadcastTree(treeMsg2.ToWireFormat())
 
 	// Send tree_error
@@ -4615,10 +4580,7 @@ func TestTreeMessages_SequenceNumberMonotonicity(t *testing.T) {
 	daemon.broadcast(alertMsg2)
 
 	// Send final tree_update
-	treeMsg3, err := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
-	if err != nil {
-		t.Fatalf("NewTreeUpdateMessage() error = %v", err)
-	}
+	treeMsg3 := NewTreeUpdateMessage(daemon.seqCounter.Add(1), tree)
 	daemon.broadcastTree(treeMsg3.ToWireFormat())
 
 	// Collect all messages
@@ -5006,43 +4968,40 @@ func TestDaemon_DegradedModeWhenCollectorNil(t *testing.T) {
 	}
 
 	// Test sendCollectorUnavailableError works correctly
-	// Create mock client connection using pipes like other tests
-	clientReader, serverWriter := io.Pipe()
-	defer clientReader.Close()
-	defer serverWriter.Close()
+	// Create mock client connection
+	tmpDir := t.TempDir()
+	socketPath := filepath.Join(tmpDir, "test.sock")
+
+	// Create a Unix socket listener for testing
+	listener, err := testutil.CreateTestListener(socketPath)
+	if err != nil {
+		t.Fatalf("Failed to create test listener: %v", err)
+	}
+	defer listener.Close()
+
+	// Connect a client
+	conn, err := testutil.ConnectToSocket(socketPath)
+	if err != nil {
+		t.Fatalf("Failed to connect to socket: %v", err)
+	}
+	defer conn.Close()
 
 	client := &clientConnection{
-		conn:    &mockConn{reader: io.LimitReader(clientReader, 0), writer: serverWriter},
-		encoder: json.NewEncoder(serverWriter),
+		conn:    conn,
+		encoder: json.NewEncoder(conn),
 	}
 
-	// Read messages in background
-	msgCh := make(chan Message, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		decoder := json.NewDecoder(clientReader)
-		var msg Message
-		if err := decoder.Decode(&msg); err != nil {
-			errCh <- err
-			return
-		}
-		msgCh <- msg
-	}()
-
 	// Test sendCollectorUnavailableError
-	if err := daemon.sendCollectorUnavailableError(client, "test-client"); err != nil {
+	err = daemon.sendCollectorUnavailableError(client, "test-client")
+	if err != nil {
 		t.Errorf("sendCollectorUnavailableError failed: %v", err)
 	}
 
 	// Verify tree_error was sent by reading from connection
+	decoder := json.NewDecoder(conn)
 	var msg Message
-	select {
-	case msg = <-msgCh:
-		// Success
-	case err := <-errCh:
+	if err := decoder.Decode(&msg); err != nil {
 		t.Fatalf("Failed to read tree_error message: %v", err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for tree_error message")
 	}
 
 	if msg.Type != MsgTypeTreeError {

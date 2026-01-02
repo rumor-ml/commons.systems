@@ -679,6 +679,7 @@ func (d *AlertDaemon) sendCollectorUnavailableError(client *clientConnection, cl
 // Tree is collected and broadcast immediately on daemon startup, then every 30 seconds thereafter.
 // This centralizes tree collection in the daemon, eliminating N×client redundant queries.
 func (d *AlertDaemon) watchTree() {
+	// TODO(#1215): Add test for tree collection interval timing accuracy
 	// Collect immediately on start
 	d.collectAndBroadcastTree()
 
@@ -728,10 +729,21 @@ func (d *AlertDaemon) collectAndBroadcastTree() {
 
 	// Collection succeeded - update currentTree and broadcast to clients
 	d.currentTree = tree
-	debug.Log("DAEMON_TREE_UPDATE repos=%d", len(tree.Repos()))
+	debug.Log("DAEMON_TREE_UPDATE repos=%d panes=%d", len(tree.Repos()), tree.TotalPanes())
 
 	// Broadcast tree_update to all clients
-	msg := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
+	msg, msgErr := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
+	if msgErr != nil {
+		failures := d.consecutiveTreeConstructFailures.Add(1)
+		errMsg := fmt.Sprintf("tree_update construction failed: %v (repos=%d, failures=%d)", msgErr, len(tree.Repos()), failures)
+		d.notifyTreeConstructionFailure(errMsg)
+
+		if failures >= 3 {
+			fmt.Fprintf(os.Stderr, "CRITICAL: Stopping tree broadcasts after %d consecutive construction failures\n", failures)
+			d.collector = nil // Enter degraded mode
+		}
+		return
+	}
 
 	// Defensive: Verify message construction succeeded
 	if msg == nil {

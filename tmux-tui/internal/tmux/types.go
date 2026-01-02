@@ -33,6 +33,8 @@ func (p Pane) Title() string      { return p.title }
 func (p Pane) IsClaudePane() bool { return p.isClaudePane }
 
 // NewPane creates a new Pane with validation.
+// ID and windowID are trimmed before validation to handle whitespace from tmux output parsing.
+// This is intentional - tmux format strings may include trailing whitespace.
 func NewPane(id, path, windowID string, windowIndex int, windowActive, windowBell bool, command, title string, isClaudePane bool) (Pane, error) {
 	id = strings.TrimSpace(id)
 	windowID = strings.TrimSpace(windowID)
@@ -183,13 +185,13 @@ func NewWindow(id, name string, index int, active bool, panes []Pane) (Window, e
 // RepoTree is a nested map structure: repo -> branch -> panes.
 // Use NewRepoTree() to create and methods to access/modify safely.
 type RepoTree struct {
-	_tree map[string]map[string][]Pane
+	tree map[string]map[string][]Pane
 }
 
 // NewRepoTree creates a new empty RepoTree.
 func NewRepoTree() RepoTree {
 	return RepoTree{
-		_tree: make(map[string]map[string][]Pane),
+		tree: make(map[string]map[string][]Pane),
 	}
 }
 
@@ -197,7 +199,7 @@ func NewRepoTree() RepoTree {
 // Returns a defensive copy of the pane slice to prevent external mutation.
 // Returns nil and false if not found.
 func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
-	branches, ok := rt._tree[repo]
+	branches, ok := rt.tree[repo]
 	if !ok {
 		return nil, false
 	}
@@ -211,6 +213,8 @@ func (rt RepoTree) GetPanes(repo, branch string) ([]Pane, bool) {
 }
 
 // SetPanes sets panes for a given repo and branch with validation.
+// A defensive copy is made to prevent external mutations from affecting the tree.
+// This guarantees isolation even if the caller retains and modifies the input slice.
 func (rt *RepoTree) SetPanes(repo, branch string, panes []Pane) error {
 	if repo == "" {
 		return fmt.Errorf("repo name required")
@@ -226,21 +230,21 @@ func (rt *RepoTree) SetPanes(repo, branch string, panes []Pane) error {
 		}
 	}
 
-	if rt._tree[repo] == nil {
-		rt._tree[repo] = make(map[string][]Pane)
+	if rt.tree[repo] == nil {
+		rt.tree[repo] = make(map[string][]Pane)
 	}
 
 	// Defensive copy to prevent external mutation
 	panesCopy := make([]Pane, len(panes))
 	copy(panesCopy, panes)
-	rt._tree[repo][branch] = panesCopy
+	rt.tree[repo][branch] = panesCopy
 	return nil
 }
 
 // Repos returns a list of all repository names.
 func (rt RepoTree) Repos() []string {
-	result := make([]string, 0, len(rt._tree))
-	for repo := range rt._tree {
+	result := make([]string, 0, len(rt.tree))
+	for repo := range rt.tree {
 		result = append(result, repo)
 	}
 	return result
@@ -249,7 +253,7 @@ func (rt RepoTree) Repos() []string {
 // Branches returns a list of all branches for a given repository.
 // Returns nil if the repository doesn't exist.
 func (rt RepoTree) Branches(repo string) []string {
-	branches, ok := rt._tree[repo]
+	branches, ok := rt.tree[repo]
 	if !ok {
 		return nil
 	}
@@ -262,13 +266,13 @@ func (rt RepoTree) Branches(repo string) []string {
 
 // HasRepo returns true if the repository exists in the tree.
 func (rt RepoTree) HasRepo(repo string) bool {
-	_, ok := rt._tree[repo]
+	_, ok := rt.tree[repo]
 	return ok
 }
 
 // HasBranch returns true if the branch exists in the given repository.
 func (rt RepoTree) HasBranch(repo, branch string) bool {
-	branches, ok := rt._tree[repo]
+	branches, ok := rt.tree[repo]
 	if !ok {
 		return false
 	}
@@ -283,13 +287,13 @@ func (rt RepoTree) HasBranch(repo, branch string) bool {
 // slice copying provides complete isolation for concurrent access.
 func (rt RepoTree) Clone() RepoTree {
 	clone := NewRepoTree()
-	for repo, branches := range rt._tree {
-		clone._tree[repo] = make(map[string][]Pane)
+	for repo, branches := range rt.tree {
+		clone.tree[repo] = make(map[string][]Pane)
 		for branch, panes := range branches {
 			// Copy the slice
 			panesCopy := make([]Pane, len(panes))
 			copy(panesCopy, panes)
-			clone._tree[repo][branch] = panesCopy
+			clone.tree[repo][branch] = panesCopy
 		}
 	}
 	return clone
@@ -298,7 +302,7 @@ func (rt RepoTree) Clone() RepoTree {
 // TotalPanes returns the total count of panes across all repos and branches.
 func (rt RepoTree) TotalPanes() int {
 	total := 0
-	for _, branches := range rt._tree {
+	for _, branches := range rt.tree {
 		for _, panes := range branches {
 			total += len(panes)
 		}
@@ -308,13 +312,22 @@ func (rt RepoTree) TotalPanes() int {
 
 // MarshalJSON implements json.Marshaler for wire format.
 func (rt RepoTree) MarshalJSON() ([]byte, error) {
-	return json.Marshal(rt._tree)
+	return json.Marshal(rt.tree)
 }
 
 // UnmarshalJSON implements json.Unmarshaler for wire format.
+//
+// CRITICAL: Deep copy is performed to prevent aliasing bugs when the same
+// wire Message.Tree pointer is accessed multiple times. Without deep copy:
+//  1. json.Unmarshal populates Message.Tree pointer's internal maps
+//  2. Multiple RepoTree values could share references to the same internal maps
+//  3. Mutations would affect all RepoTree instances created from the same wire message
+//
+// This deep copy ensures each UnmarshalJSON call produces an independent tree,
+// matching the isolation guarantee of Clone().
 func (rt *RepoTree) UnmarshalJSON(data []byte) error {
-	if rt._tree == nil {
-		rt._tree = make(map[string]map[string][]Pane)
+	if rt.tree == nil {
+		rt.tree = make(map[string]map[string][]Pane)
 	}
 
 	var tempTree map[string]map[string][]Pane
@@ -343,13 +356,13 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 	// Deep copy to prevent sharing map pointers with unmarshaled data.
 	// This prevents external code from mutating the tree's internal state via retained
 	// references to the unmarshaled maps, ensuring the same isolation guarantee as Clone().
-	rt._tree = make(map[string]map[string][]Pane, len(tempTree))
+	rt.tree = make(map[string]map[string][]Pane, len(tempTree))
 	for repo, branches := range tempTree {
-		rt._tree[repo] = make(map[string][]Pane, len(branches))
+		rt.tree[repo] = make(map[string][]Pane, len(branches))
 		for branch, panes := range branches {
 			panesCopy := make([]Pane, len(panes))
 			copy(panesCopy, panes)
-			rt._tree[repo][branch] = panesCopy
+			rt.tree[repo][branch] = panesCopy
 		}
 	}
 

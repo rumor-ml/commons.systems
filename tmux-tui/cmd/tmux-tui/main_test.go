@@ -10,6 +10,7 @@ import (
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
+// TODO(#1212): Extract testPane and testTree helpers to shared testing package
 // testPane is a helper to create Pane instances for testing
 // Panics on error since these are test fixtures with valid data
 func testPane(id, windowID string, windowIndex int, windowActive bool) tmux.Pane {

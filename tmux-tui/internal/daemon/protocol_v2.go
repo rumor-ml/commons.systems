@@ -732,8 +732,21 @@ type TreeUpdateMessageV2 struct {
 // during JSON serialization. Without cloning, the daemon could mutate its tree while client
 // goroutines are marshaling the same tree to JSON, violating Go's data race rules.
 // Caller may safely mutate the original tree after this call - the message is independent.
-func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) *TreeUpdateMessageV2 {
-	return &TreeUpdateMessageV2{seqNum: seqNum, tree: tree.Clone()}
+// Returns error if tree cloning fails (validates clone succeeded by checking repo count).
+func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) (*TreeUpdateMessageV2, error) {
+	cloned := tree.Clone()
+
+	// DEFENSIVE: Validate clone succeeded - catches Clone() implementation bugs
+	// that could corrupt broadcast state. This ensures the cloned tree has the
+	// same structure as the original (same number of repos).
+	if len(cloned.Repos()) != len(tree.Repos()) {
+		debug.Log("TREE_CLONE_VALIDATION_FAILED original_repos=%d cloned_repos=%d seq=%d",
+			len(tree.Repos()), len(cloned.Repos()), seqNum)
+		return nil, fmt.Errorf("tree clone failed: expected %d repos, got %d (seqNum=%d)",
+			len(tree.Repos()), len(cloned.Repos()), seqNum)
+	}
+
+	return &TreeUpdateMessageV2{seqNum: seqNum, tree: cloned}, nil
 }
 
 func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
@@ -743,13 +756,6 @@ func (m *TreeUpdateMessageV2) ToWireFormat() Message {
 	// The constructor's clone provides data race protection for the daemon's original tree.
 	// ToWireFormat is called once per message (see server.go collectAndBroadcastTree), and
 	// the returned Message.Tree pointer is never mutated during broadcast.
-	//
-	// DEFENSIVE: Runtime validation to detect if constructor's Clone() failed to create
-	// a new instance. This can happen if Clone() implementation is buggy or if the tree
-	// was constructed without using NewTreeUpdateMessage (bypassing safety guarantees).
-	// We check by attempting to take address of m.tree - if it's the zero value, Clone()
-	// likely didn't allocate new memory. This is a best-effort check since Go doesn't
-	// provide pointer comparison for values, but helps catch gross violations.
 	return Message{
 		Type:   MsgTypeTreeUpdate,
 		SeqNum: m.seqNum,
@@ -757,8 +763,11 @@ func (m *TreeUpdateMessageV2) ToWireFormat() Message {
 	}
 }
 
-// Tree returns a clone to prevent caller mutations from affecting this message.
-// The message is immutable after construction (enforced by unexported fields).
+// Tree returns a clone of the tree to prevent caller mutations.
+// Even though the message's tree is already a clone (from NewTreeUpdateMessage),
+// we clone again here because RepoTree does NOT provide defensive copying in all
+// its methods (e.g., SetPanes, etc.), so callers could mutate the returned tree.
+// This ensures the message remains truly immutable.
 func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree.Clone() }
 
 // 20. TreeErrorMessageV2 represents a tree collection failure
@@ -960,7 +969,11 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 				"  3. Report this error if it persists",
 				MsgTypeTreeUpdate, msg.SeqNum)
 		}
-		v2msg := NewTreeUpdateMessage(msg.SeqNum, *msg.Tree)
+		v2msg, err := NewTreeUpdateMessage(msg.SeqNum, *msg.Tree)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w",
+				MsgTypeTreeUpdate, msg.SeqNum, err)
+		}
 		return v2msg, nil
 
 	case MsgTypeTreeError:

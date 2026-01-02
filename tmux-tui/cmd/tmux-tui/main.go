@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,9 +94,11 @@ func initialModel() model {
 	// Try to connect to daemon with retries
 	// Use background context with a reasonable timeout for initialization
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
-	if err := daemonClient.ConnectWithRetry(ctx, 5); err != nil {
+	err := daemonClient.ConnectWithRetry(ctx, 5)
+	cancel() // Cancel context immediately after connection attempt completes
+
+	if err != nil {
 		socketPath := namespace.DaemonSocket()
 
 		_, statErr := os.Stat(socketPath)
@@ -196,18 +199,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			// Clean up daemon client on quit
-			if m.daemonClient != nil {
-				if err := m.daemonClient.Close(); err != nil {
-					// Suppress harmless "use of closed network connection" errors
-					if !containsClosedConnectionError(err) {
-						fmt.Fprintf(os.Stderr, "Note: Failed to cleanly close daemon connection: %v\n", err)
-						fmt.Fprintf(os.Stderr, "      Application will exit normally. If you see connection issues on restart, run: pkill tmux-tui-daemon\n")
-					}
-					debug.Log("TUI_CLIENT_CLOSE_ERROR error=%v", err)
-				} else {
-					debug.Log("TUI_CLIENT_CLOSE_SUCCESS")
-				}
-			}
+			closeDaemonClient(m.daemonClient, "Ctrl+C")
 			return m, tea.Quit
 		}
 
@@ -386,16 +378,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.consecutiveNilUpdates++
 
 				err := fmt.Errorf("received tree_update with nil Tree field (seq=%d)", msg.msg.SeqNum)
-				debug.Log("TUI_TREE_UPDATE_INVALID error=%v consecutive=%d", err, m.consecutiveNilUpdates)
+				debug.Log("TUI_TREE_UPDATE_INVALID error=%v consecutive=%d threshold=3", err, m.consecutiveNilUpdates)
 
 				// CRITICAL: Set error state IMMEDIATELY to show warning banner
 				m.errorMu.Lock()
 				m.treeRefreshError = err
 				m.errorMu.Unlock()
 
-				// User-facing error notification
+				// User-facing error notification with threshold warnings
 				fmt.Fprintf(os.Stderr, "ERROR: Received invalid tree update from daemon (seqNum=%d)\n", msg.msg.SeqNum)
 				fmt.Fprintf(os.Stderr, "       Tree data is missing. This indicates a daemon bug or protocol mismatch.\n")
+
+				// Warn user about progression toward circuit breaker threshold
+				if m.consecutiveNilUpdates == 1 {
+					fmt.Fprintf(os.Stderr, "WARNING: Received 1 invalid tree update. Circuit breaker activates at 3.\n")
+				} else if m.consecutiveNilUpdates == 2 {
+					fmt.Fprintf(os.Stderr, "WARNING: Received 2 consecutive invalid tree updates. Circuit breaker activates at 3.\n")
+				}
 
 				// Circuit breaker: Disconnect after 3 consecutive malformed updates
 				// This prevents infinite retries when daemon has a persistent bug
@@ -409,21 +408,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
        3. Restart tmux-tui clients
 `, m.consecutiveNilUpdates)
 
-					if m.daemonClient != nil {
-						if err := m.daemonClient.Close(); err != nil {
-							// Suppress harmless "use of closed network connection" errors
-							if !containsClosedConnectionError(err) {
-								fmt.Fprintf(os.Stderr, "Note: Failed to cleanly close daemon connection: %v\n", err)
-								fmt.Fprintf(os.Stderr, "      Circuit breaker activated. Daemon may have stale client state.\n")
-							}
-							debug.Log("TUI_CIRCUIT_BREAKER_CLOSE_ERROR error=%v", err)
-						} else {
-							debug.Log("TUI_CIRCUIT_BREAKER_CLOSE_SUCCESS")
-						}
-					}
+					closeDaemonClient(m.daemonClient, "circuit breaker")
 					m.daemonClient = nil
+
 					m.errorMu.Lock()
-					m.treeRefreshError = fmt.Errorf("daemon sending malformed updates - disconnected after %d failures", m.consecutiveNilUpdates)
+					m.treeRefreshError = fmt.Errorf("daemon sending malformed updates - disconnected after 3 failures")
 					m.errorMu.Unlock()
 					return m, nil // Circuit breaker: stop watching daemon after too many malformed updates
 				}
@@ -434,12 +423,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Valid tree received - reset circuit breaker
+			if m.consecutiveNilUpdates > 0 {
+				debug.Log("TUI_CIRCUIT_BREAKER_RESET previous_consecutive=%d", m.consecutiveNilUpdates)
+			}
 			m.consecutiveNilUpdates = 0
 
 			m.tree = *msg.msg.Tree
 			// Reconcile alerts with lock held to prevent race with fast path
 			m.alertsMu.Lock()
 			alertsBefore := len(m.alerts)
+
+			// Capture alert types before reconciliation for detailed logging
+			alertTypesBefore := make(map[string]string)
+			for paneID, alertType := range m.alerts {
+				alertTypesBefore[paneID] = alertType
+			}
+
 			m.alerts = reconcileAlerts(m.tree, m.alerts)
 			alertsAfter := len(m.alerts)
 			removed := alertsBefore - alertsAfter
@@ -447,8 +446,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Count total panes in tree
 			totalPanes := m.tree.TotalPanes()
 
-			// Log reconciliation results
+			// Log reconciliation results with individual alert details
 			debug.Log("TUI_RECONCILE removed=%d remaining=%d panes_in_tree=%d", removed, alertsAfter, totalPanes)
+
+			// Log each removed alert for audit trail
+			if removed > 0 {
+				for paneID, alertType := range alertTypesBefore {
+					if _, stillExists := m.alerts[paneID]; !stillExists {
+						debug.Log("TUI_RECONCILE_REMOVED_ALERT paneID=%s alertType=%s reason=pane_not_in_tree", paneID, alertType)
+					}
+				}
+			}
 			m.alertsMu.Unlock()
 
 			// Clear any previous tree refresh error
@@ -462,9 +470,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Tree collection error from daemon
 			debug.Log("TUI_TREE_ERROR error=%s", msg.msg.Error)
 
-			// User-facing error notification
-			fmt.Fprintf(os.Stderr, "WARNING: Daemon failed to collect tmux tree: %s\n", msg.msg.Error)
+			// Categorize error and provide specific recovery guidance
+			errStr := msg.msg.Error
+			var guidance string
+			switch {
+			case strings.Contains(errStr, "executable file not found"):
+				guidance = "RECOVERY: Ensure tmux is installed and in $PATH, then restart daemon"
+			case strings.Contains(errStr, "permission denied"):
+				guidance = "RECOVERY: Check tmux socket permissions, or restart daemon with correct user"
+			case strings.Contains(errStr, "timeout"):
+				guidance = "RECOVERY: Tmux may be unresponsive. Try 'tmux list-panes' manually to diagnose"
+			default:
+				guidance = "RECOVERY: Daemon will retry automatically. If error persists, restart daemon: pkill tmux-tui-daemon && tmux-tui-daemon &"
+			}
+
+			// User-facing error notification with recovery guidance
+			fmt.Fprintf(os.Stderr, "WARNING: Daemon failed to collect tmux tree: %s\n", errStr)
 			fmt.Fprintf(os.Stderr, "         Tree display will show stale data until collection succeeds.\n")
+			fmt.Fprintf(os.Stderr, "         %s\n", guidance)
 
 			m.errorMu.Lock()
 			m.treeRefreshError = fmt.Errorf("daemon tree collection failed: %s", msg.msg.Error)
@@ -628,6 +651,10 @@ func (m model) continueWatchingDaemon() tea.Cmd {
 	if m.daemonClient != nil {
 		return watchDaemonCmd(m.daemonClient)
 	}
+
+	// DEFENSIVE: This should only happen after explicit disconnect or initialization failure
+	// If you see this log during normal operation, there's a bug setting daemonClient to nil
+	debug.Log("TUI_WATCH_DAEMON_SKIP reason=client_nil")
 	return nil
 }
 
@@ -635,6 +662,28 @@ func timeTickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return timeTickMsg(t)
 	})
+}
+
+// closeDaemonClient closes a daemon client connection with consistent error handling
+// context describes the operation that triggered the close (e.g., "Ctrl+C", "circuit breaker")
+func closeDaemonClient(client *daemon.DaemonClient, context string) {
+	if client == nil {
+		return
+	}
+
+	if err := client.Close(); err != nil {
+		if !containsClosedConnectionError(err) {
+			fmt.Fprintf(os.Stderr, "Note: Failed to cleanly close daemon connection: %v\n", err)
+			if context == "circuit breaker" {
+				fmt.Fprintf(os.Stderr, "      Circuit breaker activated. Daemon may have stale client state.\n")
+			} else if context == "Ctrl+C" {
+				fmt.Fprintf(os.Stderr, "      Application will exit normally. If you see connection issues on restart, run: pkill tmux-tui-daemon\n")
+			}
+		}
+		debug.Log("TUI_%s_CLOSE_ERROR error=%v", strings.ToUpper(strings.ReplaceAll(context, " ", "_")), err)
+	} else {
+		debug.Log("TUI_%s_CLOSE_SUCCESS", strings.ToUpper(strings.ReplaceAll(context, " ", "_")))
+	}
 }
 
 // containsClosedConnectionError checks if error is a harmless "connection already closed" error
@@ -653,12 +702,8 @@ func containsClosedConnectionError(err error) bool {
 // containsAny checks if s contains any of the substrings
 func containsAny(s string, substrings []string) bool {
 	for _, substr := range substrings {
-		if len(s) >= len(substr) {
-			for i := 0; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
-				}
-			}
+		if strings.Contains(s, substr) {
+			return true
 		}
 	}
 	return false
