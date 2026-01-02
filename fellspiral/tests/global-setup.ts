@@ -26,7 +26,9 @@ async function globalSetup() {
   }
 
   // Firebase emulator port from shared config
-  const firestoreHost = 'localhost';
+  // Use 127.0.0.1 explicitly to avoid IPv6 connection issues (::1)
+  // Some systems/browsers may have permission issues connecting to IPv6 localhost
+  const firestoreHost = '127.0.0.1';
   const firestorePort = FIREBASE_PORTS.firestore;
 
   console.log(`📦 Seeding Firestore emulator at ${firestoreHost}:${firestorePort}...`);
