@@ -3,6 +3,7 @@
  */
 
 // TODO(#1219): Add strategic comments explaining test rationale for edge cases
+// TODO(#1240): Replace expect.fail() with descriptive Vitest assertions
 
 import { describe, it, expect } from 'vitest';
 import { ZodError } from 'zod';
@@ -25,6 +26,13 @@ import {
   parseSessionID,
   parseUserID,
   parseFileID,
+  BrandedTypeError,
+  assertPort,
+  assertURL,
+  assertTimestamp,
+  assertSessionID,
+  assertUserID,
+  assertFileID,
   type Port,
   type URL,
   type Timestamp,
@@ -43,25 +51,25 @@ describe('createPort', () => {
   });
 
   it('rejects negative ports', () => {
-    expect(() => createPort(-1)).toThrow(ZodError);
+    expect(() => createPort(-1)).toThrow(BrandedTypeError);
   });
 
   it('rejects ports above 65535', () => {
-    expect(() => createPort(65536)).toThrow(ZodError);
-    expect(() => createPort(70000)).toThrow(ZodError);
+    expect(() => createPort(65536)).toThrow(BrandedTypeError);
+    expect(() => createPort(70000)).toThrow(BrandedTypeError);
   });
 
   it('rejects non-integer ports', () => {
-    expect(() => createPort(3000.5)).toThrow(ZodError);
+    expect(() => createPort(3000.5)).toThrow(BrandedTypeError);
   });
 
   it('rejects NaN ports', () => {
-    expect(() => createPort(NaN)).toThrow(ZodError);
+    expect(() => createPort(NaN)).toThrow(BrandedTypeError);
   });
 
   it('rejects infinite port numbers', () => {
-    expect(() => createPort(Infinity)).toThrow(ZodError);
-    expect(() => createPort(-Infinity)).toThrow(ZodError);
+    expect(() => createPort(Infinity)).toThrow(BrandedTypeError);
+    expect(() => createPort(-Infinity)).toThrow(BrandedTypeError);
   });
 
   it('returns branded Port type', () => {
@@ -78,9 +86,9 @@ describe('createURL', () => {
   });
 
   it('rejects malformed URLs', () => {
-    expect(() => createURL('not a url')).toThrow(ZodError);
-    expect(() => createURL('')).toThrow(ZodError);
-    expect(() => createURL('//example.com')).toThrow(ZodError);
+    expect(() => createURL('not a url')).toThrow(BrandedTypeError);
+    expect(() => createURL('')).toThrow(BrandedTypeError);
+    expect(() => createURL('//example.com')).toThrow(BrandedTypeError);
   });
 
   it('returns branded URL type', () => {
@@ -112,30 +120,31 @@ describe('createTimestamp', () => {
   });
 
   it('rejects negative timestamps', () => {
-    expect(() => createTimestamp(-1)).toThrow(ZodError);
+    expect(() => createTimestamp(-1)).toThrow(BrandedTypeError);
   });
 
   it('rejects infinite timestamps', () => {
-    expect(() => createTimestamp(Infinity)).toThrow(ZodError);
-    expect(() => createTimestamp(-Infinity)).toThrow(ZodError);
+    expect(() => createTimestamp(Infinity)).toThrow(BrandedTypeError);
+    expect(() => createTimestamp(-Infinity)).toThrow(BrandedTypeError);
   });
 
   it('rejects NaN timestamps', () => {
-    expect(() => createTimestamp(NaN)).toThrow(ZodError);
+    expect(() => createTimestamp(NaN)).toThrow(BrandedTypeError);
   });
 
-  it('throws ZodError (not generic Error) for invalid Date objects', () => {
+  it('throws BrandedTypeError (wrapping ZodError) for invalid Date objects', () => {
     const invalidDate = new Date('invalid');
 
     try {
       createTimestamp(invalidDate);
       expect.fail('Should have thrown an error');
     } catch (error) {
-      // Verify it throws ZodError for consistency with other validation errors
-      expect(error).toBeInstanceOf(ZodError);
-      const zodError = error as ZodError;
-      // Zod catches NaN with 'not_finite' or similar error code
-      expect(zodError.issues.length).toBeGreaterThan(0);
+      // Factory functions now throw BrandedTypeError
+      expect(error).toBeInstanceOf(BrandedTypeError);
+      const brandedError = error as BrandedTypeError;
+      // Should preserve the underlying ZodError
+      expect(brandedError.zodError).toBeInstanceOf(ZodError);
+      expect(brandedError.zodError.issues.length).toBeGreaterThan(0);
     }
   });
 
@@ -159,25 +168,25 @@ describe('createSessionID', () => {
   });
 
   it('rejects empty session IDs', () => {
-    expect(() => createSessionID('')).toThrow(ZodError);
+    expect(() => createSessionID('')).toThrow(BrandedTypeError);
   });
 
   it('rejects non-string session IDs', () => {
-    expect(() => createSessionID(123 as any)).toThrow(ZodError);
-    expect(() => createSessionID(null as any)).toThrow(ZodError);
+    expect(() => createSessionID(123 as any)).toThrow(BrandedTypeError);
+    expect(() => createSessionID(null as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects undefined session IDs', () => {
-    expect(() => createSessionID(undefined as any)).toThrow(ZodError);
+    expect(() => createSessionID(undefined as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects boolean session IDs', () => {
-    expect(() => createSessionID(true as any)).toThrow(ZodError);
+    expect(() => createSessionID(true as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects session IDs that are too long', () => {
     const tooLong = 'a'.repeat(257);
-    expect(() => createSessionID(tooLong)).toThrow(ZodError);
+    expect(() => createSessionID(tooLong)).toThrow(BrandedTypeError);
   });
 
   it('accepts session IDs up to 256 characters', () => {
@@ -198,25 +207,25 @@ describe('createUserID', () => {
   });
 
   it('rejects empty user IDs', () => {
-    expect(() => createUserID('')).toThrow(ZodError);
+    expect(() => createUserID('')).toThrow(BrandedTypeError);
   });
 
   it('rejects non-string user IDs', () => {
-    expect(() => createUserID(123 as any)).toThrow(ZodError);
-    expect(() => createUserID(null as any)).toThrow(ZodError);
+    expect(() => createUserID(123 as any)).toThrow(BrandedTypeError);
+    expect(() => createUserID(null as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects undefined user IDs', () => {
-    expect(() => createUserID(undefined as any)).toThrow(ZodError);
+    expect(() => createUserID(undefined as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects boolean user IDs', () => {
-    expect(() => createUserID(true as any)).toThrow(ZodError);
+    expect(() => createUserID(true as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects user IDs that are too long', () => {
     const tooLong = 'a'.repeat(257);
-    expect(() => createUserID(tooLong)).toThrow(ZodError);
+    expect(() => createUserID(tooLong)).toThrow(BrandedTypeError);
   });
 
   it('accepts user IDs up to 256 characters', () => {
@@ -237,25 +246,25 @@ describe('createFileID', () => {
   });
 
   it('rejects empty file IDs', () => {
-    expect(() => createFileID('')).toThrow(ZodError);
+    expect(() => createFileID('')).toThrow(BrandedTypeError);
   });
 
   it('rejects non-string file IDs', () => {
-    expect(() => createFileID(123 as any)).toThrow(ZodError);
-    expect(() => createFileID(null as any)).toThrow(ZodError);
+    expect(() => createFileID(123 as any)).toThrow(BrandedTypeError);
+    expect(() => createFileID(null as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects undefined file IDs', () => {
-    expect(() => createFileID(undefined as any)).toThrow(ZodError);
+    expect(() => createFileID(undefined as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects boolean file IDs', () => {
-    expect(() => createFileID(true as any)).toThrow(ZodError);
+    expect(() => createFileID(true as any)).toThrow(BrandedTypeError);
   });
 
   it('rejects file IDs that are too long', () => {
     const tooLong = 'a'.repeat(257);
-    expect(() => createFileID(tooLong)).toThrow(ZodError);
+    expect(() => createFileID(tooLong)).toThrow(BrandedTypeError);
   });
 
   it('accepts file IDs up to 256 characters', () => {
@@ -888,6 +897,180 @@ describe('Zod Schema Validation', () => {
       expect(() => parseFileID(123)).toThrow(ZodError);
       expect(() => parseFileID(null)).toThrow(ZodError);
       expect(() => parseFileID(undefined)).toThrow(ZodError);
+    });
+  });
+});
+
+// New tests for batch-2 validations
+
+describe('New Validations (batch-2)', () => {
+  describe('FileID validation', () => {
+    it('rejects whitespace-only file IDs', () => {
+      expect(() => createFileID('   ')).toThrow(BrandedTypeError);
+      expect(() => createFileID('\t\t')).toThrow(BrandedTypeError);
+      expect(() => createFileID('\n\n')).toThrow(BrandedTypeError);
+    });
+
+    it('rejects file IDs with control characters', () => {
+      expect(() => createFileID('file\x00id')).toThrow(BrandedTypeError);
+      expect(() => createFileID('file\x01id')).toThrow(BrandedTypeError);
+      expect(() => createFileID('file\x1Fid')).toThrow(BrandedTypeError);
+      expect(() => createFileID('file\x7Fid')).toThrow(BrandedTypeError);
+    });
+
+    it('rejects file IDs with path traversal sequences', () => {
+      expect(() => createFileID('../etc/passwd')).toThrow(BrandedTypeError);
+      expect(() => createFileID('../../file')).toThrow(BrandedTypeError);
+      expect(() => createFileID('dir/../file')).toThrow(BrandedTypeError);
+    });
+
+    it('accepts valid file IDs with various characters', () => {
+      expect(createFileID('abc123')).toBe('abc123');
+      expect(createFileID('file-id_with-chars')).toBe('file-id_with-chars');
+      expect(createFileID('hash:abc123')).toBe('hash:abc123');
+    });
+  });
+
+  describe('Timestamp upper bound validation', () => {
+    it('rejects timestamps beyond year 9999', () => {
+      const year10000 = 253402300800000; // Just beyond year 9999
+      expect(() => createTimestamp(year10000)).toThrow(BrandedTypeError);
+      expect(() => createTimestamp(9e15)).toThrow(BrandedTypeError);
+    });
+
+    it('accepts timestamps up to year 9999', () => {
+      const maxTimestamp = 253402300799999; // Dec 31, 9999 23:59:59.999 UTC
+      expect(createTimestamp(maxTimestamp)).toBe(maxTimestamp);
+      expect(createTimestamp(Date.now())).toBeGreaterThan(0);
+    });
+  });
+
+  describe('SessionID validation', () => {
+    it('rejects whitespace-only session IDs', () => {
+      expect(() => createSessionID('   ')).toThrow(BrandedTypeError);
+      expect(() => createSessionID('\t\t')).toThrow(BrandedTypeError);
+    });
+
+    it('rejects session IDs with control characters', () => {
+      expect(() => createSessionID('sess\x00ion')).toThrow(BrandedTypeError);
+      expect(() => createSessionID('sess\nion')).toThrow(BrandedTypeError);
+      expect(() => createSessionID('sess\tion')).toThrow(BrandedTypeError);
+    });
+
+    it('accepts valid session IDs with spaces and special chars', () => {
+      expect(createSessionID('session with spaces')).toBe('session with spaces');
+      expect(createSessionID('session-123')).toBe('session-123');
+      expect(createSessionID('session_abc')).toBe('session_abc');
+    });
+  });
+
+  describe('UserID validation', () => {
+    it('rejects whitespace-only user IDs', () => {
+      expect(() => createUserID('   ')).toThrow(BrandedTypeError);
+      expect(() => createUserID('\t\t')).toThrow(BrandedTypeError);
+    });
+
+    it('rejects user IDs with control characters', () => {
+      expect(() => createUserID('user\x00id')).toThrow(BrandedTypeError);
+      expect(() => createUserID('user\nid')).toThrow(BrandedTypeError);
+      expect(() => createUserID('user\tid')).toThrow(BrandedTypeError);
+    });
+
+    it('accepts valid user IDs with spaces and special chars', () => {
+      expect(createUserID('user with spaces')).toBe('user with spaces');
+      expect(createUserID('user-123')).toBe('user-123');
+      expect(createUserID('user_abc')).toBe('user_abc');
+    });
+  });
+
+  describe('BrandedTypeError', () => {
+    it('provides user-friendly error messages', () => {
+      try {
+        createPort(70000);
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BrandedTypeError);
+        const brandedError = error as BrandedTypeError;
+        expect(brandedError.message).toContain('Invalid Port');
+        expect(brandedError.type).toBe('Port');
+        expect(brandedError.value).toBe(70000);
+        expect(brandedError.zodError).toBeInstanceOf(ZodError);
+      }
+    });
+
+    it('preserves ZodError for programmatic handling', () => {
+      try {
+        createURL('not a url');
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BrandedTypeError);
+        const brandedError = error as BrandedTypeError;
+        expect(brandedError.zodError).toBeInstanceOf(ZodError);
+        expect(brandedError.zodError.issues.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('Assertion helpers', () => {
+    it('assertPort validates in non-production', () => {
+      const validPort = 3000 as Port;
+      expect(() => assertPort(validPort)).not.toThrow();
+
+      const invalidPort = 70000 as Port;
+      // Only validates in non-production
+      if (process.env.NODE_ENV !== 'production') {
+        expect(() => assertPort(invalidPort)).toThrow(ZodError);
+      }
+    });
+
+    it('assertURL validates in non-production', () => {
+      const validURL = 'https://example.com' as URL;
+      expect(() => assertURL(validURL)).not.toThrow();
+
+      const invalidURL = 'not a url' as URL;
+      if (process.env.NODE_ENV !== 'production') {
+        expect(() => assertURL(invalidURL)).toThrow(ZodError);
+      }
+    });
+
+    it('assertTimestamp validates in non-production', () => {
+      const validTimestamp = Date.now() as Timestamp;
+      expect(() => assertTimestamp(validTimestamp)).not.toThrow();
+
+      const invalidTimestamp = -1 as Timestamp;
+      if (process.env.NODE_ENV !== 'production') {
+        expect(() => assertTimestamp(invalidTimestamp)).toThrow(ZodError);
+      }
+    });
+
+    it('assertSessionID validates in non-production', () => {
+      const validSessionID = 'session123' as SessionID;
+      expect(() => assertSessionID(validSessionID)).not.toThrow();
+
+      const invalidSessionID = '   ' as SessionID;
+      if (process.env.NODE_ENV !== 'production') {
+        expect(() => assertSessionID(invalidSessionID)).toThrow(ZodError);
+      }
+    });
+
+    it('assertUserID validates in non-production', () => {
+      const validUserID = 'user123' as UserID;
+      expect(() => assertUserID(validUserID)).not.toThrow();
+
+      const invalidUserID = '   ' as UserID;
+      if (process.env.NODE_ENV !== 'production') {
+        expect(() => assertUserID(invalidUserID)).toThrow(ZodError);
+      }
+    });
+
+    it('assertFileID validates in non-production', () => {
+      const validFileID = 'file123' as FileID;
+      expect(() => assertFileID(validFileID)).not.toThrow();
+
+      const invalidFileID = '../etc/passwd' as FileID;
+      if (process.env.NODE_ENV !== 'production') {
+        expect(() => assertFileID(invalidFileID)).toThrow(ZodError);
+      }
     });
   });
 });

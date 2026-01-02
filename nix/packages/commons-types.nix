@@ -5,6 +5,7 @@
 # - Zod schemas for runtime validation (PortSchema, URLSchema, etc.)
 # - Factory functions for creating branded values (createPort, createURL, etc.)
 #
+# TODO(#1236): Comment about build phases is misleading - npm ci is in configure phase, not build phase
 # Build process:
 # - buildNpmPackage's default build phase runs: npm ci --offline && npm run build
 #   This works for our package because package.json's build script runs 'tsc'
@@ -58,10 +59,9 @@ buildNpmPackage {
 
   # Package has zod as a runtime dependency via pnpm workspace
   # pnpm workspace links use 'workspace:*' protocol without resolved URLs,
-  # which breaks Nix's npmDepsHash calculation. forceEmptyCache bypasses
-  # the hash check, allowing the build to use npm's offline cache instead.
-  npmDepsHash = "sha256-KWjsYQblTA5kN+5SpjBNEU+kOHhZPS2r/3IswM23oHs=";
-  forceEmptyCache = true;
+  # which breaks Nix's npmDepsHash calculation. We use a generated package-lock.json
+  # and fetch all dependencies explicitly.
+  npmDepsHash = "sha256-V8Sufeqx0pOtV9zZHly7Ws+eo/+GDm25xGZ4XOzzv8M=";
 
   # TODO(#1127): Consider adding integration test for Nix build output and package exports
   # Simple build - just TypeScript compilation
@@ -70,12 +70,21 @@ buildNpmPackage {
   # Verify build output completeness
   doInstallCheck = true;
   installCheckPhase = ''
+    set -euo pipefail  # Fail fast on errors, undefined variables, and pipeline failures
+
     echo "=== Build Verification ==="
     echo "Checking build outputs in: $out/lib/node_modules/@commons/types/dist/"
 
+    DIST_DIR="$out/lib/node_modules/@commons/types/dist/"
+
     # Show what files were actually generated
     echo "Files present in dist/:"
-    ls -la "$out/lib/node_modules/@commons/types/dist/" || echo "dist/ directory does not exist!"
+    if [ -d "$DIST_DIR" ]; then
+      ls -la "$DIST_DIR"
+    else
+      echo "ERROR: dist/ directory does not exist at $DIST_DIR"
+      exit 1
+    fi
 
     # Track success/failure for all checks
     CHECKS_PASSED=0
@@ -84,30 +93,42 @@ buildNpmPackage {
     # Verify expected outputs exist
     echo ""
     echo "Checking compiled JavaScript output..."
-    if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js" ]; then
-      echo "  ❌ FAILED: Missing branded.js"
-      CHECKS_FAILED=$((CHECKS_FAILED + 1))
+    if [ ! -e "$out/lib/node_modules/@commons/types/dist/branded.js" ]; then
+      echo "  ❌ FAILED: branded.js does not exist"
+      CHECKS_FAILED=$(($CHECKS_FAILED + 1))
+    elif [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js" ]; then
+      echo "  ❌ FAILED: branded.js exists but is not a regular file"
+      ls -la "$out/lib/node_modules/@commons/types/dist/branded.js"
+      CHECKS_FAILED=$(($CHECKS_FAILED + 1))
     else
       echo "  ✓ PASSED: branded.js present"
-      CHECKS_PASSED=$((CHECKS_PASSED + 1))
+      CHECKS_PASSED=$(($CHECKS_PASSED + 1))
     fi
 
     echo "Checking TypeScript declaration files..."
-    if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.d.ts" ]; then
-      echo "  ❌ FAILED: Missing branded.d.ts"
-      CHECKS_FAILED=$((CHECKS_FAILED + 1))
+    if [ ! -e "$out/lib/node_modules/@commons/types/dist/branded.d.ts" ]; then
+      echo "  ❌ FAILED: branded.d.ts does not exist"
+      CHECKS_FAILED=$(($CHECKS_FAILED + 1))
+    elif [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.d.ts" ]; then
+      echo "  ❌ FAILED: branded.d.ts exists but is not a regular file"
+      ls -la "$out/lib/node_modules/@commons/types/dist/branded.d.ts"
+      CHECKS_FAILED=$(($CHECKS_FAILED + 1))
     else
       echo "  ✓ PASSED: branded.d.ts present"
-      CHECKS_PASSED=$((CHECKS_PASSED + 1))
+      CHECKS_PASSED=$(($CHECKS_PASSED + 1))
     fi
 
     echo "Checking source maps..."
-    if [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js.map" ]; then
-      echo "  ❌ FAILED: Missing branded.js.map"
-      CHECKS_FAILED=$((CHECKS_FAILED + 1))
+    if [ ! -e "$out/lib/node_modules/@commons/types/dist/branded.js.map" ]; then
+      echo "  ❌ FAILED: branded.js.map does not exist"
+      CHECKS_FAILED=$(($CHECKS_FAILED + 1))
+    elif [ ! -f "$out/lib/node_modules/@commons/types/dist/branded.js.map" ]; then
+      echo "  ❌ FAILED: branded.js.map exists but is not a regular file"
+      ls -la "$out/lib/node_modules/@commons/types/dist/branded.js.map"
+      CHECKS_FAILED=$(($CHECKS_FAILED + 1))
     else
       echo "  ✓ PASSED: branded.js.map present"
-      CHECKS_PASSED=$((CHECKS_PASSED + 1))
+      CHECKS_PASSED=$(($CHECKS_PASSED + 1))
     fi
 
     echo ""
@@ -115,7 +136,7 @@ buildNpmPackage {
     echo "Passed: $CHECKS_PASSED/3"
     echo "Failed: $CHECKS_FAILED/3"
 
-    if [ $CHECKS_FAILED -gt 0 ]; then
+    if [ "$CHECKS_FAILED" -gt 0 ]; then
       echo ""
       echo "Build verification FAILED. See errors above."
       exit 1

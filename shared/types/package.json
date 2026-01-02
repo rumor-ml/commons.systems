@@ -13,7 +13,7 @@
   },
   "scripts": {
     "prebuild": "npm run clean",
-    "build": "tsc && node -e \"['dist/branded.js','dist/branded.d.ts','dist/branded.js.map'].forEach(f=>{if(!require('fs').existsSync(f))throw new Error('Missing: '+f)})\"",
+    "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf dist"
@@ -29,6 +29,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
   }
