@@ -122,8 +122,8 @@
             air
             templ
             # Dev utilities
-            tmux      # Also in nix/home/tmux.nix
-            neovim    # Also in nix/home/tools.nix
+            tmux # Also in nix/home/tmux.nix
+            neovim # Also in nix/home/tools.nix
           ];
 
           # CI shell with inlined packages (avoiding callPackage issues)

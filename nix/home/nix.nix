@@ -4,7 +4,12 @@
 # This enables experimental features permanently so you don't need to pass
 # --extra-experimental-features flags with every command.
 
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 {
   nix = {
@@ -12,7 +17,10 @@
 
     settings = {
       # Enable flakes and nix-command permanently
-      experimental-features = [ "nix-command" "flakes" ];
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
 
       # Warn about dirty Git trees
       warn-dirty = false;

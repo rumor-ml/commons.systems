@@ -48,18 +48,24 @@
       homeDir = builtins.getEnv "HOME";
       extractedUser = if homeDir != "" then builtins.baseNameOf homeDir else "";
     in
-    if envUser != "" then envUser
-    else if extractedUser != "" then extractedUser
-    else throw "Could not determine username. Please set USER or HOME environment variable."
+    if envUser != "" then
+      envUser
+    else if extractedUser != "" then
+      extractedUser
+    else
+      throw "Could not determine username. Please set USER or HOME environment variable."
   );
 
   home.homeDirectory = lib.mkDefault (
     let
       envHome = builtins.getEnv "HOME";
     in
-    if envHome != "" then envHome
-    else if pkgs.stdenv.isDarwin then "/Users/${config.home.username}"
-    else "/home/${config.home.username}"
+    if envHome != "" then
+      envHome
+    else if pkgs.stdenv.isDarwin then
+      "/Users/${config.home.username}"
+    else
+      "/home/${config.home.username}"
   );
 
   # Let Home Manager manage itself

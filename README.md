@@ -15,6 +15,7 @@ Choose your platform and complete the prerequisites:
 1. **Enable WSL on Windows**
 
    Open PowerShell as Administrator and run:
+
    ```powershell
    wsl --install
    ```
@@ -78,6 +79,7 @@ cd commons.systems
 ```
 
 **Platform-specific note for NixOS-WSL:** Since NixOS-WSL doesn't include git by default, use a temporary shell:
+
 ```bash
 nix-shell -p git  # Temporary git access
 git clone <repository-url>
@@ -100,6 +102,7 @@ exec $SHELL
 **Note**: After the first activation, Home Manager will manage your Nix configuration and enable experimental features permanently, so you won't need those flags again.
 
 **What this provides:**
+
 - **git** - Version control (macOS: config merge; NixOS-WSL: permanent install)
 - **direnv** - Auto-loads project environment (with shell integration)
 - **tmux** - Terminal multiplexer with project-specific TUI

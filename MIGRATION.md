@@ -16,6 +16,7 @@ The interactive `setup-dev-tools.sh` script has been replaced with declarative H
 If you previously used `setup-dev-tools.sh`:
 
 1. **Activate Home Manager** (one-time):
+
    ```bash
    # Auto-detects your system architecture
    nix --extra-experimental-features 'nix-command flakes' run .#home-manager-setup
@@ -25,6 +26,7 @@ If you previously used `setup-dev-tools.sh`:
    After this first activation, experimental features will be permanently enabled in your Nix config.
 
 2. **Allow direnv** (if not already done):
+
    ```bash
    cd commons.systems
    direnv allow
@@ -35,6 +37,7 @@ If you previously used `setup-dev-tools.sh`:
 ## What's Included
 
 Home Manager now manages:
+
 - direnv (with shell integration)
 - tmux (with project TUI keybinding)
 - neovim (with vim/vi aliases)
@@ -50,6 +53,7 @@ Home Manager now manages:
 ## Rollback
 
 If needed, rollback using Nix generations:
+
 ```bash
 home-manager generations  # List generations
 home-manager switch --switch-generation <number>
@@ -58,6 +62,7 @@ home-manager switch --switch-generation <number>
 ## Questions?
 
 See:
+
 - [README.md](./README.md) - Setup instructions
 - [nix/home/README.md](./nix/home/README.md) - Home Manager details
 - [nix/README.md](./nix/README.md) - Nix configuration guide
