@@ -216,6 +216,48 @@ describe('Firebase port configuration consistency', () => {
     );
   });
 
+  test('factory function enforces boundary values correctly', () => {
+    // Valid boundary values (1 and 65535 are the min and max valid TCP/IP ports)
+    assert.doesNotThrow(
+      () => createPort<FirestorePort>(1, 'Firestore'),
+      'createPort should accept minimum valid port 1'
+    );
+    assert.strictEqual(
+      createPort<FirestorePort>(1, 'Firestore'),
+      1,
+      'createPort should return port 1 unchanged'
+    );
+
+    assert.doesNotThrow(
+      () => createPort<AuthPort>(65535, 'Auth'),
+      'createPort should accept maximum valid port 65535'
+    );
+    assert.strictEqual(
+      createPort<AuthPort>(65535, 'Auth'),
+      65535,
+      'createPort should return port 65535 unchanged'
+    );
+
+    // Invalid boundary values (0 and 65536 are outside valid range)
+    assert.throws(
+      () => createPort<FirestorePort>(0, 'Firestore'),
+      {
+        name: 'Error',
+        message: /Invalid Firestore port: 0 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for port 0 (below minimum)'
+    );
+
+    assert.throws(
+      () => createPort<StoragePort>(65536, 'Storage'),
+      {
+        name: 'Error',
+        message: /Invalid Storage port: 65536 \(must be integer 1-65535\)/,
+      },
+      'createPort should throw error for port 65536 (above maximum)'
+    );
+  });
+
   test('branded types document intent and provide runtime behavior', () => {
     // Branded types in firebase-ports.ts serve as type documentation to indicate
     // each port's intended usage (FirestorePort, AuthPort, etc.)

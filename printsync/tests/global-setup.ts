@@ -38,6 +38,7 @@ async function globalSetup() {
   try {
     // Execute script with no shell interpolation of variables
     // printsync is a go-fullstack app - skip Firebase Hosting emulator
+    // TODO(#1206): stdio: 'inherit' prevents stderr capture - error handling below tries to access err.stderr but it won't exist
     execSync(scriptPath, {
       stdio: 'inherit',
       env: {
