@@ -6,7 +6,7 @@
  * or mixing up different string-based IDs.
  *
  * This module provides two approaches to validation (both produce compatible branded types):
- * 1. Factory functions (createPort, createURL, etc.) - Direct runtime validation for simple cases
+ * 1. Factory functions (createPort, createURL, createTimestamp, createSessionID, createUserID, createFileID) - Direct runtime validation for simple cases
  * 2. Zod schemas (PortSchema, URLSchema, etc.) - Schema-based validation for composability and detailed errors
  *
  * Use factory functions for simple validation, Zod schemas when composing into larger objects.
@@ -21,7 +21,8 @@ import { z } from 'zod';
  *
  * Creates a branded type by intersecting the base type with a unique brand.
  * The brand property exists only in TypeScript's type system - there is no runtime
- * representation. The __brand symbol is declared but never instantiated or accessed.
+ * representation. The __brand symbol is declared for use in type signatures but never
+ * exists as a runtime value.
  * Uses a unique symbol to ensure brands cannot be constructed literally.
  *
  * @example
@@ -40,10 +41,11 @@ import { z } from 'zod';
 declare const __brand: unique symbol;
 export type Brand<T, B> = T & { readonly [__brand]: B };
 
-// Note on type safety: TypeScript cannot prevent consumers from using type assertions
-// (e.g., `value as Brand<T, B>`) to bypass validation. Always use factory functions
-// (like createPort) or Zod parsers (like parsePort) to create branded types. Type
-// assertions create unvalidated values that violate the branded type's invariants.
+// Note on type safety: Always use factory functions (like createPort) or Zod parsers
+// (like parsePort) to create branded types - these ensure validation occurs. Avoid type
+// assertions (e.g., `value as Brand<T, B>`) as they bypass validation and create values
+// that violate the branded type's invariants. TypeScript's type system cannot prevent
+// these assertions.
 
 /**
  * Port number (0-65535)
@@ -81,9 +83,9 @@ export type SessionID = Brand<string, 'SessionID'>;
 export type UserID = Brand<string, 'UserID'>;
 
 /**
- * File ID string
+ * File ID string (e.g., content hash, UUID, or other file identifier)
  *
- * Prevents mixing up file IDs with other string identifiers.
+ * Prevents mixing up file IDs with other string identifiers like user IDs or session IDs.
  */
 export type FileID = Brand<string, 'FileID'>;
 
@@ -157,8 +159,7 @@ export const URLSchema = z.string().url().brand<'URL'>();
  * @returns Branded URL type
  * @throws ZodError if URL is malformed
  */
-// Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
+// Type cast bridges Zod and custom Brand types (see parsePort comment and TODO #1140)
 export const parseURL = (s: unknown): URL => URLSchema.parse(s) as unknown as URL;
 
 /**
@@ -179,8 +180,7 @@ export const TimestampSchema = z.number().finite().nonnegative().brand<'Timestam
  * @returns Branded Timestamp
  * @throws ZodError if timestamp is negative or not finite
  */
-// Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
+// Type cast bridges Zod and custom Brand types (see parsePort comment and TODO #1140)
 export const parseTimestamp = (ms: unknown): Timestamp =>
   TimestampSchema.parse(ms) as unknown as Timestamp;
 
@@ -202,8 +202,7 @@ export const SessionIDSchema = z.string().min(1).max(256).brand<'SessionID'>();
  * @returns Branded SessionID
  * @throws ZodError if session ID is empty or too long
  */
-// Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
+// Type cast bridges Zod and custom Brand types (see parsePort comment and TODO #1140)
 export const parseSessionID = (s: unknown): SessionID =>
   SessionIDSchema.parse(s) as unknown as SessionID;
 
@@ -225,8 +224,7 @@ export const UserIDSchema = z.string().min(1).max(256).brand<'UserID'>();
  * @returns Branded UserID
  * @throws ZodError if user ID is empty or too long
  */
-// Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
+// Type cast bridges Zod and custom Brand types (see parsePort comment and TODO #1140)
 export const parseUserID = (s: unknown): UserID => UserIDSchema.parse(s) as unknown as UserID;
 
 /**
@@ -247,12 +245,13 @@ export const FileIDSchema = z.string().min(1).max(256).brand<'FileID'>();
  * @returns Branded FileID
  * @throws ZodError if file ID is empty or too long
  */
-// Zod's branded type uses a different internal symbol than our Brand type
-// TypeScript sees them as distinct nominal types, requiring a cast to bridge them
+// Type cast bridges Zod and custom Brand types (see parsePort comment and TODO #1140)
 export const parseFileID = (s: unknown): FileID => FileIDSchema.parse(s) as unknown as FileID;
 
 /**
  * Create a Port with validation
+ *
+ * Use this for simple validation. For schema composition or detailed error messages, use PortSchema.
  *
  * @param n - Port number
  * @returns Branded Port type
@@ -277,6 +276,8 @@ export function createPort(n: number): Port {
 /**
  * Create a URL with validation
  *
+ * Use this for simple validation. For schema composition or detailed error messages, use URLSchema.
+ *
  * @param s - URL string
  * @returns Branded URL type
  * @throws Error if URL is malformed
@@ -289,7 +290,8 @@ export function createPort(n: number): Port {
  */
 export function createURL(s: string): URL {
   try {
-    // Validate URL by attempting to construct it (result discarded since we only need validation)
+    // Validate URL by constructing a URL object (which throws TypeError if invalid).
+    // The URL object is discarded since we return the branded string, not the parsed URL object.
     new globalThis.URL(s);
     return s as URL;
   } catch (error) {
@@ -306,6 +308,8 @@ export function createURL(s: string): URL {
 
 /**
  * Create a Timestamp from current time
+ *
+ * Use this for simple validation. For schema composition or detailed error messages, use TimestampSchema.
  *
  * @returns Current time as branded Timestamp
  *
@@ -382,6 +386,8 @@ function createStringID<B extends string>(s: string, brandName: B): Brand<string
 /**
  * Create a SessionID with validation
  *
+ * Use this for simple validation. For schema composition or detailed error messages, use SessionIDSchema.
+ *
  * @param s - Session ID string
  * @returns Branded SessionID
  * @throws Error if session ID is empty or too long
@@ -398,6 +404,8 @@ export function createSessionID(s: string): SessionID {
 
 /**
  * Create a UserID with validation
+ *
+ * Use this for simple validation. For schema composition or detailed error messages, use UserIDSchema.
  *
  * @param s - User ID string
  * @returns Branded UserID
@@ -416,6 +424,7 @@ export function createUserID(s: string): UserID {
 /**
  * Create a FileID with validation
  *
+ * Use this for simple validation. For schema composition or detailed error messages, use FileIDSchema.
  * File IDs are string identifiers for files.
  *
  * @param s - File ID string
@@ -451,6 +460,8 @@ export function unwrap<T>(branded: Brand<T, any>): T {
   // Returns the input value unchanged. The return type is explicitly typed as T
   // (not Brand<T, any>), which removes the brand at the type level. This is a
   // type-level cast that's safe because brands have no runtime representation.
-  // The 'any' brand parameter accepts all branded types for convenience.
+  // The 'any' brand parameter allows unwrap to accept any branded type without requiring
+  // explicit type parameters, though this sacrifices compile-time verification that the
+  // input is actually branded (see TODO #1160 for type-safe alternative).
   return branded as T;
 }

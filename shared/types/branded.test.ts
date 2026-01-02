@@ -2,6 +2,8 @@
  * Tests for branded types
  */
 
+// TODO(#1219): Add strategic comments explaining test rationale for edge cases
+
 import { describe, it, expect } from 'vitest';
 import { ZodError } from 'zod';
 import {
@@ -84,6 +86,7 @@ describe('createURL', () => {
   });
 
   it('re-throws unexpected errors from URL constructor', () => {
+    // TODO(#1221): Consider clarifying why non-TypeError should propagate
     // Mock the URL constructor to throw a non-TypeError
     const originalURL = globalThis.URL;
     globalThis.URL = class {
@@ -337,6 +340,7 @@ describe('Type safety (compile-time checks)', () => {
     const port = createPort(3000);
     const sessionId = createSessionID('session123');
 
+    // TODO(#1217): Consider using @ts-expect-error or a type-testing library like tsd to make these compile-time checks actually verified
     // These would be type errors at compile time:
     // const wrongPort: Port = sessionId; // Type error!
     // const wrongSession: SessionID = port; // Type error!

@@ -6,8 +6,13 @@
 #
 # Build process:
 # - buildNpmPackage's default build phase runs: npm ci --offline && npm run build
-# - The build script in package.json is "tsc" (TypeScript compilation)
+#   This works for our package because package.json's build script runs 'tsc'
 # - Outputs to dist/ directory with .js, .d.ts, and source map files
+#
+# Usage in flake.nix:
+#   commons-types = pkgs.callPackage ./nix/packages/commons-types.nix { };
+# Usage in other packages:
+#   buildInputs = [ commons-types ];
 #
 {
   lib,
@@ -20,13 +25,15 @@ buildNpmPackage {
   pname = "commons-types";
   version = "1.0.0";
 
-  # Provide TypeScript as a build input since devDependencies won't be installed
+  # Provide TypeScript as a build input for reproducible builds
+  # (buildNpmPackage installs devDependencies via npm ci, but we provide TS explicitly for Nix dependency management)
   nativeBuildInputs = [
     nodejs
     typescript
   ];
 
-  # Include all source files (no dist/ since it's not git-tracked)
+  # Include all source files
+  # dist/ is build output (not in git and explicitly filtered out below), generated during the build phase
   src = builtins.path {
     path = ../../shared/types;
     name = "commons-types-source";
@@ -35,7 +42,8 @@ buildNpmPackage {
       let
         baseName = baseNameOf path;
       in
-      # Exclude build artifacts, git, and temp files
+      # Include all files except build artifacts, git, and temp files
+      # Blacklist approach: new files are included by default unless explicitly excluded
       baseName != ".git"
       && baseName != "node_modules"
       && baseName != "dist"
@@ -44,13 +52,16 @@ buildNpmPackage {
       && !(lib.hasSuffix "~" baseName);
   };
 
-  # Package now has zod as a runtime dependency
-  # pnpm workspace links don't have resolved URLs, so we use forceEmptyCache
+  # Package has zod as a runtime dependency via pnpm workspace
+  # pnpm workspace links use 'workspace:*' protocol without resolved URLs,
+  # which breaks Nix's npmDepsHash calculation. forceEmptyCache bypasses
+  # the hash check, allowing the build to use npm's offline cache instead.
   npmDepsHash = "sha256-KWjsYQblTA5kN+5SpjBNEU+kOHhZPS2r/3IswM23oHs=";
   forceEmptyCache = true;
 
   # TODO(#1127): Consider adding integration test for Nix build output and package exports
-  # Simple build - just TypeScript compilation, no workspace dependencies or special hooks needed
+  # Simple build - just TypeScript compilation
+  # This package has no dependencies on other workspace packages, so no special hooks or workspace linking needed
 
   # Verify build output completeness
   doInstallCheck = true;
