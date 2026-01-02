@@ -77,7 +77,7 @@ case "$APP_TYPE" in
     # The hosting emulator caches 404 responses for missing files during startup.
     # Building first ensures files exist when emulator initializes, preventing cached 404s.
     echo "Building..."
-    pnpm --dir "${APP_PATH_ABS}/site" build
+    VITE_USE_FIREBASE_EMULATOR=true pnpm --dir "${APP_PATH_ABS}/site" build
 
     echo "Starting Firebase emulators..."
     source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"

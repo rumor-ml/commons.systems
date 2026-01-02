@@ -139,7 +139,14 @@ async function initFirebase() {
 
   initPromise = (async () => {
     // Get Firebase config (async for Firebase Hosting auto-config)
-    const config = await getFirebaseConfig();
+    let config = await getFirebaseConfig();
+
+    // In test/emulator mode, override projectId to match the test environment
+    // This ensures tests query the same Firestore namespace where test data is seeded
+    const testProjectId = typeof process !== 'undefined' && process.env?.GCP_PROJECT_ID;
+    if (testProjectId) {
+      config = { ...config, projectId: testProjectId };
+    }
 
     // Initialize Firebase - use existing app if already initialized
     // This prevents "duplicate-app" errors when HTMX swaps pages
@@ -157,10 +164,13 @@ async function initFirebase() {
     auth = getAuth(app);
 
     // Connect to emulators in test/dev environment
-    if (
-      import.meta.env?.MODE === 'development' ||
-      import.meta.env?.VITE_USE_FIREBASE_EMULATOR === 'true'
-    ) {
+    // Check both import.meta.env (Vite build) and process.env (Node.js test context)
+    const isDevMode = import.meta.env?.MODE === 'development';
+    const useEmulator =
+      import.meta.env?.VITE_USE_FIREBASE_EMULATOR === 'true' ||
+      (typeof process !== 'undefined' && process.env?.VITE_USE_FIREBASE_EMULATOR === 'true');
+
+    if (isDevMode || useEmulator) {
       // Use 127.0.0.1 explicitly to avoid IPv6 connection issues (::1)
       // Firefox and some browsers may have permission issues connecting to IPv6 localhost
       // Firebase emulator ports from shared config

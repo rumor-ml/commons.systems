@@ -119,7 +119,7 @@ cleanup_backend_lock() {
 trap cleanup_backend_lock EXIT
 
 # Lock acquired - check if backend is already running
-if nc -z localhost $AUTH_PORT 2>/dev/null; then
+if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"
   echo "  Multiple worktrees can connect to the same backend"
 else
@@ -440,7 +440,7 @@ echo "Log file: $HOSTING_LOG_FILE"
 echo "Waiting for hosting emulator on port ${HOSTING_PORT}..."
 RETRY_COUNT=0
 MAX_HOSTING_RETRIES=120  # Increased to handle system overload (matches backend timeout)
-while ! nc -z localhost ${HOSTING_PORT} 2>/dev/null; do
+while ! nc -z 127.0.0.1 ${HOSTING_PORT} 2>/dev/null; do
   RETRY_COUNT=$((RETRY_COUNT + 1))
   if [ $RETRY_COUNT -ge $MAX_HOSTING_RETRIES ]; then
     echo "ERROR: Hosting emulator failed to start after ${MAX_HOSTING_RETRIES} seconds"
