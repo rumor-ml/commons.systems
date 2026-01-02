@@ -1,8 +1,10 @@
 /**
  * Branded types for compile-time type safety using Zod
  *
- * This module uses Zod's branding system to create nominal types.
- * Factory functions delegate to Zod schemas for validation.
+ * This module provides branded types using Zod's branding system:
+ * - Branded types: Port, URL, Timestamp, SessionID, UserID, FileID
+ * - Zod schemas for validation and composition
+ * - Factory functions for convenient creation
  *
  * Two approaches (both produce identical Zod-branded types):
  * 1. Factory functions (createPort, etc.) - Convenient wrappers
@@ -15,9 +17,14 @@ import { z } from 'zod';
 
 // Note on type safety: Always use factory functions (like createPort) or Zod parsers
 // (like parsePort) to create branded types - these ensure validation occurs. Avoid type
-// assertions (e.g., `value as Brand<T, B>`) as they bypass validation and create values
-// that violate the branded type's invariants. TypeScript's type system cannot prevent
-// these assertions.
+// assertions (e.g., `70000 as Port`) as they bypass validation and create runtime bugs:
+//
+//   const badPort = 70000 as Port;  // No compile error, but invalid!
+//   server.listen(badPort);          // Runtime error: port out of range
+//
+// Type assertions violate the branded type's invariants and can cause production failures
+// (invalid ports, malformed URLs, negative timestamps). TypeScript's type system cannot
+// prevent these assertions, so always use the provided factory functions or schemas.
 
 /**
  * Zod Schemas for Branded Types
@@ -68,6 +75,7 @@ export const PortSchema = z.number().int().min(0).max(65535).brand<'Port'>();
  */
 export const URLSchema = z.string().url().brand<'URL'>();
 
+// TODO(#1235): Consider adding upper bound validation to prevent far-future timestamps
 /**
  * Zod schema for Timestamp (Unix timestamp in milliseconds)
  *
@@ -265,6 +273,7 @@ export function createTimestamp(): Timestamp;
  *
  * @param date - Date object
  * @returns Date converted to branded Timestamp
+ * @throws ZodError if Date is invalid (NaN)
  */
 export function createTimestamp(date: Date): Timestamp;
 /**
@@ -272,7 +281,7 @@ export function createTimestamp(date: Date): Timestamp;
  *
  * @param ms - Milliseconds since Unix epoch
  * @returns Branded Timestamp
- * @throws ZodError if timestamp is negative
+ * @throws ZodError if timestamp is negative or not finite
  */
 export function createTimestamp(ms: number): Timestamp;
 export function createTimestamp(input?: number | Date): Timestamp {
@@ -281,9 +290,6 @@ export function createTimestamp(input?: number | Date): Timestamp {
   }
   if (input instanceof Date) {
     const ms = input.getTime();
-    if (isNaN(ms)) {
-      throw new Error('Invalid Date object');
-    }
     return TimestampSchema.parse(ms);
   }
   return TimestampSchema.parse(input);
@@ -328,12 +334,17 @@ export function createUserID(s: string): UserID {
 }
 
 /**
- * Create a FileID with validation
+ * Create a FileID with basic length validation
  *
  * Use this for simple validation. For schema composition or detailed error messages, use FileIDSchema.
  * File IDs are string identifiers for files.
  *
- * TODO(#1159): Add format validation to prevent whitespace-only, control characters, and path traversal
+ * IMPORTANT: Currently only validates length (1-256 chars). Does not prevent:
+ * - Whitespace-only strings (e.g., "   ")
+ * - Control characters
+ * - Path traversal sequences (e.g., "../", etc.)
+ *
+ * TODO(#1159): Add format validation for production use
  *
  * @param s - File ID string
  * @returns Branded FileID

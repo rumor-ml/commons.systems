@@ -1,8 +1,9 @@
 # commons-types: Shared branded types for type safety across commons.systems
 #
 # This package provides branded type utilities for type-safe IDs and values:
-# - Branded type definitions (Brand)
-# - Type safety utilities
+# - Branded type definitions (Port, URL, Timestamp, SessionID, UserID, FileID)
+# - Zod schemas for runtime validation (PortSchema, URLSchema, etc.)
+# - Factory functions for creating branded values (createPort, createURL, etc.)
 #
 # Build process:
 # - buildNpmPackage's default build phase runs: npm ci --offline && npm run build
@@ -25,8 +26,11 @@ buildNpmPackage {
   pname = "commons-types";
   version = "1.0.0";
 
-  # Provide TypeScript as a build input for reproducible builds
-  # (buildNpmPackage installs devDependencies via npm ci, but we provide TS explicitly for Nix dependency management)
+  # Provide TypeScript as a build input to ensure tsc is available in PATH during build
+  # While buildNpmPackage installs devDependencies via npm ci (including TypeScript),
+  # providing it explicitly in nativeBuildInputs ensures we use the Nix-pinned version
+  # for reproducible builds across environments, rather than relying on the version
+  # resolved from package.json which may vary with npm's dependency resolution.
   nativeBuildInputs = [
     nodejs
     typescript

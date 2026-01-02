@@ -124,9 +124,19 @@ describe('createTimestamp', () => {
     expect(() => createTimestamp(NaN)).toThrow(ZodError);
   });
 
-  it('rejects invalid Date objects', () => {
+  it('throws ZodError (not generic Error) for invalid Date objects', () => {
     const invalidDate = new Date('invalid');
-    expect(() => createTimestamp(invalidDate)).toThrow('Invalid Date object');
+
+    try {
+      createTimestamp(invalidDate);
+      expect.fail('Should have thrown an error');
+    } catch (error) {
+      // Verify it throws ZodError for consistency with other validation errors
+      expect(error).toBeInstanceOf(ZodError);
+      const zodError = error as ZodError;
+      // Zod catches NaN with 'not_finite' or similar error code
+      expect(zodError.issues.length).toBeGreaterThan(0);
+    }
   });
 
   it('accepts zero timestamp (epoch)', () => {
@@ -400,6 +410,31 @@ describe('Zod Schema Validation', () => {
       expect(parsePort(3000)).toBe(3000);
       expect(() => parsePort(-1)).toThrow(ZodError);
       expect(() => parsePort('invalid')).toThrow(ZodError);
+    });
+
+    it('demonstrates safe error handling workflow with safeParse', () => {
+      const validInput = 3000;
+      const invalidInput = 70000;
+
+      // Valid case - demonstrate discriminated union usage
+      const validResult = PortSchema.safeParse(validInput);
+      if (validResult.success) {
+        const port: Port = validResult.data;
+        expect(port).toBe(3000);
+      } else {
+        expect.fail('Expected successful parse');
+      }
+
+      // Invalid case - demonstrate error handling
+      const invalidResult = PortSchema.safeParse(invalidInput);
+      if (invalidResult.success) {
+        expect.fail('Expected parse to fail');
+      } else {
+        // Show that error.issues is accessible and useful
+        const errorMessage = invalidResult.error.issues.map((i) => i.message).join(', ');
+        expect(errorMessage).toBeTruthy();
+        expect(errorMessage).toContain('less than or equal to');
+      }
     });
 
     it('branded type is compatible with factory function', () => {
@@ -808,6 +843,51 @@ describe('Zod Schema Validation', () => {
         const zodError = error as ZodError;
         expect(zodError.issues[0].code).toBe('invalid_type');
       }
+    });
+  });
+
+  describe('parse* helpers with unknown type inputs', () => {
+    it('parsePort rejects various non-number types', () => {
+      expect(() => parsePort('3000')).toThrow(ZodError);
+      expect(() => parsePort(null)).toThrow(ZodError);
+      expect(() => parsePort(undefined)).toThrow(ZodError);
+      expect(() => parsePort({ port: 3000 })).toThrow(ZodError);
+      expect(() => parsePort([3000])).toThrow(ZodError);
+      expect(() => parsePort(true)).toThrow(ZodError);
+    });
+
+    it('parseURL rejects various non-string types', () => {
+      expect(() => parseURL(123)).toThrow(ZodError);
+      expect(() => parseURL(null)).toThrow(ZodError);
+      expect(() => parseURL(undefined)).toThrow(ZodError);
+      expect(() => parseURL({ url: 'https://example.com' })).toThrow(ZodError);
+      expect(() => parseURL(['https://example.com'])).toThrow(ZodError);
+      expect(() => parseURL(true)).toThrow(ZodError);
+    });
+
+    it('parseTimestamp rejects various non-number types', () => {
+      expect(() => parseTimestamp('1704067200000')).toThrow(ZodError);
+      expect(() => parseTimestamp(null)).toThrow(ZodError);
+      expect(() => parseTimestamp(undefined)).toThrow(ZodError);
+      expect(() => parseTimestamp({ timestamp: 1704067200000 })).toThrow(ZodError);
+      expect(() => parseTimestamp([1704067200000])).toThrow(ZodError);
+      expect(() => parseTimestamp(true)).toThrow(ZodError);
+    });
+
+    it('parseSessionID/UserID/FileID reject non-string types', () => {
+      expect(() => parseSessionID(123)).toThrow(ZodError);
+      expect(() => parseSessionID(null)).toThrow(ZodError);
+      expect(() => parseSessionID(undefined)).toThrow(ZodError);
+      expect(() => parseSessionID({ id: 'session123' })).toThrow(ZodError);
+      expect(() => parseSessionID(['session123'])).toThrow(ZodError);
+
+      expect(() => parseUserID(123)).toThrow(ZodError);
+      expect(() => parseUserID(null)).toThrow(ZodError);
+      expect(() => parseUserID(undefined)).toThrow(ZodError);
+
+      expect(() => parseFileID(123)).toThrow(ZodError);
+      expect(() => parseFileID(null)).toThrow(ZodError);
+      expect(() => parseFileID(undefined)).toThrow(ZodError);
     });
   });
 });
