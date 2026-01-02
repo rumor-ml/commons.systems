@@ -161,11 +161,12 @@ async function initFirebase() {
       import.meta.env?.MODE === 'development' ||
       import.meta.env?.VITE_USE_FIREBASE_EMULATOR === 'true'
     ) {
-      // Use localhost consistently (hosting emulator runs on same machine)
+      // Use 127.0.0.1 explicitly to avoid IPv6 connection issues (::1)
+      // Firefox and some browsers may have permission issues connecting to IPv6 localhost
       // Firebase emulator ports from shared config
-      const firestoreHost = 'localhost';
+      const firestoreHost = '127.0.0.1';
       const firestorePort = FIREBASE_PORTS.firestore;
-      const authHost = 'localhost';
+      const authHost = '127.0.0.1';
       const authPort = FIREBASE_PORTS.auth;
 
       try {
