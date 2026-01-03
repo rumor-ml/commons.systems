@@ -241,7 +241,7 @@ async function getFirestoreAdmin() {
   // Get or initialize Firebase Admin
   if (!admin.apps.length) {
     _adminApp = admin.initializeApp({
-      projectId: 'demo-test',
+      projectId: process.env.GCP_PROJECT_ID || 'demo-test',
     });
   } else {
     _adminApp = admin.app();
