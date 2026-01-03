@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
+	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
 // TODO(#280): Add tests for FromWireFormat edge cases - see PR review for #273
@@ -720,6 +721,86 @@ func (m *ShowBlockPickerMessageV2) ToWireFormat() Message {
 // PaneID returns the pane identifier
 func (m *ShowBlockPickerMessageV2) PaneID() string { return m.paneID }
 
+// 19. TreeUpdateMessageV2 represents a tmux tree state broadcast
+type TreeUpdateMessageV2 struct {
+	seqNum uint64
+	tree   tmux.RepoTree
+}
+
+// NewTreeUpdateMessage creates a validated TreeUpdateMessage.
+// The tree parameter is deep cloned (new maps, copied pane slices) to prevent data races
+// during JSON serialization. Without cloning, the daemon could mutate its tree while client
+// goroutines are marshaling the same tree to JSON, violating Go's data race rules.
+// Caller may safely mutate the original tree after this call - the message is independent.
+// Returns error if tree cloning fails (validates clone succeeded by checking repo count).
+func NewTreeUpdateMessage(seqNum uint64, tree tmux.RepoTree) (*TreeUpdateMessageV2, error) {
+	cloned := tree.Clone()
+
+	// DEFENSIVE: Validate clone succeeded - catches Clone() implementation bugs
+	// that could corrupt broadcast state. This ensures the cloned tree has the
+	// same structure as the original (same number of repos).
+	if len(cloned.Repos()) != len(tree.Repos()) {
+		debug.Log("TREE_CLONE_VALIDATION_FAILED original_repos=%d cloned_repos=%d seq=%d",
+			len(tree.Repos()), len(cloned.Repos()), seqNum)
+		return nil, fmt.Errorf("tree clone failed: expected %d repos, got %d (seqNum=%d)",
+			len(tree.Repos()), len(cloned.Repos()), seqNum)
+	}
+
+	return &TreeUpdateMessageV2{seqNum: seqNum, tree: cloned}, nil
+}
+
+func (m *TreeUpdateMessageV2) MessageType() string { return MsgTypeTreeUpdate }
+func (m *TreeUpdateMessageV2) SeqNumber() uint64   { return m.seqNum }
+func (m *TreeUpdateMessageV2) ToWireFormat() Message {
+	// No additional clone needed - m.tree is already a deep clone from NewTreeUpdateMessage.
+	// The constructor's clone provides data race protection for the daemon's original tree.
+	// ToWireFormat is called once per message (see server.go collectAndBroadcastTree), and
+	// the returned Message.Tree pointer is never mutated during broadcast.
+	return Message{
+		Type:   MsgTypeTreeUpdate,
+		SeqNum: m.seqNum,
+		Tree:   &m.tree,
+	}
+}
+
+// Tree returns a clone of the tree to prevent caller mutations.
+// Even though the message's tree is already a clone (from NewTreeUpdateMessage),
+// we clone again here because RepoTree does NOT provide defensive copying in all
+// its methods (e.g., SetPanes, etc.), so callers could mutate the returned tree.
+// This ensures the message remains truly immutable.
+func (m *TreeUpdateMessageV2) Tree() tmux.RepoTree { return m.tree.Clone() }
+
+// 20. TreeErrorMessageV2 represents a tree collection failure
+type TreeErrorMessageV2 struct {
+	seqNum   uint64
+	errorMsg string
+}
+
+// NewTreeErrorMessage creates a validated TreeErrorMessage.
+// Returns error if errorMsg is empty after trimming.
+func NewTreeErrorMessage(seqNum uint64, errorMsg string) (*TreeErrorMessageV2, error) {
+	errorMsg = strings.TrimSpace(errorMsg)
+	if errorMsg == "" {
+		return nil, errors.New("error_msg required - empty error messages provide no diagnostic value\n" +
+			"Caller passed empty/whitespace-only string to NewTreeErrorMessage.\n" +
+			"Check that the underlying error is being formatted correctly.")
+	}
+	return &TreeErrorMessageV2{seqNum: seqNum, errorMsg: errorMsg}, nil
+}
+
+func (m *TreeErrorMessageV2) MessageType() string { return MsgTypeTreeError }
+func (m *TreeErrorMessageV2) SeqNumber() uint64   { return m.seqNum }
+func (m *TreeErrorMessageV2) ToWireFormat() Message {
+	return Message{
+		Type:   MsgTypeTreeError,
+		SeqNum: m.seqNum,
+		Error:  m.errorMsg,
+	}
+}
+
+// Error returns the error message (guaranteed non-empty by constructor)
+func (m *TreeErrorMessageV2) Error() string { return m.errorMsg }
+
 // FromWireFormat converts a v1 Message to a type-safe v2 message.
 // Returns error if the message is invalid or has missing required fields.
 // TODO(#521): Add validation for extraneous fields to catch message construction bugs.
@@ -734,6 +815,7 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 		return nil, fmt.Errorf("invalid wire message: %w", err)
 	}
 
+	// TODO(#1192): Enhance error messages to include field lengths for better debugging of whitespace issues
 	switch msg.Type {
 	case MsgTypeHello:
 		v2msg, err := NewHelloMessage(msg.SeqNum, msg.ClientID)
@@ -874,6 +956,31 @@ func FromWireFormat(msg Message) (MessageV2, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid %s message (seqNum=%d, paneID=%q): %w",
 				MsgTypeShowBlockPicker, msg.SeqNum, msg.PaneID, err)
+		}
+		return v2msg, nil
+
+	case MsgTypeTreeUpdate:
+		if msg.Tree == nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): tree_update requires tree\n\n"+
+				"This indicates a daemon bug or protocol version mismatch.\n"+
+				"Troubleshooting:\n"+
+				"  1. Check daemon and client versions match\n"+
+				"  2. Restart daemon to clear any state corruption\n"+
+				"  3. Report this error if it persists",
+				MsgTypeTreeUpdate, msg.SeqNum)
+		}
+		v2msg, err := NewTreeUpdateMessage(msg.SeqNum, *msg.Tree)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d): %w",
+				MsgTypeTreeUpdate, msg.SeqNum, err)
+		}
+		return v2msg, nil
+
+	case MsgTypeTreeError:
+		v2msg, err := NewTreeErrorMessage(msg.SeqNum, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s message (seqNum=%d, error=%q): %w",
+				MsgTypeTreeError, msg.SeqNum, msg.Error, err)
 		}
 		return v2msg, nil
 
