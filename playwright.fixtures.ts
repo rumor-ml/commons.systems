@@ -63,6 +63,21 @@ export const test = base.extend<AuthFixtures>({
       }, data);
 
       await page.reload();
+
+      // Wait for page to load
+      await page.waitForLoadState('load');
+
+      // Expose Firebase auth instance for tests
+      // Firebase will populate currentUser async via onAuthStateChanged from localStorage
+      await page.evaluate(() => {
+        if (window.auth) {
+          window.__testAuth = window.auth;
+        }
+      });
+
+      // Wait for Firebase to initialize auth state from localStorage
+      // and for UI to update (auth listener adding 'authenticated' class to body)
+      await page.waitForTimeout(2000);
     };
 
     const signOutTestUser = async () => {

@@ -163,6 +163,11 @@ async function initFirebase() {
     // Get auth instance
     auth = getAuth(app);
 
+    // Expose auth on window for test fixtures
+    if (typeof window !== 'undefined') {
+      window.auth = auth;
+    }
+
     // Connect to emulators in test/dev environment
     // Check both import.meta.env (Vite build) and process.env (Node.js test context)
     const isDevMode = import.meta.env?.MODE === 'development';
