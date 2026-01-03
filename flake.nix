@@ -148,6 +148,7 @@
           wiggum-mcp-server = pkgs.callPackage ./nix/packages/wiggum-mcp-server.nix { inherit mcp-common; };
           git-mcp-server = pkgs.callPackage ./nix/packages/git-mcp-server.nix { };
           iac = pkgs.callPackage ./nix/packages/iac.nix { };
+          commons-types = pkgs.callPackage ./nix/packages/commons-types.nix { };
 
           # Hooks
           pnpmHook = pkgs.callPackage ./nix/hooks/pnpm.nix { };
@@ -224,6 +225,7 @@
               wiggum-mcp-server
               git-mcp-server
               iac
+              commons-types
               ;
             default = tmux-tui;
           };
