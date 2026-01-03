@@ -15,6 +15,8 @@ export default createPlaywrightConfig({
   env: {
     // Enable Firebase emulator mode in the application
     VITE_USE_FIREBASE_EMULATOR: 'true',
+    // Pass emulator projectId to the application
+    VITE_GCP_PROJECT_ID: process.env.GCP_PROJECT_ID || '',
   },
   globalSetup: join(__dirname, 'global-setup.ts'),
 });

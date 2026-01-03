@@ -143,7 +143,10 @@ async function initFirebase() {
 
     // In test/emulator mode, override projectId to match the test environment
     // This ensures tests query the same Firestore namespace where test data is seeded
-    const testProjectId = typeof process !== 'undefined' && process.env?.GCP_PROJECT_ID;
+    // Check both import.meta.env (Vite build) and process.env (if available)
+    const testProjectId =
+      import.meta.env?.VITE_GCP_PROJECT_ID ||
+      (typeof process !== 'undefined' && process.env?.GCP_PROJECT_ID);
     if (testProjectId) {
       config = { ...config, projectId: testProjectId };
     }
