@@ -216,9 +216,23 @@ export async function createCardViaUI(page, cardData) {
   // Increased timeout to 10000ms to allow for slow Firestore writes in emulator
   await page.waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 10000 });
 
-  // Wait for card to appear in UI list (gives time for applyFilters → renderCards → DOM paint)
-  // Use waitForTimeout instead of waitForSelector to avoid test failures if cards don't appear
-  await page.waitForTimeout(2000);
+  // Wait for card to appear in UI list using DOM condition wait (faster and more reliable than fixed timeout)
+  // The card list updates via Firestore real-time listeners, so we wait for the specific card title to appear
+  await page
+    .locator('.card-item')
+    .filter({ hasText: cardData.title })
+    .first()
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .catch(async (error) => {
+      // If card doesn't appear, provide debug info
+      const cardCount = await page.locator('.card-item').count();
+      const emptyState = await page.locator('#emptyState').isVisible();
+      throw new Error(
+        `Card "${cardData.title}" not visible in UI after 5s. ` +
+          `Card count: ${cardCount}, Empty state: ${emptyState}. ` +
+          `Original error: ${error.message}`
+      );
+    });
 }
 
 // Shared Firebase Admin instance for Firestore operations
@@ -268,9 +282,55 @@ async function getFirestoreAdmin() {
 }
 
 /**
+ * Wait for a card to appear in Firestore using real-time snapshot listeners
+ * This is faster and more reliable than polling with exponential backoff.
+ * Uses Firestore's onSnapshot to get notified immediately when the card is written.
+ * @param {string} cardTitle - Title of the card to find
+ * @param {number} timeout - Maximum wait time in ms (default: 10000)
+ * @returns {Promise<Object>} Card document with id and data
+ * @throws {Error} If card not found within timeout
+ */
+export async function waitForCardInFirestore(cardTitle, timeout = 10000) {
+  // Import collection name helper
+  const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+
+  // Get or initialize Firestore Admin (reuses same instance)
+  const { db } = await getFirestoreAdmin();
+
+  const collectionName = getCardsCollectionName();
+
+  return new Promise((resolve, reject) => {
+    const timeoutHandle = setTimeout(() => {
+      unsubscribe();
+      reject(new Error(`Card "${cardTitle}" not found in Firestore after ${timeout}ms`));
+    }, timeout);
+
+    const unsubscribe = db
+      .collection(collectionName)
+      .where('title', '==', cardTitle)
+      .onSnapshot(
+        (snapshot) => {
+          if (!snapshot.empty) {
+            clearTimeout(timeoutHandle);
+            unsubscribe();
+            const doc = snapshot.docs[0];
+            resolve({ id: doc.id, ...doc.data() });
+          }
+        },
+        (error) => {
+          clearTimeout(timeoutHandle);
+          unsubscribe();
+          reject(error);
+        }
+      );
+  });
+}
+
+/**
  * Query Firestore emulator directly to get a card by title
  * Includes retry logic to handle emulator write propagation delays.
  * Empirically measured: Firefox requires higher retry delays than Chromium (500ms vs 200ms baseline).
+ * @deprecated Use waitForCardInFirestore() instead for better performance with snapshot listeners
  * @param {string} cardTitle - Title of the card to find
  * @param {number} maxRetries - Maximum number of retries (default: 5)
  * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)

@@ -1,11 +1,19 @@
 /**
  * Get the Firestore collection name for cards based on environment
  *
+ * Test environment with parallel workers: "cards-worker-{workerId}"
  * Production (main branch): "cards"
  * PR Preview: "cards_pr_{pr_number}"
  * Feature branch preview: "cards_preview_{sanitized_branch}"
  */
 export function getCardsCollectionName() {
+  // Test environment: Use worker-scoped collections for parallel test isolation
+  // TEST_PARALLEL_INDEX is set by Playwright when running with multiple workers
+  const workerIndex = process.env.TEST_PARALLEL_INDEX;
+  if (workerIndex !== undefined && workerIndex !== null) {
+    return `cards-worker-${workerIndex}`;
+  }
+
   // Check for PR number (from environment variable)
   const prNumber = process.env.PR_NUMBER;
   if (prNumber) {

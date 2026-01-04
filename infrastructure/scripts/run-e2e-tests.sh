@@ -107,6 +107,36 @@ case "$APP_TYPE" in
       echo "==========================="
     fi
 
+    # Export test environment configuration to JSON for type-safe access
+    # This provides a single source of truth and eliminates env var propagation issues
+    TEST_ENV_CONFIG="${ROOT_DIR}/.test-env.json"
+    TIMEOUT_MULTIPLIER="${TIMEOUT_MULTIPLIER:-1}"
+
+    cat > "$TEST_ENV_CONFIG" << EOF
+{
+  "mode": "${DEPLOYED_URL:+deployed}${DEPLOYED_URL:-emulator}",
+  "isCI": ${CI:-false},
+  "emulators": {
+    "projectId": "${GCP_PROJECT_ID}",
+    "firestoreHost": "${FIRESTORE_EMULATOR_HOST}",
+    "authHost": "${FIREBASE_AUTH_EMULATOR_HOST}",
+    "storageHost": "${STORAGE_EMULATOR_HOST}",
+    "hostingPort": ${HOSTING_PORT}
+  },
+  "timeouts": {
+    "test": $((60 * TIMEOUT_MULTIPLIER)),
+    "emulatorStartup": $((120 * TIMEOUT_MULTIPLIER)),
+    "multiplier": ${TIMEOUT_MULTIPLIER}
+  }$([ -n "${DEPLOYED_URL}" ] && echo ",
+  \"deployedUrl\": \"${DEPLOYED_URL}\"" || echo "")
+}
+EOF
+
+    echo "=== Test Environment Config ==="
+    echo "Config exported to: $TEST_ENV_CONFIG"
+    cat "$TEST_ENV_CONFIG"
+    echo "================================"
+
     # Set up cleanup trap
     cleanup() {
       echo "Stopping emulators..."

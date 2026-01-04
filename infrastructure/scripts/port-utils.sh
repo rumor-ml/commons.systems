@@ -291,6 +291,82 @@ kill_process_group() {
   return 0
 }
 
+# Check if lock directory is stale and can be safely removed
+# Args:
+#   $1 (lock_dir): Path to lock directory
+#   $2 (max_age_seconds): Maximum age before considering stale (default: 300)
+# Returns:
+#   0 if stale and removed, 1 if active or cannot determine
+# Note: This function will attempt to remove stale locks automatically
+is_lock_stale() {
+  local lock_dir=$1
+  local max_age_seconds=${2:-300}  # 5 minutes default
+
+  # Check if lock exists
+  if [ ! -d "$lock_dir" ]; then
+    return 1  # No lock, nothing to do
+  fi
+
+  # Read PID from lock
+  local lock_pid_file="${lock_dir}/pid"
+  if [ ! -f "$lock_pid_file" ]; then
+    # Lock directory without PID file - likely corrupted, safe to remove
+    echo "WARNING: Lock directory missing PID file, removing stale lock" >&2
+    rm -rf "$lock_dir" 2>/dev/null || true
+    return 0
+  fi
+
+  local lock_pid
+  read -r lock_pid < "$lock_pid_file" 2>/dev/null || {
+    echo "WARNING: Cannot read lock PID file, removing corrupted lock" >&2
+    rm -rf "$lock_dir" 2>/dev/null || true
+    return 0
+  }
+
+  # Validate PID is numeric
+  if ! [[ "$lock_pid" =~ ^[0-9]+$ ]]; then
+    echo "WARNING: Invalid PID in lock file ($lock_pid), removing corrupted lock" >&2
+    rm -rf "$lock_dir" 2>/dev/null || true
+    return 0
+  fi
+
+  # Check if process is still running
+  if ! kill -0 "$lock_pid" 2>/dev/null; then
+    echo "Lock holder PID $lock_pid is dead, removing stale lock" >&2
+    rm -rf "$lock_dir" 2>/dev/null || true
+    return 0
+  fi
+
+  # Process is alive - check if it's actually our script
+  # (prevents removing lock if PID was recycled)
+  local proc_command
+  proc_command=$(ps -p "$lock_pid" -o comm= 2>/dev/null || echo "")
+
+  if [[ ! "$proc_command" =~ (bash|sh|start-emulator) ]]; then
+    # PID exists but not a shell script - likely PID reuse
+    echo "WARNING: Lock PID $lock_pid is not a shell process ($proc_command), checking age" >&2
+
+    # Check lock age as additional validation
+    local lock_age
+    if command -v stat >/dev/null 2>&1; then
+      # macOS/BSD stat
+      lock_age=$(( $(date +%s) - $(stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
+
+      if [ "$lock_age" -gt "$max_age_seconds" ]; then
+        echo "Lock is $lock_age seconds old (> $max_age_seconds), removing stale lock" >&2
+        rm -rf "$lock_dir" 2>/dev/null || true
+        return 0
+      fi
+    fi
+
+    # Can't determine - be conservative
+    return 1
+  fi
+
+  # Lock is active and valid
+  return 1
+}
+
 # Wait for port to become available with health check
 # Args:
 #   $1 (port): Port number to check
@@ -309,6 +385,9 @@ wait_for_port() {
 
   echo "Waiting for $service_name on port ${port}..."
   local retry_count=0
+  local retry_delay=0.1  # Start with 100ms
+  local max_delay=5      # Cap at 5 seconds
+  local elapsed_time=0
 
   while ! nc -z 127.0.0.1 ${port} 2>/dev/null; do
     # Check if process is still running (if PID provided)
@@ -321,7 +400,7 @@ wait_for_port() {
 
     retry_count=$((retry_count + 1))
     if [ $retry_count -ge $max_retries ]; then
-      echo "ERROR: $service_name failed to start after ${max_retries} seconds" >&2
+      echo "ERROR: $service_name failed to start after ${max_retries} retries (~${elapsed_time}s elapsed)" >&2
 
       if [ -n "$pid" ]; then
         echo "Process is still running but port ${port} not accepting connections" >&2
@@ -332,7 +411,12 @@ wait_for_port() {
       return 1
     fi
 
-    sleep 1
+    # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s, 3.2s, then capped at 5s
+    sleep $retry_delay
+    elapsed_time=$(awk "BEGIN {print $elapsed_time + $retry_delay}")
+
+    # Double the delay for next iteration, but cap at max_delay
+    retry_delay=$(awk "BEGIN {d = $retry_delay * 2; print (d > $max_delay) ? $max_delay : d}")
   done
 
   echo "✓ $service_name ready on port ${port}"

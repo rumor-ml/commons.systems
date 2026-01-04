@@ -53,7 +53,9 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     // Individual test suites can override with test.describe().configure({ retries: N })
     // TODO(#1089): Comment explains retry strategy but doesn't mention when 0 retries is appropriate
     retries: process.env.CI ? 2 : 0,
-    workers: process.env.CI ? 4 : undefined,
+    // Limit to 2 workers for stability (balances speed vs resource usage)
+    // Each worker gets isolated Firestore collection via TEST_PARALLEL_INDEX
+    workers: process.env.CI ? 2 : 1,
     timeout: site.timeout || 60000,
     globalSetup: site.globalSetup,
     globalTeardown: site.globalTeardown,

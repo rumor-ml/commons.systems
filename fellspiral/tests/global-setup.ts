@@ -99,123 +99,134 @@ async function globalSetup() {
     });
     console.log(`   ✓ Connected to Firestore emulator at ${firestoreHost}:${firestorePort}`);
 
-    const collectionName = getCardsCollectionName();
+    // Determine number of workers for parallel test execution
+    // Limit to 2 workers for stability (balances speed vs resource usage)
+    const workerCount = process.env.CI ? 2 : 1;
+    console.log(`   Seeding collections for ${workerCount} worker(s)...`);
 
-    // Validate collection name is not empty or invalid
-    if (!collectionName || typeof collectionName !== 'string' || collectionName.trim() === '') {
-      throw new Error(
-        'Invalid collection name returned from getCardsCollectionName() - expected non-empty string'
-      );
-    }
-
-    // Validate collection name format (Firestore requires specific format)
-    // Collection names must not contain: / \ . (anywhere), start/end with __, or be longer than 1500 bytes
-    if (
-      collectionName.includes('/') ||
-      collectionName.includes('\\') ||
-      collectionName.includes('.')
+    // Helper function to validate and seed a collection
+    async function seedWorkerCollection(
+      db: any,
+      admin: any,
+      collectionName: string,
+      cardsData: any[]
     ) {
-      throw new Error(
-        `Invalid collection name format: "${collectionName}" - cannot contain / \\ or .`
-      );
-    }
-
-    if (collectionName.startsWith('__') || collectionName.endsWith('__')) {
-      throw new Error(
-        `Invalid collection name format: "${collectionName}" - cannot start or end with __`
-      );
-    }
-
-    if (Buffer.byteLength(collectionName, 'utf8') > 1500) {
-      throw new Error(`Invalid collection name: "${collectionName}" - exceeds 1500 bytes`);
-    }
-
-    const cardsCollection = db.collection(collectionName);
-    console.log(`   Using collection: ${collectionName}`);
-
-    // Clear existing cards data to ensure fresh state
-    console.log('   Clearing existing cards from emulator...');
-    const existingCards = await cardsCollection.get();
-
-    if (!existingCards.empty) {
-      const deleteBatch = db.batch();
-      let deleteCount = 0;
-      existingCards.docs.forEach((doc) => {
-        deleteBatch.delete(doc.ref);
-        deleteCount++;
-      });
-      await deleteBatch.commit();
-      console.log(`   Deleted ${deleteCount} existing cards`);
-
-      // Verify deletion was successful
-      const verifyCards = await cardsCollection.get();
-      if (!verifyCards.empty) {
-        console.warn(`   WARNING: Still ${verifyCards.size} cards after deletion!`);
-      } else {
-        console.log('   Verified: All existing cards cleared');
+      // Validate collection name is not empty or invalid
+      if (!collectionName || typeof collectionName !== 'string' || collectionName.trim() === '') {
+        throw new Error(
+          'Invalid collection name returned from getCardsCollectionName() - expected non-empty string'
+        );
       }
-    } else {
-      console.log('   No existing cards found');
+
+      // Validate collection name format (Firestore requires specific format)
+      // Collection names must not contain: / \ . (anywhere), start/end with __, or be longer than 1500 bytes
+      if (
+        collectionName.includes('/') ||
+        collectionName.includes('\\') ||
+        collectionName.includes('.')
+      ) {
+        throw new Error(
+          `Invalid collection name format: "${collectionName}" - cannot contain / \\ or .`
+        );
+      }
+
+      if (collectionName.startsWith('__') || collectionName.endsWith('__')) {
+        throw new Error(
+          `Invalid collection name format: "${collectionName}" - cannot start or end with __`
+        );
+      }
+
+      if (Buffer.byteLength(collectionName, 'utf8') > 1500) {
+        throw new Error(`Invalid collection name: "${collectionName}" - exceeds 1500 bytes`);
+      }
+
+      const cardsCollection = db.collection(collectionName);
+
+      // Clear existing cards data to ensure fresh state
+      const existingCards = await cardsCollection.get();
+
+      if (!existingCards.empty) {
+        const deleteBatch = db.batch();
+        let deleteCount = 0;
+        existingCards.docs.forEach((doc: any) => {
+          deleteBatch.delete(doc.ref);
+          deleteCount++;
+        });
+        await deleteBatch.commit();
+        console.log(`     Deleted ${deleteCount} existing cards from ${collectionName}`);
+      }
+
+      // Batch write cards to Firestore
+      const batch = db.batch();
+
+      for (const card of cardsData) {
+        const docRef = cardsCollection.doc(card.id);
+        batch.set(docRef, {
+          ...card,
+          isPublic: true, // Required by security rules for READ access
+          createdBy: 'qa-test-user-id', // Match the QA test user created in Auth emulator
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Commit batch and validate the write succeeded
+      const batchWriteResult = await batch.commit();
+
+      // Validate batch write result
+      if (!batchWriteResult || !Array.isArray(batchWriteResult)) {
+        throw new Error(
+          'Batch write returned invalid result - expected array of WriteResult objects'
+        );
+      }
+
+      if (batchWriteResult.length === 0) {
+        throw new Error(
+          'Batch write completed but no write results returned - expected results for all operations'
+        );
+      }
+
+      if (batchWriteResult.length !== cardsData.length) {
+        throw new Error(
+          `Batch write mismatch: wrote ${batchWriteResult.length} documents but expected ${cardsData.length}`
+        );
+      }
+
+      // Verify all documents were actually written
+      const verifyWritten = await cardsCollection.get();
+
+      if (verifyWritten.empty) {
+        throw new Error(
+          'Batch write verification failed - no documents found in collection after write'
+        );
+      }
+
+      if (verifyWritten.size !== cardsData.length) {
+        throw new Error(
+          `Batch write verification failed - found ${verifyWritten.size} documents but expected ${cardsData.length}`
+        );
+      }
+
+      console.log(`     ✓ Seeded ${verifyWritten.size} cards to ${collectionName}`);
     }
 
-    // Batch write cards to Firestore
-    console.log(`   Writing ${cardsData.length} cards to Firestore...`);
-    const batch = db.batch();
+    // Seed collections for all workers in parallel
+    const seedPromises = [];
+    for (let workerId = 0; workerId < workerCount; workerId++) {
+      // Temporarily set TEST_PARALLEL_INDEX to get correct collection name for this worker
+      const originalIndex = process.env.TEST_PARALLEL_INDEX;
+      process.env.TEST_PARALLEL_INDEX = String(workerId);
+      const collectionName = getCardsCollectionName();
+      process.env.TEST_PARALLEL_INDEX = originalIndex; // Restore original value
 
-    for (const card of cardsData) {
-      const docRef = cardsCollection.doc(card.id);
-      batch.set(docRef, {
-        ...card,
-        isPublic: true, // Required by security rules for READ access
-        createdBy: 'qa-test-user-id', // Match the QA test user created in Auth emulator
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      console.log(`   Seeding worker ${workerId} collection: ${collectionName}`);
+      seedPromises.push(seedWorkerCollection(db, admin, collectionName, cardsData));
     }
 
-    // Commit batch and validate the write succeeded
-    const batchWriteResult = await batch.commit();
-
-    // Validate batch write result
-    if (!batchWriteResult || !Array.isArray(batchWriteResult)) {
-      throw new Error(
-        'Batch write returned invalid result - expected array of WriteResult objects'
-      );
-    }
-
-    // Firestore batch.commit() returns array of WriteResult, one per operation
-    // Empty array would indicate no writes occurred
-    if (batchWriteResult.length === 0) {
-      throw new Error(
-        'Batch write completed but no write results returned - expected results for all operations'
-      );
-    }
-
-    // Expected number of writes should match number of cards
-    if (batchWriteResult.length !== cardsData.length) {
-      throw new Error(
-        `Batch write mismatch: wrote ${batchWriteResult.length} documents but expected ${cardsData.length}`
-      );
-    }
-
-    // Verify all documents were actually written by querying the collection
-    console.log('   Verifying batch write success...');
-    const verifyWritten = await cardsCollection.get();
-
-    if (verifyWritten.empty) {
-      throw new Error(
-        'Batch write verification failed - no documents found in collection after write'
-      );
-    }
-
-    if (verifyWritten.size !== cardsData.length) {
-      throw new Error(
-        `Batch write verification failed - found ${verifyWritten.size} documents but expected ${cardsData.length}`
-      );
-    }
-
-    console.log(`   ✓ Verified ${verifyWritten.size} cards written successfully`);
-    console.log(`✅ SUCCESS: Seeded ${cardsData.length} cards to Firestore`);
+    await Promise.all(seedPromises);
+    console.log(
+      `✅ SUCCESS: Seeded ${cardsData.length} cards to ${workerCount} worker collection(s)`
+    );
 
     // Seed QA test user in Auth emulator
     console.log('📦 Seeding Auth emulator with QA test user...');

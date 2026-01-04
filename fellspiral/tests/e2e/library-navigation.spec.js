@@ -277,10 +277,30 @@ test.describe('Library Navigation - Navigation Interaction', () => {
   });
 });
 
-// Skip entire 'Data Reflection' group in CI
-// These tests verify exact Firestore data matches cards.json
-// CI's shared emulator instance has transient state issues
-const skipDataReflectionTests = process.env.CI;
+/**
+ * Data Reflection Tests - Skip Configuration
+ *
+ * These tests verify that Firestore data exactly matches cards.json schema and counts.
+ *
+ * WHY SKIPPED IN CI:
+ * - CI uses shared Firebase emulator instance across multiple concurrent jobs
+ * - Multiple worktrees write to the same Firestore project ID, causing data conflicts
+ * - Tests expect exact card counts from cards.json, but other jobs may add/modify data
+ * - Result: Flaky test failures due to race conditions, not actual bugs
+ *
+ * ROOT CAUSE:
+ * - Project ID isolation not properly implemented (all worktrees use 'demo-test-{hash}')
+ * - Should use unique project IDs per worktree for true isolation
+ *
+ * HOW TO RE-ENABLE:
+ * 1. Set environment variable: DATA_REFLECTION_TESTS=true
+ * 2. Fix project isolation: Use unique GCP_PROJECT_ID per worktree in CI
+ * 3. Update allocate-test-ports.sh to generate unique project IDs
+ *
+ * TRACKED IN: Issue #311 (TODO: Create issue if doesn't exist)
+ */
+const skipDataReflectionTests =
+  process.env.DATA_REFLECTION_TESTS !== 'true' && process.env.CI === 'true';
 
 (skipDataReflectionTests ? test.describe.skip : test.describe)(
   'Library Navigation - Data Reflection',

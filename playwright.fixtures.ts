@@ -111,15 +111,18 @@ export const test = base.extend<AuthFixtures>({
       );
 
       // Wait for auth state to propagate and UI to update
-      // Give extra time for the backup auth check (AUTH_RETRY_MS = 500ms)
-      await page.waitForTimeout(1000);
-
-      // Verify the authenticated class was added
-      const hasAuthClass = await page.evaluate(() =>
-        document.body.classList.contains('authenticated')
-      );
-      if (!hasAuthClass) {
-        // Debug: check what's happening
+      // Use event-driven wait instead of hard-coded timeout for better performance
+      try {
+        await page.waitForFunction(
+          () => {
+            return (
+              window.auth?.currentUser != null && document.body.classList.contains('authenticated')
+            );
+          },
+          { timeout: 5000 }
+        );
+      } catch (error) {
+        // Debug: check what's happening if wait times out
         const bodyClasses = await page.evaluate(() => document.body.className);
         const authState = await page.evaluate(() => ({
           authExists: !!window.auth,
@@ -129,9 +132,10 @@ export const test = base.extend<AuthFixtures>({
           uid: window.auth?.currentUser?.uid || window.__testAuth?.currentUser?.uid,
         }));
         throw new Error(
-          `Body 'authenticated' class not added after sign-in.\n` +
+          `Auth state failed to propagate within 5 seconds.\n` +
             `Body classes: ${bodyClasses}\n` +
-            `Auth state: ${JSON.stringify(authState)}`
+            `Auth state: ${JSON.stringify(authState)}\n` +
+            `Original error: ${error.message}`
         );
       }
     };

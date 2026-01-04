@@ -15,7 +15,12 @@
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
-import { createCardViaUI, getCardFromFirestore, generateTestCardData } from './test-helpers.js';
+import {
+  createCardViaUI,
+  waitForCardInFirestore,
+  getCardFromFirestore,
+  generateTestCardData,
+} from './test-helpers.js';
 
 const isEmulatorMode = process.env.VITE_USE_FIREBASE_EMULATOR === 'true';
 
@@ -54,7 +59,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     await page.waitForTimeout(2000);
 
     // Verify in Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.title).toBe(cardData.title);
     expect(firestoreCard.type).toBe(cardData.type);
@@ -87,7 +92,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
     // Verify in Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.title).toBe(cardData.title);
   });
@@ -111,7 +116,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     await page.waitForTimeout(3000);
 
     // Query Firestore directly
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.title).toBe(cardData.title);
   });
@@ -137,7 +142,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     await page.waitForTimeout(3000);
 
     // Verify Firestore document structure
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.createdBy).toBe(uid);
     expect(firestoreCard.lastModifiedBy).toBe(uid);
@@ -367,7 +372,7 @@ test.describe('Add Card - Form Validation Tests', () => {
     await createCardViaUI(page, cardData);
 
     // Verify in Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.tags).toBeTruthy();
 
@@ -409,7 +414,7 @@ test.describe('Add Card - Form Validation Tests', () => {
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
     // Verify in Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
   });
 });
@@ -654,7 +659,7 @@ test.describe('Add Card - Edge Cases', () => {
     await page.waitForTimeout(2000);
 
     // Should only create one card with this title
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
 
     // Verify only one card with this title exists in UI
@@ -728,7 +733,7 @@ test.describe('Add Card - Edge Cases', () => {
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
     // Verify in Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
   });
 });
@@ -1576,7 +1581,7 @@ test.describe('Add Card - Card Edit Flow', () => {
 
     // Verify the card has the updated description in Firestore
     await page.waitForTimeout(1000);
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard.description).toBe(updatedDescription);
     expect(firestoreCard.lastModifiedAt).toBeTruthy();
     expect(firestoreCard.lastModifiedBy).toBeTruthy();
@@ -1799,7 +1804,7 @@ test.describe('Add Card - Firestore Security Rules', () => {
 
     // Also verify via Firestore: attempt to query user1's card as user2
     // This tests that security rules prevent cross-user data access at the database level
-    const user1Card = await getCardFromFirestore(user1CardData.title);
+    const user1Card = await waitForCardInFirestore(user1CardData.title);
     expect(user1Card).toBeTruthy(); // Card exists in Firestore
 
     // Verify that user2 cannot read user1's card through direct Firestore query
@@ -1910,7 +1915,7 @@ test.describe('Add Card - Firestore Security Rules', () => {
     await page.waitForTimeout(2000);
 
     // Get card from Firestore and verify timestamp
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.createdAt).toBeDefined();
 
@@ -1989,7 +1994,7 @@ test.describe('Add Card - Concurrent Save Handling', () => {
     await page.waitForTimeout(1000);
 
     // Verify last write (tab 1) won
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard.description).toBe('Tab 1 description');
 
     await page2.close();
@@ -2026,7 +2031,7 @@ test.describe('Add Card - Concurrent Save Handling', () => {
 
     // Get the card from Firestore to get its ID
     await page.waitForTimeout(2000);
-    const originalCard = await getCardFromFirestore(cardData.title);
+    const originalCard = await waitForCardInFirestore(cardData.title);
     expect(originalCard).toBeTruthy();
 
     // User 1 opens card for editing
@@ -2072,7 +2077,7 @@ test.describe('Add Card - Concurrent Save Handling', () => {
     await page2.waitForTimeout(1000);
 
     // Verify User 2's edit is saved
-    const updatedCard = await getCardFromFirestore(cardData.title);
+    const updatedCard = await waitForCardInFirestore(cardData.title);
     expect(updatedCard.description).toBe('User 2 edit - saved first');
 
     // Now User 1 tries to save (should detect conflict or apply last-write-wins)
@@ -2085,7 +2090,7 @@ test.describe('Add Card - Concurrent Save Handling', () => {
     await page.waitForTimeout(1000);
 
     // Verify final state (last write wins - User 1's edit)
-    const finalCard = await getCardFromFirestore(cardData.title);
+    const finalCard = await waitForCardInFirestore(cardData.title);
     expect(finalCard.description).toBe('User 1 edit - should detect conflict');
 
     // NOTE: This test currently verifies last-write-wins behavior.
@@ -2206,7 +2211,7 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
     await page.waitForTimeout(2000);
 
     // Verify card was eventually saved (retry succeeded)
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.title).toBe(cardData.title);
   });
@@ -2279,8 +2284,10 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
     expect(hasError).toBe(true);
 
     // Verify card was NOT saved to Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title, 2, 500);
-    expect(firestoreCard).toBeFalsy(); // Card should not exist due to persistent failure
+    // waitForCardInFirestore throws if not found, so we expect it to throw
+    await expect(async () => {
+      await waitForCardInFirestore(cardData.title, 2000); // Short timeout since we expect failure
+    }).rejects.toThrow('not found');
   });
 });
 
@@ -2407,7 +2414,7 @@ test.describe('Add Card - Type/Subtype Mismatch Validation', () => {
 
     // Verify in Firestore
     await page.waitForTimeout(2000);
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.type).toBe('Equipment');
     expect(firestoreCard.subtype).toBe('MagicSpell');
@@ -4083,7 +4090,7 @@ test.describe('Add Card - Security Tests', () => {
     await page.waitForTimeout(2000);
 
     // Verify the card was created with SERVER timestamp, not forged one
-    const firestoreCard = await getCardFromFirestore(cardTitle);
+    const firestoreCard = await waitForCardInFirestore(cardTitle);
     expect(firestoreCard).toBeTruthy();
 
     // Server timestamp should be recent (within last 10 seconds), not from 2020
@@ -4347,7 +4354,7 @@ test.describe('Add Card - Security Tests', () => {
     await page.waitForTimeout(2000);
 
     // Get the card from Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
 
     // Attempt to update with forged lastModifiedAt timestamp
@@ -4514,7 +4521,7 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     await createCardViaUI(page, cardData);
 
     await page.waitForTimeout(2000);
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
 
     // Sign out user1, sign in user2
@@ -4546,7 +4553,7 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     expect(deleteErrorOccurred).toBe(true);
 
     // Verify card still exists
-    const cardAfterAttempt = await getCardFromFirestore(cardData.title);
+    const cardAfterAttempt = await waitForCardInFirestore(cardData.title);
     expect(cardAfterAttempt).toBeTruthy();
   });
 
@@ -4567,7 +4574,7 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     await createCardViaUI(page, cardData);
 
     await page.waitForTimeout(2000);
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.createdBy).toBe(user1.uid);
 
@@ -4603,7 +4610,7 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     expect(updateSucceeded).toBe(true);
 
     // Verify lastModifiedBy is user2's UID
-    const updatedCard = await getCardFromFirestore(cardData.title);
+    const updatedCard = await waitForCardInFirestore(cardData.title);
     expect(updatedCard.lastModifiedBy).toBe(user2.uid);
   });
 
@@ -4624,7 +4631,7 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     await createCardViaUI(page, cardData);
 
     await page.waitForTimeout(2000);
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
 
     // Sign out user1, sign in user2
@@ -4679,7 +4686,7 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     await page.waitForTimeout(2000);
 
     // Verify isPublic is true in Firestore
-    const firestoreCard = await getCardFromFirestore(cardData.title);
+    const firestoreCard = await waitForCardInFirestore(cardData.title);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.isPublic).toBe(true);
 
