@@ -360,13 +360,18 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.locator('#addCardBtn').click();
     await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
+    // Wait for comboboxes to be fully initialized (combobox-toggle is added during init)
+    await page.waitForSelector('#typeCombobox .combobox-toggle', { timeout: 2000 });
+    await page.waitForSelector('#subtypeCombobox .combobox-toggle', { timeout: 2000 });
+
     // Select Equipment type using combobox
     await page.locator('#cardType').fill('Equipment');
     await page.locator('#cardType').press('Escape');
 
-    // Focus subtype to show options, then get subtype options for Equipment
-    await page.locator('#cardSubtype').focus();
-    await page.waitForSelector('#subtypeCombobox.open', { timeout: 2000 });
+    // Click subtype toggle to show options, then get subtype options for Equipment
+    await page.locator('#subtypeCombobox .combobox-toggle').click();
+    await page.waitForTimeout(100); // Brief wait for combobox to open
+    await page.waitForSelector('#subtypeCombobox.open', { timeout: 5000 });
     const equipmentSubtypes = await page
       .locator('#subtypeListbox .combobox-option')
       .allTextContents();
@@ -375,9 +380,10 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.locator('#cardType').fill('Skill');
     await page.locator('#cardType').press('Escape');
 
-    // Focus subtype to show options for Skill (should be different based on existing cards)
-    await page.locator('#cardSubtype').focus();
-    await page.waitForSelector('#subtypeCombobox.open', { timeout: 2000 });
+    // Click subtype toggle to show options for Skill (should be different based on existing cards)
+    await page.locator('#subtypeCombobox .combobox-toggle').click();
+    await page.waitForTimeout(100); // Brief wait for combobox to open
+    await page.waitForSelector('#subtypeCombobox.open', { timeout: 5000 });
     const skillSubtypes = await page.locator('#subtypeListbox .combobox-option').allTextContents();
 
     // The subtypes shown depend on what cards exist in the database for each type

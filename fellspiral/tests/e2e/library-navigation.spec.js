@@ -172,8 +172,18 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     // Now collapse it
     await equipmentToggle.click();
 
-    // Wait for state to save
+    // Wait for state to save and verify it was saved
     await page.waitForTimeout(300);
+
+    // Verify localStorage has the collapsed state before reloading
+    const savedState = await page.evaluate(() => {
+      const stored = localStorage.getItem('fellspiral-library-nav-state');
+      return stored ? JSON.parse(stored) : null;
+    });
+
+    // Ensure the collapsed state was saved
+    expect(savedState).toBeTruthy();
+    expect(savedState['library-type-equipment']).toBe(false);
 
     // Reload page
     await page.reload();

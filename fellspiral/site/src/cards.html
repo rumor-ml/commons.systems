@@ -158,6 +158,8 @@
                         id="cardType"
                         name="type"
                         required
+                        pattern=".*\S.*"
+                        title="Type cannot be whitespace-only"
                         class="form-control combobox-input"
                         placeholder="Type or select type..."
                         autocomplete="off"
@@ -191,6 +193,8 @@
                         id="cardSubtype"
                         name="subtype"
                         required
+                        pattern=".*\S.*"
+                        title="Subtype cannot be whitespace-only"
                         class="form-control combobox-input"
                         placeholder="Type or select subtype..."
                         autocomplete="off"
