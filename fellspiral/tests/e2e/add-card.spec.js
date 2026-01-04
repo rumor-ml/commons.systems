@@ -27,6 +27,13 @@ test.describe.configure({ mode: 'serial' });
 test.describe('Add Card - Happy Path Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
+  // Clean up test cards after each test to prevent data pollution
+  test.afterEach(async () => {
+    const { deleteTestCards } = await import('./test-helpers.js');
+    const deletedCount = await deleteTestCards(/^Test Card \d+/);
+    console.log(`Cleaned up ${deletedCount} test cards`);
+  });
+
   test('should create card with all fields populated', async ({ page, authEmulator }) => {
     await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2000);
@@ -188,6 +195,9 @@ test.describe('Add Card - Happy Path Tests', () => {
     // Reload page
     await page.reload();
     await page.waitForLoadState('load');
+
+    // Re-sign in after page reload (page reload clears window.__testAuth)
+    await authEmulator.signInTestUser(email);
 
     // Wait for Firebase to restore auth state
     await page.waitForTimeout(2000);
