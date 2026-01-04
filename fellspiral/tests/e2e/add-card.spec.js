@@ -345,62 +345,6 @@ test.describe('Add Card - Form Validation Tests', () => {
     expect(isValid).toBe(false);
   });
 
-  // TODO(#490): Fix combobox dropdown timing issue when changing type and immediately opening subtype dropdown
-  // Test consistently fails because focus() on subtype input doesn't reliably open dropdown after type change
-  // Multiple fix attempts failed: click(), focus(), blur(), various timeouts
-  // Likely needs investigation of combobox refresh() mechanism or test should use different verification approach
-  test.skip('should update subtype options when type changes', async ({ page, authEmulator }) => {
-    await page.goto('/cards.html');
-    await page.waitForLoadState('load');
-
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
-
-    const email = `test-${Date.now()}@example.com`;
-    await authEmulator.createTestUser(email);
-    await authEmulator.signInTestUser(email);
-
-    // Open modal
-    await page.locator('#addCardBtn').click();
-    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
-
-    // Wait for comboboxes to be fully initialized (combobox-toggle is added during init)
-    await page.waitForSelector('#typeCombobox .combobox-toggle', { timeout: 2000 });
-    await page.waitForSelector('#subtypeCombobox .combobox-toggle', { timeout: 2000 });
-
-    // Select Equipment type using combobox
-    await page.locator('#cardType').fill('Equipment');
-    // Blur the type field to trigger onSelect handler
-    await page.locator('#cardType').blur();
-
-    // Wait for subtype combobox refresh to complete after type change
-    await page.waitForTimeout(200);
-
-    // Focus subtype input to trigger focus event and show options
-    await page.locator('#cardSubtype').focus();
-    await expect(page.locator('#subtypeCombobox.open')).toBeVisible();
-    const equipmentSubtypes = await page
-      .locator('#subtypeListbox .combobox-option')
-      .allTextContents();
-
-    // Select Skill type using combobox
-    await page.locator('#cardType').fill('Skill');
-    // Blur the type field to trigger onSelect handler
-    await page.locator('#cardType').blur();
-
-    // Wait for subtype combobox refresh to complete after type change
-    await page.waitForTimeout(200);
-
-    // Focus subtype input to trigger focus event and show options for Skill
-    await page.locator('#cardSubtype').focus();
-    await expect(page.locator('#subtypeCombobox.open')).toBeVisible();
-    const skillSubtypes = await page.locator('#subtypeListbox .combobox-option').allTextContents();
-
-    // The subtypes shown depend on what cards exist in the database for each type
-    // At minimum, verify that focusing the subtype shows the dropdown
-    expect(await page.locator('#subtypeCombobox.open').isVisible()).toBe(true);
-  });
-
   test('should parse comma-separated tags correctly', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
