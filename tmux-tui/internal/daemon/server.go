@@ -12,6 +12,7 @@ import (
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/namespace"
+	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
 
@@ -291,6 +292,40 @@ type AlertDaemon struct {
 	audioBroadcastFailures atomic.Int64  // Total audio broadcast failures since startup
 	lastAudioBroadcastErr  atomic.Value  // Most recent audio broadcast error (string)
 	seqCounter             atomic.Uint64 // Global sequence number for message ordering
+
+	// Tree collection (for centralizing tmux queries)
+	//
+	// collector is nil in degraded mode when tmux.NewCollector() fails during initialization.
+	// Degraded mode allows daemon to continue providing alerts/blocking features even when
+	// tmux is unavailable. The nil state is permanent until daemon restart.
+	//
+	// Design rationale for nil pointer vs interface:
+	// - Nil check is simple and explicit: `if d.collector != nil { ... }`
+	// - Degraded mode is rare (only when tmux unavailable at startup)
+	// - Implicit protection: watchTree only starts if collector != nil (line 540-542)
+	// - collectAndBroadcastTree only called from watchTree goroutine
+	// - sendFullState checks nil before calling (line 1470)
+	//
+	// Trade-offs considered:
+	// + Simple nil check pattern (no interface overhead)
+	// + Clear degraded mode visibility in code
+	// - Requires manual nil checks before use
+	// - Potential for panic if check forgotten (mitigated by limited call sites)
+	//
+	// Future improvement: Extract CollectorState interface with ActiveCollector/DisabledCollector
+	// implementations to make degraded state explicit in type system.
+	collector     *tmux.Collector // Tmux tree collector (nil in degraded mode)
+	collectorMu   sync.RWMutex    // Protects collector operations
+	currentTree   tmux.RepoTree   // Last successful tree (for health metrics and full_state)
+	treeErrors    atomic.Int64    // Total tree collection errors
+	lastTreeError atomic.Value    // Most recent tree error (string)
+
+	// Tree broadcast and construction error tracking (accessed atomically)
+	treeBroadcastErrors              atomic.Int64 // Tree broadcast failures (tree_update + tree_error)
+	lastTreeBroadcastErr             atomic.Value // Most recent tree broadcast error (string)
+	treeMsgConstructErrors           atomic.Int64 // Tree message construction failures
+	lastTreeMsgConstructErr          atomic.Value // Most recent tree message construction error (string)
+	consecutiveTreeConstructFailures atomic.Int64 // Consecutive construction failures (reset on success)
 }
 
 // TODO(#328): Consider extracting map copy pattern into generic helper function
@@ -449,6 +484,52 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	daemon.lastWatcherError.Store("")
 	daemon.lastCloseError.Store("")
 	daemon.lastAudioBroadcastErr.Store("")
+	daemon.lastTreeError.Store("")
+	daemon.lastTreeBroadcastErr.Store("")
+	daemon.lastTreeMsgConstructErr.Store("")
+	daemon.consecutiveTreeConstructFailures.Store(0)
+
+	// Create tmux tree collector (continue daemon startup even if initialization fails)
+	// Tree collection is a core feature but not required for alerts/blocking functionality
+	// If collector fails, daemon runs in degraded mode:
+	// - Clients connect normally and can use alerts/blocking features
+	// - Each client receives tree_error on connect explaining why tree is empty
+	// - No tree_update broadcasts will be sent
+	collector, err := tmux.NewCollector()
+	if err != nil {
+		debug.Log("DAEMON_INIT_WARNING failed to create tree collector: %v - tree broadcasts will be disabled", err)
+
+		// Validate we can at least send error notifications to clients
+		errMsg := fmt.Sprintf("collector initialization failed: %v", err)
+		if _, validateErr := NewTreeErrorMessage(0, errMsg); validateErr != nil {
+			// Cannot even send errors - abort daemon startup
+			fmt.Fprintf(os.Stderr, "CRITICAL: Tree collector failed AND cannot construct error messages\n")
+			fmt.Fprintf(os.Stderr, "         Daemon startup ABORTED - clients would be completely broken\n")
+			return nil, fmt.Errorf("tree collector init failed and error messages broken: %w", err)
+		}
+
+		fmt.Fprintf(os.Stderr, "ERROR: Tree collector initialization failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "       Tree broadcasts will be PERMANENTLY DISABLED until daemon restart.\n")
+		fmt.Fprintf(os.Stderr, "       Clients will show empty trees.\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "       To recover:\n")
+		fmt.Fprintf(os.Stderr, "         1. Fix tmux availability: ensure tmux is installed and in PATH\n")
+		fmt.Fprintf(os.Stderr, "         2. Kill this daemon: pkill tmux-tui-daemon\n")
+		fmt.Fprintf(os.Stderr, "         3. Restart daemon: tmux-tui-daemon &\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "       Daemon will continue running with alerts/blocking features only.\n")
+
+		// Store error for health endpoint
+		daemon.lastTreeError.Store(errMsg)
+		daemon.treeErrors.Add(1)
+
+		// Continue daemon startup without collector - clients will receive no tree_update messages
+		// and will show empty tree state (initialized with tmux.NewRepoTree())
+	} else {
+		daemon.collector = collector
+		daemon.currentTree = tmux.NewRepoTree()
+		debug.Log("DAEMON_INIT tree collector initialized")
+	}
 
 	return daemon, nil
 }
@@ -474,6 +555,11 @@ func (d *AlertDaemon) Start() error {
 
 	// Start pane focus watcher
 	go d.watchPaneFocus()
+
+	// Start tree collection (if collector is available)
+	if d.collector != nil {
+		go d.watchTree()
+	}
 
 	// Accept client connections
 	go d.acceptClients()
@@ -533,6 +619,162 @@ func (d *AlertDaemon) watchPaneFocus() {
 			d.handlePaneFocusEvent(event)
 		}
 	}
+}
+
+// recordTreeMsgConstructError tracks message construction failures with consistent logging
+func (d *AlertDaemon) recordTreeMsgConstructError(errMsg string) {
+	d.treeMsgConstructErrors.Add(1)
+	d.lastTreeMsgConstructErr.Store(errMsg)
+	debug.Log("DAEMON_TREE_MSG_CONSTRUCT_FAILED error=%s", errMsg)
+	fmt.Fprintf(os.Stderr, "ERROR: %s\n", errMsg)
+}
+
+// notifyTreeConstructionFailure attempts to notify all clients of a tree construction failure.
+// If tree_error construction also fails, logs critical error to stderr.
+// This consolidates the fallback pattern used throughout tree broadcasting.
+func (d *AlertDaemon) notifyTreeConstructionFailure(errMsg string) {
+	d.recordTreeMsgConstructError(errMsg)
+	fmt.Fprintf(os.Stderr, "       Attempting to notify clients with tree_error message\n")
+
+	// Attempt to notify clients instead of silent return
+	if treeErrMsg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg); msgErr == nil {
+		d.broadcastTree(treeErrMsg.ToWireFormat())
+	} else {
+		// TODO(#1196): Add debug logging and health metrics for nested tree_error construction failure
+		fmt.Fprintf(os.Stderr, "       CRITICAL: Cannot construct tree_error - clients orphaned: %v\n", msgErr)
+	}
+}
+
+// sendCollectorUnavailableError sends tree_error to a client when tree collector is unavailable.
+// This consolidates the nil collector notification pattern used in handleClient() and sendFullState().
+// Returns error if sending fails, allowing caller to disconnect the client.
+func (d *AlertDaemon) sendCollectorUnavailableError(client *clientConnection, clientID string) error {
+	errMsg, ok := d.lastTreeError.Load().(string)
+	if !ok || errMsg == "" {
+		errMsg = "tree collector initialization failed - tree broadcasts disabled"
+	}
+
+	treeErrMsg, err := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
+	if err != nil {
+		debug.Log("DAEMON_TREE_ERROR_CONSTRUCT_FAILED client=%s construct_error=%v original_error=%s", clientID, err, errMsg)
+		fmt.Fprintf(os.Stderr, "ERROR: Cannot construct tree_error message for client %s: %v\n", clientID, err)
+		fmt.Fprintf(os.Stderr, "       Tree initialization failed with: %s\n", errMsg)
+		fmt.Fprintf(os.Stderr, "       Client will see empty tree state without explanation\n")
+		return fmt.Errorf("failed to construct tree_error: %w", err)
+	}
+
+	wireMsg := treeErrMsg.ToWireFormat()
+	if sendErr := client.sendMessage(wireMsg); sendErr != nil {
+		debug.Log("DAEMON_TREE_ERROR_SEND_FAILED client=%s error=%v", clientID, sendErr)
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to send tree_error to client %s: %v\n", clientID, sendErr)
+		fmt.Fprintf(os.Stderr, "       Disconnecting client to force clean reconnection\n")
+		return fmt.Errorf("failed to send tree_error: %w", sendErr)
+	}
+
+	debug.Log("DAEMON_TREE_ERROR_SENT client=%s reason=%s", clientID, errMsg)
+	return nil
+}
+
+// watchTree monitors tmux tree state and broadcasts updates to all clients.
+// Tree is collected and broadcast immediately on daemon startup, then every 30 seconds thereafter.
+// This centralizes tree collection in the daemon, eliminating N×client redundant queries.
+func (d *AlertDaemon) watchTree() {
+	// TODO(#1215): Add test for tree collection interval timing accuracy
+	// Collect immediately on start
+	d.collectAndBroadcastTree()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.done:
+			return
+		case <-ticker.C:
+			d.collectAndBroadcastTree()
+		}
+	}
+}
+
+// collectAndBroadcastTree collects current tmux tree state and broadcasts to all clients.
+// Collection errors are non-fatal: broadcasts tree_error to notify clients and continues operation.
+// Message construction failures are logged and attempt to broadcast tree_error if possible.
+// Sequence numbers increment for both successful updates and errors to maintain ordering.
+func (d *AlertDaemon) collectAndBroadcastTree() {
+	// Lock collector for exclusive access during GetTree()
+	d.collectorMu.Lock()
+	defer d.collectorMu.Unlock()
+
+	// Collect tree (can be slow - up to several seconds with many panes/repos)
+	tree, err := d.collector.GetTree()
+	if err != nil {
+		// Collection failed - broadcast error to clients
+		d.treeErrors.Add(1)
+		errMsg := fmt.Sprintf("tree collection failed: %v", err)
+		d.lastTreeError.Store(errMsg)
+		debug.Log("DAEMON_TREE_ERROR error=%v total_errors=%d", err, d.treeErrors.Load())
+		fmt.Fprintf(os.Stderr, "ERROR: Failed to collect tmux tree: %v\n", err)
+		fmt.Fprintf(os.Stderr, "       Clients will receive stale tree data. Will retry in 30 seconds.\n")
+
+		// Broadcast tree_error to all clients
+		msg, msgErr := NewTreeErrorMessage(d.seqCounter.Add(1), errMsg)
+		if msgErr != nil {
+			d.notifyTreeConstructionFailure(fmt.Sprintf("tree_error construction failed: %v (original error: %v)", msgErr, err))
+			fmt.Fprintf(os.Stderr, "       Original tree error: %s\n", errMsg)
+			return
+		}
+		d.broadcastTree(msg.ToWireFormat())
+		return
+	}
+
+	// Collection succeeded - update currentTree and broadcast to clients
+	d.currentTree = tree
+	debug.Log("DAEMON_TREE_UPDATE repos=%d panes=%d", len(tree.Repos()), tree.TotalPanes())
+
+	// Broadcast tree_update to all clients
+	msg, msgErr := NewTreeUpdateMessage(d.seqCounter.Add(1), tree)
+	if msgErr != nil {
+		failures := d.consecutiveTreeConstructFailures.Add(1)
+		errMsg := fmt.Sprintf("tree_update construction failed: %v (repos=%d, failures=%d)", msgErr, len(tree.Repos()), failures)
+		d.notifyTreeConstructionFailure(errMsg)
+
+		if failures >= 3 {
+			fmt.Fprintf(os.Stderr, "CRITICAL: Stopping tree broadcasts after %d consecutive construction failures\n", failures)
+			d.collector = nil // Enter degraded mode
+		}
+		return
+	}
+
+	// Defensive: Verify message construction succeeded
+	if msg == nil {
+		failures := d.consecutiveTreeConstructFailures.Add(1)
+		errMsg := fmt.Sprintf("tree_update construction returned nil (repos=%d, failures=%d)", len(tree.Repos()), failures)
+		d.notifyTreeConstructionFailure(errMsg)
+
+		if failures >= 3 {
+			fmt.Fprintf(os.Stderr, "CRITICAL: Stopping tree broadcasts after %d consecutive construction failures\n", failures)
+			d.collector = nil // Enter degraded mode
+		}
+		return
+	}
+
+	// Verify wire format conversion succeeds
+	wireMsg := msg.ToWireFormat()
+	if wireMsg.Tree == nil {
+		failures := d.consecutiveTreeConstructFailures.Add(1)
+		errMsg := fmt.Sprintf("ToWireFormat returned nil Tree (failures=%d) - possible memory corruption", failures)
+		d.notifyTreeConstructionFailure(errMsg)
+
+		if failures >= 3 {
+			fmt.Fprintf(os.Stderr, "CRITICAL: Stopping tree broadcasts after %d consecutive wire format failures\n", failures)
+			d.collector = nil // Enter degraded mode
+		}
+		return
+	}
+
+	// Reset counter on success
+	d.consecutiveTreeConstructFailures.Store(0)
+	d.broadcastTree(wireMsg)
 }
 
 // isDuplicateEvent checks if an event is a duplicate within the deduplication window.
@@ -715,6 +957,15 @@ func (d *AlertDaemon) handleClient(conn net.Conn) {
 	}
 
 	debug.Log("DAEMON_SENT_STATE client=%s alerts=%d blocked=%d", clientID, len(alertsCopy), len(blockedCopy))
+
+	// If tree collector failed initialization, notify client why tree updates won't happen
+	if d.collector == nil {
+		if err := d.sendCollectorUnavailableError(client, clientID); err != nil {
+			d.removeClient(clientID)
+			conn.Close()
+			return
+		}
+	}
 
 	// Handle incoming messages
 	for {
@@ -1066,14 +1317,24 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	d.clientsMu.RLock()
 	totalClients := len(d.clients)
 
-	var failedClients []string
+	type failedClient struct {
+		id  string
+		err error
+	}
+
+	var failedClients []failedClient
 	var successfulClients []successfulClient
 
 	for clientID, client := range d.clients {
 		if err := client.sendMessage(msg); err != nil {
-			failedClients = append(failedClients, clientID)
-			debug.Log("DAEMON_BROADCAST_ERROR client=%s error=%v", clientID, err)
+			failedClients = append(failedClients, failedClient{id: clientID, err: err})
+			debug.Log("DAEMON_BROADCAST_ERROR client=%s type=%s seq=%d error=%v",
+				clientID, msg.Type, msg.SeqNum, err)
 			d.lastBroadcastError.Store(err.Error())
+
+			// IMMEDIATE stderr notification for operator visibility
+			fmt.Fprintf(os.Stderr, "WARNING: Client %s failed to receive %s (seq=%d): %v - will disconnect\n",
+				clientID, msg.Type, msg.SeqNum, err)
 		} else {
 			successfulClients = append(successfulClients, successfulClient{
 				id:     clientID,
@@ -1087,16 +1348,17 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	// This forces reconnection with full state resync
 	if len(failedClients) > 0 {
 		d.clientsMu.Lock()
-		for _, clientID := range failedClients {
-			if client, exists := d.clients[clientID]; exists {
+		for _, fc := range failedClients {
+			if client, exists := d.clients[fc.id]; exists {
 				// Send disconnect notification BEFORE closing
 				// Note: disconnect is not in the v2 protocol, using raw Message for now
 				disconnectMsg := Message{
-					Type:  "disconnect",
-					Error: "Broadcast send failed - forcing reconnect for state resync",
+					Type: "disconnect",
+					Error: fmt.Sprintf("Failed to receive %s (seq=%d) - forcing reconnect. Error: %v",
+						msg.Type, msg.SeqNum, fc.err),
 				}
 				if err := client.sendMessage(disconnectMsg); err != nil {
-					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", clientID, err)
+					debug.Log("DAEMON_DISCONNECT_NOTIFY_FAILED client=%s error=%v", fc.id, err)
 				}
 
 				// TODO(#330): Add pattern detection for rapid connection close failures
@@ -1106,9 +1368,9 @@ func (d *AlertDaemon) broadcast(msg Message) {
 
 					// ERROR VISIBILITY: Log to stderr
 					fmt.Fprintf(os.Stderr, "WARNING: Connection close error for client %s: %v (total: %d)\n",
-						clientID, closeErr, totalCloseErrors)
+						fc.id, closeErr, totalCloseErrors)
 					debug.Log("DAEMON_CONNECTION_CLOSE_ERROR client=%s close_error=%v total=%d",
-						clientID, closeErr, totalCloseErrors)
+						fc.id, closeErr, totalCloseErrors)
 
 					// THRESHOLD MONITORING: Warn if close errors exceed threshold
 					if totalCloseErrors >= connectionCloseErrorThreshold {
@@ -1118,8 +1380,8 @@ func (d *AlertDaemon) broadcast(msg Message) {
 							totalCloseErrors, connectionCloseErrorThreshold)
 					}
 				}
-				delete(d.clients, clientID)
-				debug.Log("DAEMON_CLIENT_REMOVED_AFTER_BROADCAST_FAILURE client=%s", clientID)
+				delete(d.clients, fc.id)
+				debug.Log("DAEMON_CLIENT_REMOVED_AFTER_BROADCAST_FAILURE client=%s", fc.id)
 			}
 		}
 		d.clientsMu.Unlock()
@@ -1183,6 +1445,7 @@ func (d *AlertDaemon) broadcast(msg Message) {
 			}
 
 			if syncFailures > 0 {
+				// TODO(#1197): Track sync_warning broadcast failures in health metrics to detect meta-failures
 				// CRITICAL: Sync warning cascade failure - some clients unaware of peer disconnections
 				fmt.Fprintf(os.Stderr, "CRITICAL: Sync warning cascade failure (original=%s, sync_failures=%d/%d)\n",
 					msg.Type, syncFailures, len(successfulClients))
@@ -1191,10 +1454,32 @@ func (d *AlertDaemon) broadcast(msg Message) {
 	}
 }
 
+// broadcastTree broadcasts tree-related messages (tree_update, tree_error) and tracks failures separately.
+// This allows health metrics to distinguish tree broadcast issues from general broadcast issues.
+func (d *AlertDaemon) broadcastTree(msg Message) {
+	preBroadcastFailures := d.broadcastFailures.Load()
+	d.broadcast(msg)
+	postBroadcastFailures := d.broadcastFailures.Load()
+
+	if postBroadcastFailures > preBroadcastFailures {
+		newFailures := postBroadcastFailures - preBroadcastFailures
+		d.treeBroadcastErrors.Add(int64(newFailures))
+
+		errMsg := fmt.Sprintf("Tree broadcast failed to %d clients (type=%s, seq=%d)",
+			newFailures, msg.Type, msg.SeqNum)
+		d.lastTreeBroadcastErr.Store(errMsg)
+
+		debug.Log("TREE_BROADCAST_FAILED type=%s failures=%d total_tree_failures=%d",
+			msg.Type, newFailures, d.treeBroadcastErrors.Load())
+		fmt.Fprintf(os.Stderr, "WARNING: %s\n", errMsg)
+	}
+}
+
 // sendFullState sends the complete current daemon state to a single client.
 //
 // Purpose:
 //   - Initial state synchronization when a client first connects
+//   - Sends tree_error if tree collector is unavailable (degraded mode)
 //   - Resynchronization when a client detects a sequence number gap
 //   - Recovery mechanism after broadcast failures (via forced reconnection)
 //
@@ -1213,6 +1498,13 @@ func (d *AlertDaemon) broadcast(msg Message) {
 //   - Sends the message without holding any locks (prevents blocking other operations)
 //   - Safe to call concurrently for different clients
 func (d *AlertDaemon) sendFullState(client *clientConnection, clientID string) error {
+	// If collector is nil, send tree_error to explain why tree is empty
+	if d.collector == nil {
+		if err := d.sendCollectorUnavailableError(client, clientID); err != nil {
+			return fmt.Errorf("failed to notify collector unavailable: %w", err)
+		}
+	}
+
 	alertsCopy := d.copyAlerts()
 	blockedCopy := d.copyBlockedBranches()
 
@@ -1273,6 +1565,8 @@ func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	lastWatcherErr, _ := d.lastWatcherError.Load().(string)
 	lastCloseErr, _ := d.lastCloseError.Load().(string)
 	lastAudioBroadcastErr, _ := d.lastAudioBroadcastErr.Load().(string)
+	lastTreeBroadcastErr, _ := d.lastTreeBroadcastErr.Load().(string)
+	lastTreeMsgConstructErr, _ := d.lastTreeMsgConstructErr.Load().(string)
 
 	d.clientsMu.RLock()
 	clientCount := len(d.clients)
@@ -1287,19 +1581,15 @@ func (d *AlertDaemon) GetHealthStatus() (HealthStatus, error) {
 	d.blockedMu.RUnlock()
 
 	// TODO(#281): Include validation errors in health status response - see PR review for #273
-	status, err := NewHealthStatus(
-		d.broadcastFailures.Load(),
-		lastBroadcastErr,
-		d.watcherErrors.Load(),
-		lastWatcherErr,
-		d.connectionCloseErrors.Load(),
-		lastCloseErr,
-		d.audioBroadcastFailures.Load(),
-		lastAudioBroadcastErr,
-		clientCount,
-		alertCount,
-		blockedCount,
-	)
+	status, err := NewHealthStatusBuilder().
+		WithBroadcastMetrics(d.broadcastFailures.Load(), lastBroadcastErr).
+		WithWatcherMetrics(d.watcherErrors.Load(), lastWatcherErr).
+		WithConnectionMetrics(d.connectionCloseErrors.Load(), lastCloseErr).
+		WithAudioMetrics(d.audioBroadcastFailures.Load(), lastAudioBroadcastErr).
+		WithTreeBroadcastMetrics(d.treeBroadcastErrors.Load(), lastTreeBroadcastErr).
+		WithTreeConstructMetrics(d.treeMsgConstructErrors.Load(), lastTreeMsgConstructErr).
+		WithCounters(clientCount, alertCount, blockedCount).
+		Build()
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to create health status: %v", err)
 

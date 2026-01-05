@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
 // TODO(#280): Document error variables with usage context - see PR review for #273
@@ -30,6 +32,35 @@ var (
 var (
 	ErrHealthValidationFailed = errors.New("health status validation failed: internal state corrupted")
 )
+
+// CRITICAL: Tree Pointer Safety
+//
+// The Message.Tree field is a pointer to enable omitempty JSON serialization (reduces message size).
+// However, this creates aliasing risks in concurrent broadcast scenarios:
+//
+// NEVER share Tree pointers between Message instances:
+//   - One goroutine serializes msg1 to JSON (reads Tree.tree map)
+//   - Another goroutine modifies the daemon's tree (writes Tree.tree map)
+//   - Result: DATA RACE
+//
+// SAFE PATTERN (ALWAYS use protocol_v2.go constructors):
+//   1. Server code: Use NewTreeUpdateMessage(seqNum, tree) which clones automatically
+//   2. Convert to wire format: msg.ToWireFormat() returns Message with independent Tree
+//   3. JSON unmarshal: Creates new pointer but shares internal maps - don't reuse unmarshaled Trees
+//
+// ENFORCEMENT:
+//   - Type-level: TreeUpdateMessageV2 (protocol_v2.go) has private tree field, requires constructor
+//   - Constructor: NewTreeUpdateMessage calls tree.Clone() before storing
+//   - Runtime: Tests verify no aliasing between original tree and message (see protocol_v2_test.go)
+//   - Documentation: This comment + inline comments in ToWireFormat()
+//
+// DO NOT construct Message{Type: MsgTypeTreeUpdate, Tree: ...} directly - use NewTreeUpdateMessage.
+// Direct construction bypasses cloning and creates data race vulnerabilities.
+//
+// WHY NOT MAKE Tree PRIVATE:
+// Making Tree private would require changing JSON field name ("tree" is part of wire protocol).
+// The V2 API pattern (private fields + constructors + conversion layer) provides type safety
+// without breaking wire protocol compatibility.
 
 // Message types for client-daemon communication
 const (
@@ -72,6 +103,10 @@ const (
 	MsgTypeHealthQuery = "health_query"
 	// MsgTypeHealthResponse is sent by daemon with health metrics
 	MsgTypeHealthResponse = "health_response"
+	// MsgTypeTreeUpdate is sent by daemon with complete tmux tree state
+	MsgTypeTreeUpdate = "tree_update"
+	// MsgTypeTreeError is sent by daemon when tree collection fails
+	MsgTypeTreeError = "tree_error"
 )
 
 // Message represents a message exchanged between daemon and clients
@@ -111,6 +146,7 @@ type Message struct {
 	IsBlocked       bool              `json:"is_blocked,omitempty"`       // For blocked_state_response messages
 	Error           string            `json:"error,omitempty"`            // For persistence_error and sync_warning messages
 	HealthStatus    *HealthStatus     `json:"health_status,omitempty"`    // For health_response messages
+	Tree            *tmux.RepoTree    `json:"tree,omitempty"`             // Should be non-nil for tree_update only (not enforced by ValidateMessage). See Tree Pointer Safety comment above for usage.
 }
 
 // PROTOCOL V2 MIGRATION GUIDE
@@ -170,23 +206,31 @@ type Message struct {
 // HealthStatus represents daemon health metrics for monitoring.
 // All fields are private to enforce validation and immutability.
 // Use NewHealthStatus() to create and getters to access fields.
+// TODO(#1193): Migrate all callers to HealthStatusBuilder and unexport NewHealthStatus constructor
 type HealthStatus struct {
-	timestamp              time.Time
-	broadcastFailures      int64
-	lastBroadcastError     string
-	watcherErrors          int64
-	lastWatcherError       string
-	connectionCloseErrors  int64
-	lastCloseError         string
-	audioBroadcastFailures int64
-	lastAudioBroadcastErr  string
-	connectedClients       int
-	activeAlerts           int
-	blockedBranches        int
+	timestamp               time.Time
+	broadcastFailures       int64
+	lastBroadcastError      string
+	watcherErrors           int64
+	lastWatcherError        string
+	connectionCloseErrors   int64
+	lastCloseError          string
+	audioBroadcastFailures  int64
+	lastAudioBroadcastErr   string
+	treeBroadcastErrors     int64  // Total tree broadcast failures
+	lastTreeBroadcastErr    string // Most recent tree broadcast error
+	treeMsgConstructErrors  int64  // Total tree message construction failures
+	lastTreeMsgConstructErr string // Most recent tree message construction error
+	connectedClients        int
+	activeAlerts            int
+	blockedBranches         int
 }
 
 // NewHealthStatus creates a validated HealthStatus with current timestamp.
 // Returns error if any count fields are negative.
+//
+// Deprecated: Use NewHealthStatusBuilder() for better readability and maintainability.
+// This function is preserved for backward compatibility with existing tests and callers.
 func NewHealthStatus(
 	broadcastFailures int64,
 	lastBroadcastError string,
@@ -196,6 +240,10 @@ func NewHealthStatus(
 	lastCloseError string,
 	audioBroadcastFailures int64,
 	lastAudioBroadcastErr string,
+	treeBroadcastErrors int64,
+	lastTreeBroadcastErr string,
+	treeMsgConstructErrors int64,
+	lastTreeMsgConstructErr string,
 	connectedClients int,
 	activeAlerts int,
 	blockedBranches int,
@@ -213,6 +261,12 @@ func NewHealthStatus(
 	if audioBroadcastFailures < 0 {
 		return HealthStatus{}, fmt.Errorf("audioBroadcastFailures must be non-negative, got %d", audioBroadcastFailures)
 	}
+	if treeBroadcastErrors < 0 {
+		return HealthStatus{}, fmt.Errorf("treeBroadcastErrors must be non-negative, got %d", treeBroadcastErrors)
+	}
+	if treeMsgConstructErrors < 0 {
+		return HealthStatus{}, fmt.Errorf("treeMsgConstructErrors must be non-negative, got %d", treeMsgConstructErrors)
+	}
 	if connectedClients < 0 {
 		return HealthStatus{}, fmt.Errorf("connectedClients must be non-negative, got %d", connectedClients)
 	}
@@ -224,18 +278,22 @@ func NewHealthStatus(
 	}
 
 	return HealthStatus{
-		timestamp:              time.Now(),
-		broadcastFailures:      broadcastFailures,
-		lastBroadcastError:     strings.TrimSpace(lastBroadcastError),
-		watcherErrors:          watcherErrors,
-		lastWatcherError:       strings.TrimSpace(lastWatcherError),
-		connectionCloseErrors:  connectionCloseErrors,
-		lastCloseError:         strings.TrimSpace(lastCloseError),
-		audioBroadcastFailures: audioBroadcastFailures,
-		lastAudioBroadcastErr:  strings.TrimSpace(lastAudioBroadcastErr),
-		connectedClients:       connectedClients,
-		activeAlerts:           activeAlerts,
-		blockedBranches:        blockedBranches,
+		timestamp:               time.Now(),
+		broadcastFailures:       broadcastFailures,
+		lastBroadcastError:      strings.TrimSpace(lastBroadcastError),
+		watcherErrors:           watcherErrors,
+		lastWatcherError:        strings.TrimSpace(lastWatcherError),
+		connectionCloseErrors:   connectionCloseErrors,
+		lastCloseError:          strings.TrimSpace(lastCloseError),
+		audioBroadcastFailures:  audioBroadcastFailures,
+		lastAudioBroadcastErr:   strings.TrimSpace(lastAudioBroadcastErr),
+		treeBroadcastErrors:     treeBroadcastErrors,
+		lastTreeBroadcastErr:    strings.TrimSpace(lastTreeBroadcastErr),
+		treeMsgConstructErrors:  treeMsgConstructErrors,
+		lastTreeMsgConstructErr: strings.TrimSpace(lastTreeMsgConstructErr),
+		connectedClients:        connectedClients,
+		activeAlerts:            activeAlerts,
+		blockedBranches:         blockedBranches,
 	}, nil
 }
 
@@ -266,6 +324,18 @@ func (h HealthStatus) GetAudioBroadcastFailures() int64 { return h.audioBroadcas
 // GetLastAudioBroadcastErr returns the most recent audio broadcast error message
 func (h HealthStatus) GetLastAudioBroadcastErr() string { return h.lastAudioBroadcastErr }
 
+// GetTreeBroadcastErrors returns the total tree broadcast failures
+func (h HealthStatus) GetTreeBroadcastErrors() int64 { return h.treeBroadcastErrors }
+
+// GetLastTreeBroadcastError returns the most recent tree broadcast error
+func (h HealthStatus) GetLastTreeBroadcastError() string { return h.lastTreeBroadcastErr }
+
+// GetTreeMsgConstructErrors returns the total tree message construction failures
+func (h HealthStatus) GetTreeMsgConstructErrors() int64 { return h.treeMsgConstructErrors }
+
+// GetLastTreeMsgConstructError returns the most recent tree message construction error
+func (h HealthStatus) GetLastTreeMsgConstructError() string { return h.lastTreeMsgConstructErr }
+
 // GetConnectedClients returns the current number of connected clients
 func (h HealthStatus) GetConnectedClients() int { return h.connectedClients }
 
@@ -275,52 +345,175 @@ func (h HealthStatus) GetActiveAlerts() int { return h.activeAlerts }
 // GetBlockedBranches returns the current number of blocked branches
 func (h HealthStatus) GetBlockedBranches() int { return h.blockedBranches }
 
+// HealthStatusBuilder provides a fluent API for constructing HealthStatus instances.
+// This builder pattern improves readability compared to the 15-parameter NewHealthStatus constructor.
+//
+// Example usage:
+//
+//	status, err := NewHealthStatusBuilder().
+//	    WithBroadcastMetrics(failures, lastErr).
+//	    WithWatcherMetrics(errors, lastErr).
+//	    WithConnectionMetrics(closeErrors, lastErr).
+//	    WithAudioMetrics(failures, lastErr).
+//	    WithTreeBroadcastMetrics(errors, lastErr).
+//	    WithTreeConstructMetrics(errors, lastErr).
+//	    WithCounters(clients, alerts, blocked).
+//	    Build()
+type HealthStatusBuilder struct {
+	broadcastFailures       int64
+	lastBroadcastError      string
+	watcherErrors           int64
+	lastWatcherError        string
+	connectionCloseErrors   int64
+	lastCloseError          string
+	audioBroadcastFailures  int64
+	lastAudioBroadcastErr   string
+	treeBroadcastErrors     int64
+	lastTreeBroadcastErr    string
+	treeMsgConstructErrors  int64
+	lastTreeMsgConstructErr string
+	connectedClients        int
+	activeAlerts            int
+	blockedBranches         int
+}
+
+// NewHealthStatusBuilder creates a new HealthStatusBuilder with zero values.
+// Use the With* methods to set values, then call Build() to create the HealthStatus.
+func NewHealthStatusBuilder() *HealthStatusBuilder {
+	return &HealthStatusBuilder{}
+}
+
+// WithBroadcastMetrics sets broadcast failure metrics.
+func (b *HealthStatusBuilder) WithBroadcastMetrics(failures int64, lastErr string) *HealthStatusBuilder {
+	b.broadcastFailures = failures
+	b.lastBroadcastError = lastErr
+	return b
+}
+
+// WithWatcherMetrics sets watcher error metrics.
+func (b *HealthStatusBuilder) WithWatcherMetrics(errors int64, lastErr string) *HealthStatusBuilder {
+	b.watcherErrors = errors
+	b.lastWatcherError = lastErr
+	return b
+}
+
+// WithConnectionMetrics sets connection close error metrics.
+func (b *HealthStatusBuilder) WithConnectionMetrics(closeErrors int64, lastErr string) *HealthStatusBuilder {
+	b.connectionCloseErrors = closeErrors
+	b.lastCloseError = lastErr
+	return b
+}
+
+// WithAudioMetrics sets audio broadcast failure metrics.
+func (b *HealthStatusBuilder) WithAudioMetrics(failures int64, lastErr string) *HealthStatusBuilder {
+	b.audioBroadcastFailures = failures
+	b.lastAudioBroadcastErr = lastErr
+	return b
+}
+
+// WithTreeBroadcastMetrics sets tree broadcast error metrics.
+func (b *HealthStatusBuilder) WithTreeBroadcastMetrics(errors int64, lastErr string) *HealthStatusBuilder {
+	b.treeBroadcastErrors = errors
+	b.lastTreeBroadcastErr = lastErr
+	return b
+}
+
+// WithTreeConstructMetrics sets tree message construction error metrics.
+func (b *HealthStatusBuilder) WithTreeConstructMetrics(errors int64, lastErr string) *HealthStatusBuilder {
+	b.treeMsgConstructErrors = errors
+	b.lastTreeMsgConstructErr = lastErr
+	return b
+}
+
+// WithCounters sets current state counters (clients, alerts, blocked branches).
+func (b *HealthStatusBuilder) WithCounters(clients, alerts, blocked int) *HealthStatusBuilder {
+	b.connectedClients = clients
+	b.activeAlerts = alerts
+	b.blockedBranches = blocked
+	return b
+}
+
+// Build creates a validated HealthStatus from the builder's current state.
+// Returns error if any count fields are negative.
+func (b *HealthStatusBuilder) Build() (HealthStatus, error) {
+	// Delegate to NewHealthStatus for validation and construction
+	return NewHealthStatus(
+		b.broadcastFailures,
+		b.lastBroadcastError,
+		b.watcherErrors,
+		b.lastWatcherError,
+		b.connectionCloseErrors,
+		b.lastCloseError,
+		b.audioBroadcastFailures,
+		b.lastAudioBroadcastErr,
+		b.treeBroadcastErrors,
+		b.lastTreeBroadcastErr,
+		b.treeMsgConstructErrors,
+		b.lastTreeMsgConstructErr,
+		b.connectedClients,
+		b.activeAlerts,
+		b.blockedBranches,
+	)
+}
+
 // MarshalJSON implements custom JSON marshaling to maintain wire protocol compatibility
 func (h HealthStatus) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Timestamp              time.Time `json:"timestamp"`
-		BroadcastFailures      int64     `json:"broadcast_failures"`
-		LastBroadcastError     string    `json:"last_broadcast_error"`
-		WatcherErrors          int64     `json:"watcher_errors"`
-		LastWatcherError       string    `json:"last_watcher_error"`
-		ConnectionCloseErrors  int64     `json:"connection_close_errors"`
-		LastCloseError         string    `json:"last_close_error"`
-		AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
-		LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
-		ConnectedClients       int       `json:"connected_clients"`
-		ActiveAlerts           int       `json:"active_alerts"`
-		BlockedBranches        int       `json:"blocked_branches"`
+		Timestamp               time.Time `json:"timestamp"`
+		BroadcastFailures       int64     `json:"broadcast_failures"`
+		LastBroadcastError      string    `json:"last_broadcast_error"`
+		WatcherErrors           int64     `json:"watcher_errors"`
+		LastWatcherError        string    `json:"last_watcher_error"`
+		ConnectionCloseErrors   int64     `json:"connection_close_errors"`
+		LastCloseError          string    `json:"last_close_error"`
+		AudioBroadcastFailures  int64     `json:"audio_broadcast_failures"`
+		LastAudioBroadcastErr   string    `json:"last_audio_broadcast_error"`
+		TreeBroadcastErrors     int64     `json:"tree_broadcast_errors"`
+		LastTreeBroadcastErr    string    `json:"last_tree_broadcast_error"`
+		TreeMsgConstructErrors  int64     `json:"tree_msg_construct_errors"`
+		LastTreeMsgConstructErr string    `json:"last_tree_msg_construct_error"`
+		ConnectedClients        int       `json:"connected_clients"`
+		ActiveAlerts            int       `json:"active_alerts"`
+		BlockedBranches         int       `json:"blocked_branches"`
 	}{
-		Timestamp:              h.timestamp,
-		BroadcastFailures:      h.broadcastFailures,
-		LastBroadcastError:     h.lastBroadcastError,
-		WatcherErrors:          h.watcherErrors,
-		LastWatcherError:       h.lastWatcherError,
-		ConnectionCloseErrors:  h.connectionCloseErrors,
-		LastCloseError:         h.lastCloseError,
-		AudioBroadcastFailures: h.audioBroadcastFailures,
-		LastAudioBroadcastErr:  h.lastAudioBroadcastErr,
-		ConnectedClients:       h.connectedClients,
-		ActiveAlerts:           h.activeAlerts,
-		BlockedBranches:        h.blockedBranches,
+		Timestamp:               h.timestamp,
+		BroadcastFailures:       h.broadcastFailures,
+		LastBroadcastError:      h.lastBroadcastError,
+		WatcherErrors:           h.watcherErrors,
+		LastWatcherError:        h.lastWatcherError,
+		ConnectionCloseErrors:   h.connectionCloseErrors,
+		LastCloseError:          h.lastCloseError,
+		AudioBroadcastFailures:  h.audioBroadcastFailures,
+		LastAudioBroadcastErr:   h.lastAudioBroadcastErr,
+		TreeBroadcastErrors:     h.treeBroadcastErrors,
+		LastTreeBroadcastErr:    h.lastTreeBroadcastErr,
+		TreeMsgConstructErrors:  h.treeMsgConstructErrors,
+		LastTreeMsgConstructErr: h.lastTreeMsgConstructErr,
+		ConnectedClients:        h.connectedClients,
+		ActiveAlerts:            h.activeAlerts,
+		BlockedBranches:         h.blockedBranches,
 	})
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling with validation
 func (h *HealthStatus) UnmarshalJSON(data []byte) error {
 	aux := &struct {
-		Timestamp              time.Time `json:"timestamp"`
-		BroadcastFailures      int64     `json:"broadcast_failures"`
-		LastBroadcastError     string    `json:"last_broadcast_error"`
-		WatcherErrors          int64     `json:"watcher_errors"`
-		LastWatcherError       string    `json:"last_watcher_error"`
-		ConnectionCloseErrors  int64     `json:"connection_close_errors"`
-		LastCloseError         string    `json:"last_close_error"`
-		AudioBroadcastFailures int64     `json:"audio_broadcast_failures"`
-		LastAudioBroadcastErr  string    `json:"last_audio_broadcast_error"`
-		ConnectedClients       int       `json:"connected_clients"`
-		ActiveAlerts           int       `json:"active_alerts"`
-		BlockedBranches        int       `json:"blocked_branches"`
+		Timestamp               time.Time `json:"timestamp"`
+		BroadcastFailures       int64     `json:"broadcast_failures"`
+		LastBroadcastError      string    `json:"last_broadcast_error"`
+		WatcherErrors           int64     `json:"watcher_errors"`
+		LastWatcherError        string    `json:"last_watcher_error"`
+		ConnectionCloseErrors   int64     `json:"connection_close_errors"`
+		LastCloseError          string    `json:"last_close_error"`
+		AudioBroadcastFailures  int64     `json:"audio_broadcast_failures"`
+		LastAudioBroadcastErr   string    `json:"last_audio_broadcast_error"`
+		TreeBroadcastErrors     int64     `json:"tree_broadcast_errors"`
+		LastTreeBroadcastErr    string    `json:"last_tree_broadcast_error"`
+		TreeMsgConstructErrors  int64     `json:"tree_msg_construct_errors"`
+		LastTreeMsgConstructErr string    `json:"last_tree_msg_construct_error"`
+		ConnectedClients        int       `json:"connected_clients"`
+		ActiveAlerts            int       `json:"active_alerts"`
+		BlockedBranches         int       `json:"blocked_branches"`
 	}{}
 
 	if err := json.Unmarshal(data, aux); err != nil {
@@ -339,6 +532,12 @@ func (h *HealthStatus) UnmarshalJSON(data []byte) error {
 	}
 	if aux.AudioBroadcastFailures < 0 {
 		return fmt.Errorf("invalid audio_broadcast_failures: %d", aux.AudioBroadcastFailures)
+	}
+	if aux.TreeBroadcastErrors < 0 {
+		return fmt.Errorf("invalid tree_broadcast_errors: %d", aux.TreeBroadcastErrors)
+	}
+	if aux.TreeMsgConstructErrors < 0 {
+		return fmt.Errorf("invalid tree_msg_construct_errors: %d", aux.TreeMsgConstructErrors)
 	}
 	if aux.ConnectedClients < 0 {
 		return fmt.Errorf("invalid connected_clients: %d", aux.ConnectedClients)
@@ -359,6 +558,10 @@ func (h *HealthStatus) UnmarshalJSON(data []byte) error {
 	h.lastCloseError = aux.LastCloseError
 	h.audioBroadcastFailures = aux.AudioBroadcastFailures
 	h.lastAudioBroadcastErr = aux.LastAudioBroadcastErr
+	h.treeBroadcastErrors = aux.TreeBroadcastErrors
+	h.lastTreeBroadcastErr = aux.LastTreeBroadcastErr
+	h.treeMsgConstructErrors = aux.TreeMsgConstructErrors
+	h.lastTreeMsgConstructErr = aux.LastTreeMsgConstructErr
 	h.connectedClients = aux.ConnectedClients
 	h.activeAlerts = aux.ActiveAlerts
 	h.blockedBranches = aux.BlockedBranches
@@ -454,6 +657,17 @@ func ValidateMessage(msg Message) error {
 		// No required fields
 	case MsgTypeSyncWarning, MsgTypePersistenceError, MsgTypeAudioError:
 		// Error field is optional but recommended
+	case MsgTypeTreeUpdate:
+		if msg.Tree == nil {
+			return errors.New("tree_update message requires non-nil tree field - " +
+				"possible daemon bug in ToWireFormat() or message construction")
+		}
+	case MsgTypeTreeError:
+		errorMsg := strings.TrimSpace(msg.Error)
+		if errorMsg == "" {
+			return errors.New("tree_error message requires non-empty error field - " +
+				"empty error messages provide no diagnostic value to clients")
+		}
 	default:
 		// Unknown message type - not necessarily invalid (forward compatibility)
 		return nil
