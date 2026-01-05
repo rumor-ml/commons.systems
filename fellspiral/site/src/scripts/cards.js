@@ -642,7 +642,7 @@ function initSubtypeCombobox() {
       const type = document.getElementById('cardType')?.value;
       return getSubtypesForType(type);
     },
-    onSelect: null,
+    // onSelect is optional - omit it rather than passing null
   });
   if (!subtypeCombobox) {
     console.error('[Cards] Failed to initialize subtype combobox - DOM elements missing');
@@ -739,14 +739,10 @@ async function init() {
     // CRITICAL: Clear any hardcoded loading spinner from HTMX-swapped HTML FIRST
     removeLoadingSpinner();
 
-    // Validate auth - log warning if not ready but continue initialization
+    // Validate auth - continue initialization even if not ready
     // Cards can still load for viewing even without auth
+    // Auth state listener will retry automatically when auth becomes available
     const authInstance = getAuthInstance();
-    if (!authInstance) {
-      console.warn(
-        '[Cards] Auth not ready yet - initialization will continue, auth-gated features will be disabled'
-      );
-    }
 
     // Note: Authentication is initialized globally in main.js DOMContentLoaded
     // Don't call initializeAuth() here to avoid duplicates
@@ -1166,10 +1162,12 @@ function setupAuthStateListener() {
         // User will need to refresh to get auth-gated features
         return;
       }
+      // Auth not ready yet - silently retry without logging error
       setTimeout(setupAuthStateListener, TIMEOUTS.AUTH_RETRY_MS);
       return;
     }
 
+    // Only log if it's NOT an expected "auth not ready" error
     console.error('[Cards] Auth state listener setup failed:', error.message);
     showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
       window.location.reload()
