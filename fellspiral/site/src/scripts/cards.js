@@ -1098,10 +1098,13 @@ function setupMobileMenu() {
  * @returns {boolean} True if error indicates auth not initialized
  */
 function isAuthNotInitializedError(error) {
+  const message = String(error.message || '');
   return (
     error.code === 'auth-not-initialized' ||
     error.name === 'AuthNotInitializedError' ||
-    String(error.message || '').includes('before auth initialized')
+    message.includes('before auth initialized') ||
+    message.includes("can't access property 'onAuthStateChanged'") ||
+    message.includes('is null')
   );
 }
 
