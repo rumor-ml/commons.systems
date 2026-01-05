@@ -829,14 +829,10 @@ async function loadCards() {
     if (cards.length > 0) {
       state.cards = cards;
     } else {
-      // If no cards in Firestore, only attempt to seed if authenticated
+      // If no cards in Firestore, show appropriate empty state
       if (getAuthInstance()?.currentUser) {
-        await withTimeout(
-          importCardsFromData(cardsData),
-          TIMEOUTS.FIRESTORE_MS,
-          'Import cards timeout'
-        );
-        state.cards = await getAllCards();
+        // Authenticated users get empty Firestore state (don't auto-import)
+        state.cards = [];
       } else {
         // Not authenticated - use static data to avoid slow import attempts
         state.cards = cardsData || [];

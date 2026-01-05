@@ -93,7 +93,16 @@ jobs:
         with:
           install-playwright: 'true'
           install-firebase: 'true'
-      - name: Run tests
+
+      - name: Test Firestore security rules
+        working-directory: fellspiral/tests
+        env:
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8081
+        run: |
+          pnpm install
+          pnpm test:rules
+
+      - name: Run E2E tests
         run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
 
   test-firebase-videobrowser:

@@ -202,9 +202,11 @@ else
   cd "${PROJECT_ROOT}"
 
   # Start ONLY backend emulators (shared)
+  # Import seed data from fellspiral/emulator-data (includes QA test user)
   npx firebase-tools emulators:start \
     --only auth,firestore,storage \
     --project="${PROJECT_ID}" \
+    --import="${PROJECT_ROOT}/fellspiral/emulator-data" \
     > "$BACKEND_LOG_FILE" 2>&1 &
 
   BACKEND_PID=$!

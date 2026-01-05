@@ -2362,6 +2362,14 @@ test.describe('Add Card - Auth Session Management', () => {
       .isVisible();
     expect(hasGuestIndicator).toBe(true);
 
+    // Count cards before sign-in
+    const cardCountBeforeAuth = await page.locator('.card-item').count();
+    expect(cardCountBeforeAuth).toBeGreaterThan(0); // Should have demo data or Firestore cards
+
+    // Get first few card titles to verify they persist after sign-in
+    const cardTitlesBeforeAuth = await page.locator('.card-item h3.card-title').allTextContents();
+    const firstCardTitle = cardTitlesBeforeAuth[0];
+
     // Now sign in
     const email = `session-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -2379,6 +2387,17 @@ test.describe('Add Card - Auth Session Management', () => {
       document.body.classList.contains('authenticated')
     );
     expect(hasAuthClass).toBe(true);
+
+    // CRITICAL: Verify cards still visible after sign-in (regression test for #244)
+    const cardCountAfterAuth = await page.locator('.card-item').count();
+    expect(cardCountAfterAuth).toBeGreaterThan(0); // Cards should NOT disappear
+
+    // Verify at least the first card is still findable
+    const isFirstCardStillVisible = await page
+      .locator('.card-item')
+      .filter({ hasText: firstCardTitle })
+      .isVisible();
+    expect(isFirstCardStillVisible).toBe(true);
   });
 });
 

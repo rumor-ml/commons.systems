@@ -403,3 +403,104 @@ export async function deleteTestCards(titlePattern) {
 
   return docsToDelete.length;
 }
+
+/**
+ * Create a card directly in Firestore using Admin SDK
+ * Used to seed test data for card visibility tests
+ * @param {Object} cardData - Card data to insert
+ * @param {string} cardData.title - Card title (required)
+ * @param {string} cardData.type - Card type (required)
+ * @param {string} cardData.subtype - Card subtype (required)
+ * @param {boolean} cardData.isPublic - Public visibility flag (required)
+ * @param {string} cardData.createdBy - User UID who owns the card (required)
+ * @param {string} [cardData.description] - Card description (optional)
+ * @returns {Promise<string>} Document ID of created card
+ */
+export async function createCardInFirestore(cardData) {
+  // Import collection name helper - use dynamic import to work in both Node and browser contexts
+  const { getCardsCollectionName } = await import('../../site/src/lib/firestore-collections.js');
+
+  // Get or initialize Firestore Admin (reuses same instance)
+  const { db } = await getFirestoreAdmin();
+  const adminModule = await import('firebase-admin');
+  const admin = adminModule.default;
+
+  // Validate required fields
+  if (!cardData.title || !cardData.type || !cardData.subtype) {
+    throw new Error('Card must have title, type, and subtype');
+  }
+  if (typeof cardData.isPublic !== 'boolean') {
+    throw new Error('Card must have isPublic boolean field');
+  }
+  if (!cardData.createdBy) {
+    throw new Error('Card must have createdBy field');
+  }
+
+  // Create card document with timestamps
+  const collectionName = getCardsCollectionName();
+  const cardsCollection = db.collection(collectionName);
+
+  const cardDoc = {
+    title: cardData.title,
+    type: cardData.type,
+    subtype: cardData.subtype,
+    isPublic: cardData.isPublic,
+    createdBy: cardData.createdBy,
+    description: cardData.description || '',
+    tags: cardData.tags || '',
+    stat1: cardData.stat1 || '',
+    stat2: cardData.stat2 || '',
+    cost: cardData.cost || '',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const docRef = await cardsCollection.add(cardDoc);
+  return docRef.id;
+}
+
+/**
+ * Wait for a specific card count to appear in the UI
+ * Polls the DOM for .card-item elements until expected count is reached
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {number} expectedCount - Expected number of cards
+ * @param {number} timeout - Maximum wait time in ms (default: 10000)
+ * @returns {Promise<void>}
+ * @throws {Error} If expected count not reached within timeout
+ */
+export async function waitForCardCount(page, expectedCount, timeout = 10000) {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeout) {
+    const currentCount = await page.locator('.card-item').count();
+    if (currentCount === expectedCount) {
+      return;
+    }
+    await page.waitForTimeout(200); // Poll every 200ms
+  }
+
+  const finalCount = await page.locator('.card-item').count();
+  throw new Error(
+    `Timeout waiting for ${expectedCount} cards. Current count: ${finalCount} after ${timeout}ms`
+  );
+}
+
+/**
+ * Check if a card with the given title is visible in the UI
+ * Searches for .card-item elements containing the title text
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {string} cardTitle - Title of the card to find
+ * @returns {Promise<boolean>} True if card is visible, false otherwise
+ */
+export async function isCardVisibleInUI(page, cardTitle) {
+  try {
+    // Look for card title in any .card-item element
+    // Cards display title in an h3.card-title element
+    const cardLocator = page.locator('.card-item').filter({ hasText: cardTitle });
+    const count = await cardLocator.count();
+    return count > 0;
+  } catch (error) {
+    // If locator fails, card is not visible
+    return false;
+  }
+}

@@ -314,7 +314,7 @@ function validateCardData(cardData) {
 // Tests needed for error categorization to prevent showing login prompts for network issues
 
 // Get all cards from Firestore with timeout protection
-// Only fetches public cards - matches the security rules which require isPublic == true
+// Fetches public cards (everyone can see) and private cards (only if authenticated and owned by user)
 export async function getAllCards() {
   await initFirebase();
   // Timeout of 30 seconds for emulator environment (may be slower due to system load)
@@ -323,33 +323,80 @@ export async function getAllCards() {
   const FIRESTORE_TIMEOUT_MS = 30000;
 
   try {
-    // Query for public cards only - this matches the security rules requirement
-    // NOTE: Firestore requires query constraints to match security rule constraints
-    const q = query(cardsCollection, where('isPublic', '==', true), orderBy('title', 'asc'));
+    // Get current user for private card query
+    const authInstance = getAuthInstance();
+    const currentUser = authInstance?.currentUser;
 
-    // Wrap query with timeout to prevent hanging on slow/unresponsive Firestore
-    const querySnapshot = await withTimeout(
-      getDocs(q),
-      FIRESTORE_TIMEOUT_MS,
-      'Firestore query timeout'
+    // Query 1: Public cards (everyone can see these)
+    const publicQuery = query(
+      cardsCollection,
+      where('isPublic', '==', true),
+      orderBy('title', 'asc')
     );
 
-    const cards = [];
-    querySnapshot.forEach((doc) => {
-      cards.push({
+    const publicQuerySnapshot = await withTimeout(
+      getDocs(publicQuery),
+      FIRESTORE_TIMEOUT_MS,
+      'Firestore query timeout (public cards)'
+    );
+
+    const publicCards = [];
+    publicQuerySnapshot.forEach((doc) => {
+      publicCards.push({
         id: doc.id,
         ...doc.data(),
       });
     });
-    return cards;
+
+    // If not authenticated, return only public cards
+    if (!currentUser) {
+      return publicCards;
+    }
+
+    // Query 2: Private cards owned by the current user
+    const privateQuery = query(
+      cardsCollection,
+      where('isPublic', '==', false),
+      where('createdBy', '==', currentUser.uid),
+      orderBy('title', 'asc')
+    );
+
+    const privateQuerySnapshot = await withTimeout(
+      getDocs(privateQuery),
+      FIRESTORE_TIMEOUT_MS,
+      'Firestore query timeout (private cards)'
+    );
+
+    const privateCards = [];
+    privateQuerySnapshot.forEach((doc) => {
+      privateCards.push({
+        id: doc.id,
+        ...doc.data(),
+      });
+    });
+
+    // Merge and deduplicate by card ID (in case a card is both public and owned by user)
+    const cardMap = new Map();
+    [...publicCards, ...privateCards].forEach((card) => {
+      cardMap.set(card.id, card);
+    });
+
+    // Convert back to array and sort by title
+    const allCards = Array.from(cardMap.values());
+    allCards.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+
+    return allCards;
   } catch (error) {
     // Log detailed error information for debugging (especially Firefox-specific issues)
+    const authInstance = getAuthInstance();
+    const isAuthenticated = !!authInstance?.currentUser;
     console.error('[getAllCards] Firestore query failed:', {
       errorMessage: error.message,
       errorName: error.name,
       errorStack: error.stack,
       browser: navigator.userAgent,
       timestamp: new Date().toISOString(),
+      isAuthenticated,
     });
     // Create enriched error with context for better debugging and error handling
     const enrichedError = new Error(`Failed to fetch cards: ${error.message}`);
