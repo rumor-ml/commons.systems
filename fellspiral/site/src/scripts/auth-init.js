@@ -14,6 +14,7 @@ import {
 import '@commons/auth/styles/auth-button.css';
 import '@commons/auth/styles/user-profile.css';
 import { firebaseConfig } from '../firebase-config.js';
+import { initFirebase } from './firebase.js';
 
 /**
  * Export onAuthStateChanged for use by other modules
@@ -120,8 +121,7 @@ export async function initializeAuth() {
   // Eagerly initialize Firebase so window.auth is available for tests
   // This ensures auth is ready BEFORE any test fixture tries to sign in
   // initFirebase() is idempotent, so this doesn't affect lazy-loading behavior
-  const { initFirebase } = await import('./firebase.js');
-  await initFirebase().catch((err) => {
+  initFirebase().catch((err) => {
     console.warn('[auth-init] Firebase initialization failed, will retry on first use:', err);
   });
 }
