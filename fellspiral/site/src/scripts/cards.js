@@ -25,7 +25,7 @@ import {
 } from './firebase.js';
 
 // Import auth initialization and state
-import { initializeAuth, onAuthStateChanged } from './auth-init.js';
+import { initializeAuth, onAuthStateChanged, onAuthReady } from './auth-init.js';
 
 // Import shared navigation
 import { initSidebarNav } from './sidebar-nav.js';
@@ -750,8 +750,11 @@ async function init() {
     // Initialize shared sidebar navigation (generates nav DOM)
     initSidebarNav();
 
-    // Setup auth state listener
-    setupAuthStateListener();
+    // Setup auth state listener - defer until auth is ready to prevent race condition
+    // This prevents "can't access property 'onAuthStateChanged', auth is null" errors
+    onAuthReady(() => {
+      setupAuthStateListener();
+    });
 
     // Initialize library navigation (populates library section)
     // Don't await - let it load in background to avoid blocking card display

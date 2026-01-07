@@ -88,12 +88,21 @@ export const test = base.extend<AuthFixtures>({
             'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
           );
 
+          // Wait for auth to be initialized (polling with timeout)
+          const waitForAuth = async (timeout = 5000) => {
+            const startTime = Date.now();
+            while (!window.auth) {
+              if (Date.now() - startTime > timeout) {
+                throw new Error('window.auth not found - Firebase may not be initialized yet');
+              }
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            return window.auth;
+          };
+
           // Use the page's existing auth instance (from firebase.js)
           // The page already connects to the emulator, so we just need to sign in
-          const auth = window.auth;
-          if (!auth) {
-            throw new Error('window.auth not found - Firebase may not be initialized yet');
-          }
+          const auth = await waitForAuth();
 
           // Sign in with custom token
           // The auth instance is already connected to the emulator by firebase.js

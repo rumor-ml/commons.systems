@@ -9,6 +9,7 @@ import {
   createAuthButton,
   createUserProfile,
   onAuthStateChange,
+  onAuthReady,
 } from '@commons/auth';
 import '@commons/auth/styles/auth-button.css';
 import '@commons/auth/styles/user-profile.css';
@@ -21,6 +22,13 @@ import { firebaseConfig } from '../firebase-config.js';
 export function onAuthStateChanged(callback) {
   return onAuthStateChange(callback);
 }
+
+/**
+ * Export onAuthReady for use by other modules
+ * Allows code to defer operations until auth initialization completes
+ * @param {function} callback - Callback function to invoke when auth is ready
+ */
+export { onAuthReady };
 
 /**
  * Initialize authentication and inject UI components
