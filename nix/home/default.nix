@@ -10,6 +10,9 @@
 # - Development tools: direnv, neovim (tools.nix)
 # - Claude Code CLI (claude-code.nix)
 # - Nix settings: experimental features (nix.nix)
+# - SSH client and agent configuration (ssh.nix)
+# - SSH key auto-generation (ssh-keygen.nix)
+# - SSH authorized keys management (ssh-authorized-keys.nix)
 #
 # To activate this configuration for your system:
 #   First time (requires experimental features flags):
@@ -37,6 +40,9 @@
     ./tools.nix
     ./claude-code.nix
     ./nix.nix
+    ./ssh.nix
+    ./ssh-keygen.nix
+    ./ssh-authorized-keys.nix
   ];
 
   # User identity - detect from environment or HOME directory

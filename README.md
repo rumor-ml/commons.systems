@@ -133,6 +133,50 @@ pnpm install
 pnpm dev
 ```
 
+## Configuration & Automation
+
+The repository includes comprehensive Nix-based automation for reproducible machine setup.
+
+### 📚 Documentation
+
+- **[Automation Opportunities](nix/AUTOMATION-OPPORTUNITIES.md)** - Overview of what's automated and opportunities for improvement
+- **[SSH Automation Guide](nix/SSH-AUTOMATION.md)** - Complete SSH setup automation with improvement opportunities
+- **[Tailscale Setup Guide](nix/TAILSCALE-SETUP.md)** - Secure VPN networking for NixOS and macOS
+
+#### SSH Configuration
+- **[SSH Client Setup](nix/home/SSH-SETUP.md)** - Home Manager SSH client configuration
+- **[SSH Server Module](nix/nixos/README.md)** - NixOS SSH server deployment
+- **[SSH Key Management](nix/ssh-keys/README.md)** - Central SSH key repository
+
+#### Tailscale VPN
+- **[NixOS Tailscale Module](nix/nixos/tailscale.nix)** - Tailscale for NixOS/WSL2
+- **[macOS Tailscale Module](nix/darwin/README.md)** - Tailscale for nix-darwin
+
+### ⚙️ What's Automated
+
+**User-Level (Home Manager):**
+- Git configuration with auto-detected identity
+- Tmux with project-specific TUI integration
+- SSH client with agent and modern security defaults
+- Development tools (direnv, neovim)
+- Claude Code CLI
+
+**System-Level (NixOS):**
+- SSH server with security hardening
+- Firewall configuration
+- mDNS/Avahi for hostname resolution
+- Tailscale VPN with mesh networking
+
+**Development Environment:**
+- Language toolchains (Go, Node.js, pnpm)
+- Cloud tools (gcloud, terraform)
+- Custom packages (tmux-tui, MCP servers)
+- Pre-commit hooks
+
+### 🚀 New Machine Setup
+
+See [AUTOMATION-OPPORTUNITIES.md](nix/AUTOMATION-OPPORTUNITIES.md) for detailed setup instructions and additional automation opportunities.
+
 ## Infrastructure Quick Start
 
 Deploy the to GCP with **zero local setup** and **one local command**.
