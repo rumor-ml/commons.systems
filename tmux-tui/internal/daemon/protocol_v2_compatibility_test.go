@@ -103,7 +103,7 @@ func TestJSONSerializationPreservesAllFields(t *testing.T) {
 		{
 			name: "HealthResponseMessage",
 			creator: func() (MessageV2, error) {
-				status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 5, 10, 3)
+				status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, "", 0, "", 5, 10, 3)
 				if err != nil {
 					return nil, err
 				}
@@ -257,7 +257,7 @@ func TestV1ClientCanDeserializeV2Messages(t *testing.T) {
 		{
 			name: "HealthResponseMessage",
 			creator: func() (MessageV2, error) {
-				status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 5, 10, 3)
+				status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, "", 0, "", 5, 10, 3)
 				if err != nil {
 					return nil, err
 				}

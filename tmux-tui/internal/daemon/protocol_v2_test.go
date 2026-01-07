@@ -1,9 +1,14 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+
+	. "github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
 // TestHelloMessage tests HelloMessageV2 construction and validation
@@ -547,7 +552,7 @@ func TestHealthMessages(t *testing.T) {
 	}
 
 	// Health Response
-	status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, 0, 0)
+	status, err := NewHealthStatus(0, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0, 0, 0)
 	if err != nil {
 		t.Fatalf("NewHealthStatus() error = %v", err)
 	}
@@ -970,5 +975,753 @@ func TestFromWireFormat_ErrorWrapping(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTreeUpdateMessage tests TreeUpdateMessageV2 construction, serialization, and validation
+func TestTreeUpdateMessage(t *testing.T) {
+	t.Run("empty_tree", func(t *testing.T) {
+		tree := NewRepoTree()
+		msg, err := NewTreeUpdateMessage(1, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+
+		// Verify sequence number
+		if msg.SeqNumber() != 1 {
+			t.Errorf("SeqNumber() = %v, want 1", msg.SeqNumber())
+		}
+
+		// Verify message type
+		if msg.MessageType() != MsgTypeTreeUpdate {
+			t.Errorf("MessageType() = %v, want %v", msg.MessageType(), MsgTypeTreeUpdate)
+		}
+
+		// Verify tree accessor returns empty tree
+		returnedTree := msg.Tree()
+		if len(returnedTree.Repos()) != 0 {
+			t.Errorf("Tree().Repos() = %v, want empty", returnedTree.Repos())
+		}
+	})
+
+	t.Run("populated_tree", func(t *testing.T) {
+		// Create a tree with test data
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path/to/repo", "@0", 0, true, false, "zsh", "title1", false)
+		pane2, _ := NewPane("%2", "/path/to/repo", "@0", 0, true, false, "vim", "title2", true)
+		err := tree.SetPanes("commons.systems", "main", []Pane{pane1, pane2})
+		if err != nil {
+			t.Fatalf("SetPanes() error = %v", err)
+		}
+
+		msg, err := NewTreeUpdateMessage(42, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+
+		// Verify tree is populated
+		returnedTree := msg.Tree()
+		repos := returnedTree.Repos()
+		if len(repos) != 1 || repos[0] != "commons.systems" {
+			t.Errorf("Tree().Repos() = %v, want ['commons.systems']", repos)
+		}
+
+		panes, ok := returnedTree.GetPanes("commons.systems", "main")
+		if !ok || len(panes) != 2 {
+			t.Errorf("Tree().GetPanes() = %v, %v; want 2 panes", panes, ok)
+		}
+	})
+
+	t.Run("tree_immutability", func(t *testing.T) {
+		// Create initial tree
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1})
+
+		msg, err := NewTreeUpdateMessage(1, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+
+		// Modify original tree after message creation
+		pane2, _ := NewPane("%2", "/other", "@1", 1, false, false, "vim", "other", false)
+		tree.SetPanes("repo2", "branch2", []Pane{pane2})
+
+		// Message should be immutable - mutations to original tree should NOT affect message
+		returnedTree := msg.Tree()
+		repos := returnedTree.Repos()
+		if len(repos) != 1 {
+			t.Errorf("Message tree should be immutable: got %d repos after mutation, want 1 (only repo1)", len(repos))
+		}
+
+		// Verify original repo/branch still present
+		if panes, ok := returnedTree.GetPanes("repo1", "branch1"); !ok || len(panes) != 1 {
+			t.Errorf("Original repo/branch should be preserved in message")
+		}
+
+		// Verify new repo/branch NOT present in message
+		if _, ok := returnedTree.GetPanes("repo2", "branch2"); ok {
+			t.Errorf("Mutations after message creation should not affect message")
+		}
+	})
+
+	t.Run("deep_copy_prevents_nested_mutation", func(t *testing.T) {
+		// Create tree with panes
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path1", "@0", 0, true, false, "zsh", "title1", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1})
+
+		msg, err := NewTreeUpdateMessage(1, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+
+		// Mutate EXISTING branch's panes (not just adding new repos)
+		pane2, _ := NewPane("%2", "/path2", "@1", 1, false, false, "vim", "title2", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1, pane2}) // Replace with 2 panes
+
+		// Message should still have only 1 pane
+		msgTree := msg.Tree()
+		panes, ok := msgTree.GetPanes("repo1", "branch1")
+		if !ok {
+			t.Fatal("Message tree should have repo1/branch1")
+		}
+		if len(panes) != 1 {
+			t.Errorf("Message tree should be immutable to nested mutations: got %d panes, want 1", len(panes))
+		}
+	})
+
+	t.Run("tree_getter_returns_independent_copy", func(t *testing.T) {
+		// Create message with tree
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path1", "@0", 0, true, false, "zsh", "title1", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1})
+
+		msg, err := NewTreeUpdateMessage(1, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+
+		// Get tree from message
+		returnedTree := msg.Tree()
+
+		// Mutate RETURNED tree
+		pane2, _ := NewPane("%2", "/path2", "@1", 1, false, false, "vim", "title2", false)
+		returnedTree.SetPanes("repo1", "branch1", []Pane{pane1, pane2})
+		returnedTree.SetPanes("repo2", "branch2", []Pane{pane2})
+
+		// Get tree again - should be unchanged because Tree() returns a clone
+		tree2 := msg.Tree()
+
+		if len(tree2.Repos()) != 1 {
+			t.Errorf("Message tree was mutated by external code: got %d repos, want 1", len(tree2.Repos()))
+		}
+
+		panes, ok := tree2.GetPanes("repo1", "branch1")
+		if !ok || len(panes) != 1 {
+			t.Errorf("Message tree was mutated: got %d panes, want 1", len(panes))
+		}
+
+		if _, ok := tree2.GetPanes("repo2", "branch2"); ok {
+			t.Error("Message tree was mutated: repo2 should not exist")
+		}
+	})
+
+	t.Run("concurrent_mutation_safety", func(t *testing.T) {
+		// Test that tree can be safely mutated while message is being broadcast
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
+		tree.SetPanes("repo1", "branch1", []Pane{pane1})
+
+		msg, err := NewTreeUpdateMessage(1, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+
+		// Simulate concurrent mutation while serializing
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		// Goroutine 1: Serialize message (simulates broadcast)
+		var wireData []byte
+		var serializeErr error
+		go func() {
+			defer wg.Done()
+			wire := msg.ToWireFormat()
+			wireData, serializeErr = json.Marshal(wire)
+		}()
+
+		// Goroutine 2: Mutate original tree
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 100; i++ {
+				paneN, _ := NewPane(fmt.Sprintf("%%%d", i+2), "/path", "@0", 0, false, false, "vim", "title", false)
+				tree.SetPanes("repo1", "branch1", []Pane{pane1, paneN})
+			}
+		}()
+
+		wg.Wait()
+
+		// Verify no race detector warnings (test must run with -race)
+		// Verify serialization succeeded
+		if serializeErr != nil {
+			t.Errorf("Serialization failed during concurrent mutation: %v", serializeErr)
+		}
+		if len(wireData) == 0 {
+			t.Error("Serialization produced empty data during concurrent mutation")
+		}
+
+		// Verify message tree still has original pane
+		msgTree := msg.Tree()
+		panes, ok := msgTree.GetPanes("repo1", "branch1")
+		if !ok {
+			t.Fatal("Message tree should have repo1/branch1")
+		}
+		if len(panes) != 1 {
+			t.Errorf("Message should be isolated from concurrent mutations: got %d panes, want 1", len(panes))
+		}
+	})
+
+	t.Run("wire_format_includes_tree", func(t *testing.T) {
+		tree := NewRepoTree()
+		pane, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
+		tree.SetPanes("test-repo", "test-branch", []Pane{pane})
+
+		msg, err := NewTreeUpdateMessage(99, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+		wire := msg.ToWireFormat()
+
+		// Verify wire format
+		if wire.Type != MsgTypeTreeUpdate {
+			t.Errorf("ToWireFormat().Type = %v, want %v", wire.Type, MsgTypeTreeUpdate)
+		}
+		if wire.SeqNum != 99 {
+			t.Errorf("ToWireFormat().SeqNum = %v, want 99", wire.SeqNum)
+		}
+		if wire.Tree == nil {
+			t.Fatal("ToWireFormat().Tree = nil, want non-nil")
+		}
+
+		// Verify tree pointer points to correct data
+		if len(wire.Tree.Repos()) != 1 {
+			t.Errorf("ToWireFormat().Tree.Repos() = %v, want 1 repo", wire.Tree.Repos())
+		}
+	})
+
+	t.Run("round_trip_empty_tree", func(t *testing.T) {
+		tree := NewRepoTree()
+		msg1, err := NewTreeUpdateMessage(5, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+		wire := msg1.ToWireFormat()
+
+		msg2, err := FromWireFormat(wire)
+		if err != nil {
+			t.Fatalf("FromWireFormat() error = %v", err)
+		}
+		if msg2.MessageType() != MsgTypeTreeUpdate {
+			t.Errorf("FromWireFormat().MessageType() = %v, want %v", msg2.MessageType(), MsgTypeTreeUpdate)
+		}
+		if msg2.SeqNumber() != 5 {
+			t.Errorf("FromWireFormat().SeqNumber() = %v, want 5", msg2.SeqNumber())
+		}
+	})
+
+	t.Run("round_trip_populated_tree", func(t *testing.T) {
+		// Create complex tree
+		tree := NewRepoTree()
+		pane1, _ := NewPane("%1", "/repo1", "@0", 0, true, false, "zsh", "main", false)
+		pane2, _ := NewPane("%2", "/repo1", "@0", 0, true, false, "vim", "editor", true)
+		pane3, _ := NewPane("%3", "/repo2", "@1", 1, false, true, "python", "script", false)
+
+		tree.SetPanes("commons.systems", "main", []Pane{pane1, pane2})
+		tree.SetPanes("other-repo", "feature-branch", []Pane{pane3})
+
+		msg1, err := NewTreeUpdateMessage(100, tree)
+		if err != nil {
+			t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+		}
+		wire := msg1.ToWireFormat()
+		msg2, err := FromWireFormat(wire)
+		if err != nil {
+			t.Fatalf("FromWireFormat() error = %v", err)
+		}
+
+		// Extract tree from msg2
+		treeMsg, ok := msg2.(*TreeUpdateMessageV2)
+		if !ok {
+			t.Fatalf("FromWireFormat() returned wrong type: %T", msg2)
+		}
+
+		tree2 := treeMsg.Tree()
+		if len(tree2.Repos()) != 2 {
+			t.Errorf("Round-trip tree repos count = %d, want 2", len(tree2.Repos()))
+		}
+
+		panes1, ok := tree2.GetPanes("commons.systems", "main")
+		if !ok || len(panes1) != 2 {
+			t.Errorf("Round-trip GetPanes(commons.systems, main) = %v, %v; want 2 panes", panes1, ok)
+		}
+
+		panes2, ok := tree2.GetPanes("other-repo", "feature-branch")
+		if !ok || len(panes2) != 1 {
+			t.Errorf("Round-trip GetPanes(other-repo, feature-branch) = %v, %v; want 1 pane", panes2, ok)
+		}
+	})
+
+	t.Run("sequence_number_preserved", func(t *testing.T) {
+		tree := NewRepoTree()
+		testSeqNums := []uint64{0, 1, 42, 999, 1000000}
+
+		for _, seqNum := range testSeqNums {
+			msg, err := NewTreeUpdateMessage(seqNum, tree)
+			if err != nil {
+				t.Fatalf("NewTreeUpdateMessage() error = %v", err)
+			}
+			if msg.SeqNumber() != seqNum {
+				t.Errorf("SeqNumber() = %v, want %v", msg.SeqNumber(), seqNum)
+			}
+
+			wire := msg.ToWireFormat()
+			if wire.SeqNum != seqNum {
+				t.Errorf("ToWireFormat().SeqNum = %v, want %v", wire.SeqNum, seqNum)
+			}
+		}
+	})
+}
+
+// TestTreeUpdateMessage_FromWireFormat tests TreeUpdateMessageV2 deserialization edge cases
+func TestTreeUpdateMessage_FromWireFormat(t *testing.T) {
+	t.Run("nil_tree_field_rejected", func(t *testing.T) {
+		wire := Message{
+			Type:   MsgTypeTreeUpdate,
+			SeqNum: 1,
+			Tree:   nil, // Invalid: tree_update requires tree
+		}
+
+		msg, err := FromWireFormat(wire)
+		if err == nil {
+			t.Fatal("FromWireFormat() with nil Tree should fail, got nil error")
+		}
+		if msg != nil {
+			t.Errorf("FromWireFormat() with nil Tree should return nil message, got %T", msg)
+		}
+		if !strings.Contains(err.Error(), "tree_update") || !strings.Contains(err.Error(), "tree") {
+			t.Errorf("Error should mention tree_update and tree, got: %v", err)
+		}
+	})
+
+	t.Run("valid_tree_accepted", func(t *testing.T) {
+		tree := NewRepoTree()
+		pane, _ := NewPane("%1", "/path", "@0", 0, true, false, "zsh", "title", false)
+		tree.SetPanes("repo", "branch", []Pane{pane})
+
+		wire := Message{
+			Type:   MsgTypeTreeUpdate,
+			SeqNum: 10,
+			Tree:   &tree,
+		}
+
+		msg, err := FromWireFormat(wire)
+		if err != nil {
+			t.Fatalf("FromWireFormat() with valid tree error = %v", err)
+		}
+		if msg == nil {
+			t.Fatal("FromWireFormat() returned nil message")
+		}
+		if msg.MessageType() != MsgTypeTreeUpdate {
+			t.Errorf("MessageType() = %v, want %v", msg.MessageType(), MsgTypeTreeUpdate)
+		}
+	})
+}
+
+// TestTreeErrorMessage tests TreeErrorMessageV2 construction, validation, and serialization
+func TestTreeErrorMessage(t *testing.T) {
+	t.Run("valid_error_message", func(t *testing.T) {
+		msg, err := NewTreeErrorMessage(1, "failed to collect tree")
+		if err != nil {
+			t.Fatalf("NewTreeErrorMessage() error = %v", err)
+		}
+
+		if msg.SeqNumber() != 1 {
+			t.Errorf("SeqNumber() = %v, want 1", msg.SeqNumber())
+		}
+		if msg.MessageType() != MsgTypeTreeError {
+			t.Errorf("MessageType() = %v, want %v", msg.MessageType(), MsgTypeTreeError)
+		}
+		if msg.Error() != "failed to collect tree" {
+			t.Errorf("Error() = %q, want %q", msg.Error(), "failed to collect tree")
+		}
+	})
+
+	t.Run("error_message_trimmed", func(t *testing.T) {
+		msg, err := NewTreeErrorMessage(2, "  error with whitespace  \n")
+		if err != nil {
+			t.Fatalf("NewTreeErrorMessage() error = %v", err)
+		}
+
+		if msg.Error() != "error with whitespace" {
+			t.Errorf("Error() = %q, want %q", msg.Error(), "error with whitespace")
+		}
+	})
+
+	t.Run("empty_error_rejected", func(t *testing.T) {
+		msg, err := NewTreeErrorMessage(3, "")
+		if err == nil {
+			t.Fatal("NewTreeErrorMessage() with empty error should fail, got nil error")
+		}
+		if msg != nil {
+			t.Errorf("NewTreeErrorMessage() with empty error should return nil, got %T", msg)
+		}
+		if !strings.Contains(err.Error(), "error_msg required") {
+			t.Errorf("Error should mention error_msg required, got: %v", err)
+		}
+	})
+
+	t.Run("whitespace_only_error_rejected", func(t *testing.T) {
+		msg, err := NewTreeErrorMessage(4, "   \t\n  ")
+		if err == nil {
+			t.Fatal("NewTreeErrorMessage() with whitespace-only error should fail")
+		}
+		if msg != nil {
+			t.Errorf("NewTreeErrorMessage() should return nil, got %T", msg)
+		}
+		if !strings.Contains(err.Error(), "error_msg required") {
+			t.Errorf("Error should mention error_msg required, got: %v", err)
+		}
+	})
+
+	t.Run("wire_format_includes_error", func(t *testing.T) {
+		msg, _ := NewTreeErrorMessage(99, "tmux command failed")
+		wire := msg.ToWireFormat()
+
+		if wire.Type != MsgTypeTreeError {
+			t.Errorf("ToWireFormat().Type = %v, want %v", wire.Type, MsgTypeTreeError)
+		}
+		if wire.SeqNum != 99 {
+			t.Errorf("ToWireFormat().SeqNum = %v, want 99", wire.SeqNum)
+		}
+		if wire.Error != "tmux command failed" {
+			t.Errorf("ToWireFormat().Error = %q, want %q", wire.Error, "tmux command failed")
+		}
+	})
+
+	t.Run("round_trip", func(t *testing.T) {
+		msg1, _ := NewTreeErrorMessage(42, "collection timeout")
+		wire := msg1.ToWireFormat()
+
+		msg2, err := FromWireFormat(wire)
+		if err != nil {
+			t.Fatalf("FromWireFormat() error = %v", err)
+		}
+		if msg2.MessageType() != MsgTypeTreeError {
+			t.Errorf("FromWireFormat().MessageType() = %v, want %v", msg2.MessageType(), MsgTypeTreeError)
+		}
+		if msg2.SeqNumber() != 42 {
+			t.Errorf("FromWireFormat().SeqNumber() = %v, want 42", msg2.SeqNumber())
+		}
+
+		// Extract error from msg2
+		errorMsg, ok := msg2.(*TreeErrorMessageV2)
+		if !ok {
+			t.Fatalf("FromWireFormat() returned wrong type: %T", msg2)
+		}
+		if errorMsg.Error() != "collection timeout" {
+			t.Errorf("Error() = %q, want %q", errorMsg.Error(), "collection timeout")
+		}
+	})
+
+	t.Run("sequence_number_preserved", func(t *testing.T) {
+		testSeqNums := []uint64{0, 1, 100, 999999}
+
+		for _, seqNum := range testSeqNums {
+			msg, _ := NewTreeErrorMessage(seqNum, "error")
+			if msg.SeqNumber() != seqNum {
+				t.Errorf("SeqNumber() = %v, want %v", msg.SeqNumber(), seqNum)
+			}
+
+			wire := msg.ToWireFormat()
+			if wire.SeqNum != seqNum {
+				t.Errorf("ToWireFormat().SeqNum = %v, want %v", wire.SeqNum, seqNum)
+			}
+		}
+	})
+}
+
+// TestTreeErrorMessage_FromWireFormat tests TreeErrorMessageV2 deserialization edge cases
+func TestTreeErrorMessage_FromWireFormat(t *testing.T) {
+	t.Run("empty_error_field_rejected", func(t *testing.T) {
+		wire := Message{
+			Type:   MsgTypeTreeError,
+			SeqNum: 1,
+			Error:  "", // Invalid: tree_error requires error
+		}
+
+		msg, err := FromWireFormat(wire)
+		if err == nil {
+			t.Fatal("FromWireFormat() with empty Error should fail, got nil error")
+		}
+		if msg != nil {
+			t.Errorf("FromWireFormat() with empty Error should return nil message, got %T", msg)
+		}
+		if !strings.Contains(err.Error(), "non-empty error field") {
+			t.Errorf("Error should mention non-empty error field, got: %v", err)
+		}
+	})
+
+	t.Run("whitespace_error_field_rejected", func(t *testing.T) {
+		wire := Message{
+			Type:   MsgTypeTreeError,
+			SeqNum: 2,
+			Error:  "   \t  ",
+		}
+
+		msg, err := FromWireFormat(wire)
+		if err == nil {
+			t.Fatal("FromWireFormat() with whitespace Error should fail")
+		}
+		if msg != nil {
+			t.Errorf("FromWireFormat() should return nil message, got %T", msg)
+		}
+		if !strings.Contains(err.Error(), "non-empty error field") {
+			t.Errorf("Error should mention non-empty error field, got: %v", err)
+		}
+	})
+
+	t.Run("valid_error_accepted", func(t *testing.T) {
+		wire := Message{
+			Type:   MsgTypeTreeError,
+			SeqNum: 10,
+			Error:  "valid error message",
+		}
+
+		msg, err := FromWireFormat(wire)
+		if err != nil {
+			t.Fatalf("FromWireFormat() with valid error error = %v", err)
+		}
+		if msg == nil {
+			t.Fatal("FromWireFormat() returned nil message")
+		}
+		if msg.MessageType() != MsgTypeTreeError {
+			t.Errorf("MessageType() = %v, want %v", msg.MessageType(), MsgTypeTreeError)
+		}
+	})
+}
+
+// TestTreeUpdateMessage_TreeIsolation verifies that TreeUpdateMessage truly isolates
+// the daemon's tree from message mutations during broadcast.
+// This test addresses the specific concern that Clone() might be shallow or that
+// ToWireFormat() might not properly copy data, which could cause data races.
+func TestTreeUpdateMessage_TreeIsolation(t *testing.T) {
+	// Step 1-2: Create original tree with panes for repo "test-repo" branch "main"
+	originalTree := NewRepoTree()
+	pane1, _ := NewPane("%1", "/test/repo", "@0", 0, true, false, "zsh", "original", false)
+	pane2, _ := NewPane("%2", "/test/repo", "@0", 0, false, false, "vim", "editor", false)
+	err := originalTree.SetPanes("test-repo", "main", []Pane{pane1, pane2})
+	if err != nil {
+		t.Fatalf("SetPanes() error = %v", err)
+	}
+
+	// Step 2: Create TreeUpdateMessage from tree
+	msg, msgErr := NewTreeUpdateMessage(100, originalTree)
+	if msgErr != nil {
+		t.Fatalf("NewTreeUpdateMessage() error = %v", msgErr)
+	}
+
+	// Step 3-4: Mutate original tree (add new pane, change branch)
+	pane3, _ := NewPane("%3", "/test/repo", "@0", 0, false, false, "bash", "new-pane", false)
+	originalTree.SetPanes("test-repo", "main", []Pane{pane1, pane2, pane3}) // Add pane3
+	originalTree.SetPanes("test-repo", "feature", []Pane{pane3})            // Add new branch
+
+	// Step 5: Call ToWireFormat() on message
+	wire1 := msg.ToWireFormat()
+
+	// Step 6: Verify wire format Tree contains ORIGINAL panes (not mutations)
+	if wire1.Tree == nil {
+		t.Fatal("ToWireFormat().Tree = nil, want non-nil")
+	}
+
+	panes, ok := wire1.Tree.GetPanes("test-repo", "main")
+	if !ok {
+		t.Fatal("Wire format should have test-repo/main")
+	}
+
+	// Step 7: Verify wire format Tree does NOT contain new pane
+	if len(panes) != 2 {
+		t.Errorf("Wire format should have original 2 panes, got %d (mutations leaked through!)", len(panes))
+	}
+
+	// Verify pane titles are original
+	foundOriginal := false
+	foundNewPane := false
+	for _, p := range panes {
+		if p.Title() == "original" {
+			foundOriginal = true
+		}
+		if p.Title() == "new-pane" {
+			foundNewPane = true
+		}
+	}
+
+	if !foundOriginal {
+		t.Error("Original pane should be in wire format")
+	}
+	if foundNewPane {
+		t.Error("New pane should NOT be in wire format (mutation leaked through)")
+	}
+
+	// Verify new branch is NOT in wire format
+	if _, ok := wire1.Tree.GetPanes("test-repo", "feature"); ok {
+		t.Error("New branch should NOT be in wire format (mutation leaked through)")
+	}
+
+	// Step 8: Extract tree from message via Tree() method
+	msgTree := msg.Tree()
+
+	// Step 9: Mutate returned tree
+	pane4, _ := NewPane("%4", "/other", "@1", 1, false, false, "python", "mutated", false)
+	msgTree.SetPanes("test-repo", "main", []Pane{pane1, pane2, pane4}) // Replace panes
+	msgTree.SetPanes("mutated-repo", "mutated-branch", []Pane{pane4})  // Add new repo
+
+	// Step 10: Call ToWireFormat() again - verify mutations don't affect wire format
+	wire2 := msg.ToWireFormat()
+
+	if wire2.Tree == nil {
+		t.Fatal("ToWireFormat() second call returned nil Tree")
+	}
+
+	panes2, ok := wire2.Tree.GetPanes("test-repo", "main")
+	if !ok {
+		t.Fatal("Wire format should still have test-repo/main after Tree() mutation")
+	}
+
+	if len(panes2) != 2 {
+		t.Errorf("Wire format should still have 2 original panes after Tree() mutation, got %d", len(panes2))
+	}
+
+	// Verify mutated pane is NOT in wire format
+	foundMutated := false
+	for _, p := range panes2 {
+		if p.Title() == "mutated" {
+			foundMutated = true
+		}
+	}
+	if foundMutated {
+		t.Error("Mutated pane should NOT be in wire format (Tree() mutation leaked through)")
+	}
+
+	// Verify mutated repo is NOT in wire format
+	if _, ok := wire2.Tree.GetPanes("mutated-repo", "mutated-branch"); ok {
+		t.Error("Mutated repo should NOT be in wire format (Tree() mutation leaked through)")
+	}
+
+	// Verify original panes are still intact
+	if panes2[0].Title() != "original" && panes2[1].Title() != "original" {
+		t.Error("Original pane title should still be present")
+	}
+}
+
+// TestTreeUpdateMessage_JSONSerialization tests that RepoTree and Pane types serialize correctly to JSON
+// This verifies the fix for the issue where private fields were not being serialized
+func TestTreeUpdateMessage_JSONSerialization(t *testing.T) {
+	// Create test panes
+	pane1, err := NewPane("%1", "/path/to/repo", "@10", 0, true, false, "nvim", "Editor", true)
+	if err != nil {
+		t.Fatalf("Failed to create pane1: %v", err)
+	}
+
+	pane2, err := NewPane("%2", "/path/to/repo", "@10", 0, false, false, "bash", "Shell", false)
+	if err != nil {
+		t.Fatalf("Failed to create pane2: %v", err)
+	}
+
+	// Create and populate tree
+	tree := NewRepoTree()
+	if err := tree.SetPanes("myrepo", "main", []Pane{pane1, pane2}); err != nil {
+		t.Fatalf("Failed to set panes: %v", err)
+	}
+
+	// Create TreeUpdateMessage
+	msg, msgErr := NewTreeUpdateMessage(42, tree)
+	if msgErr != nil {
+		t.Fatalf("NewTreeUpdateMessage() error = %v", msgErr)
+	}
+
+	// Convert to wire format (this is what gets JSON serialized during broadcast)
+	wireMsg := msg.ToWireFormat()
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(wireMsg)
+	if err != nil {
+		t.Fatalf("Failed to marshal wire message: %v", err)
+	}
+
+	// Verify JSON is not empty
+	if string(jsonData) == "{}" || string(jsonData) == "null" {
+		t.Fatalf("Wire message serialized to empty/null: %s", string(jsonData))
+	}
+
+	// Unmarshal to verify structure
+	var check map[string]interface{}
+	if err := json.Unmarshal(jsonData, &check); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	// Verify tree field exists and is not empty
+	treeField, ok := check["tree"]
+	if !ok {
+		t.Fatal("'tree' field missing from JSON")
+	}
+
+	treeMap, ok := treeField.(map[string]interface{})
+	if !ok {
+		t.Fatal("'tree' field is not a map")
+	}
+
+	if len(treeMap) == 0 {
+		t.Fatal("'tree' field is empty - JSON serialization failed!")
+	}
+
+	// Verify repo exists
+	repo, ok := treeMap["myrepo"].(map[string]interface{})
+	if !ok {
+		t.Fatal("'myrepo' not found or not a map in tree")
+	}
+
+	// Verify branch exists
+	mainBranch, ok := repo["main"].([]interface{})
+	if !ok {
+		t.Fatal("'main' branch not found or not an array")
+	}
+
+	if len(mainBranch) != 2 {
+		t.Fatalf("Expected 2 panes in main branch, got %d", len(mainBranch))
+	}
+
+	// Verify first pane has all expected fields
+	firstPane, ok := mainBranch[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("First pane is not a map")
+	}
+
+	expectedFields := []string{"id", "path", "window_id", "window_index", "window_active", "window_bell", "command", "title", "is_claude_pane"}
+	for _, field := range expectedFields {
+		if _, ok := firstPane[field]; !ok {
+			t.Errorf("Missing field '%s' in pane JSON", field)
+		}
+	}
+
+	// Verify field values are correct
+	if firstPane["id"] != "%1" {
+		t.Errorf("Pane ID = %v, want %v", firstPane["id"], "%1")
+	}
+	if firstPane["path"] != "/path/to/repo" {
+		t.Errorf("Pane path = %v, want %v", firstPane["path"], "/path/to/repo")
+	}
+	if firstPane["is_claude_pane"] != true {
+		t.Errorf("Pane is_claude_pane = %v, want true", firstPane["is_claude_pane"])
 	}
 }

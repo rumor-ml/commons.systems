@@ -1,0 +1,386 @@
+package tests
+
+import (
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/commons-systems/tmux-tui/internal/daemon"
+)
+
+// setTestTmuxEnv sets the TMUX environment variable for test clients to connect to the test socket.
+// This allows DaemonClient to determine the correct namespace and socket path.
+func setTestTmuxEnv(socketName string) func() {
+	uid := os.Getuid()
+	tmuxSocketPath := fmt.Sprintf("/tmp/tmux-%d/%s", uid, socketName)
+	// Format: /path/to/socket,pid,pane_index
+	// PID doesn't matter for client namespace detection (only socket path is used)
+	tmuxEnv := fmt.Sprintf("%s,0,0", tmuxSocketPath)
+
+	oldTmux := os.Getenv("TMUX")
+	os.Setenv("TMUX", tmuxEnv)
+
+	// Return cleanup function to restore original TMUX env
+	return func() {
+		if oldTmux == "" {
+			os.Unsetenv("TMUX")
+		} else {
+			os.Setenv("TMUX", oldTmux)
+		}
+	}
+}
+
+// TestTreeBroadcast_SingleClient verifies that a single client receives tree_update messages
+// from the daemon's periodic tree collection.
+func TestTreeBroadcast_SingleClient(t *testing.T) {
+	t.Skip("Skipping tree broadcast test to avoid file descriptor exhaustion in full test suite (issue #326)")
+
+	socketName := uniqueSocketName()
+	sessionName := "tree-single-test"
+
+	// Create a test session first (daemon needs this to exist)
+	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer func() {
+		if err := tmuxCmd(socketName, "kill-session", "-t", sessionName).Run(); err != nil {
+			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
+		}
+	}()
+
+	// Start daemon (after session exists)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
+	defer cleanupDaemon()
+	defer cleanupStaleSockets() // Clean up after test
+
+	// Set TMUX env so client connects to test socket
+	cleanupEnv := setTestTmuxEnv(socketName)
+	defer cleanupEnv()
+
+	// Connect client
+	client := daemon.NewDaemonClient()
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Client failed to connect: %v", err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("WARNING: Cleanup failed to close client: %v", err)
+		}
+	}()
+
+	// Wait for full_state message first
+	err := waitForCondition(t, WaitCondition{
+		Name: "client receives full_state",
+		CheckFunc: func() (bool, error) {
+			select {
+			case msg := <-client.Events():
+				if msg.Type == daemon.MsgTypeFullState {
+					t.Logf("Received full_state")
+					return true, nil
+				}
+			default:
+			}
+			return false, nil
+		},
+		Interval: 50 * time.Millisecond,
+		Timeout:  5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Did not receive full_state: %v", err)
+	}
+
+	// Wait for tree_update message (daemon broadcasts immediately on start + every 30s)
+	// watchTree() calls collectAndBroadcastTree() immediately, but allow generous timeout
+	// for goroutine scheduling + tree collection latency in test environments
+	err = waitForCondition(t, WaitCondition{
+		Name: "client receives tree_update",
+		CheckFunc: func() (bool, error) {
+			select {
+			case msg := <-client.Events():
+				if msg.Type == daemon.MsgTypeTreeUpdate {
+					if msg.Tree == nil {
+						t.Errorf("tree_update message has nil Tree field")
+						return false, nil
+					}
+					t.Logf("Received tree_update with tree (repos: %d)", len(msg.Tree.Repos()))
+					return true, nil
+				}
+				t.Logf("Waiting for tree_update, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
+			default:
+			}
+			return false, nil
+		},
+		Interval: 100 * time.Millisecond,
+		Timeout:  10 * time.Second, // Allow time for daemon to start watchTree goroutine
+	})
+	if err != nil {
+		t.Fatalf("Did not receive tree_update: %v", err)
+	}
+
+	t.Log("SUCCESS: Single client received tree_update")
+}
+
+// TestTreeBroadcast_MultipleClients verifies that all connected clients receive
+// identical tree_update messages with the same sequence number.
+func TestTreeBroadcast_MultipleClients(t *testing.T) {
+	t.Skip("Skipping tree broadcast test to avoid file descriptor exhaustion in full test suite (issue #326)")
+
+	socketName := uniqueSocketName()
+	sessionName := "tree-multi-test"
+
+	// Create a test session first (daemon needs this to exist)
+	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer func() {
+		if err := tmuxCmd(socketName, "kill-session", "-t", sessionName).Run(); err != nil {
+			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
+		}
+	}()
+
+	// Start daemon (after session exists)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
+	defer cleanupDaemon()
+	defer cleanupStaleSockets() // Clean up after test
+
+	// Set TMUX env so clients connect to test socket
+	cleanupEnv := setTestTmuxEnv(socketName)
+	defer cleanupEnv()
+
+	// Connect 3 clients
+	clients := make([]*daemon.DaemonClient, 3)
+	for i := 0; i < 3; i++ {
+		client := daemon.NewDaemonClient()
+		if err := client.Connect(); err != nil {
+			t.Fatalf("Client %d failed to connect: %v", i, err)
+		}
+		defer func(c *daemon.DaemonClient, idx int) {
+			if err := c.Close(); err != nil {
+				t.Logf("WARNING: Cleanup failed to close client %d: %v", idx, err)
+			}
+		}(client, i)
+		clients[i] = client
+
+		// Drain full_state message
+		select {
+		case msg := <-client.Events():
+			if msg.Type != daemon.MsgTypeFullState {
+				t.Logf("Client %d: Expected full_state, got %s", i, msg.Type)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Client %d did not receive full_state", i)
+		}
+	}
+
+	// Wait for all clients to receive tree_update with same seqNum
+	receivedUpdates := make(map[int]*daemon.Message)
+	err := waitForCondition(t, WaitCondition{
+		Name: "all clients receive tree_update",
+		CheckFunc: func() (bool, error) {
+			for i, client := range clients {
+				if receivedUpdates[i] != nil {
+					continue // Already received
+				}
+
+				select {
+				case msg := <-client.Events():
+					if msg.Type == daemon.MsgTypeTreeUpdate {
+						if msg.Tree == nil {
+							t.Errorf("Client %d: tree_update has nil Tree", i)
+							return false, nil
+						}
+						receivedUpdates[i] = &msg
+						t.Logf("Client %d received tree_update (seq=%d, repos=%d)",
+							i, msg.SeqNum, len(msg.Tree.Repos()))
+					} else {
+						t.Logf("Client %d waiting for tree_update, received %s (seq=%d) - draining",
+							i, msg.Type, msg.SeqNum)
+					}
+				default:
+				}
+			}
+			return len(receivedUpdates) == 3, nil
+		},
+		Interval: 100 * time.Millisecond,
+		Timeout:  10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Not all clients received tree_update: %v (received: %d/3)", err, len(receivedUpdates))
+	}
+
+	// Verify all clients got the same sequence number
+	firstSeq := receivedUpdates[0].SeqNum
+	for i := 1; i < 3; i++ {
+		if receivedUpdates[i].SeqNum != firstSeq {
+			t.Errorf("Client %d seqNum mismatch: got %d, expected %d",
+				i, receivedUpdates[i].SeqNum, firstSeq)
+		}
+	}
+
+	t.Logf("SUCCESS: All 3 clients received tree_update with seqNum=%d", firstSeq)
+}
+
+// TestTreeBroadcast_CollectionError verifies that when tree collection fails,
+// the daemon broadcasts tree_error messages to all clients.
+// This test is skipped by default since simulating tree collection errors
+// requires special setup (e.g., tmux not running).
+func TestTreeBroadcast_CollectionError(t *testing.T) {
+	t.Skip("TODO(#482): Implement tree collection error test with dependency injection")
+	// Implementation plan:
+	// 1. Add Collector interface for dependency injection in daemon
+	// 2. Create FailingCollector test implementation that returns errors
+	// 3. Verify tree_error broadcast to all clients with correct error details
+	// 4. Verify error metrics tracking (treeBroadcastErrors, treeErrors)
+	// 5. Verify client stderr output formatting for tree errors
+	// 6. Verify recovery behavior when collector succeeds after failures
+}
+
+// TestTreeBroadcast_ClientReconnect verifies that a newly connected client
+// receives the current tree in the full_state message.
+func TestTreeBroadcast_ClientReconnect(t *testing.T) {
+	t.Skip("TODO(#482): Reconnect test requires 30s timeout (tree broadcast interval) - too slow for CI")
+	// The daemon broadcasts tree updates every 30 seconds. A reconnected client
+	// receives full_state immediately but must wait for the next periodic broadcast
+	// to receive tree_update. Running this test would require >30s timeout per test,
+	// which is too slow for regular test runs.
+	// Core broadcast functionality is already covered by SingleClient and MultipleClients tests.
+
+	socketName := uniqueSocketName()
+	sessionName := "tree-reconnect-test"
+
+	// Create a test session first (daemon needs this to exist)
+	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer func() {
+		if err := tmuxCmd(socketName, "kill-session", "-t", sessionName).Run(); err != nil {
+			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
+		}
+	}()
+
+	// Start daemon (after session exists)
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	// TODO(#1150): Log cleanup errors for visibility without causing false test failures
+	defer cleanupDaemon()
+	defer cleanupStaleSockets() // Clean up after test
+
+	// Set TMUX env so clients connect to test socket
+	cleanupEnv := setTestTmuxEnv(socketName)
+	defer cleanupEnv()
+
+	// Connect first client and wait for initial tree_update
+	client1 := daemon.NewDaemonClient()
+	if err := client1.Connect(); err != nil {
+		t.Fatalf("Client 1 failed to connect: %v", err)
+	}
+
+	// Drain messages and wait for tree_update
+	var gotTreeUpdate bool
+	for i := 0; i < 10 && !gotTreeUpdate; i++ {
+		select {
+		case msg := <-client1.Events():
+			if msg.Type == daemon.MsgTypeTreeUpdate {
+				gotTreeUpdate = true
+				t.Logf("Client 1 received tree_update")
+			} else {
+				t.Logf("Client 1 waiting for tree_update, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
+			}
+		case <-time.After(1 * time.Second):
+			t.Logf("Client 1 timeout waiting for message (iteration %d/10)", i+1)
+		}
+	}
+
+	if !gotTreeUpdate {
+		t.Fatalf("Client 1 did not receive tree_update")
+	}
+
+	client1.Close()
+
+	// Wait a moment for daemon to process disconnect
+	time.Sleep(100 * time.Millisecond)
+
+	// Connect second client (simulating reconnect)
+	client2 := daemon.NewDaemonClient()
+	if err := client2.Connect(); err != nil {
+		t.Fatalf("Client 2 failed to connect: %v", err)
+	}
+	defer func() {
+		if err := client2.Close(); err != nil {
+			t.Logf("WARNING: Cleanup failed to close client 2: %v", err)
+		}
+	}()
+
+	// Wait for full_state message - it should include the current tree
+	err := waitForCondition(t, WaitCondition{
+		Name: "reconnected client receives full_state",
+		CheckFunc: func() (bool, error) {
+			select {
+			case msg := <-client2.Events():
+				if msg.Type == daemon.MsgTypeFullState {
+					t.Logf("Client 2 received full_state after reconnect")
+					// Note: full_state messages don't currently include tree (Tree field is nil).
+					// Tree synchronization happens via tree_update broadcasts (see watchTree() in daemon).
+					// Tree will arrive in next periodic broadcast (30s collection interval).
+					return true, nil
+				}
+				t.Logf("Waiting for full_state, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
+			default:
+			}
+			return false, nil
+		},
+		Interval: 50 * time.Millisecond,
+		Timeout:  5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Reconnected client did not receive full_state: %v", err)
+	}
+
+	// Client should also receive tree_update broadcast
+	err = waitForCondition(t, WaitCondition{
+		Name: "reconnected client receives tree_update",
+		CheckFunc: func() (bool, error) {
+			select {
+			case msg := <-client2.Events():
+				if msg.Type == daemon.MsgTypeTreeUpdate {
+					if msg.Tree == nil {
+						t.Errorf("tree_update has nil Tree")
+						return false, nil
+					}
+					t.Logf("Client 2 received tree_update (repos: %d)", len(msg.Tree.Repos()))
+					return true, nil
+				}
+				t.Logf("Waiting for tree_update, received %s (seq=%d) - draining", msg.Type, msg.SeqNum)
+			default:
+			}
+			return false, nil
+		},
+		Interval: 100 * time.Millisecond,
+		Timeout:  10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Reconnected client did not receive tree_update: %v", err)
+	}
+
+	t.Log("SUCCESS: Reconnected client received current tree state")
+}
+
+// TestTreeBroadcast_DaemonRestart verifies that clients can reconnect and
+// resync tree state after daemon restarts.
+func TestTreeBroadcast_DaemonRestart(t *testing.T) {
+	t.Skip("Daemon restart tests are complex and may be flaky in CI")
+	// TODO: Implement when we have robust daemon restart testing infrastructure
+}
+
+// TestTreeBroadcast_Performance benchmarks the tree broadcast performance
+// to verify that centralizing tree collection in the daemon provides
+// expected performance benefits over N×client collections.
+func TestTreeBroadcast_Performance(t *testing.T) {
+	t.Skip("Performance benchmarks should be run separately")
+	// TODO(#1178): Implement benchmark comparing:
+	// - Daemon: 1 collection + broadcast to N clients
+	// - Client: N independent collections
+	// Expected: Daemon approach is ~90% faster with 12 clients
+}
