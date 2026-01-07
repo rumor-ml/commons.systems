@@ -142,6 +142,7 @@ The repository includes comprehensive Nix-based automation for reproducible mach
 - **[Automation Opportunities](nix/AUTOMATION-OPPORTUNITIES.md)** - Overview of what's automated and opportunities for improvement
 - **[SSH Automation Guide](nix/SSH-AUTOMATION.md)** - Complete SSH setup automation with improvement opportunities
 - **[Tailscale Setup Guide](nix/TAILSCALE-SETUP.md)** - Secure VPN networking for NixOS and macOS
+- **[macOS Setup with nix-darwin](nix/DARWIN-SETUP.md)** - Complete declarative macOS configuration
 
 #### SSH Configuration
 - **[SSH Client Setup](nix/home/SSH-SETUP.md)** - Home Manager SSH client configuration
@@ -151,6 +152,10 @@ The repository includes comprehensive Nix-based automation for reproducible mach
 #### Tailscale VPN
 - **[NixOS Tailscale Module](nix/nixos/tailscale.nix)** - Tailscale for NixOS/WSL2
 - **[macOS Tailscale Module](nix/darwin/README.md)** - Tailscale for nix-darwin
+
+#### macOS Configuration
+- **[nix-darwin Setup Guide](nix/DARWIN-SETUP.md)** - Complete macOS setup with nix-darwin
+- **[nix-darwin Modules](nix/darwin/README.md)** - Available darwin modules and usage
 
 ### ⚙️ What's Automated
 
@@ -166,6 +171,13 @@ The repository includes comprehensive Nix-based automation for reproducible mach
 - Firewall configuration
 - mDNS/Avahi for hostname resolution
 - Tailscale VPN with mesh networking
+
+**System-Level (macOS via nix-darwin):**
+- Complete declarative system configuration
+- Tailscale VPN integration
+- macOS defaults (dock, finder, keyboard, trackpad)
+- Font management with Nerd Fonts
+- Home Manager integration
 
 **Development Environment:**
 - Language toolchains (Go, Node.js, pnpm)

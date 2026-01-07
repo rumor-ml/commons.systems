@@ -1,8 +1,67 @@
-# nix-darwin Configuration Modules
+# nix-darwin Configuration
 
-This directory contains nix-darwin (macOS) system-level configuration modules that can be imported into your nix-darwin configuration to make your macOS setup reproducible.
+This directory provides a complete declarative macOS configuration using nix-darwin, making your macOS setup reproducible and automated.
 
-## Available Modules
+## Quick Start (Complete Setup)
+
+### Option 1: Use This Repo's Configuration (Recommended)
+
+This directory includes a complete nix-darwin configuration ready to use:
+
+1. **Install nix-darwin** (first time only):
+
+```bash
+# Install nix-darwin
+nix run nix-darwin -- switch --flake ~/path/to/this/repo/nix/darwin
+```
+
+2. **Link the flake** to standard location:
+
+```bash
+# Create symlink for easy rebuilds
+ln -s ~/path/to/this/repo/nix/darwin ~/.config/nix-darwin
+
+# Rebuild anytime
+darwin-rebuild switch --flake ~/.config/nix-darwin
+```
+
+3. **Activate Tailscale**:
+
+```bash
+sudo tailscale up
+tailscale ip -4  # Save this IP!
+```
+
+4. **Restart your shell** and you're done!
+
+**What you get:**
+- ✅ Declarative system configuration
+- ✅ Tailscale VPN with stable networking
+- ✅ Home Manager integration (uses `../home` config)
+- ✅ Sensible macOS defaults (dock, finder, keyboard)
+- ✅ Development tools ready to go
+- ✅ All changes tracked in git
+
+### Option 2: Install nix-darwin Separately
+
+If you prefer to manage nix-darwin config elsewhere:
+
+```bash
+# Install nix-darwin the traditional way
+nix-build https://github.com/LnL7/nix-darwin/archive/master.tar.gz -A installer
+./result/bin/darwin-installer
+```
+
+Then import individual modules as shown below.
+
+## Files in This Directory
+
+- **`flake.nix`** - Complete darwin flake configuration (Option 1)
+- **`configuration.nix`** - Main system configuration with sensible defaults
+- **`tailscale.nix`** - Tailscale VPN module
+- **`README.md`** - This file
+
+## Available Modules (Option 2)
 
 ### tailscale.nix
 
@@ -14,23 +73,7 @@ Provides secure VPN networking with stable IP addresses for macOS clients.
 - Simple CLI configuration
 - Connects to your Tailscale network (tailnet)
 
-**Setup:**
-```bash
-sudo tailscale up
-tailscale ip -4  # Get your stable Tailscale IP
-```
-
-## Prerequisites
-
-You need nix-darwin installed on your macOS machine. If you don't have it:
-
-```bash
-# Install nix-darwin
-nix-build https://github.com/LnL7/nix-darwin/archive/master.tar.gz -A installer
-./result/bin/darwin-installer
-```
-
-## Using These Modules
+## Using Individual Modules
 
 ### Method 1: Import in nix-darwin Configuration
 
