@@ -54,6 +54,36 @@ async function globalSetup() {
 
     console.log(`   ✓ Loaded ${cardsData.length} cards from file`);
 
+    // Validate that test data contains all required card types
+    // Note: Only require types that are actually tested (Foe is in VALID_CARD_TYPES but not tested)
+    const requiredTypes = ['Equipment', 'Skill', 'Upgrade', 'Origin'];
+    const typeCount = {};
+
+    cardsData.forEach((card) => {
+      const type = card.type || 'Unknown';
+      typeCount[type] = (typeCount[type] || 0) + 1;
+    });
+
+    // Fail fast if test data is incomplete
+    const missingTypes = [];
+    for (const type of requiredTypes) {
+      if (!typeCount[type] || typeCount[type] === 0) {
+        missingTypes.push(type);
+      }
+    }
+
+    if (missingTypes.length > 0) {
+      throw new Error(
+        `Test data missing required card types: ${missingTypes.join(', ')}. ` +
+          `Found types: ${Object.keys(typeCount).join(', ')}`
+      );
+    }
+
+    console.log(`   ✓ Verified test data contains all required types:`);
+    requiredTypes.forEach((type) => {
+      console.log(`     - ${type}: ${typeCount[type]} cards`);
+    });
+
     // Import Firestore Admin SDK
     console.log(`   Connecting to Firestore Admin SDK...`);
     const adminModule = await import('firebase-admin');

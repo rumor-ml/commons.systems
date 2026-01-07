@@ -504,3 +504,70 @@ export async function isCardVisibleInUI(page, cardTitle) {
     return false;
   }
 }
+
+/**
+ * Wait for library nav to include specific card types
+ * Waits for each specified type to appear in the library navigation tree
+ * Provides helpful error messages showing which types are actually available
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @param {string[]} types - Card types to wait for (e.g., ['Skill', 'Origin'])
+ * @param {number} timeout - Max wait time in ms (default: 15000)
+ * @returns {Promise<void>}
+ * @throws {Error} If any type not visible within timeout, with list of available types
+ */
+export async function waitForLibraryNavTypes(page, types, timeout = 15000) {
+  const startTime = Date.now();
+
+  for (const type of types) {
+    const selector = `.library-nav-type[data-type="${type}"]`;
+    const remainingTime = timeout - (Date.now() - startTime);
+
+    if (remainingTime <= 0) {
+      const availableTypes = await getVisibleLibraryNavTypes(page);
+      throw new Error(
+        `Timeout waiting for library nav types. ` +
+          `Expected: ${types.join(', ')} | ` +
+          `Available: ${availableTypes.join(', ') || 'none'} | ` +
+          `Timeout: ${timeout}ms`
+      );
+    }
+
+    try {
+      await page.waitForSelector(selector, {
+        timeout: remainingTime,
+        state: 'visible',
+      });
+    } catch (error) {
+      const availableTypes = await getVisibleLibraryNavTypes(page);
+      throw new Error(
+        `Library nav did not show type "${type}" within ${timeout}ms. ` +
+          `Available types: ${availableTypes.join(', ') || 'none'}`
+      );
+    }
+  }
+}
+
+/**
+ * Get list of visible card types in library navigation
+ * Helper function to show what types are actually rendered
+ * @param {import('@playwright/test').Page} page - Playwright page object
+ * @returns {Promise<string[]>} Array of visible type names
+ */
+async function getVisibleLibraryNavTypes(page) {
+  try {
+    const typeElements = await page.locator('.library-nav-type').all();
+    const types = [];
+
+    for (const element of typeElements) {
+      const dataType = await element.getAttribute('data-type');
+      if (dataType) {
+        types.push(dataType);
+      }
+    }
+
+    return types;
+  } catch (error) {
+    // If locator fails, no types are visible
+    return [];
+  }
+}
