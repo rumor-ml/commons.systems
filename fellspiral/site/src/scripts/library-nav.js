@@ -92,7 +92,27 @@ export class LibraryNav {
       const cards = await getAllCards();
 
       if (cards.length > 0) {
-        this.cards = cards;
+        // Verify that we have cards with expected types
+        // If we only have a subset (e.g., Equipment and MagicSpell but not Skill, Upgrade, Origin),
+        // fall back to static data which is more complete
+        const loadedTypes = new Set(cards.map((c) => c.type).filter(Boolean));
+        const expectedTypes = new Set(['Equipment', 'Skill', 'Upgrade', 'Origin']);
+
+        // Check if we have most expected types (allow for some variance in test data)
+        const hasExpectedTypes = [...expectedTypes].some((type) => loadedTypes.has(type));
+        const missingTypes = [...expectedTypes].filter((type) => !loadedTypes.has(type));
+
+        // If we're missing more than 1 expected type, fall back to static data
+        // This handles cases where Firestore has partial data from earlier test runs
+        if (missingTypes.length > 1) {
+          console.warn(
+            `Firestore returned incomplete card types (${loadedTypes.size} types, missing: ${missingTypes.join(', ')}). ` +
+              `Using fallback static data.`
+          );
+          this.cards = cardsData || [];
+        } else {
+          this.cards = cards;
+        }
       } else {
         // Fallback to static data
         this.cards = cardsData || [];
