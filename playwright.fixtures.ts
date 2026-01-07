@@ -88,41 +88,30 @@ export const test = base.extend<AuthFixtures>({
             'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
           );
 
-          // Wait for auth to be initialized (polling with timeout)
+          // Wait for auth to be initialized (event-driven with timeout)
           const waitForAuth = async (timeout = 10000) => {
-            // Increase from 5s to 10s
-            const startTime = Date.now();
-            const checkInterval = 100;
-            const maxChecks = timeout / checkInterval;
-
-            for (let i = 0; i < maxChecks; i++) {
+            return new Promise((resolve, reject) => {
+              // Already ready?
               if (window.auth) {
-                return window.auth;
+                resolve(window.auth);
+                return;
               }
 
-              // Check if initialization has failed
-              // If DOMContentLoaded fired >2 seconds ago and auth still not ready, fail fast
-              if (i > 20 && document.readyState === 'complete') {
-                // Try to trigger Firebase initialization explicitly
-                try {
-                  const { initFirebase } = await import('/scripts/firebase.js');
-                  await initFirebase();
+              // Set timeout
+              const timer = setTimeout(() => {
+                reject(new Error('Firebase init timeout after ' + timeout + 'ms'));
+              }, timeout);
 
-                  if (window.auth) {
-                    return window.auth;
-                  }
-                } catch (err) {
-                  console.warn('[waitForAuth] Failed to explicitly initialize Firebase:', err);
-                }
-              }
-
-              await new Promise((resolve) => setTimeout(resolve, checkInterval));
-            }
-
-            throw new Error(
-              `window.auth not found after ${timeout}ms. ` +
-                `Firebase may not have initialized. Check that getAllCards() or similar is called.`
-            );
+              // Wait for firebase:ready event
+              window.addEventListener(
+                'firebase:ready',
+                () => {
+                  clearTimeout(timer);
+                  resolve(window.auth);
+                },
+                { once: true }
+              );
+            });
           };
 
           // Use the page's existing auth instance (from firebase.js)

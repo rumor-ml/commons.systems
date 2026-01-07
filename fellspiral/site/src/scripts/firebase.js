@@ -170,6 +170,12 @@ export async function initFirebase() {
     // Expose auth on window for test fixtures
     if (typeof window !== 'undefined') {
       window.auth = auth;
+
+      // Emit ready event for tests to wait on
+      const event = new CustomEvent('firebase:ready', {
+        detail: { auth, db, app },
+      });
+      window.dispatchEvent(event);
     }
 
     // Connect to emulators in test/dev environment

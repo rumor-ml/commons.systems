@@ -78,6 +78,13 @@ test.describe('Card Visibility - Authenticated Users', () => {
     page,
     authEmulator,
   }) => {
+    // Navigate to cards page first (required for auth initialization)
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
     // Create test user
     const email = `visibility-test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -148,17 +155,17 @@ test.describe('Card Visibility - Authenticated Users', () => {
     page,
     authEmulator,
   }) => {
-    // Create and sign in test user
-    const email = `empty-state-${Date.now()}@example.com`;
-    await authEmulator.createTestUser(email);
-    await authEmulator.signInTestUser(email);
-
-    // Navigate to cards page
+    // Navigate to cards page first (required for auth initialization)
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
     // Wait for Firebase auth to initialize
     await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
+    // Create and sign in test user
+    const email = `empty-state-${Date.now()}@example.com`;
+    await authEmulator.createTestUser(email);
+    await authEmulator.signInTestUser(email);
 
     // Wait for cards to load
     await page.waitForTimeout(3000);
@@ -250,6 +257,13 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     page,
     authEmulator,
   }) => {
+    // Navigate to cards page first (required for auth initialization)
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
     // Create two users
     const user1Email = `user1-${Date.now()}@example.com`;
     const user2Email = `user2-${Date.now()}@example.com`;
@@ -310,12 +324,9 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     await createCardInFirestore(user2PrivateCard);
     await createCardInFirestore(publicCard);
 
-    // Currently signed in as user2 - navigate to cards
+    // Currently signed in as user2 - reload page to see user2's cards
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
-
-    // Wait for Firebase auth to initialize
-    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
 
     // Wait for cards to load
     await page.waitForTimeout(3000);

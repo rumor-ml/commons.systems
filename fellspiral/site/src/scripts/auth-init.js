@@ -121,9 +121,7 @@ export async function initializeAuth() {
   // Eagerly initialize Firebase so window.auth is available for tests
   // This ensures auth is ready BEFORE any test fixture tries to sign in
   // initFirebase() is idempotent, so this doesn't affect lazy-loading behavior
-  initFirebase().catch((err) => {
-    console.warn('[auth-init] Firebase initialization failed, will retry on first use:', err);
-  });
+  await initFirebase();
 }
 
 /**
