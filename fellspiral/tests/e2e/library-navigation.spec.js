@@ -7,6 +7,7 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { waitForLibraryNavTypes } from './test-helpers.js';
 
 // Load cards.json to verify navigation matches actual data
 const __filename = fileURLToPath(import.meta.url);
@@ -30,11 +31,9 @@ test.describe('Library Navigation - Tree Structure', () => {
 
     // Wait for all expected types to be visible before asserting
     const types = ['Equipment', 'Skill', 'Upgrade', 'Origin'];
+    await waitForLibraryNavTypes(page, types);
+
     for (const type of types) {
-      await page.waitForSelector(`.library-nav-type[data-type="${type}"]`, {
-        timeout: 15000,
-        state: 'visible',
-      });
       const typeElement = page.locator(`.library-nav-type[data-type="${type}"]`);
       await expect(typeElement).toBeVisible();
     }
@@ -44,10 +43,7 @@ test.describe('Library Navigation - Tree Structure', () => {
     await page.goto('/cards.html');
 
     // Wait for Equipment type to be visible
-    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
-      timeout: 15000,
-      state: 'visible',
-    });
+    await waitForLibraryNavTypes(page, ['Equipment']);
 
     // Get the type-level count (in the toggle, not subtypes)
     const equipmentCount = page.locator(
@@ -63,10 +59,7 @@ test.describe('Library Navigation - Tree Structure', () => {
     await page.goto('/cards.html');
 
     // Wait for Equipment type to be visible
-    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
-      timeout: 15000,
-      state: 'visible',
-    });
+    await waitForLibraryNavTypes(page, ['Equipment']);
 
     // Expand Equipment to show subtypes (collapsed by default)
     const equipmentToggle = page.locator(
@@ -340,22 +333,7 @@ const skipDataReflectionTests =
       await page.goto('/cards.html');
 
       // Wait for all expected types to be visible
-      await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
-        timeout: 15000,
-        state: 'visible',
-      });
-      await page.waitForSelector('.library-nav-type[data-type="Skill"]', {
-        timeout: 15000,
-        state: 'visible',
-      });
-      await page.waitForSelector('.library-nav-type[data-type="Upgrade"]', {
-        timeout: 15000,
-        state: 'visible',
-      });
-      await page.waitForSelector('.library-nav-type[data-type="Origin"]', {
-        timeout: 15000,
-        state: 'visible',
-      });
+      await waitForLibraryNavTypes(page, ['Equipment', 'Skill', 'Upgrade', 'Origin']);
 
       // Calculate expected counts from cards.json
       const typeCounts = new Map();
@@ -408,10 +386,7 @@ const skipDataReflectionTests =
       await page.goto('/cards.html');
 
       // Wait for Origin type to be visible
-      await page.waitForSelector('.library-nav-type[data-type="Origin"]', {
-        timeout: 15000,
-        state: 'visible',
-      });
+      await waitForLibraryNavTypes(page, ['Origin']);
 
       // Verify Origin type exists
       const originType = page.locator('.library-nav-type[data-type="Origin"]');
