@@ -31,6 +31,7 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
 import { FIREBASE_PORTS } from '../../../../shared/config/firebase-ports.ts';
+import cardsData from '../data/cards.json';
 
 // Initialize Firebase with config
 let app, db, auth, cardsCollection;
@@ -360,7 +361,7 @@ export async function getAllCards() {
           `[getAllCards] Firestore missing ${missingTypes.length} expected types (${missingTypes.join(', ')}). ` +
             `Falling back to static data.`
         );
-        return (await import('../data/cards.json', { assert: { type: 'json' } })).default;
+        return cardsData || [];
       }
 
       return publicCards;
