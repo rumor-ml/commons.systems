@@ -31,7 +31,7 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
 import { FIREBASE_PORTS } from '../../../../shared/config/firebase-ports.ts';
-import cardsData from '../data/cards.json';
+import cardsData from '../data/cards.json' with { type: 'json' };
 
 // Initialize Firebase with config
 let app, db, auth, cardsCollection;

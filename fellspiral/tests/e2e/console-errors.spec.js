@@ -141,6 +141,9 @@ test.describe('Console Errors', () => {
     // Clear errors from setup
     consoleErrors.length = 0;
 
+    // Wait for Firebase auth to be ready before trying to interact with authenticated features
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
     // Perform card operations
     // 1. Open Add Card modal
     await page.click('#addCardBtn');

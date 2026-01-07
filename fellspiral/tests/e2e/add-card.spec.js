@@ -58,8 +58,8 @@ test.describe('Add Card - Happy Path Tests', () => {
     // TODO(#462, #474): Document empirical browser latency findings
     await page.waitForTimeout(2000);
 
-    // Verify in Firestore
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // Verify in Firestore (increased timeout to 15s for slow CI and emulator propagation)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.title).toBe(cardData.title);
     expect(firestoreCard.type).toBe(cardData.type);

@@ -34,7 +34,7 @@ export { onAuthReady };
  * Initialize authentication and inject UI components
  * Supports both new sidebar layout and old navbar layout
  */
-export function initializeAuth() {
+export async function initializeAuth() {
   // Guard against duplicate initialization
   const existingAuth = document.querySelector('.nav-auth .auth-button');
   if (existingAuth) {
@@ -116,6 +116,14 @@ export function initializeAuth() {
   // Add components to container
   authContainer.appendChild(userProfile);
   authContainer.appendChild(authButton);
+
+  // Eagerly initialize Firebase so window.auth is available for tests
+  // This ensures auth is ready BEFORE any test fixture tries to sign in
+  // initFirebase() is idempotent, so this doesn't affect lazy-loading behavior
+  const { initFirebase } = await import('./firebase.js');
+  await initFirebase().catch((err) => {
+    console.warn('[auth-init] Firebase initialization failed, will retry on first use:', err);
+  });
 }
 
 /**

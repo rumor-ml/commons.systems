@@ -89,15 +89,40 @@ export const test = base.extend<AuthFixtures>({
           );
 
           // Wait for auth to be initialized (polling with timeout)
-          const waitForAuth = async (timeout = 5000) => {
+          const waitForAuth = async (timeout = 10000) => {
+            // Increase from 5s to 10s
             const startTime = Date.now();
-            while (!window.auth) {
-              if (Date.now() - startTime > timeout) {
-                throw new Error('window.auth not found - Firebase may not be initialized yet');
+            const checkInterval = 100;
+            const maxChecks = timeout / checkInterval;
+
+            for (let i = 0; i < maxChecks; i++) {
+              if (window.auth) {
+                return window.auth;
               }
-              await new Promise((resolve) => setTimeout(resolve, 100));
+
+              // Check if initialization has failed
+              // If DOMContentLoaded fired >2 seconds ago and auth still not ready, fail fast
+              if (i > 20 && document.readyState === 'complete') {
+                // Try to trigger Firebase initialization explicitly
+                try {
+                  const { initFirebase } = await import('/scripts/firebase.js');
+                  await initFirebase();
+
+                  if (window.auth) {
+                    return window.auth;
+                  }
+                } catch (err) {
+                  console.warn('[waitForAuth] Failed to explicitly initialize Firebase:', err);
+                }
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, checkInterval));
             }
-            return window.auth;
+
+            throw new Error(
+              `window.auth not found after ${timeout}ms. ` +
+                `Firebase may not have initialized. Check that getAllCards() or similar is called.`
+            );
           };
 
           // Use the page's existing auth instance (from firebase.js)

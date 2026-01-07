@@ -39,7 +39,12 @@ test.describe('Card Visibility - Unauthenticated Users', () => {
     // Navigate to cards page as guest
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
-    await page.waitForTimeout(3000); // Wait for Firestore query
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
+    // Wait for cards to load
+    await page.waitForTimeout(3000);
 
     // Verify only public card is visible
     const isPublicVisible = await isCardVisibleInUI(page, publicCard.title);
@@ -53,6 +58,11 @@ test.describe('Card Visibility - Unauthenticated Users', () => {
     // Navigate to cards page as guest (Firestore might be empty or have other user's cards)
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
+    // Wait for cards to load
     await page.waitForTimeout(3000);
 
     // Should see cards (either from Firestore or demo data)
@@ -117,7 +127,12 @@ test.describe('Card Visibility - Authenticated Users', () => {
     // Navigate to cards page
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
-    await page.waitForTimeout(3000); // Wait for Firestore queries
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
+    // Wait for cards to load
+    await page.waitForTimeout(3000);
 
     // Verify visibility
     const isPublicVisible = await isCardVisibleInUI(page, publicCard.title);
@@ -141,6 +156,11 @@ test.describe('Card Visibility - Authenticated Users', () => {
     // Navigate to cards page
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
+    // Wait for cards to load
     await page.waitForTimeout(3000);
 
     // Should show empty state (not demo data)
@@ -185,6 +205,11 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     // Step 1: Visit as guest and verify cards are visible
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
+    // Wait for cards to load
     await page.waitForTimeout(3000);
 
     const guestCardCount = await page.locator('.card-item').count();
@@ -288,6 +313,11 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     // Currently signed in as user2 - navigate to cards
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
+
+    // Wait for Firebase auth to initialize
+    await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
+
+    // Wait for cards to load
     await page.waitForTimeout(3000);
 
     // User2 should see: their private card + public card (NOT user1's private card)
