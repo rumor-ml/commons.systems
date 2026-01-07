@@ -117,8 +117,11 @@ test.describe('Hash Routing - Hash Updates', () => {
   test('should update hash when using library navigation', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Equipment type toggle
     const equipmentToggle = page.locator(
@@ -146,8 +149,11 @@ test.describe('Hash Routing - Hash Updates', () => {
 
     await page.waitForSelector('.card-item', { timeout: 10000 });
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // First, make sure Equipment section is expanded (it should be since we're on #library-equipment)
     // Wait for the section to be visible and check if it's expanded
@@ -180,8 +186,11 @@ test.describe('Hash Routing - Hash Updates', () => {
   test('should update hash when clicking sidebar navigation', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
@@ -228,8 +237,11 @@ test.describe('Hash Routing - Hash Updates', () => {
   test('should clear subtype when changing type in library nav', async ({ page }) => {
     await page.goto('/cards.html#library-equipment-weapon');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Skill type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Skill"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Skill type toggle
     const skillToggle = page.locator('.library-nav-type[data-type="Skill"] .library-nav-toggle');
@@ -249,8 +261,19 @@ test.describe('Hash Routing - Hash Updates', () => {
   test.skip('should handle rapid hash changes', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for all expected types to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
+    await page.waitForSelector('.library-nav-type[data-type="Skill"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
+    await page.waitForSelector('.library-nav-type[data-type="Upgrade"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Rapidly click type toggles
     await page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle').click();

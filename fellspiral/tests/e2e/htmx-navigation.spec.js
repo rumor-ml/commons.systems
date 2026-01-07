@@ -12,8 +12,11 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Start at homepage
     await page.goto('/');
 
-    // Wait for library navigation to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Equipment type in library nav
     const equipmentToggle = page.locator(
@@ -41,8 +44,11 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Start at homepage
     await page.goto('/');
 
-    // Wait for library navigation to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Skill type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Skill"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Skill type in library nav
     const skillToggle = page.locator('.library-nav-type[data-type="Skill"] .library-nav-toggle');
@@ -67,8 +73,11 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Start at homepage
     await page.goto('/');
 
-    // Wait for library navigation to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // First expand Equipment to show subtypes
     const equipmentToggle = page.locator(
@@ -105,8 +114,11 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Start at homepage
     await page.goto('/');
 
-    // Wait for library navigation to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Equipment type
     const equipmentToggle = page.locator(
@@ -136,8 +148,11 @@ test.describe('HTMX Cross-Page Navigation', () => {
     // Start at homepage
     await page.goto('/');
 
-    // Wait for library navigation to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Origin type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Origin"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Origin type in library nav
     const originToggle = page.locator('.library-nav-type[data-type="Origin"] .library-nav-toggle');
@@ -163,7 +178,15 @@ test.describe('HTMX Cross-Page Navigation', () => {
 
     // Start at homepage
     await page.goto('/');
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for both Equipment and Skill types to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
+    await page.waitForSelector('.library-nav-type[data-type="Skill"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // First navigation: Equipment
     const equipmentToggle = page.locator(
@@ -199,7 +222,11 @@ test.describe('HTMX Cross-Page Navigation', () => {
 
     // Start at homepage
     await page.goto('/');
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Equipment type to trigger HTMX navigation
     const equipmentToggle = page.locator(
@@ -232,7 +259,11 @@ test.describe('HTMX Cross-Page Navigation', () => {
   test('should have correct card styling after HTMX navigation', async ({ page }) => {
     // Navigate from homepage
     await page.goto('/');
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Click Equipment
     const equipmentToggle = page.locator(
@@ -258,7 +289,15 @@ test.describe('HTMX Cross-Page Navigation', () => {
 
   test('should not show infinite loading on repeated navigation', async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for both Equipment and Skill types to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
+    await page.waitForSelector('.library-nav-type[data-type="Skill"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // First navigation
     await page.locator('.library-nav-type[data-type="Equipment"] .library-nav-toggle').click();

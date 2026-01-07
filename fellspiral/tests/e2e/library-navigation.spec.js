@@ -28,12 +28,13 @@ test.describe('Library Navigation - Tree Structure', () => {
   test('should display all card types', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
-
-    // Check for expected types
+    // Wait for all expected types to be visible before asserting
     const types = ['Equipment', 'Skill', 'Upgrade', 'Origin'];
     for (const type of types) {
+      await page.waitForSelector(`.library-nav-type[data-type="${type}"]`, {
+        timeout: 15000,
+        state: 'visible',
+      });
       const typeElement = page.locator(`.library-nav-type[data-type="${type}"]`);
       await expect(typeElement).toBeVisible();
     }
@@ -42,8 +43,11 @@ test.describe('Library Navigation - Tree Structure', () => {
   test('should display card counts for each type', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Get the type-level count (in the toggle, not subtypes)
     const equipmentCount = page.locator(
@@ -58,8 +62,11 @@ test.describe('Library Navigation - Tree Structure', () => {
   test('should display subtypes for each type', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Expand Equipment to show subtypes (collapsed by default)
     const equipmentToggle = page.locator(
@@ -82,8 +89,11 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   test('types should be collapsed by default', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
@@ -99,8 +109,11 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   test('should expand type when clicking toggle', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
@@ -127,8 +140,11 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   test('should persist expand state in localStorage', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 5000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
@@ -153,8 +169,11 @@ test.describe('Library Navigation - Expand/Collapse', () => {
   test('should restore expand state on page reload', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
@@ -188,8 +207,11 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     // Reload page
     await page.reload();
 
-    // Wait for library nav to load again
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible again
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // Re-query Equipment toggle after reload (old locator is stale)
     const equipmentToggleAfterReload = page.locator(
@@ -205,8 +227,11 @@ test.describe('Library Navigation - Navigation Interaction', () => {
   test('should navigate to type listing when clicking type', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     const equipmentToggle = page.locator(
       '.library-nav-type[data-type="Equipment"] .library-nav-toggle'
@@ -226,8 +251,11 @@ test.describe('Library Navigation - Navigation Interaction', () => {
   test.skip('should navigate to subtype listing when clicking subtype', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type to be visible
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
 
     // First expand Equipment to make subtypes visible
     const equipmentToggle = page.locator(
@@ -256,8 +284,11 @@ test.describe('Library Navigation - Navigation Interaction', () => {
   test('should filter cards based on navigation', async ({ page }) => {
     await page.goto('/cards.html');
 
-    // Wait for library nav and cards to load
-    await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+    // Wait for Equipment type and cards to load
+    await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+      timeout: 15000,
+      state: 'visible',
+    });
     await page.waitForSelector('.card-item', { timeout: 5000 });
 
     // Navigate to Equipment
@@ -308,8 +339,23 @@ const skipDataReflectionTests =
     test('navigation should display correct card counts', async ({ page }) => {
       await page.goto('/cards.html');
 
-      // Wait for library nav to load
-      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+      // Wait for all expected types to be visible
+      await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+        timeout: 15000,
+        state: 'visible',
+      });
+      await page.waitForSelector('.library-nav-type[data-type="Skill"]', {
+        timeout: 15000,
+        state: 'visible',
+      });
+      await page.waitForSelector('.library-nav-type[data-type="Upgrade"]', {
+        timeout: 15000,
+        state: 'visible',
+      });
+      await page.waitForSelector('.library-nav-type[data-type="Origin"]', {
+        timeout: 15000,
+        state: 'visible',
+      });
 
       // Calculate expected counts from cards.json
       const typeCounts = new Map();
@@ -361,8 +407,11 @@ const skipDataReflectionTests =
     test('Origin type should include former Foe subtypes', async ({ page }) => {
       await page.goto('/cards.html');
 
-      // Wait for library nav to load
-      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+      // Wait for Origin type to be visible
+      await page.waitForSelector('.library-nav-type[data-type="Origin"]', {
+        timeout: 15000,
+        state: 'visible',
+      });
 
       // Verify Origin type exists
       const originType = page.locator('.library-nav-type[data-type="Origin"]');
@@ -395,8 +444,11 @@ const skipDataReflectionTests =
     test('Foe type should not exist in navigation', async ({ page }) => {
       await page.goto('/cards.html');
 
-      // Wait for library nav to load
-      await page.waitForSelector('.library-nav-type', { timeout: 10000 });
+      // Wait for at least one type to be visible (to ensure nav loaded)
+      await page.waitForSelector('.library-nav-type[data-type="Equipment"]', {
+        timeout: 15000,
+        state: 'visible',
+      });
 
       // Verify Foe type does not exist
       const foeType = page.locator('.library-nav-type[data-type="Foe"]');

@@ -4,6 +4,7 @@
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
+import { ConsoleErrorClassifier } from '../../site/src/scripts/console-classifier.js';
 
 // Only run against emulator
 const isEmulatorMode = !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
@@ -36,18 +37,11 @@ test.describe('Console Errors', () => {
     // Wait for cards to load
     await page.waitForTimeout(3000);
 
-    // Filter out known benign warnings
-    const filteredErrors = consoleErrors.filter((error) => {
-      // Ignore favicon 404 (not a real error)
-      if (error.includes('favicon.ico')) return false;
-
-      // Ignore Vite HMR connection messages in dev mode
-      if (error.includes('[vite]')) return false;
-
-      // Ignore storage access messages (browser feature, not an error)
+    // Use ConsoleErrorClassifier to filter out benign/expected errors
+    const criticalErrors = consoleErrors.filter((error) => {
+      // Keep storage access messages filtered (browser permission UI, not app error)
       if (error.includes('Storage access')) return false;
-
-      return true;
+      return ConsoleErrorClassifier.shouldFailTest(error);
     });
 
     const filteredWarnings = consoleWarnings.filter((warning) => {
@@ -60,11 +54,14 @@ test.describe('Console Errors', () => {
       return true;
     });
 
-    // Assert no errors
-    if (filteredErrors.length > 0) {
-      console.log('Console errors found:', filteredErrors);
+    // Assert no critical errors
+    if (criticalErrors.length > 0) {
+      console.log('Critical console errors found:', criticalErrors);
+      criticalErrors.forEach((error) => {
+        console.log(`  - [${ConsoleErrorClassifier.describe(error)}] ${error}`);
+      });
     }
-    expect(filteredErrors).toHaveLength(0);
+    expect(criticalErrors).toHaveLength(0);
 
     // Warnings are allowed but we log them for visibility
     if (filteredWarnings.length > 0) {
@@ -102,19 +99,21 @@ test.describe('Console Errors', () => {
     // Wait for auth state to propagate
     await page.waitForTimeout(2000);
 
-    // Filter out benign errors
-    const filteredErrors = consoleErrors.filter((error) => {
-      if (error.includes('favicon.ico')) return false;
-      if (error.includes('[vite]')) return false;
+    // Use ConsoleErrorClassifier to filter out benign/expected errors
+    const criticalErrors = consoleErrors.filter((error) => {
+      // Keep storage access messages filtered (browser permission UI, not app error)
       if (error.includes('Storage access')) return false;
-      return true;
+      return ConsoleErrorClassifier.shouldFailTest(error);
     });
 
-    // Assert no errors during sign-in
-    if (filteredErrors.length > 0) {
-      console.log('Console errors after sign-in:', filteredErrors);
+    // Assert no critical errors during sign-in
+    if (criticalErrors.length > 0) {
+      console.log('Critical console errors after sign-in:', criticalErrors);
+      criticalErrors.forEach((error) => {
+        console.log(`  - [${ConsoleErrorClassifier.describe(error)}] ${error}`);
+      });
     }
-    expect(filteredErrors).toHaveLength(0);
+    expect(criticalErrors).toHaveLength(0);
   });
 
   test('should have no console errors during card operations', async ({ page, authEmulator }) => {
@@ -162,18 +161,20 @@ test.describe('Console Errors', () => {
     // Wait a bit for any async errors
     await page.waitForTimeout(1000);
 
-    // Filter out benign errors
-    const filteredErrors = consoleErrors.filter((error) => {
-      if (error.includes('favicon.ico')) return false;
-      if (error.includes('[vite]')) return false;
+    // Use ConsoleErrorClassifier to filter out benign/expected errors
+    const criticalErrors = consoleErrors.filter((error) => {
+      // Keep storage access messages filtered (browser permission UI, not app error)
       if (error.includes('Storage access')) return false;
-      return true;
+      return ConsoleErrorClassifier.shouldFailTest(error);
     });
 
-    // Assert no errors during operations
-    if (filteredErrors.length > 0) {
-      console.log('Console errors during card operations:', filteredErrors);
+    // Assert no critical errors during operations
+    if (criticalErrors.length > 0) {
+      console.log('Critical console errors during card operations:', criticalErrors);
+      criticalErrors.forEach((error) => {
+        console.log(`  - [${ConsoleErrorClassifier.describe(error)}] ${error}`);
+      });
     }
-    expect(filteredErrors).toHaveLength(0);
+    expect(criticalErrors).toHaveLength(0);
   });
 });
