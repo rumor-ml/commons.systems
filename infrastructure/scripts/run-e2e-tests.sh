@@ -111,6 +111,7 @@ case "$APP_TYPE" in
     # This provides a single source of truth and eliminates env var propagation issues
     TEST_ENV_CONFIG="${ROOT_DIR}/.test-env.json"
     TIMEOUT_MULTIPLIER="${TIMEOUT_MULTIPLIER:-1}"
+    DEPLOYED_URL="${DEPLOYED_URL:-}"
 
     cat > "$TEST_ENV_CONFIG" << EOF
 {
