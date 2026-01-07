@@ -348,8 +348,21 @@ export async function getAllCards() {
       });
     });
 
-    // If not authenticated, return only public cards
+    // If not authenticated, return only public cards (but check completeness first)
     if (!currentUser) {
+      // Check if we have incomplete card types and should fall back to static data
+      const types = new Set(publicCards.map((c) => c.type).filter(Boolean));
+      const expectedTypes = new Set(['Equipment', 'Skill', 'Upgrade', 'Origin']);
+      const missingTypes = [...expectedTypes].filter((type) => !types.has(type));
+
+      if (missingTypes.length > 1) {
+        console.warn(
+          `[getAllCards] Firestore missing ${missingTypes.length} expected types (${missingTypes.join(', ')}). ` +
+            `Falling back to static data.`
+        );
+        return (await import('../data/cards.json', { assert: { type: 'json' } })).default;
+      }
+
       return publicCards;
     }
 
@@ -384,6 +397,19 @@ export async function getAllCards() {
     // Convert back to array and sort by title
     const allCards = Array.from(cardMap.values());
     allCards.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+
+    // Check if we have incomplete card types and should fall back to static data
+    const types = new Set(allCards.map((c) => c.type).filter(Boolean));
+    const expectedTypes = new Set(['Equipment', 'Skill', 'Upgrade', 'Origin']);
+    const missingTypes = [...expectedTypes].filter((type) => !types.has(type));
+
+    if (missingTypes.length > 1) {
+      console.warn(
+        `[getAllCards] Firestore missing ${missingTypes.length} expected types (${missingTypes.join(', ')}). ` +
+          `Falling back to static data.`
+      );
+      return (await import('../data/cards.json', { assert: { type: 'json' } })).default;
+    }
 
     return allCards;
   } catch (error) {
