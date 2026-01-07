@@ -409,7 +409,7 @@ export async function getAllCards() {
         `[getAllCards] Firestore missing ${missingTypes.length} expected types (${missingTypes.join(', ')}). ` +
           `Falling back to static data.`
       );
-      return (await import('../data/cards.json', { assert: { type: 'json' } })).default;
+      return cardsData || [];
     }
 
     return allCards;
