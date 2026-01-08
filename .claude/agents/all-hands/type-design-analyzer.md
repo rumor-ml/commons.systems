@@ -1,7 +1,14 @@
 ---
 name: type-design-analyzer
-description: Use this agent when you need expert analysis of type design in your codebase. Specifically use it: (1) when introducing a new type to ensure it follows best practices for encapsulation and invariant expression, (2) during pull request creation to review all types being added, (3) when refactoring existing types to improve their design quality. The agent will provide both qualitative feedback and quantitative ratings on encapsulation, invariant expression, usefulness, and enforcement.
+description: Analyze TypeScript type design for safety, clarity, and proper use of the type system
+model: sonnet
+permissionMode: acceptEdits
+color: pink
+---
 
+**Use this agent when:** You need expert analysis of type design in your codebase. Specifically use it: (1) when introducing a new type to ensure it follows best practices for encapsulation and invariant expression, (2) during pull request creation to review all types being added, (3) when refactoring existing types to improve their design quality. The agent will provide both qualitative feedback and quantitative ratings on encapsulation, invariant expression, usefulness, and enforcement.
+
+**Examples:**
 <example>
 Context: Daisy is writing code that introduces a new UserAccount type and wants to ensure it has well-designed invariants.
 user: "I've just created a new UserAccount type that handles user authentication and permissions"
@@ -19,10 +26,6 @@ assistant: "Let me use the type-design-analyzer agent to review all the types be
 During PR creation with new types, use the type-design-analyzer to review their design quality.
 </commentary>
 </example>
-model: sonnet
-permissionMode: acceptEdits
-color: pink
----
 
 ## CRITICAL: Issue Context and Scope Awareness
 
