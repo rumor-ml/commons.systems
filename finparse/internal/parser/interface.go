@@ -75,7 +75,7 @@ func NewRawAccount(institutionID, institutionName, accountID, accountType string
 	// Note: InstitutionName is optional at construction. Parser implementations should leave
 	// this empty - it will be populated during normalization from Metadata.Institution().
 	// TODO: Add normalization validation to ensure InstitutionName is populated from metadata
-	// TODO: Validate AccountType during normalization against domain.AccountType enum
+	// TODO(#1313): Validate AccountType during normalization against domain.AccountType enum
 
 	return &RawAccount{
 		institutionID:   institutionID,

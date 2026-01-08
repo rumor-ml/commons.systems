@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aclindsa/ofxgo"
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 )
 
@@ -1608,9 +1609,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	// ofxgo library validates FITID field and rejects malformed OFX
 	if err == nil {
 		t.Fatal("Expected error for transaction without FITID, got nil")
@@ -1681,9 +1685,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	// ofxgo requires either DtPosted or DtUser to be present
 	if err == nil {
 		t.Fatal("Expected error for transaction without dates, got nil")
@@ -1763,7 +1770,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil {
@@ -1812,9 +1822,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/empty.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/empty.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil {
 		t.Fatal("Expected error for OFX with no statement types, got nil")
 	}
@@ -1890,7 +1903,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -1973,7 +1989,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -1998,13 +2017,16 @@ NEWFILEUID:NONE
 func TestParse_ReadError(t *testing.T) {
 	// Test with reader that returns error
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/file.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/file.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	// Create a pipe reader that fails
 	pr, pw := io.Pipe()
 	pw.CloseWithError(fmt.Errorf("simulated read error"))
 
-	_, err := p.Parse(context.Background(), pr, meta)
+	_, err = p.Parse(context.Background(), pr, meta)
 	if err == nil {
 		t.Fatal("Expected read error, got nil")
 	}
@@ -2023,9 +2045,12 @@ func TestParse_OFXParseResponseError(t *testing.T) {
 <OFX><SIGNONMSGSRSV1><BROKEN`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/malformed.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/malformed.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil {
 		t.Fatal("Expected parse error for malformed OFX")
 	}
@@ -2096,9 +2121,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/moneymrkt.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/moneymrkt.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil {
 		t.Fatal("Expected error for unsupported account type")
 	}
@@ -2228,7 +2256,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -2475,6 +2506,145 @@ func TestParse_RealFiles_DataIntegrity(t *testing.T) {
 			}
 
 			t.Logf("Data integrity validated for %d transactions from %s", len(stmt.Transactions), tt.institution)
+		})
+	}
+}
+
+// Test for parseCreditCard called with empty CreditCard array (pr-test-analyzer-in-scope-1)
+func TestParseCreditCard_EmptyArray(t *testing.T) {
+	p := NewParser()
+	emptyResp := &ofxgo.Response{}
+
+	_, err := p.parseCreditCard(emptyResp, nil)
+	if err == nil {
+		t.Fatal("Expected error when parseCreditCard called with empty CreditCard array")
+	}
+	if !strings.Contains(err.Error(), "parseCreditCard called with empty CreditCard array") {
+		t.Errorf("Expected error message about empty CreditCard array, got: %v", err)
+	}
+}
+
+// Test for parseBank called with empty Bank array (pr-test-analyzer-in-scope-0)
+func TestParseBank_EmptyArray(t *testing.T) {
+	p := NewParser()
+	emptyResp := &ofxgo.Response{}
+
+	_, err := p.parseBank(emptyResp, nil)
+	if err == nil {
+		t.Fatal("Expected error when parseBank called with empty Bank array")
+	}
+	if !strings.Contains(err.Error(), "parseBank called with empty Bank array") {
+		t.Errorf("Expected error message about empty Bank array, got: %v", err)
+	}
+}
+
+// Test for parseInvestment called with empty InvStmt array (pr-test-analyzer-in-scope-2)
+func TestParseInvestment_EmptyArray(t *testing.T) {
+	p := NewParser()
+	emptyResp := &ofxgo.Response{}
+
+	_, err := p.parseInvestment(emptyResp, nil)
+	if err == nil {
+		t.Fatal("Expected error when parseInvestment called with empty InvStmt array")
+	}
+	if !strings.Contains(err.Error(), "parseInvestment called with empty InvStmt array") {
+		t.Errorf("Expected error message about empty InvStmt array, got: %v", err)
+	}
+}
+
+// Test for NewPeriod with invalid date ranges (pr-test-analyzer-in-scope-6)
+func TestNewPeriod_InvalidDateRange(t *testing.T) {
+	// Test that NewPeriod rejects start > end
+	start := time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	_, err := parser.NewPeriod(start, end)
+	if err == nil {
+		t.Fatal("Expected error when start date is after end date")
+	}
+	if !strings.Contains(err.Error(), "start must be before end") {
+		t.Errorf("Expected error about start before end, got: %v", err)
+	}
+}
+
+// Test for NewRawAccount error paths (pr-test-analyzer-in-scope-8)
+func TestNewRawAccount_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name          string
+		institutionID string
+		accountID     string
+		expectedError string
+	}{
+		{
+			name:          "Empty institution ID",
+			institutionID: "",
+			accountID:     "12345",
+			expectedError: "institution ID cannot be empty",
+		},
+		{
+			name:          "Empty account ID",
+			institutionID: "BANK",
+			accountID:     "",
+			expectedError: "account ID cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parser.NewRawAccount(tt.institutionID, "", tt.accountID, "checking")
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.expectedError) {
+				t.Errorf("Expected error containing %q, got: %v", tt.expectedError, err)
+			}
+		})
+	}
+}
+
+// Test for NewRawTransaction error paths (pr-test-analyzer-in-scope-8)
+func TestNewRawTransaction_ErrorPaths(t *testing.T) {
+	validDate := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name          string
+		id            string
+		date          time.Time
+		description   string
+		expectedError string
+	}{
+		{
+			name:          "Empty ID",
+			id:            "",
+			date:          validDate,
+			description:   "Test",
+			expectedError: "transaction ID cannot be empty",
+		},
+		{
+			name:          "Zero date",
+			id:            "TXN001",
+			date:          time.Time{},
+			description:   "Test",
+			expectedError: "transaction date cannot be zero",
+		},
+		{
+			name:          "Empty description",
+			id:            "TXN001",
+			date:          validDate,
+			description:   "",
+			expectedError: "description cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parser.NewRawTransaction(tt.id, tt.date, validDate, tt.description, 100.0)
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.expectedError) {
+				t.Errorf("Expected error containing %q, got: %v", tt.expectedError, err)
+			}
 		})
 	}
 }

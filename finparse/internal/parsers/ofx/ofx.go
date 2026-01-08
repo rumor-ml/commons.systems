@@ -65,7 +65,9 @@ func (p *Parser) CanParse(path string, header []byte) bool {
 // Parse extracts raw data from OFX/QFX file
 func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) (*parser.RawStatement, error) {
 	// Read entire content
-	// TODO(#1305): Consider checking context cancellation before io.ReadAll for better responsiveness
+	// TODO(#1305): Consider checking ctx.Err() before io.ReadAll to fail fast if already cancelled.
+	// Note: This won't provide cancellation during the read itself since io.ReadAll doesn't support context.
+	// For true cancellation during read, would need to implement chunked reading with periodic context checks.
 	content, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read OFX content%s: %w", getFileInfo(meta), err)
@@ -324,13 +326,13 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 		}
 	}
 
-	// Security transactions (BuyStock, SellStock, ReinvestIncome, etc.) have complex
-	// fields like units, price per share, and commission that don't map to the simple
-	// RawTransaction model which only supports: ID, date, description, and amount.
-	// Current implementation only extracts cash movements from InvBankTransaction list
-	// (dividends, interest, fees).
-	// TODO(#1294): Add security transaction support - requires extending RawTransaction
-	// model or creating a separate SecurityTransaction type for brokerage statements
+	// Security transactions (BuyStock, SellStock, ReinvestIncome, etc.) are not yet implemented.
+	// These transactions contain fields like units, price per share, and commission that require
+	// either: (1) extending RawTransaction to support security-specific fields, or (2) creating
+	// a separate SecurityTransaction type. Current implementation only extracts cash movements
+	// from InvBankTransaction list (dividends, interest, fees).
+	// TODO(#1294): Implement security transaction support - decide between extending RawTransaction
+	// or creating SecurityTransaction type based on normalization layer requirements
 	securityTxnCount := len(tranList.InvTransactions)
 	if securityTxnCount > 0 {
 		return nil, fmt.Errorf("investment statement contains %d security transactions (BuyStock, SellStock, ReinvestIncome, etc.) which are not yet supported by this parser (see issue #1294). Only cash movement transactions (dividends, interest, fees) are currently supported", securityTxnCount)
@@ -376,8 +378,10 @@ func mapOFXTransactionType(txn ofxgo.Transaction) string {
 	case ofxgo.TrnTypeDep:
 		return "DEPOSIT"
 	default:
-		// Convert unknown transaction types to UNKNOWN_* format for downstream processing
-		// TODO(#1306): Consider returning structured warnings for unknown types instead of just string prefix
+		// Convert unknown transaction types to UNKNOWN_* format for downstream processing.
+		// The UNKNOWN_ prefix allows downstream code to identify and handle unsupported types.
+		// TODO(#1306): Consider logging or collecting unknown types for visibility (currently silent).
+		// Alternative: return error with list of unknown types encountered during parsing.
 		return fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
 	}
 }
@@ -415,7 +419,8 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		return nil, fmt.Errorf("transaction %s missing both posted date and user date", id)
 	}
 
-	// Posted date uses the same value as transaction date
+	// Use the same date for both transaction date and posted date since OFX
+	// doesn't distinguish between them (DtPosted is used as the primary date)
 	postedDate := date
 
 	// Use Name field for description; if empty, fallback to Memo field
@@ -428,8 +433,9 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		return nil, fmt.Errorf("transaction %s missing both name and memo fields", id)
 	}
 
-	// Extract amount (Float64 may have precision loss for very large values,
-	// but this is acceptable for currency amounts which are typically 2 decimal places)
+	// Extract amount. Float64() returns (float64, bool) where the bool indicates exact representation.
+	// For currency amounts with 2 decimal places, precision loss is not a concern. If needed in future,
+	// the exact flag could be checked and logged, but for typical financial transactions this is acceptable.
 	amount, _ := txn.TrnAmt.Float64()
 
 	// Create raw transaction
