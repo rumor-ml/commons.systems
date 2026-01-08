@@ -33,6 +33,15 @@ export class ConsoleErrorClassifier {
       return this.CATEGORIES.EXPECTED;
     }
 
+    // Emulator connectivity issues - temporary state, app operates in offline mode
+    if (errorMessage.includes('Could not reach Cloud Firestore backend')) {
+      return this.CATEGORIES.EXPECTED;
+    }
+
+    if (errorMessage.includes('CORS request did not succeed')) {
+      return this.CATEGORIES.EXPECTED;
+    }
+
     // Future: Add more expected error patterns here
     // Example: if (errorMessage.includes('Firestore not ready')) { return this.CATEGORIES.EXPECTED; }
 
