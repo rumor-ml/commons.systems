@@ -714,6 +714,8 @@ async function init() {
     removeLoadingSpinner();
 
     // Re-attach event listeners (they may be stale after HTMX swap)
+    // Reset the flag so listeners can be re-attached to new DOM elements
+    state.listenersAttached = false;
     setupEventListeners();
 
     // Show fresh loading state while we load data
