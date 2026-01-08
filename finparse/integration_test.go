@@ -205,21 +205,23 @@ func TestIntegration_RegistryIntegration(t *testing.T) {
 	}
 }
 
-// buildFinparse returns the path to the finparse binary
-// NOTE: This assumes the binary is already built via `make build`
-// Integration tests should be run after building the project
+// buildFinparse builds and returns the path to a fresh finparse binary
+// Builds to a temporary directory to ensure tests always run against current code
 func buildFinparse(t *testing.T) string {
 	t.Helper()
 
 	finparseRoot := getFinparseRoot(t)
-	existingBin := filepath.Join(finparseRoot, "bin", "finparse")
+	tmpBin := filepath.Join(t.TempDir(), "finparse")
 
-	// Verify binary exists
-	if _, err := os.Stat(existingBin); err != nil {
-		t.Fatalf("finparse binary not found at %s. Please run 'make build' first", existingBin)
+	// Build fresh binary for this test
+	cmd := exec.Command("go", "build", "-o", tmpBin, "./cmd/finparse")
+	cmd.Dir = finparseRoot
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build finparse: %v\nOutput: %s", err, output)
 	}
 
-	return existingBin
+	return tmpBin
 }
 
 // getFinparseRoot finds the finparse module root directory

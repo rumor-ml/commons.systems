@@ -28,7 +28,7 @@ func (m *mockParser) CanParse(path string, header []byte) bool {
 	return false
 }
 
-func (m *mockParser) Parse(ctx context.Context, r io.Reader, meta parser.Metadata) (*parser.RawStatement, error) {
+func (m *mockParser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) (*parser.RawStatement, error) {
 	return nil, nil
 }
 
@@ -43,7 +43,9 @@ func TestRegistry_Register(t *testing.T) {
 
 	// Register custom parser
 	testParser := &mockParser{name: "test-parser", canParseFunc: nil}
-	reg.Register(testParser)
+	if err := reg.Register(testParser); err != nil {
+		t.Fatalf("Failed to register parser: %v", err)
+	}
 
 	// Verify parser is registered
 	parsers := reg.ListParsers()
@@ -55,8 +57,12 @@ func TestRegistry_Register(t *testing.T) {
 	}
 
 	// Register multiple parsers
-	reg.Register(&mockParser{name: "parser-2", canParseFunc: nil})
-	reg.Register(&mockParser{name: "parser-3", canParseFunc: nil})
+	if err := reg.Register(&mockParser{name: "parser-2", canParseFunc: nil}); err != nil {
+		t.Fatalf("Failed to register parser-2: %v", err)
+	}
+	if err := reg.Register(&mockParser{name: "parser-3", canParseFunc: nil}); err != nil {
+		t.Fatalf("Failed to register parser-3: %v", err)
+	}
 
 	parsers = reg.ListParsers()
 	if len(parsers) != 3 {
@@ -77,9 +83,15 @@ func TestRegistry_ListParsers(t *testing.T) {
 	}
 
 	// Multiple parsers
-	reg.Register(&mockParser{name: "ofx", canParseFunc: nil})
-	reg.Register(&mockParser{name: "csv-pnc", canParseFunc: nil})
-	reg.Register(&mockParser{name: "csv-amex", canParseFunc: nil})
+	if err := reg.Register(&mockParser{name: "ofx", canParseFunc: nil}); err != nil {
+		t.Fatalf("Failed to register ofx: %v", err)
+	}
+	if err := reg.Register(&mockParser{name: "csv-pnc", canParseFunc: nil}); err != nil {
+		t.Fatalf("Failed to register csv-pnc: %v", err)
+	}
+	if err := reg.Register(&mockParser{name: "csv-amex", canParseFunc: nil}); err != nil {
+		t.Fatalf("Failed to register csv-amex: %v", err)
+	}
 
 	parsers = reg.ListParsers()
 	if len(parsers) != 3 {
@@ -204,7 +216,9 @@ func TestRegistry_FindParser(t *testing.T) {
 			// Create registry and register parsers
 			reg := New()
 			for _, p := range tt.parsers {
-				reg.Register(p)
+				if err := reg.Register(p); err != nil {
+					t.Fatalf("Failed to register parser: %v", err)
+				}
 			}
 
 			// Find parser
@@ -253,12 +267,14 @@ func TestRegistry_FindParser_FileErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reg := New()
-			reg.Register(&mockParser{
+			if err := reg.Register(&mockParser{
 				name: "test",
 				canParseFunc: func(path string, header []byte) bool {
 					return true
 				},
-			})
+			}); err != nil {
+				t.Fatalf("Failed to register parser: %v", err)
+			}
 
 			_, err := reg.FindParser(tt.filePath)
 			if err == nil {
@@ -317,13 +333,15 @@ func TestRegistry_FindParser_HeaderReading(t *testing.T) {
 			// Track what header size the parser receives
 			var receivedHeaderLen int
 			reg := New()
-			reg.Register(&mockParser{
+			if err := reg.Register(&mockParser{
 				name: "test",
 				canParseFunc: func(path string, header []byte) bool {
 					receivedHeaderLen = len(header)
 					return true
 				},
-			})
+			}); err != nil {
+				t.Fatalf("Failed to register parser: %v", err)
+			}
 
 			_, err := reg.FindParser(tmpFile)
 			if err != nil {
@@ -344,14 +362,16 @@ func TestRegistry_FindParser_EmptyFile(t *testing.T) {
 
 	var receivedHeaderLen int
 	reg := New()
-	reg.Register(&mockParser{
+	if err := reg.Register(&mockParser{
 		name: "empty-handler",
 		canParseFunc: func(path string, header []byte) bool {
 			receivedHeaderLen = len(header)
 			// Parser can choose to accept or reject empty files
 			return len(header) == 0
 		},
-	})
+	}); err != nil {
+		t.Fatalf("Failed to register parser: %v", err)
+	}
 
 	foundParser, err := reg.FindParser(tmpFile)
 	if err != nil {
@@ -375,14 +395,16 @@ func TestRegistry_FindParser_BinaryFiles(t *testing.T) {
 
 	var receivedHeader []byte
 	reg := New()
-	reg.Register(&mockParser{
+	if err := reg.Register(&mockParser{
 		name: "binary",
 		canParseFunc: func(path string, header []byte) bool {
 			receivedHeader = make([]byte, len(header))
 			copy(receivedHeader, header)
 			return header[0] == 0x00 && header[1] == 0xFF
 		},
-	})
+	}); err != nil {
+		t.Fatalf("Failed to register parser: %v", err)
+	}
 
 	foundParser, err := reg.FindParser(tmpFile)
 	if err != nil {
@@ -412,13 +434,15 @@ func TestRegistry_FindParser_PathPassed(t *testing.T) {
 
 	var receivedPath string
 	reg := New()
-	reg.Register(&mockParser{
+	if err := reg.Register(&mockParser{
 		name: "path-checker",
 		canParseFunc: func(path string, header []byte) bool {
 			receivedPath = path
 			return true
 		},
-	})
+	}); err != nil {
+		t.Fatalf("Failed to register parser: %v", err)
+	}
 
 	_, err := reg.FindParser(tmpFile)
 	if err != nil {

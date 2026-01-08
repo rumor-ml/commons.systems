@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,28 +64,28 @@ func TestScanner_Scan(t *testing.T) {
 
 	for _, result := range results {
 		switch {
-		case result.Metadata.Institution == "American Express":
+		case result.Metadata.Institution() == "American Express":
 			foundAmex = true
-			assert.Equal(t, "2011", result.Metadata.AccountNumber)
-			assert.Equal(t, "2025-10", result.Metadata.Period)
+			assert.Equal(t, "2011", result.Metadata.AccountNumber())
+			assert.Equal(t, "2025-10", result.Metadata.Period())
 			assert.Contains(t, result.Path, "statement.qfx")
 
-		case result.Metadata.Institution == "Capital One":
+		case result.Metadata.Institution() == "Capital One":
 			foundCapOne = true
-			assert.Equal(t, "checking", result.Metadata.AccountNumber)
-			assert.Empty(t, result.Metadata.Period, "no period directory")
+			assert.Equal(t, "checking", result.Metadata.AccountNumber())
+			assert.Empty(t, result.Metadata.Period(), "no period directory")
 			assert.Contains(t, result.Path, "statement.csv")
 
-		case result.Metadata.Institution == "Chase":
+		case result.Metadata.Institution() == "Chase":
 			foundChase = true
-			assert.Empty(t, result.Metadata.AccountNumber, "minimal structure")
-			assert.Empty(t, result.Metadata.Period)
+			assert.Empty(t, result.Metadata.AccountNumber(), "minimal structure")
+			assert.Empty(t, result.Metadata.Period())
 			assert.Contains(t, result.Path, "statement.ofx")
 		}
 
 		// All results should have FilePath and DetectedAt set
-		assert.NotEmpty(t, result.Metadata.FilePath)
-		assert.False(t, result.Metadata.DetectedAt.IsZero())
+		assert.NotEmpty(t, result.Metadata.FilePath())
+		assert.False(t, result.Metadata.DetectedAt().IsZero())
 	}
 
 	assert.True(t, foundAmex, "should find American Express statement")
@@ -117,76 +116,60 @@ func TestExtractMetadata(t *testing.T) {
 	scanner := New("/base")
 
 	tests := []struct {
-		name     string
-		filePath string
-		rootDir  string
-		expected parser.Metadata
+		name          string
+		filePath      string
+		rootDir       string
+		institution   string
+		accountNumber string
+		period        string
 	}{
 		{
-			name:     "full path with period",
-			filePath: "/base/american_express/2011/2025-10/statement.qfx",
-			rootDir:  "/base",
-			expected: parser.Metadata{
-				FilePath:      "/base/american_express/2011/2025-10/statement.qfx",
-				Institution:   "American Express",
-				AccountNumber: "2011",
-				Period:        "2025-10",
-			},
+			name:          "full path with period",
+			filePath:      "/base/american_express/2011/2025-10/statement.qfx",
+			rootDir:       "/base",
+			institution:   "American Express",
+			accountNumber: "2011",
+			period:        "2025-10",
 		},
 		{
-			name:     "path without period",
-			filePath: "/base/capital_one/checking/statement.csv",
-			rootDir:  "/base",
-			expected: parser.Metadata{
-				FilePath:      "/base/capital_one/checking/statement.csv",
-				Institution:   "Capital One",
-				AccountNumber: "checking",
-				Period:        "",
-			},
+			name:          "path without period",
+			filePath:      "/base/capital_one/checking/statement.csv",
+			rootDir:       "/base",
+			institution:   "Capital One",
+			accountNumber: "checking",
+			period:        "",
 		},
 		{
-			name:     "minimal path (institution only)",
-			filePath: "/base/chase/statement.ofx",
-			rootDir:  "/base",
-			expected: parser.Metadata{
-				FilePath:      "/base/chase/statement.ofx",
-				Institution:   "Chase",
-				AccountNumber: "",
-				Period:        "",
-			},
+			name:          "minimal path (institution only)",
+			filePath:      "/base/chase/statement.ofx",
+			rootDir:       "/base",
+			institution:   "Chase",
+			accountNumber: "",
+			period:        "",
 		},
 		{
-			name:     "file at root",
-			filePath: "/base/statement.qfx",
-			rootDir:  "/base",
-			expected: parser.Metadata{
-				FilePath:      "/base/statement.qfx",
-				Institution:   "",
-				AccountNumber: "",
-				Period:        "",
-			},
+			name:          "file at root",
+			filePath:      "/base/statement.qfx",
+			rootDir:       "/base",
+			institution:   "",
+			accountNumber: "",
+			period:        "",
 		},
 		{
-			name:     "multiple underscores in institution",
-			filePath: "/base/bank_of_america/savings/2025-11/statement.ofx",
-			rootDir:  "/base",
-			expected: parser.Metadata{
-				FilePath:      "/base/bank_of_america/savings/2025-11/statement.ofx",
-				Institution:   "Bank Of America",
-				AccountNumber: "savings",
-				Period:        "2025-11",
-			},
+			name:          "multiple underscores in institution",
+			filePath:      "/base/bank_of_america/savings/2025-11/statement.ofx",
+			rootDir:       "/base",
+			institution:   "Bank Of America",
+			accountNumber: "savings",
+			period:        "2025-11",
 		},
 		{
-			name:     "non-period directory name",
-			filePath: "/base/chase/checking/statements/file.csv",
-			rootDir:  "/base",
-			expected: parser.Metadata{
-				FilePath:      "/base/chase/checking/statements/file.csv",
-				Institution:   "Chase",
-				AccountNumber: "checking",
-				Period:        "", // "statements" doesn't look like a period
-			},
+			name:          "non-period directory name",
+			filePath:      "/base/chase/checking/statements/file.csv",
+			rootDir:       "/base",
+			institution:   "Chase",
+			accountNumber: "checking",
+			period:        "", // "statements" doesn't look like a period
 		},
 	}
 
@@ -195,11 +178,11 @@ func TestExtractMetadata(t *testing.T) {
 			result, err := scanner.extractMetadata(tt.filePath, tt.rootDir)
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.expected.FilePath, result.FilePath)
-			assert.Equal(t, tt.expected.Institution, result.Institution)
-			assert.Equal(t, tt.expected.AccountNumber, result.AccountNumber)
-			assert.Equal(t, tt.expected.Period, result.Period)
-			assert.False(t, result.DetectedAt.IsZero(), "DetectedAt should be set")
+			assert.Equal(t, tt.filePath, result.FilePath())
+			assert.Equal(t, tt.institution, result.Institution())
+			assert.Equal(t, tt.accountNumber, result.AccountNumber())
+			assert.Equal(t, tt.period, result.Period())
+			assert.False(t, result.DetectedAt().IsZero(), "DetectedAt should be set")
 		})
 	}
 }
@@ -341,7 +324,7 @@ func TestScanner_Scan_WithTildeExpansion(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
-	assert.Equal(t, "Test Bank", results[0].Metadata.Institution)
+	assert.Equal(t, "Test Bank", results[0].Metadata.Institution())
 }
 
 func TestScanner_Scan_IgnoresDirectories(t *testing.T) {

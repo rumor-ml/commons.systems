@@ -25,7 +25,21 @@ func New(rootDir string) *Scanner {
 // ScanResult represents a found file with metadata
 type ScanResult struct {
 	Path     string
-	Metadata parser.Metadata
+	Metadata *parser.Metadata
+}
+
+// NewScanResult creates a new ScanResult with validation
+func NewScanResult(path string, metadata *parser.Metadata) (ScanResult, error) {
+	if metadata == nil {
+		return ScanResult{}, fmt.Errorf("metadata cannot be nil")
+	}
+	if path != metadata.FilePath() {
+		return ScanResult{}, fmt.Errorf("path mismatch: %s != %s", path, metadata.FilePath())
+	}
+	return ScanResult{
+		Path:     path,
+		Metadata: metadata,
+	}, nil
 }
 
 // Scan walks the directory tree and finds all statement files
@@ -61,15 +75,14 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 			return fmt.Errorf("metadata extraction failed at %s (processed %d files so far): %w", path, fileCount, err)
 		}
 
-		// Validate metadata
-		if err := metadata.Validate(); err != nil {
-			return fmt.Errorf("invalid metadata for %s (processed %d files so far): %w", path, fileCount, err)
+		// Create validated ScanResult
+		// TODO(#1281): Add test for metadata validation error path
+		result, err := NewScanResult(path, metadata)
+		if err != nil {
+			return fmt.Errorf("failed to create scan result for %s (processed %d files so far): %w", path, fileCount, err)
 		}
 
-		results = append(results, ScanResult{
-			Path:     path,
-			Metadata: metadata,
-		})
+		results = append(results, result)
 		fileCount++
 
 		return nil
@@ -91,38 +104,35 @@ func (s *Scanner) isStatementFile(path string) bool {
 // extractMetadata parses directory structure to extract institution/account info
 // Path structure: {root}/{institution}/{account}/{period?}/file.ext
 // Example: ~/statements/american_express/2011/2025-10/statement.qfx
-// TODO(#1269): Return zero-value metadata on error instead of partial metadata
-func (s *Scanner) extractMetadata(filePath, rootDir string) (parser.Metadata, error) {
+func (s *Scanner) extractMetadata(filePath, rootDir string) (*parser.Metadata, error) {
 	// Get relative path from root
 	relPath, err := filepath.Rel(rootDir, filePath)
 	if err != nil {
-		return parser.Metadata{
-			FilePath:   filePath,
-			DetectedAt: time.Now(),
-		}, fmt.Errorf("failed to compute relative path for %s: %w", filePath, err)
+		return nil, fmt.Errorf("failed to compute relative path for %s: %w", filePath, err)
 	}
 
 	// Split path into components
 	parts := strings.Split(filepath.ToSlash(relPath), "/")
 
-	meta := parser.Metadata{
-		FilePath:   filePath,
-		DetectedAt: time.Now(),
+	// Create metadata with required fields
+	meta, err := parser.NewMetadata(filePath, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metadata for %s: %w", filePath, err)
 	}
 
 	// Extract institution (first directory)
 	if len(parts) >= 2 {
-		meta.Institution = s.normalizeInstitutionName(parts[0])
+		meta.SetInstitution(s.normalizeInstitutionName(parts[0]))
 	}
 
 	// Extract account number (second directory)
 	if len(parts) >= 3 {
-		meta.AccountNumber = parts[1]
+		meta.SetAccountNumber(parts[1])
 	}
 
 	// Extract period (third directory, if it looks like a date)
 	if len(parts) >= 4 && s.looksLikePeriod(parts[2]) {
-		meta.Period = parts[2]
+		meta.SetPeriod(parts[2])
 	}
 
 	return meta, nil
@@ -147,8 +157,10 @@ func (s *Scanner) normalizeInstitutionName(dirName string) string {
 }
 
 // looksLikePeriod checks if string might be a date period.
-// Lenient check: length >= 7 with dash at position 4 (typical YYYY-MM format).
-// Does not validate that characters are digits - relies on directory naming conventions.
+// Minimal structural check for YYYY-MM pattern: length >= 7 with dash at position 4.
+// Does not validate digits - accepts any string matching this pattern (e.g., "abcd-ef").
+// Relies on directory naming conventions to avoid false positives.
+// TODO(#1282): Add tests for false positives like "backup-2024" and "2025-Q1"
 func (s *Scanner) looksLikePeriod(str string) bool {
 	return len(str) >= 7 && str[4] == '-'
 }

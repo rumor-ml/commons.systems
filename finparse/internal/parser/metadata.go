@@ -8,34 +8,75 @@ import (
 // Metadata contains context about the file being parsed.
 // Extracted from directory structure: ~/statements/{institution}/{account}/[{period}/]file.ext
 //
-// Invariants:
-// - FilePath must be non-empty (validated by Validate())
-// - DetectedAt must not be zero time (validated by Validate())
-// - Institution can be empty if path doesn't match expected structure
-// - AccountNumber can be empty if path doesn't match expected structure
-// - Period is optional (empty if no period directory exists)
+// Create instances using NewMetadata(filePath, detectedAt). This constructor validates
+// required fields (filePath and detectedAt) to ensure metadata is always in a valid state.
+// Optional fields (institution, account, period) can be set after construction using setter methods.
 //
-// When Institution or AccountNumber are empty, downstream processing should handle
-// this gracefully, either by warning the user or treating the file as "unorganized".
+// When Institution() or AccountNumber() return empty strings, the file path didn't match
+// the expected directory structure. Downstream processing must check for empty values and
+// either warn the user or treat the file as unorganized (not categorized by institution/account).
 type Metadata struct {
-	FilePath      string
-	Institution   string // Inferred from directory (e.g., "american_express")
-	AccountNumber string // Inferred from directory (e.g., "2011")
-	Period        string // Optional period directory (e.g., "2025-10")
-	DetectedAt    time.Time
+	filePath      string
+	institution   string // Inferred from directory (e.g., "american_express")
+	accountNumber string // Inferred from directory (e.g., "2011")
+	period        string // Optional period directory (e.g., "2025-10")
+	detectedAt    time.Time
 }
 
-// Validate checks that metadata is well-formed
-func (m *Metadata) Validate() error {
-	if m.FilePath == "" {
-		return fmt.Errorf("file path cannot be empty")
+// NewMetadata creates a new Metadata instance with validated required fields.
+// Returns an error if filePath is empty or detectedAt is zero.
+func NewMetadata(filePath string, detectedAt time.Time) (*Metadata, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path cannot be empty")
 	}
-	if m.DetectedAt.IsZero() {
-		return fmt.Errorf("detected time cannot be zero")
+	if detectedAt.IsZero() {
+		return nil, fmt.Errorf("detected time cannot be zero")
 	}
-	// Institution and AccountNumber can be empty if path structure doesn't match
-	// the expected format (~/statements/{institution}/{account}/...).
-	// Downstream processing should handle missing institution/account metadata gracefully.
-	// FilePath and DetectedAt are always required for tracking purposes.
-	return nil
+	return &Metadata{
+		filePath:   filePath,
+		detectedAt: detectedAt,
+	}, nil
+}
+
+// FilePath returns the absolute file path
+func (m *Metadata) FilePath() string {
+	return m.filePath
+}
+
+// Institution returns the institution name inferred from directory structure.
+// Returns empty string if path didn't match expected structure.
+func (m *Metadata) Institution() string {
+	return m.institution
+}
+
+// AccountNumber returns the account number inferred from directory structure.
+// Returns empty string if path didn't match expected structure.
+func (m *Metadata) AccountNumber() string {
+	return m.accountNumber
+}
+
+// Period returns the period inferred from directory structure.
+// Returns empty string if no period directory exists.
+func (m *Metadata) Period() string {
+	return m.period
+}
+
+// DetectedAt returns the timestamp when the file was detected
+func (m *Metadata) DetectedAt() time.Time {
+	return m.detectedAt
+}
+
+// SetInstitution sets the institution name
+func (m *Metadata) SetInstitution(institution string) {
+	m.institution = institution
+}
+
+// SetAccountNumber sets the account number
+func (m *Metadata) SetAccountNumber(accountNumber string) {
+	m.accountNumber = accountNumber
+}
+
+// SetPeriod sets the period
+func (m *Metadata) SetPeriod(period string) {
+	m.period = period
 }

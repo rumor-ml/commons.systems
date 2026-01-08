@@ -193,6 +193,7 @@ func TestRun_VerboseOutput(t *testing.T) {
 	defer withFlags(t, tmpDir, true, true)()
 
 	// Capture stdout
+	// TODO(#1278): Check errors from pipe creation and reading
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -219,5 +220,60 @@ func TestRun_VerboseOutput(t *testing.T) {
 	}
 	if !strings.Contains(outputStr, "Found") && !strings.Contains(outputStr, "statement files") {
 		t.Errorf("Expected verbose output to show file count, got:\n%s", outputStr)
+	}
+}
+
+// TestRun_NonVerboseSuccess tests the default non-verbose success path
+func TestRun_NonVerboseSuccess(t *testing.T) {
+	// Create temp directory structure
+	tmpDir := t.TempDir()
+	instDir := filepath.Join(tmpDir, "test_bank")
+	acctDir := filepath.Join(instDir, "1234")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a test statement file
+	testFile := filepath.Join(acctDir, "statement.ofx")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set flags: non-dry-run, non-verbose (most common production usage)
+	defer withFlags(t, tmpDir, false, false)()
+
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	// Run
+	err := run()
+
+	// Restore stdout
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Read captured output
+	output := make([]byte, 4096)
+	n, _ := r.Read(output)
+	outputStr := string(output[:n])
+
+	// Verify the "Parsing not yet implemented" message is printed
+	// This protects against accidental removal of the message (main.go:110)
+	if !strings.Contains(outputStr, "Parsing not yet implemented") {
+		t.Errorf("Expected output to contain 'Parsing not yet implemented', got:\n%s", outputStr)
+	}
+
+	// Verify NO verbose scanning details are printed
+	if strings.Contains(outputStr, "Scanning directory:") {
+		t.Errorf("Expected no verbose output in non-verbose mode, got:\n%s", outputStr)
+	}
+	if strings.Contains(outputStr, "Found") && strings.Contains(outputStr, "statement files") {
+		t.Errorf("Expected no verbose file count in non-verbose mode, got:\n%s", outputStr)
 	}
 }

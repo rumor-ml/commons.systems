@@ -17,7 +17,8 @@ type Parser interface {
 	CanParse(path string, header []byte) bool
 
 	// Parse extracts raw data from file
-	Parse(ctx context.Context, r io.Reader, meta Metadata) (*RawStatement, error)
+	// TODO(#1281): Add behavioral tests for Parse() method contract (context cancellation, IO errors, metadata propagation)
+	Parse(ctx context.Context, r io.Reader, meta *Metadata) (*RawStatement, error)
 }
 
 // RawStatement represents parsed data before normalization
@@ -47,7 +48,8 @@ func (r *RawAccount) AccountID() string { return r.accountID }
 // AccountType returns the account type
 func (r *RawAccount) AccountType() string { return r.accountType }
 
-// SetInstitutionName updates the institution name (populated from metadata after construction)
+// SetInstitutionName updates the institution name (populated from metadata after construction).
+// Empty names are allowed as InstitutionName may remain unpopulated if metadata is unavailable.
 func (r *RawAccount) SetInstitutionName(name string) {
 	r.institutionName = name
 }
@@ -61,9 +63,9 @@ func NewRawAccount(institutionID, institutionName, accountID, accountType string
 		return nil, fmt.Errorf("account ID cannot be empty")
 	}
 	// Note: InstitutionName is optional and can be empty if not available in the parsed file.
-	// It will be populated from the directory-based metadata (extracted by Scanner) during processing.
-	// TODO(#1268): AccountType will be validated during normalization to domain.AccountType
-	// TODO(#1272): Add validation in normalization step to ensure InstitutionName gets populated from metadata
+	// It MAY be populated from the directory-based metadata (extracted by Scanner) during processing.
+	// TODO: AccountType will be validated during normalization to domain.AccountType
+	// TODO: Add validation in normalization step to ensure InstitutionName gets populated from metadata
 
 	return &RawAccount{
 		institutionID:   institutionID,
@@ -145,7 +147,9 @@ func (r *RawTransaction) Type() string { return r.txnType }
 // Memo returns the transaction memo
 func (r *RawTransaction) Memo() string { return r.memo }
 
-// SetType sets the optional transaction type (e.g., "DEBIT", "CREDIT")
+// SetType sets the optional transaction type.
+// Common values: "DEBIT", "CREDIT", "ATM", "CHECK", "TRANSFER", "FEE".
+// Type is free-form and not validated - normalization will handle type mapping.
 func (r *RawTransaction) SetType(txnType string) {
 	r.txnType = txnType
 }
@@ -164,7 +168,7 @@ func NewRawTransaction(id string, date, postedDate time.Time, description string
 		return nil, fmt.Errorf("transaction date cannot be zero")
 	}
 	if postedDate.IsZero() {
-		postedDate = date // Default to transaction date if not provided
+		postedDate = date // If postedDate is zero, use transaction date as fallback
 	}
 	if description == "" {
 		return nil, fmt.Errorf("description cannot be empty")

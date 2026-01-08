@@ -74,7 +74,6 @@ type Institution struct {
 }
 
 // Budget is the root output structure (full JSON file)
-// TODO(#1273): Add validation for referential integrity between collections
 type Budget struct {
 	Institutions []Institution `json:"institutions"`
 	Accounts     []Account     `json:"accounts"`
@@ -103,7 +102,7 @@ func NewTransaction(id, date, description string, amount float64, category Categ
 		Description:    description,
 		Amount:         amount,
 		Category:       category,
-		StatementIDs:   []string{}, // Initialize to empty slice, not nil, to match TypeScript schema expectation ([] vs null in JSON)
+		StatementIDs:   []string{}, // Empty slice for JSON serialization
 		RedemptionRate: 0.0,
 	}, nil
 }
@@ -145,7 +144,7 @@ func NewStatement(id, accountID, startDate, endDate string) (*Statement, error) 
 		AccountID:      accountID,
 		StartDate:      startDate,
 		EndDate:        endDate,
-		TransactionIDs: []string{}, // Initialize to empty slice, not nil, to match TypeScript schema expectation ([] vs null in JSON)
+		TransactionIDs: []string{}, // Empty slice for JSON serialization
 	}, nil
 }
 

@@ -88,7 +88,7 @@ func run() error {
 		fmt.Printf("Found %d statement files\n", len(files))
 		for _, f := range files {
 			fmt.Printf("  - %s (institution: %s, account: %s)\n",
-				f.Path, f.Metadata.Institution, f.Metadata.AccountNumber)
+				f.Path, f.Metadata.Institution(), f.Metadata.AccountNumber())
 		}
 	}
 
@@ -105,8 +105,8 @@ func run() error {
 		return nil
 	}
 
-	// TODO(#1271): Add success message in non-verbose mode for better user feedback
-	// TODO: Phase 2+ will implement actual parsing
+	// TODO: Add success message in non-verbose mode for better user feedback
+	// TODO: Phase 2+ will implement actual parsing: call registry.FindParser(), invoke Parser.Parse(), and normalize to domain.Budget struct
 	fmt.Println("Parsing not yet implemented. Phase 1 complete.")
 
 	return nil
