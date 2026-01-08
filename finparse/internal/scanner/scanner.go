@@ -10,6 +10,8 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 )
 
+// TODO(#1266): Consider adding unit tests for scanner and registry
+
 // Scanner walks directory tree and finds statement files
 type Scanner struct {
 	rootDir string
@@ -31,12 +33,15 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 	var results []ScanResult
 
 	// Expand ~ to home directory
-	rootDir := s.expandHome(s.rootDir)
+	rootDir, err := s.expandHome(s.rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand path: %w", err)
+	}
 
 	// Walk directory tree
-	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("error accessing %s: %w", path, err)
 		}
 
 		// Skip directories
@@ -50,7 +55,15 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 		}
 
 		// Extract metadata from path
-		metadata := s.extractMetadata(path, rootDir)
+		metadata, err := s.extractMetadata(path, rootDir)
+		if err != nil {
+			return err
+		}
+
+		// Validate metadata
+		if err := metadata.Validate(); err != nil {
+			return fmt.Errorf("invalid metadata for %s: %w", path, err)
+		}
 
 		results = append(results, ScanResult{
 			Path:     path,
@@ -75,11 +88,15 @@ func (s *Scanner) isStatementFile(path string) bool {
 
 // extractMetadata parses directory structure to extract institution/account info
 // Path structure: {root}/{institution}/{account}/{period?}/file.ext
-func (s *Scanner) extractMetadata(filePath, rootDir string) parser.Metadata {
+// Example: ~/statements/american_express/2011/2025-10/statement.qfx
+func (s *Scanner) extractMetadata(filePath, rootDir string) (parser.Metadata, error) {
 	// Get relative path from root
 	relPath, err := filepath.Rel(rootDir, filePath)
 	if err != nil {
-		relPath = filePath
+		return parser.Metadata{
+			FilePath:   filePath,
+			DetectedAt: time.Now(),
+		}, fmt.Errorf("failed to compute relative path for %s: %w", filePath, err)
 	}
 
 	// Split path into components
@@ -105,7 +122,7 @@ func (s *Scanner) extractMetadata(filePath, rootDir string) parser.Metadata {
 		meta.Period = parts[2]
 	}
 
-	return meta
+	return meta, nil
 }
 
 // normalizeInstitutionName converts directory name to readable name
@@ -126,17 +143,21 @@ func (s *Scanner) normalizeInstitutionName(dirName string) string {
 	return strings.Join(words, " ")
 }
 
-// looksLikePeriod checks if string looks like a date period (YYYY-MM)
+// looksLikePeriod checks if string might be a date period (lenient check: 7+ chars with dash at position 4)
 func (s *Scanner) looksLikePeriod(str string) bool {
 	// Simple check: starts with 4 digits
 	return len(str) >= 7 && str[4] == '-'
 }
 
 // expandHome expands ~ to home directory
-func (s *Scanner) expandHome(path string) string {
+// TODO(#1267): Add validation of expanded path to provide better error messages
+func (s *Scanner) expandHome(path string) (string, error) {
 	if strings.HasPrefix(path, "~/") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[2:])
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
+		return filepath.Join(home, path[2:]), nil
 	}
-	return path
+	return path, nil
 }

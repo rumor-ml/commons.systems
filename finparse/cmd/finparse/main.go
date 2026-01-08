@@ -17,16 +17,18 @@ var (
 	// Global flags
 	versionFlag = flag.Bool("version", false, "Show version")
 
-	// Parse command flags
-	inputDir           = flag.String("input", "", "Input directory containing statements (required)")
-	outputFile         = flag.String("output", "", "Output JSON file (default: stdout)")
-	stateFile          = flag.String("state", "", "Deduplication state file")
-	rulesFile          = flag.String("rules", "", "Category rules file")
-	mergeMode          = flag.Bool("merge", false, "Merge with existing output file")
-	dryRun             = flag.Bool("dry-run", false, "Show what would be parsed without writing")
-	verbose            = flag.Bool("verbose", false, "Show detailed parsing logs")
-	formatFilter       = flag.String("format", "all", "Filter by format: ofx,csv,all")
-	institutionFilter  = flag.String("institution", "", "Filter by institution name")
+	// Phase 1 flags (currently used)
+	inputDir = flag.String("input", "", "Input directory containing statements (required)")
+	dryRun   = flag.Bool("dry-run", false, "Show what would be parsed without writing")
+	verbose  = flag.Bool("verbose", false, "Show detailed parsing logs")
+
+	// Future phase flags (Phase 2+, not yet implemented)
+	outputFile        = flag.String("output", "", "Output JSON file (default: stdout)")
+	stateFile         = flag.String("state", "", "Deduplication state file")
+	rulesFile         = flag.String("rules", "", "Category rules file")
+	mergeMode         = flag.Bool("merge", false, "Merge with existing output file")
+	formatFilter      = flag.String("format", "all", "Filter by format: ofx,csv,all")
+	institutionFilter = flag.String("institution", "", "Filter by institution name")
 )
 
 func main() {

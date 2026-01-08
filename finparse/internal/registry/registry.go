@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
@@ -29,24 +30,30 @@ func (r *Registry) Register(p parser.Parser) {
 }
 
 // FindParser returns the best parser for this file
-// Reads first 512 bytes to detect format
+// Reads first 512 bytes (standard block size) for format detection via header inspection
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file %s: %v\n", path, cerr)
+		}
+	}()
 
 	header := make([]byte, 512)
 	n, err := f.Read(header)
-	if err != nil && n == 0 {
-		return nil, fmt.Errorf("failed to read header: %w", err)
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("failed to read header from %s: %w", path, err)
 	}
+	// EOF is OK - file may be < 512 bytes
+	header = header[:n]
 
 	// Try each parser's CanParse method
 	for _, p := range r.parsers {
-		if p.CanParse(path, header[:n]) {
+		if p.CanParse(path, header) {
 			return p, nil
 		}
 	}
