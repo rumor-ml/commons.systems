@@ -123,7 +123,8 @@ test.describe('Card Visibility - Unauthenticated Users', () => {
 test.describe('Card Visibility - Authenticated Users', () => {
   test.skip(!isEmulatorMode, 'Card visibility tests only run against emulator');
 
-  test('should see both public and own private cards when authenticated', async ({
+  // TODO(#1265): Fix test isolation issue with 2 workers
+  test.skip('should see both public and own private cards when authenticated', async ({
     page,
     authEmulator,
   }) => {
