@@ -101,7 +101,10 @@ func run() error {
 	}
 
 	// Create parser registry
-	reg := registry.New()
+	reg, err := registry.New()
+	if err != nil {
+		return fmt.Errorf("failed to create parser registry: %w", err)
+	}
 
 	if *verbose {
 		fmt.Printf("Registered parsers: %v\n", reg.ListParsers())

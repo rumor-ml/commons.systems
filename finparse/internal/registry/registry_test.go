@@ -32,8 +32,45 @@ func (m *mockParser) Parse(ctx context.Context, r io.Reader, meta *parser.Metada
 	return nil, nil
 }
 
+func TestRegistry_New(t *testing.T) {
+	// Test that New() returns a registry without error
+	reg, err := New()
+	if err != nil {
+		t.Fatalf("New() returned unexpected error: %v", err)
+	}
+	if reg == nil {
+		t.Fatal("New() returned nil registry")
+	}
+
+	// Should have built-in parsers (OFX)
+	initialParsers := reg.ListParsers()
+	if len(initialParsers) != 1 {
+		t.Errorf("Expected 1 initial parser (ofx), got %d", len(initialParsers))
+	}
+	if initialParsers[0] != "ofx" {
+		t.Errorf("Expected initial parser 'ofx', got '%s'", initialParsers[0])
+	}
+}
+
+func TestRegistry_MustNew(t *testing.T) {
+	// Test that MustNew() returns a registry
+	reg := MustNew()
+	if reg == nil {
+		t.Fatal("MustNew() returned nil registry")
+	}
+
+	// Should have built-in parsers (OFX)
+	initialParsers := reg.ListParsers()
+	if len(initialParsers) != 1 {
+		t.Errorf("Expected 1 initial parser (ofx), got %d", len(initialParsers))
+	}
+	if initialParsers[0] != "ofx" {
+		t.Errorf("Expected initial parser 'ofx', got '%s'", initialParsers[0])
+	}
+}
+
 func TestRegistry_Register(t *testing.T) {
-	reg := New()
+	reg := MustNew()
 
 	// Initially has built-in parsers (OFX)
 	initialParsers := reg.ListParsers()
@@ -74,7 +111,7 @@ func TestRegistry_Register(t *testing.T) {
 }
 
 func TestRegistry_Register_NilParser(t *testing.T) {
-	reg := New()
+	reg := MustNew()
 	err := reg.Register(nil)
 	if err == nil {
 		t.Error("Expected error when registering nil parser")
@@ -85,7 +122,7 @@ func TestRegistry_Register_NilParser(t *testing.T) {
 }
 
 func TestRegistry_Register_DuplicateName(t *testing.T) {
-	reg := New()
+	reg := MustNew()
 
 	// Register first parser
 	parser1 := &mockParser{name: "test-parser", canParseFunc: nil}
@@ -114,7 +151,7 @@ func TestRegistry_Register_DuplicateName(t *testing.T) {
 }
 
 func TestRegistry_ListParsers(t *testing.T) {
-	reg := New()
+	reg := MustNew()
 
 	// Registry with built-in parsers
 	parsers := reg.ListParsers()
@@ -257,7 +294,7 @@ func TestRegistry_FindParser(t *testing.T) {
 			defer os.Remove(tmpFile)
 
 			// Create registry and register parsers
-			reg := New()
+			reg := MustNew()
 			for _, p := range tt.parsers {
 				// Skip if parser name already exists (e.g., built-in "ofx" parser)
 				// In real usage, custom parsers would use different names
@@ -314,7 +351,7 @@ func TestRegistry_FindParser_FileErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reg := New()
+			reg := MustNew()
 			if err := reg.Register(&mockParser{
 				name: "test",
 				canParseFunc: func(path string, header []byte) bool {
@@ -380,7 +417,7 @@ func TestRegistry_FindParser_HeaderReading(t *testing.T) {
 
 			// Track what header size the parser receives
 			var receivedHeaderLen int
-			reg := New()
+			reg := MustNew()
 			if err := reg.Register(&mockParser{
 				name: "test",
 				canParseFunc: func(path string, header []byte) bool {
@@ -409,7 +446,7 @@ func TestRegistry_FindParser_EmptyFile(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	var receivedHeaderLen int
-	reg := New()
+	reg := MustNew()
 	if err := reg.Register(&mockParser{
 		name: "empty-handler",
 		canParseFunc: func(path string, header []byte) bool {
@@ -442,7 +479,7 @@ func TestRegistry_FindParser_BinaryFiles(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	var receivedHeader []byte
-	reg := New()
+	reg := MustNew()
 	if err := reg.Register(&mockParser{
 		name: "binary",
 		canParseFunc: func(path string, header []byte) bool {
@@ -481,7 +518,7 @@ func TestRegistry_FindParser_PathPassed(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	var receivedPath string
-	reg := New()
+	reg := MustNew()
 	if err := reg.Register(&mockParser{
 		name: "path-checker",
 		canParseFunc: func(path string, header []byte) bool {

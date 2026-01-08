@@ -2,6 +2,8 @@ package ofx
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -214,7 +216,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -330,7 +335,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/credit.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/credit.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -436,7 +444,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/investment.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/investment.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -464,7 +475,7 @@ NEWFILEUID:NONE
 		t.Errorf("Period.End = %v, want %v", stmt.Period.End(), expectedEnd)
 	}
 
-	// Verify transactions (InvBankTransaction parsing)
+	// Verify transactions from InvBankTransaction list (cash movements like dividends/fees)
 	if len(stmt.Transactions) != 2 {
 		t.Fatalf("got %d transactions, want 2", len(stmt.Transactions))
 	}
@@ -511,9 +522,12 @@ func TestParse_InvalidOFX(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewParser()
-			meta, _ := parser.NewMetadata("/test/invalid.ofx", time.Now())
+			meta, err := parser.NewMetadata("/test/invalid.ofx", time.Now())
+			if err != nil {
+				t.Fatalf("failed to create metadata: %v", err)
+			}
 
-			_, err := p.Parse(context.Background(), strings.NewReader(tt.content), meta)
+			_, err = p.Parse(context.Background(), strings.NewReader(tt.content), meta)
 			if err == nil {
 				t.Error("Parse() expected error, got nil")
 			}
@@ -575,13 +589,16 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	// Create cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, err := p.Parse(ctx, strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(ctx, strings.NewReader(ofxContent), meta)
 	if err != context.Canceled {
 		t.Errorf("Expected context.Canceled, got %v", err)
 	}
@@ -639,9 +656,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/credit.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/credit.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing institution ID") {
 		t.Errorf("Expected missing institution ID error, got %v", err)
 	}
@@ -700,9 +720,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/credit.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/credit.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing account ID") {
 		t.Errorf("Expected missing account ID error, got %v", err)
 	}
@@ -757,9 +780,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/credit.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/credit.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing transaction list") {
 		t.Errorf("Expected missing transaction list error, got %v", err)
 	}
@@ -819,9 +845,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/bank.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/bank.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing institution ID") {
 		t.Errorf("Expected missing institution ID error, got %v", err)
 	}
@@ -882,10 +911,13 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/bank.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/bank.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
-	// OFX library validates and returns error mentioning "AcctID empty" or we catch it with "missing account ID"
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	// ofxgo.ParseResponse may return error about "AcctID empty", or if it doesn't, our code catches it with "missing account ID" check
 	if err == nil || !(strings.Contains(err.Error(), "missing account ID") || strings.Contains(err.Error(), "AcctID empty")) {
 		t.Errorf("Expected missing account ID error, got %v", err)
 	}
@@ -942,9 +974,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/bank.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/bank.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing transaction list") {
 		t.Errorf("Expected missing transaction list error, got %v", err)
 	}
@@ -1003,9 +1038,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/investment.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/investment.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing institution ID") {
 		t.Errorf("Expected missing institution ID error, got %v", err)
 	}
@@ -1065,9 +1103,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/investment.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/investment.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing account ID") {
 		t.Errorf("Expected missing account ID error, got %v", err)
 	}
@@ -1123,9 +1164,12 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/investment.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/investment.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
-	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err == nil || !strings.Contains(err.Error(), "missing transaction list") {
 		t.Errorf("Expected missing transaction list error, got %v", err)
 	}
@@ -1242,7 +1286,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -1323,7 +1370,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/savings.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/savings.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -1396,7 +1446,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
 	if err != nil {
@@ -1466,7 +1519,10 @@ NEWFILEUID:NONE
 </OFX>`
 
 	p := NewParser()
-	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+	meta, err := parser.NewMetadata("/test/statement.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
 	meta.SetInstitution("My Custom Bank Name")
 
 	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
@@ -1480,15 +1536,477 @@ NEWFILEUID:NONE
 }
 
 func TestMapBankAccountType(t *testing.T) {
-	t.Skip("Cannot unit test due to unexported ofxgo.BankAcct.AcctType field - validated via synthetic statement tests (TestParse_SyntheticBankStatement, TestParse_SavingsAccount)")
+	t.Skip("Cannot construct ofxgo.BankAcct with specific AcctType values (unexported field). Mapping validated via synthetic statement tests (TestParse_SyntheticBankStatement, TestParse_SavingsAccount) that parse OFX content containing known account types.")
 }
 
 func TestMapOFXTransactionType(t *testing.T) {
-	// Similar to TestMapBankAccountType, the actual mapping is validated
-	// through synthetic and integration tests since trnType is unexported
-	// and we can't construct Transaction objects with specific types directly.
-	// The synthetic bank statement test validates DEBIT and CREDIT mappings.
+	// Cannot construct ofxgo.Transaction with specific trnType values (unexported field).
+	// Mapping validated via synthetic statement tests (e.g., TestParse_SyntheticBankStatement)
+	// that parse OFX content containing known transaction types (DEBIT, CREDIT, etc.).
 	t.Skip("Transaction type mapping validated through synthetic statement tests")
+}
+
+func TestParse_TransactionMissingID(t *testing.T) {
+	// OFX with transaction missing FITID - ofxgo library validates and rejects during parse
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20240101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>9876543210
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20240101000000
+<DTEND>20240131235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20240105120000
+<TRNAMT>-50.00
+<NAME>No ID Transaction
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>50.00
+<DTASOF>20240131235959
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
+	p := NewParser()
+	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+
+	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	// ofxgo library validates FITID field and rejects malformed OFX
+	if err == nil {
+		t.Fatal("Expected error for transaction without FITID, got nil")
+	}
+	if !strings.Contains(err.Error(), "FiTID") && !strings.Contains(err.Error(), "ID") {
+		t.Errorf("Expected error mentioning transaction ID validation, got: %v", err)
+	}
+}
+
+func TestParse_TransactionMissingDates(t *testing.T) {
+	// Transaction with no DTPOSTED or DTUSER - ofxgo validates and rejects
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20240101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>9876543210
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20240101000000
+<DTEND>20240131235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<TRNAMT>-50.00
+<FITID>NODATE001
+<NAME>No Date Transaction
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>50.00
+<DTASOF>20240131235959
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
+	p := NewParser()
+	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+
+	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	// ofxgo requires either DtPosted or DtUser to be present
+	if err == nil {
+		t.Fatal("Expected error for transaction without dates, got nil")
+	}
+	if !strings.Contains(err.Error(), "DtPosted") && !strings.Contains(err.Error(), "date") {
+		t.Errorf("Expected error mentioning date validation, got: %v", err)
+	}
+}
+
+func TestParse_TransactionMissingDescription(t *testing.T) {
+	// Transaction with empty NAME and MEMO should be skipped
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20240101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>9876543210
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20240101000000
+<DTEND>20240131235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20240105120000
+<TRNAMT>-50.00
+<FITID>NODESC001
+<NAME>
+<MEMO>
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20240110120000
+<TRNAMT>100.00
+<FITID>VALID001
+<NAME>Valid Transaction
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>50.00
+<DTASOF>20240131235959
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
+	p := NewParser()
+	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+
+	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	// Should skip transaction without description
+	if len(stmt.Transactions) != 1 {
+		t.Fatalf("Expected 1 transaction (skipped 1 without description), got %d", len(stmt.Transactions))
+	}
+}
+
+func TestParse_NoSupportedStatementTypes(t *testing.T) {
+	// Valid OFX but no statement sections
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20240101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+</OFX>`
+
+	p := NewParser()
+	meta, _ := parser.NewMetadata("/test/empty.ofx", time.Now())
+
+	_, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	if err == nil {
+		t.Fatal("Expected error for OFX with no statement types, got nil")
+	}
+	if !strings.Contains(err.Error(), "no supported statement type found") {
+		t.Errorf("Expected 'no supported statement type found' error, got: %v", err)
+	}
+	// Verify diagnostic counts are included
+	if !strings.Contains(err.Error(), "creditcard: 0") || !strings.Contains(err.Error(), "bank: 0") {
+		t.Errorf("Expected diagnostic counts in error message, got: %v", err)
+	}
+}
+
+func TestParse_TransactionWithMemo(t *testing.T) {
+	// Transaction with both NAME and MEMO - verify memo is preserved
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20240101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>9876543210
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20240101000000
+<DTEND>20240131235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20240105120000
+<TRNAMT>-50.00
+<FITID>TXN001
+<NAME>Coffee Shop
+<MEMO>Additional details about purchase
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>-50.00
+<DTASOF>20240131235959
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
+	p := NewParser()
+	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+
+	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(stmt.Transactions) != 1 {
+		t.Fatalf("Expected 1 transaction, got %d", len(stmt.Transactions))
+	}
+
+	txn := stmt.Transactions[0]
+	if txn.Description() != "Coffee Shop" {
+		t.Errorf("Expected description 'Coffee Shop', got %q", txn.Description())
+	}
+	if txn.Memo() != "Additional details about purchase" {
+		t.Errorf("Expected memo 'Additional details about purchase', got %q", txn.Memo())
+	}
+}
+
+func TestParse_TransactionPostedDateFallback(t *testing.T) {
+	// Test that posted date equals transaction date when both DtPosted is present
+	// The fallback logic ensures postedDate always has a value
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20240101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>9876543210
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20240101000000
+<DTEND>20240131235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20240105120000
+<TRNAMT>-50.00
+<FITID>TXN001
+<NAME>Transaction with DtPosted
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>-50.00
+<DTASOF>20240131235959
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
+	p := NewParser()
+	meta, _ := parser.NewMetadata("/test/statement.ofx", time.Now())
+
+	stmt, err := p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(stmt.Transactions) != 1 {
+		t.Fatalf("Expected 1 transaction, got %d", len(stmt.Transactions))
+	}
+
+	txn := stmt.Transactions[0]
+	expectedDate := time.Date(2024, 1, 5, 12, 0, 0, 0, time.UTC)
+	if !txn.Date().Equal(expectedDate) {
+		t.Errorf("Expected date %v, got %v", expectedDate, txn.Date())
+	}
+	// Posted date should equal transaction date (simplified logic)
+	if !txn.PostedDate().Equal(expectedDate) {
+		t.Errorf("Expected posted date to equal %v, got %v", expectedDate, txn.PostedDate())
+	}
+}
+
+func TestParse_ReadError(t *testing.T) {
+	// Test with reader that returns error
+	p := NewParser()
+	meta, _ := parser.NewMetadata("/test/file.ofx", time.Now())
+
+	// Create a pipe reader that fails
+	pr, pw := io.Pipe()
+	pw.CloseWithError(fmt.Errorf("simulated read error"))
+
+	_, err := p.Parse(context.Background(), pr, meta)
+	if err == nil {
+		t.Fatal("Expected read error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to read OFX content") {
+		t.Errorf("Expected 'failed to read OFX content' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "/test/file.ofx") {
+		t.Errorf("Expected error to include file path, got: %v", err)
+	}
 }
 
 // Integration tests with real files - these will be skipped if testdata files are not available
@@ -1546,7 +2064,10 @@ func TestParse_RealFiles(t *testing.T) {
 			}
 
 			p := NewParser()
-			meta, _ := parser.NewMetadata(testdataPath, time.Now())
+			meta, err := parser.NewMetadata(testdataPath, time.Now())
+			if err != nil {
+				t.Fatalf("failed to create metadata: %v", err)
+			}
 			meta.SetInstitution(tt.institution)
 
 			stmt, err := p.Parse(context.Background(), strings.NewReader(string(content)), meta)

@@ -15,8 +15,10 @@ import (
 )
 
 // Parser implements OFX/QFX parsing with a stateless design.
-// No configuration is needed as OFX format parsing uses standard rules.
-// All parser behavior is determined by the OFX file content and optional Metadata.
+// The struct has no fields because OFX parsing requires no configuration state.
+// Each method operates solely on the input data provided, making the parser safe
+// for concurrent use without locking. All behavior is determined by the OFX file
+// content and optional Metadata.
 type Parser struct{}
 
 // NewParser creates a new OFX parser
@@ -61,8 +63,9 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 		return nil, fmt.Errorf("failed to read OFX content%s: %w", fileInfo, err)
 	}
 
-	// Check if context was cancelled before starting parse
-	// Note: the parsing operation itself is not cancellable
+	// Check if context was cancelled before parsing.
+	// Note: ofxgo.ParseResponse() does not support context cancellation,
+	// so we check before calling it to provide best-effort cancellation support.
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -179,7 +182,10 @@ func (p *Parser) parseBank(resp *ofxgo.Response, meta *parser.Metadata) (*parser
 	}
 
 	// Map account type
-	accountType := mapBankAccountType(bankStmt.BankAcctFrom)
+	accountType, err := mapBankAccountType(bankStmt.BankAcctFrom)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map account type: %w", err)
+	}
 
 	// Create account
 	account, err := parser.NewRawAccount(institutionID, "", accountID, accountType)
@@ -332,7 +338,7 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 	// fields like units, price per share, and commission that don't map to simple
 	// RawTransaction model. Current implementation only extracts cash movements from
 	// InvBankTransaction list (dividends, interest, fees).
-	// TODO: Add security transaction support if needed for brokerage statements
+	// TODO(#1294): Add security transaction support if needed for brokerage statements
 	securityTxnCount := len(tranList.InvTransactions)
 	if securityTxnCount > 0 {
 		fmt.Printf("WARNING: Investment statement contains %d security transactions that are not yet supported and will be omitted. Only cash movements will be included.\n", securityTxnCount)
@@ -342,15 +348,15 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 }
 
 // mapBankAccountType maps OFX account type to internal account type
-func mapBankAccountType(ofxAcct ofxgo.BankAcct) string {
+func mapBankAccountType(ofxAcct ofxgo.BankAcct) (string, error) {
 	switch ofxAcct.AcctType {
 	case ofxgo.AcctTypeChecking:
-		return "checking"
+		return "checking", nil
 	case ofxgo.AcctTypeSavings:
-		return "savings"
+		return "savings", nil
 	default:
-		fmt.Printf("WARNING: Unknown OFX account type %v for account %s, defaulting to checking\n", ofxAcct.AcctType, ofxAcct.AcctID.String())
-		return "checking"
+		return "", fmt.Errorf("unknown OFX account type %v for account %s. Supported types: CHECKING, SAVINGS. This may indicate a new account type that needs to be added to the parser",
+			ofxAcct.AcctType, ofxAcct.AcctID.String())
 	}
 }
 
@@ -378,8 +384,11 @@ func mapOFXTransactionType(txn ofxgo.Transaction) string {
 	case ofxgo.TrnTypeDep:
 		return "DEPOSIT"
 	default:
-		// Unknown transaction type - return empty string
-		return ""
+		// Preserve unknown transaction types for downstream processing
+		rawType := fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
+		fmt.Printf("WARNING: Unknown OFX transaction type %v for transaction %s, preserving as %s\n",
+			txn.TrnType, txn.FiTID.String(), rawType)
+		return rawType
 	}
 }
 
@@ -416,11 +425,8 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		return nil, fmt.Errorf("transaction %s missing both posted date and user date", id)
 	}
 
-	// Extract posted date
-	postedDate := txn.DtPosted.Time
-	if postedDate.IsZero() {
-		postedDate = date // Fallback to transaction date
-	}
+	// Posted date for separate tracking (falls back to transaction date if DtPosted unavailable)
+	postedDate := date
 
 	// Use Name field for description; if empty, fallback to Memo field
 	description := txn.Name.String()

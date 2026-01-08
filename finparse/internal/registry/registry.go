@@ -17,17 +17,25 @@ type Registry struct {
 }
 
 // New creates a registry with all built-in parsers.
-// Built-in parser registration errors are programmer errors and will panic.
-// TODO(#1291): Explain what programmer errors could cause registration to fail
-func New() *Registry {
+// Returns an error if built-in parser registration fails (programmer error).
+func New() (*Registry, error) {
 	r := &Registry{parsers: []parser.Parser{}}
 
 	// Register built-in parsers
-	// TODO(#1292): Registry panic on built-in parser registration failure lacks context
 	if err := r.Register(ofx.NewParser()); err != nil {
-		panic(fmt.Sprintf("failed to register ofx parser: %v", err))
+		return nil, fmt.Errorf("failed to register ofx parser: %w", err)
 	}
 
+	return r, nil
+}
+
+// MustNew creates a registry with all built-in parsers.
+// Panics if built-in parser registration fails (programmer error).
+func MustNew() *Registry {
+	r, err := New()
+	if err != nil {
+		panic(fmt.Sprintf("failed to create registry: %v", err))
+	}
 	return r
 }
 
@@ -52,8 +60,9 @@ func (r *Registry) Register(p parser.Parser) error {
 }
 
 // FindParser returns the best parser for this file by reading up to 512 bytes
-// for format detection. This size is sufficient for OFX headers (which include
-// OFXHEADER markers in first ~100 bytes) and CSV files (header row).
+// for format detection. This size is sufficient for OFX headers (~100 bytes),
+// CSV headers, and other text-based financial formats. Future parsers requiring
+// larger headers should document this constraint.
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	header, err := r.readHeader(path)
@@ -89,8 +98,8 @@ func (r *Registry) readHeader(path string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read header from %s: %w", path, err)
 	}
 	// EOF is acceptable - files smaller than 512 bytes will return their full content.
-	// The registry does not enforce minimum header size; parsers are responsible for
-	// validating that headers contain sufficient data for format detection.
+	// Parsers must validate that headers contain sufficient data for their format
+	// detection needs, as minimum header size varies by file format.
 	return header[:n], nil
 }
 
