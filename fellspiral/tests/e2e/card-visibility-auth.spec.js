@@ -18,6 +18,7 @@ const isEmulatorMode = !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
 test.describe('Card Visibility - Unauthenticated Users', () => {
   test.skip(!isEmulatorMode, 'Card visibility tests only run against emulator');
 
+  // TODO(#1283): Fix test isolation issue with 2 workers
   test.skip('should only see public cards when not authenticated', async ({ page }) => {
     // Clean up demo data seeded during test setup
     await deleteTestCards(/^/); // Delete all cards (regex matches all titles)
