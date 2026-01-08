@@ -3910,7 +3910,8 @@ test.describe('Form Validation - Field Length Limits', () => {
 test.describe('Add Card - Edge Cases and Security Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  test('should prevent double-submit via rapid Enter key presses', async ({
+  // TODO(#244): Test bug - accesses window.firestore which isn't exposed by Firebase SDK
+  test.skip('should prevent double-submit via rapid Enter key presses', async ({
     page,
     authEmulator,
   }) => {
