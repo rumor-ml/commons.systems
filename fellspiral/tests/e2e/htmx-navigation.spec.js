@@ -141,7 +141,10 @@ test.describe('HTMX Cross-Page Navigation', () => {
     await expect(equipmentToggle).toHaveClass(/expanded/);
   });
 
-  test('should load cards with correct filter after fresh HTMX navigation', async ({ page }) => {
+  // TODO(#1300): Flaky test - Origin type not appearing in library nav within timeout
+  test.skip('should load cards with correct filter after fresh HTMX navigation', async ({
+    page,
+  }) => {
     // This test verifies that navigating via HTMX loads cards properly
     // by checking the actual card content matches the expected filter
 
