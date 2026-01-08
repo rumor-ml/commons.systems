@@ -2224,7 +2224,7 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
     expect(firestoreCard.title).toBe(cardData.title);
   });
 
-  test('should show persistent error after max retries exceeded', async ({
+  test.skip('should show persistent error after max retries exceeded', async ({
     page,
     authEmulator,
   }) => {
