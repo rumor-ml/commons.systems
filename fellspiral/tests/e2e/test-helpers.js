@@ -417,8 +417,8 @@ export async function deleteTestCards(titlePattern) {
  * @returns {Promise<string>} Document ID of created card
  */
 export async function createCardInFirestore(cardData) {
-  // Import collection name helper - use dynamic import to work in both Node and browser contexts
-  const { getCardsCollectionName } = await import('../../site/src/lib/firestore-collections.js');
+  // Import Node.js version of collection name helper (handles TEST_PARALLEL_INDEX env var)
+  const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
 
   // Get or initialize Firestore Admin (reuses same instance)
   const { db } = await getFirestoreAdmin();
