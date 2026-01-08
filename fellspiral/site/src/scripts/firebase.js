@@ -489,7 +489,8 @@ export async function createCard(cardData) {
     });
 
     // Timeout for create operations - helps surface issues in emulator tests
-    const FIRESTORE_CREATE_TIMEOUT_MS = 10000;
+    // Increased to 15s to handle slower emulator performance, especially in Firefox
+    const FIRESTORE_CREATE_TIMEOUT_MS = 15000;
     const docRef = await withTimeout(
       addDoc(getCardsCollection(), {
         ...cardData,

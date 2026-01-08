@@ -226,9 +226,9 @@ export async function createCardViaUI(page, cardData) {
   await saveBtn.click();
 
   // Wait for modal to close (modal loses .active class and becomes hidden)
-  // Increased timeout to 10000ms to allow for slow Firestore writes in emulator
+  // Increased timeout to 16000ms to allow for slow Firestore writes in emulator (Firestore timeout is 15s)
   await page
-    .waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 10000 })
+    .waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 16000 })
     .catch(async (error) => {
       // Capture diagnostic state when modal doesn't close
       const modalState = await page.evaluate(() => {
