@@ -330,6 +330,25 @@ is_lock_stale() {
     return 0
   fi
 
+  # Check lock age using timestamp file (prevents indefinite hung process locks)
+  local timestamp_file="${lock_dir}/timestamp"
+  if [ -f "$timestamp_file" ]; then
+    local lock_timestamp
+    read -r lock_timestamp < "$timestamp_file" 2>/dev/null || lock_timestamp=0
+
+    if [[ "$lock_timestamp" =~ ^[0-9]+$ ]] && [ "$lock_timestamp" -gt 0 ]; then
+      local current_time=$(date +%s)
+      local lock_age=$((current_time - lock_timestamp))
+      local MAX_LOCK_AGE=600  # 10 minutes absolute maximum
+
+      if [ "$lock_age" -gt "$MAX_LOCK_AGE" ]; then
+        echo "Lock is $lock_age seconds old (max $MAX_LOCK_AGE), forcibly removing stale lock from PID $lock_pid" >&2
+        rm -rf "$lock_dir" 2>/dev/null || true
+        return 0
+      fi
+    fi
+  fi
+
   # Check if process is still running
   if ! kill -0 "$lock_pid" 2>/dev/null; then
     echo "Lock holder PID $lock_pid is dead, removing stale lock" >&2

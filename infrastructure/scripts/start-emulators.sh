@@ -138,6 +138,9 @@ while [ $LOCK_ACQUIRED -eq 0 ]; do
     # Store our PID in the lock directory for debugging
     echo $$ > "$BACKEND_LOCK_FILE/pid"
 
+    # Store timestamp for age-based staleness detection
+    date +%s > "$BACKEND_LOCK_FILE/timestamp"
+
     # Restrict permissions to user-only (security hardening)
     chmod 700 "$BACKEND_LOCK_FILE" 2>/dev/null || true
     chmod 600 "$BACKEND_LOCK_FILE/pid" 2>/dev/null || true
