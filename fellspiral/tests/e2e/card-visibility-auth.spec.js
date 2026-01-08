@@ -155,6 +155,10 @@ test.describe('Card Visibility - Authenticated Users', () => {
     page,
     authEmulator,
   }) => {
+    // Clean up demo data seeded during test setup
+    // The test expects an empty state, so we need to ensure Firestore is actually empty
+    await deleteTestCards(/^/); // Delete all cards (regex matches all titles)
+
     // Navigate to cards page first (required for auth initialization)
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -167,7 +171,12 @@ test.describe('Card Visibility - Authenticated Users', () => {
     await authEmulator.createTestUser(email);
     await authEmulator.signInTestUser(email);
 
-    // Wait for cards to load
+    // Reload page to trigger fresh card load with authenticated user
+    // This ensures getAllCards() runs with the authenticated user and returns only real cards
+    await page.goto('/cards.html');
+    await page.waitForLoadState('load');
+
+    // Wait for Firebase to reinitialize with authenticated user
     await page.waitForTimeout(3000);
 
     // Should show empty state (not demo data)

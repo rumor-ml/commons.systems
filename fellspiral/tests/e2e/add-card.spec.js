@@ -121,7 +121,8 @@ test.describe('Add Card - Happy Path Tests', () => {
     expect(firestoreCard.title).toBe(cardData.title);
   });
 
-  test('should verify Firestore document structure includes metadata', async ({
+  // TODO(#1263): Fix Firefox ESM module loading error in authEmulator fixture
+  test.skip('should verify Firestore document structure includes metadata', async ({
     page,
     authEmulator,
   }) => {

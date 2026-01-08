@@ -331,8 +331,26 @@ export async function getAllCards() {
 
   try {
     // Get current user for private card query
+    // Wait for auth state to be established (restores from localStorage on page load)
     const authInstance = getAuthInstance();
-    const currentUser = authInstance?.currentUser;
+    let currentUser = authInstance?.currentUser;
+
+    // If no currentUser yet, wait for auth state to be restored (max 5 seconds)
+    // This handles the case where auth is persistent but state hasn't been restored yet
+    if (!currentUser) {
+      currentUser = await new Promise((resolve) => {
+        const unsubscribe = authInstance.onAuthStateChanged((user) => {
+          unsubscribe();
+          resolve(user);
+        });
+
+        // Timeout after 5 seconds in case auth state restoration takes too long
+        setTimeout(() => {
+          unsubscribe();
+          resolve(null);
+        }, 5000);
+      });
+    }
 
     // Query 1: Public cards (everyone can see these)
     const publicQuery = query(
