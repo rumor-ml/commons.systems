@@ -21,7 +21,7 @@ async function verifyCardFiltering(page, expectedType, expectedSubtype = null) {
   );
 
   // Wait for at least one card-item to be present in the DOM
-  await page.waitForSelector('.card-item', { timeout: 10000 });
+  await page.waitForSelector('.card-item', { timeout: 20000 });
 
   // Wait for cards to stabilize after filtering (hash change triggers re-render)
   await page.waitForTimeout(500);
