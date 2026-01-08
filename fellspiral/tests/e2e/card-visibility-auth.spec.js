@@ -5,7 +5,12 @@
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
-import { createCardInFirestore, waitForCardCount, isCardVisibleInUI } from './test-helpers.js';
+import {
+  createCardInFirestore,
+  waitForCardCount,
+  isCardVisibleInUI,
+  deleteTestCards,
+} from './test-helpers.js';
 
 // Only run against emulator (requires auth state changes)
 const isEmulatorMode = !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
@@ -14,6 +19,9 @@ test.describe('Card Visibility - Unauthenticated Users', () => {
   test.skip(!isEmulatorMode, 'Card visibility tests only run against emulator');
 
   test('should only see public cards when not authenticated', async ({ page }) => {
+    // Clean up demo data seeded during test setup
+    await deleteTestCards(/^/); // Delete all cards (regex matches all titles)
+
     // Create test data: multiple public cards with different types and 1 private card
     // Note: Must create cards with all expected types (Equipment, Skill, Upgrade, Origin)
     // to prevent Firestore fallback to static data
