@@ -21,9 +21,20 @@ import (
 // content and optional Metadata.
 type Parser struct{}
 
-// NewParser creates a new OFX parser
+var parserInstance = &Parser{}
+
+// NewParser returns the shared OFX parser instance.
+// Safe for concurrent use due to stateless design.
 func NewParser() *Parser {
-	return &Parser{}
+	return parserInstance
+}
+
+// getFileInfo returns a formatted file path string for error messages
+func getFileInfo(meta *parser.Metadata) string {
+	if meta != nil && meta.FilePath() != "" {
+		return fmt.Sprintf(" from %s", meta.FilePath())
+	}
+	return ""
 }
 
 // Name returns the parser identifier
@@ -54,18 +65,17 @@ func (p *Parser) CanParse(path string, header []byte) bool {
 // Parse extracts raw data from OFX/QFX file
 func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) (*parser.RawStatement, error) {
 	// Read entire content
+	// TODO(#1305): Consider checking context cancellation before io.ReadAll for better responsiveness
 	content, err := io.ReadAll(r)
 	if err != nil {
-		fileInfo := ""
-		if meta != nil && meta.FilePath() != "" {
-			fileInfo = fmt.Sprintf(" from %s", meta.FilePath())
-		}
-		return nil, fmt.Errorf("failed to read OFX content%s: %w", fileInfo, err)
+		return nil, fmt.Errorf("failed to read OFX content%s: %w", getFileInfo(meta), err)
 	}
 
 	// Check if context was cancelled before parsing.
 	// Note: ofxgo.ParseResponse() does not support context cancellation,
-	// so we check before calling it to provide best-effort cancellation support.
+	// so cancellation requests during parsing will not be detected until
+	// after ParseResponse completes. This check provides cancellation support
+	// only before parsing begins.
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -75,11 +85,7 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 	// Parse OFX response
 	response, err := ofxgo.ParseResponse(bytes.NewReader(content))
 	if err != nil {
-		fileInfo := ""
-		if meta != nil && meta.FilePath() != "" {
-			fileInfo = fmt.Sprintf(" from %s", meta.FilePath())
-		}
-		return nil, fmt.Errorf("failed to parse OFX file%s (%d bytes): %w", fileInfo, len(content), err)
+		return nil, fmt.Errorf("failed to parse OFX file%s (%d bytes): %w", getFileInfo(meta), len(content), err)
 	}
 
 	// Route to appropriate handler based on statement type
@@ -285,23 +291,15 @@ func (p *Parser) parseInvestment(resp *ofxgo.Response, meta *parser.Metadata) (*
 // parseTransactions converts OFX transactions to RawTransactions (for bank/credit card)
 func (p *Parser) parseTransactions(tranList *ofxgo.TransactionList) ([]parser.RawTransaction, error) {
 	transactions := make([]parser.RawTransaction, 0, len(tranList.Transactions))
-	var skippedCount int
 
 	for i, txn := range tranList.Transactions {
 		rawTxn, err := extractTransaction(txn)
 		if err != nil {
-			// Log the error with context but continue processing other transactions
-			fmt.Printf("WARNING: Skipping transaction at index %d: %v\n", i, err)
-			skippedCount++
-			continue
+			return nil, fmt.Errorf("failed to parse transaction at index %d: %w", i, err)
 		}
 		if rawTxn != nil {
 			transactions = append(transactions, *rawTxn)
 		}
-	}
-
-	if skippedCount > 0 {
-		fmt.Printf("WARNING: Skipped %d invalid transactions out of %d total\n", skippedCount, len(tranList.Transactions))
 	}
 
 	return transactions, nil
@@ -310,7 +308,6 @@ func (p *Parser) parseTransactions(tranList *ofxgo.TransactionList) ([]parser.Ra
 // parseInvestmentTransactions converts OFX investment transactions to RawTransactions
 func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]parser.RawTransaction, error) {
 	transactions := make([]parser.RawTransaction, 0)
-	var skippedCount int
 
 	// Parse bank transactions within investment accounts
 	// These are typically cash movements (dividends, interest, fees, etc.)
@@ -319,10 +316,7 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 		for i, txn := range invBankTxn.Transactions {
 			rawTxn, err := extractTransaction(txn)
 			if err != nil {
-				// Log the error with context but continue processing other transactions
-				fmt.Printf("WARNING: Skipping investment transaction at index %d: %v\n", i, err)
-				skippedCount++
-				continue
+				return nil, fmt.Errorf("failed to parse investment transaction at index %d: %w", i, err)
 			}
 			if rawTxn != nil {
 				transactions = append(transactions, *rawTxn)
@@ -330,18 +324,16 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 		}
 	}
 
-	if skippedCount > 0 {
-		fmt.Printf("WARNING: Skipped %d invalid investment transactions\n", skippedCount)
-	}
-
 	// Security transactions (BuyStock, SellStock, ReinvestIncome, etc.) have complex
-	// fields like units, price per share, and commission that don't map to simple
-	// RawTransaction model. Current implementation only extracts cash movements from
-	// InvBankTransaction list (dividends, interest, fees).
-	// TODO(#1294): Add security transaction support if needed for brokerage statements
+	// fields like units, price per share, and commission that don't map to the simple
+	// RawTransaction model which only supports: ID, date, description, and amount.
+	// Current implementation only extracts cash movements from InvBankTransaction list
+	// (dividends, interest, fees).
+	// TODO(#1294): Add security transaction support - requires extending RawTransaction
+	// model or creating a separate SecurityTransaction type for brokerage statements
 	securityTxnCount := len(tranList.InvTransactions)
 	if securityTxnCount > 0 {
-		fmt.Printf("WARNING: Investment statement contains %d security transactions that are not yet supported and will be omitted. Only cash movements will be included.\n", securityTxnCount)
+		return nil, fmt.Errorf("investment statement contains %d security transactions (BuyStock, SellStock, ReinvestIncome, etc.) which are not yet supported by this parser (see issue #1294). Only cash movement transactions (dividends, interest, fees) are currently supported", securityTxnCount)
 	}
 
 	return transactions, nil
@@ -384,11 +376,9 @@ func mapOFXTransactionType(txn ofxgo.Transaction) string {
 	case ofxgo.TrnTypeDep:
 		return "DEPOSIT"
 	default:
-		// Preserve unknown transaction types for downstream processing
-		rawType := fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
-		fmt.Printf("WARNING: Unknown OFX transaction type %v for transaction %s, preserving as %s\n",
-			txn.TrnType, txn.FiTID.String(), rawType)
-		return rawType
+		// Convert unknown transaction types to UNKNOWN_* format for downstream processing
+		// TODO(#1306): Consider returning structured warnings for unknown types instead of just string prefix
+		return fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
 	}
 }
 
@@ -425,7 +415,7 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		return nil, fmt.Errorf("transaction %s missing both posted date and user date", id)
 	}
 
-	// Posted date for separate tracking (falls back to transaction date if DtPosted unavailable)
+	// Posted date uses the same value as transaction date
 	postedDate := date
 
 	// Use Name field for description; if empty, fallback to Memo field
@@ -438,7 +428,8 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		return nil, fmt.Errorf("transaction %s missing both name and memo fields", id)
 	}
 
-	// Extract amount
+	// Extract amount (Float64 may have precision loss for very large values,
+	// but this is acceptable for currency amounts which are typically 2 decimal places)
 	amount, _ := txn.TrnAmt.Float64()
 
 	// Create raw transaction

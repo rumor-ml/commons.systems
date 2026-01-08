@@ -70,49 +70,38 @@ func TestRegistry_MustNew(t *testing.T) {
 }
 
 func TestRegistry_Register(t *testing.T) {
-	reg := MustNew()
-
-	// Initially has built-in parsers (OFX)
-	initialParsers := reg.ListParsers()
-	if len(initialParsers) != 1 {
-		t.Errorf("Expected 1 initial parser (ofx), got %d", len(initialParsers))
-	}
-	if initialParsers[0] != "ofx" {
-		t.Errorf("Expected initial parser 'ofx', got '%s'", initialParsers[0])
-	}
-
-	// Register custom parser
+	// Test registering custom parsers via constructor
 	testParser := &mockParser{name: "test-parser", canParseFunc: nil}
-	if err := reg.Register(testParser); err != nil {
-		t.Fatalf("Failed to register parser: %v", err)
-	}
+	reg := MustNew(testParser)
 
-	// Verify parser is registered
+	// Verify both built-in and custom parser are registered
 	parsers := reg.ListParsers()
 	if len(parsers) != 2 {
-		t.Fatalf("Expected 2 parsers after registration, got %d", len(parsers))
+		t.Fatalf("Expected 2 parsers (ofx + test-parser), got %d", len(parsers))
+	}
+	if parsers[0] != "ofx" {
+		t.Errorf("Expected parser name 'ofx' at index 0, got '%s'", parsers[0])
 	}
 	if parsers[1] != "test-parser" {
 		t.Errorf("Expected parser name 'test-parser' at index 1, got '%s'", parsers[1])
 	}
 
 	// Register multiple parsers
-	if err := reg.Register(&mockParser{name: "parser-2", canParseFunc: nil}); err != nil {
-		t.Fatalf("Failed to register parser-2: %v", err)
-	}
-	if err := reg.Register(&mockParser{name: "parser-3", canParseFunc: nil}); err != nil {
-		t.Fatalf("Failed to register parser-3: %v", err)
-	}
+	reg2 := MustNew(
+		&mockParser{name: "parser-1", canParseFunc: nil},
+		&mockParser{name: "parser-2", canParseFunc: nil},
+		&mockParser{name: "parser-3", canParseFunc: nil},
+	)
 
-	parsers = reg.ListParsers()
-	if len(parsers) != 4 {
-		t.Errorf("Expected 4 parsers, got %d", len(parsers))
+	parsers2 := reg2.ListParsers()
+	if len(parsers2) != 4 {
+		t.Errorf("Expected 4 parsers (ofx + 3 custom), got %d", len(parsers2))
 	}
 }
 
 func TestRegistry_Register_NilParser(t *testing.T) {
-	reg := MustNew()
-	err := reg.Register(nil)
+	// Test that nil parser in constructor returns error
+	_, err := New(nil)
 	if err == nil {
 		t.Error("Expected error when registering nil parser")
 	}
@@ -122,17 +111,11 @@ func TestRegistry_Register_NilParser(t *testing.T) {
 }
 
 func TestRegistry_Register_DuplicateName(t *testing.T) {
-	reg := MustNew()
-
-	// Register first parser
+	// Test duplicate custom parser names
 	parser1 := &mockParser{name: "test-parser", canParseFunc: nil}
-	if err := reg.Register(parser1); err != nil {
-		t.Fatalf("Failed to register first parser: %v", err)
-	}
-
-	// Try to register second parser with same name
 	parser2 := &mockParser{name: "test-parser", canParseFunc: nil}
-	err := reg.Register(parser2)
+
+	_, err := New(parser1, parser2)
 	if err == nil {
 		t.Error("Expected error when registering duplicate parser name")
 	}
@@ -143,10 +126,17 @@ func TestRegistry_Register_DuplicateName(t *testing.T) {
 		t.Errorf("Expected error to mention parser name 'test-parser', got: %v", err)
 	}
 
-	// Verify correct number of parsers (1 built-in + 1 custom)
-	parsers := reg.ListParsers()
-	if len(parsers) != 2 {
-		t.Errorf("Expected 2 parsers after duplicate rejection (ofx + test-parser), got %d", len(parsers))
+	// Test duplicate with built-in parser name
+	ofxDuplicate := &mockParser{name: "ofx", canParseFunc: nil}
+	_, err = New(ofxDuplicate)
+	if err == nil {
+		t.Error("Expected error when registering duplicate built-in parser name")
+	}
+	if !strings.Contains(err.Error(), "already registered") {
+		t.Errorf("Expected 'already registered' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ofx") {
+		t.Errorf("Expected error to mention parser name 'ofx', got: %v", err)
 	}
 }
 
@@ -165,24 +155,22 @@ func TestRegistry_ListParsers(t *testing.T) {
 		t.Errorf("Expected first parser to be 'ofx', got '%s'", parsers[0])
 	}
 
-	// Register additional parsers
-	if err := reg.Register(&mockParser{name: "csv-pnc", canParseFunc: nil}); err != nil {
-		t.Fatalf("Failed to register csv-pnc: %v", err)
-	}
-	if err := reg.Register(&mockParser{name: "csv-amex", canParseFunc: nil}); err != nil {
-		t.Fatalf("Failed to register csv-amex: %v", err)
+	// Create registry with additional parsers
+	reg2 := MustNew(
+		&mockParser{name: "csv-pnc", canParseFunc: nil},
+		&mockParser{name: "csv-amex", canParseFunc: nil},
+	)
+
+	parsers2 := reg2.ListParsers()
+	if len(parsers2) != 3 {
+		t.Fatalf("Expected 3 parsers, got %d", len(parsers2))
 	}
 
-	parsers = reg.ListParsers()
-	if len(parsers) != 3 {
-		t.Fatalf("Expected 3 parsers, got %d", len(parsers))
-	}
-
-	// Verify order preserved
+	// Verify order preserved (built-in first, then custom in order)
 	expected := []string{"ofx", "csv-pnc", "csv-amex"}
 	for i, name := range expected {
-		if parsers[i] != name {
-			t.Errorf("Parser %d: expected '%s', got '%s'", i, name, parsers[i])
+		if parsers2[i] != name {
+			t.Errorf("Parser %d: expected '%s', got '%s'", i, name, parsers2[i])
 		}
 	}
 }
@@ -293,18 +281,17 @@ func TestRegistry_FindParser(t *testing.T) {
 			tmpFile := createTempFileWithExt(t, tt.fileContent, ext)
 			defer os.Remove(tmpFile)
 
-			// Create registry and register parsers
-			reg := MustNew()
+			// Create registry with custom parsers
+			// Filter out mock parsers that conflict with built-in names
+			customParsers := make([]parser.Parser, 0, len(tt.parsers))
 			for _, p := range tt.parsers {
-				// Skip if parser name already exists (e.g., built-in "ofx" parser)
-				// In real usage, custom parsers would use different names
-				if err := reg.Register(p); err != nil {
-					if !strings.Contains(err.Error(), "already registered") {
-						t.Fatalf("Failed to register parser: %v", err)
-					}
-					// Skip duplicate parser name - test will use built-in parser instead
+				// Skip mock parsers with built-in names (e.g., "ofx")
+				// These tests expect the built-in parser behavior instead
+				if p.Name() != "ofx" {
+					customParsers = append(customParsers, p)
 				}
 			}
+			reg := MustNew(customParsers...)
 
 			// Find parser
 			foundParser, err := reg.FindParser(tmpFile)
@@ -351,15 +338,12 @@ func TestRegistry_FindParser_FileErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reg := MustNew()
-			if err := reg.Register(&mockParser{
+			reg := MustNew(&mockParser{
 				name: "test",
 				canParseFunc: func(path string, header []byte) bool {
 					return true
 				},
-			}); err != nil {
-				t.Fatalf("Failed to register parser: %v", err)
-			}
+			})
 
 			_, err := reg.FindParser(tt.filePath)
 			if err == nil {
@@ -417,16 +401,13 @@ func TestRegistry_FindParser_HeaderReading(t *testing.T) {
 
 			// Track what header size the parser receives
 			var receivedHeaderLen int
-			reg := MustNew()
-			if err := reg.Register(&mockParser{
+			reg := MustNew(&mockParser{
 				name: "test",
 				canParseFunc: func(path string, header []byte) bool {
 					receivedHeaderLen = len(header)
 					return true
 				},
-			}); err != nil {
-				t.Fatalf("Failed to register parser: %v", err)
-			}
+			})
 
 			_, err := reg.FindParser(tmpFile)
 			if err != nil {
@@ -446,17 +427,14 @@ func TestRegistry_FindParser_EmptyFile(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	var receivedHeaderLen int
-	reg := MustNew()
-	if err := reg.Register(&mockParser{
+	reg := MustNew(&mockParser{
 		name: "empty-handler",
 		canParseFunc: func(path string, header []byte) bool {
 			receivedHeaderLen = len(header)
 			// Parser can choose to accept or reject empty files
 			return len(header) == 0
 		},
-	}); err != nil {
-		t.Fatalf("Failed to register parser: %v", err)
-	}
+	})
 
 	foundParser, err := reg.FindParser(tmpFile)
 	if err != nil {
@@ -479,17 +457,14 @@ func TestRegistry_FindParser_BinaryFiles(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	var receivedHeader []byte
-	reg := MustNew()
-	if err := reg.Register(&mockParser{
+	reg := MustNew(&mockParser{
 		name: "binary",
 		canParseFunc: func(path string, header []byte) bool {
 			receivedHeader = make([]byte, len(header))
 			copy(receivedHeader, header)
 			return header[0] == 0x00 && header[1] == 0xFF
 		},
-	}); err != nil {
-		t.Fatalf("Failed to register parser: %v", err)
-	}
+	})
 
 	foundParser, err := reg.FindParser(tmpFile)
 	if err != nil {
@@ -518,16 +493,13 @@ func TestRegistry_FindParser_PathPassed(t *testing.T) {
 	defer os.Remove(tmpFile)
 
 	var receivedPath string
-	reg := MustNew()
-	if err := reg.Register(&mockParser{
+	reg := MustNew(&mockParser{
 		name: "path-checker",
 		canParseFunc: func(path string, header []byte) bool {
 			receivedPath = path
 			return true
 		},
-	}); err != nil {
-		t.Fatalf("Failed to register parser: %v", err)
-	}
+	})
 
 	_, err := reg.FindParser(tmpFile)
 	if err != nil {

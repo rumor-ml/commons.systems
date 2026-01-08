@@ -30,6 +30,7 @@ type Parser interface {
 // that are bypassed by direct slice access.
 //
 // RawStatement represents parsed data before normalization
+// TODO(#1307): Consider hiding Transactions behind accessor methods to prevent external mutation
 type RawStatement struct {
 	Account      RawAccount
 	Period       Period
@@ -58,6 +59,7 @@ func (r *RawAccount) AccountType() string { return r.accountType }
 
 // SetInstitutionName updates the institution name from metadata after construction.
 // Empty names are allowed when metadata is unavailable.
+// TODO(#1308): Consider alternative patterns that avoid post-construction mutation
 func (r *RawAccount) SetInstitutionName(name string) {
 	r.institutionName = name
 }
@@ -159,6 +161,7 @@ func (r *RawTransaction) Memo() string { return r.memo }
 // Example values from OFX/QFX: "DEBIT", "CREDIT", "ATM", "CHECK", "TRANSFER", "FEE", "POS", "PAYMENT".
 // CSV formats may use different values depending on the institution.
 // Type is free-form and not validated - normalization will handle type mapping.
+// TODO(#1309): Consider single-phase construction or builder pattern to avoid mutation
 func (r *RawTransaction) SetType(txnType string) {
 	r.txnType = txnType
 }

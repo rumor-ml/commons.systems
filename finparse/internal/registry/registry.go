@@ -16,34 +16,38 @@ type Registry struct {
 	parsers []parser.Parser
 }
 
-// New creates a registry with all built-in parsers.
-// Returns an error if built-in parser registration fails (programmer error).
-func New() (*Registry, error) {
+// New creates a registry with built-in parsers and optional custom parsers.
+// Returns an error if parser registration fails (duplicate names or nil parsers).
+func New(customParsers ...parser.Parser) (*Registry, error) {
 	r := &Registry{parsers: []parser.Parser{}}
 
 	// Register built-in parsers
-	if err := r.Register(ofx.NewParser()); err != nil {
+	if err := r.register(ofx.NewParser()); err != nil {
 		return nil, fmt.Errorf("failed to register ofx parser: %w", err)
+	}
+
+	// Register custom parsers
+	for _, p := range customParsers {
+		if err := r.register(p); err != nil {
+			return nil, fmt.Errorf("failed to register custom parser: %w", err)
+		}
 	}
 
 	return r, nil
 }
 
-// MustNew creates a registry with all built-in parsers.
-// Panics if built-in parser registration fails (programmer error).
-func MustNew() *Registry {
-	r, err := New()
+// MustNew creates a registry with built-in parsers and optional custom parsers.
+// Panics if parser registration fails (programmer error).
+func MustNew(customParsers ...parser.Parser) *Registry {
+	r, err := New(customParsers...)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create registry: %v", err))
 	}
 	return r
 }
 
-// Register adds a custom parser (for extensibility)
-func (r *Registry) Register(p parser.Parser) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+// register adds a parser during registry construction (private).
+func (r *Registry) register(p parser.Parser) error {
 	if p == nil {
 		return fmt.Errorf("cannot register nil parser")
 	}
@@ -63,6 +67,9 @@ func (r *Registry) Register(p parser.Parser) error {
 // for format detection. This size is sufficient for OFX headers (~100 bytes),
 // CSV headers, and other text-based financial formats. Future parsers requiring
 // larger headers should document this constraint.
+//
+// Each parser's CanParse method receives the header and must validate it contains
+// sufficient data for reliable format detection.
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	header, err := r.readHeader(path)
@@ -83,13 +90,14 @@ func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	return nil, fmt.Errorf("no parser found for file: %s", path)
 }
 
-// readHeader reads the first 512 bytes of a file for format detection.
+// readHeader reads up to 512 bytes for format detection.
+// TODO(#1302): Consider making this a standalone function since it doesn't use receiver state
 func (r *Registry) readHeader(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() // TODO(#1304): Consider checking close error for completeness
 
 	// TODO(#1293): Consider more specific error messages for directory vs file vs permission issues
 	header := make([]byte, 512)
@@ -98,8 +106,9 @@ func (r *Registry) readHeader(path string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read header from %s: %w", path, err)
 	}
 	// EOF is acceptable - files smaller than 512 bytes will return their full content.
-	// Parsers must validate that headers contain sufficient data for their format
-	// detection needs, as minimum header size varies by file format.
+	// Each parser's CanParse method is responsible for validating that the header
+	// contains sufficient data for format detection. Parsers should return false
+	// if the header is too small to reliably detect their format.
 	return header[:n], nil
 }
 
