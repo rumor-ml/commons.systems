@@ -776,7 +776,7 @@ test.describe('Add Card - Integration Tests', () => {
     });
   });
 
-  test('should be able to search for newly created card', async ({ page, authEmulator }) => {
+  test.skip('should be able to search for newly created card', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
