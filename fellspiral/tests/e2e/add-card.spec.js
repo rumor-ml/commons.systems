@@ -3651,7 +3651,7 @@ test.describe('Add Card - Form Pre-Population on Failed Save Tests', () => {
     await page.locator('#cardCost').fill(testData.cost);
 
     // Sign out to trigger save failure
-    await authEmulator.signOut();
+    await authEmulator.signOutTestUser();
     await page.waitForTimeout(1000);
 
     // Try to save
