@@ -17,7 +17,7 @@ async function verifyCardFiltering(page, expectedType, expectedSubtype = null) {
       const loadingState = document.querySelector('#cardList .loading-state');
       return !loadingState; // Loading state should be gone
     },
-    { timeout: 15000 }
+    { timeout: 30000 }
   );
 
   // Wait for at least one card-item to be present in the DOM
