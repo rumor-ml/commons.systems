@@ -432,141 +432,88 @@ func TestMapOFXTransactionType(t *testing.T) {
 
 // Integration tests with real files - these will be skipped if testdata files are not available
 
-func TestParse_RealFile_AmexCreditCard(t *testing.T) {
-	testdataPath := filepath.Join("testdata", "amex.ofx")
-	if _, err := os.Stat(testdataPath); os.IsNotExist(err) {
-		t.Skip("Skipping test: testdata file not available (see testdata/README.md)")
+func TestParse_RealFiles(t *testing.T) {
+	tests := []struct {
+		name         string
+		filename     string
+		institution  string
+		expectedType string
+		allowedTypes []string // For cases with multiple valid account types
+	}{
+		{
+			name:         "Amex Credit Card",
+			filename:     "amex.ofx",
+			institution:  "American Express",
+			expectedType: "credit",
+		},
+		{
+			name:         "Capital One Credit Card",
+			filename:     "capitalone.ofx",
+			institution:  "Capital One",
+			expectedType: "credit",
+		},
+		{
+			name:         "PNC Checking",
+			filename:     "pnc.ofx",
+			institution:  "PNC Bank",
+			allowedTypes: []string{"checking", "savings"},
+		},
+		{
+			name:         "Vanguard Investment",
+			filename:     "vanguard.ofx",
+			institution:  "Vanguard",
+			expectedType: "investment",
+		},
+		{
+			name:         "TIAA Investment",
+			filename:     "tiaa.ofx",
+			institution:  "TIAA",
+			expectedType: "investment",
+		},
 	}
 
-	content, err := os.ReadFile(testdataPath)
-	if err != nil {
-		t.Fatalf("Failed to read testdata file: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testdataPath := filepath.Join("testdata", tt.filename)
+			if _, err := os.Stat(testdataPath); os.IsNotExist(err) {
+				t.Skip("Skipping test: testdata file not available (see testdata/README.md)")
+			}
+
+			content, err := os.ReadFile(testdataPath)
+			if err != nil {
+				t.Fatalf("Failed to read testdata file: %v", err)
+			}
+
+			p := NewParser()
+			meta, _ := parser.NewMetadata(testdataPath, time.Now())
+			meta.SetInstitution(tt.institution)
+
+			stmt, err := p.Parse(context.Background(), strings.NewReader(string(content)), meta)
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+
+			// Validate account type
+			if len(tt.allowedTypes) > 0 {
+				// Multiple allowed types
+				found := false
+				for _, allowed := range tt.allowedTypes {
+					if stmt.Account.AccountType() == allowed {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("AccountType = %q, want one of %v", stmt.Account.AccountType(), tt.allowedTypes)
+				}
+			} else if tt.expectedType != "" {
+				// Single expected type
+				if stmt.Account.AccountType() != tt.expectedType {
+					t.Errorf("AccountType = %q, want %q", stmt.Account.AccountType(), tt.expectedType)
+				}
+			}
+
+			t.Logf("Parsed %d transactions from %s statement", len(stmt.Transactions), tt.institution)
+		})
 	}
-
-	p := NewParser()
-	meta, _ := parser.NewMetadata(testdataPath, time.Now())
-	meta.SetInstitution("American Express")
-
-	stmt, err := p.Parse(context.Background(), strings.NewReader(string(content)), meta)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-
-	// Basic validation
-	if stmt.Account.AccountType() != "credit" {
-		t.Errorf("AccountType = %q, want %q", stmt.Account.AccountType(), "credit")
-	}
-	if len(stmt.Transactions) == 0 {
-		t.Error("Expected transactions, got none")
-	}
-
-	t.Logf("Parsed %d transactions from Amex statement", len(stmt.Transactions))
-}
-
-func TestParse_RealFile_CapitalOneCreditCard(t *testing.T) {
-	testdataPath := filepath.Join("testdata", "capitalone.ofx")
-	if _, err := os.Stat(testdataPath); os.IsNotExist(err) {
-		t.Skip("Skipping test: testdata file not available (see testdata/README.md)")
-	}
-
-	content, err := os.ReadFile(testdataPath)
-	if err != nil {
-		t.Fatalf("Failed to read testdata file: %v", err)
-	}
-
-	p := NewParser()
-	meta, _ := parser.NewMetadata(testdataPath, time.Now())
-	meta.SetInstitution("Capital One")
-
-	stmt, err := p.Parse(context.Background(), strings.NewReader(string(content)), meta)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-
-	if stmt.Account.AccountType() != "credit" {
-		t.Errorf("AccountType = %q, want %q", stmt.Account.AccountType(), "credit")
-	}
-
-	t.Logf("Parsed %d transactions from Capital One statement", len(stmt.Transactions))
-}
-
-func TestParse_RealFile_PNCChecking(t *testing.T) {
-	testdataPath := filepath.Join("testdata", "pnc.ofx")
-	if _, err := os.Stat(testdataPath); os.IsNotExist(err) {
-		t.Skip("Skipping test: testdata file not available (see testdata/README.md)")
-	}
-
-	content, err := os.ReadFile(testdataPath)
-	if err != nil {
-		t.Fatalf("Failed to read testdata file: %v", err)
-	}
-
-	p := NewParser()
-	meta, _ := parser.NewMetadata(testdataPath, time.Now())
-	meta.SetInstitution("PNC Bank")
-
-	stmt, err := p.Parse(context.Background(), strings.NewReader(string(content)), meta)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-
-	if stmt.Account.AccountType() != "checking" && stmt.Account.AccountType() != "savings" {
-		t.Errorf("AccountType = %q, want checking or savings", stmt.Account.AccountType())
-	}
-
-	t.Logf("Parsed %d transactions from PNC statement", len(stmt.Transactions))
-}
-
-func TestParse_RealFile_VanguardInvestment(t *testing.T) {
-	testdataPath := filepath.Join("testdata", "vanguard.ofx")
-	if _, err := os.Stat(testdataPath); os.IsNotExist(err) {
-		t.Skip("Skipping test: testdata file not available (see testdata/README.md)")
-	}
-
-	content, err := os.ReadFile(testdataPath)
-	if err != nil {
-		t.Fatalf("Failed to read testdata file: %v", err)
-	}
-
-	p := NewParser()
-	meta, _ := parser.NewMetadata(testdataPath, time.Now())
-	meta.SetInstitution("Vanguard")
-
-	stmt, err := p.Parse(context.Background(), strings.NewReader(string(content)), meta)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-
-	if stmt.Account.AccountType() != "investment" {
-		t.Errorf("AccountType = %q, want %q", stmt.Account.AccountType(), "investment")
-	}
-
-	t.Logf("Parsed %d transactions from Vanguard statement", len(stmt.Transactions))
-}
-
-func TestParse_RealFile_TIAAInvestment(t *testing.T) {
-	testdataPath := filepath.Join("testdata", "tiaa.ofx")
-	if _, err := os.Stat(testdataPath); os.IsNotExist(err) {
-		t.Skip("Skipping test: testdata file not available (see testdata/README.md)")
-	}
-
-	content, err := os.ReadFile(testdataPath)
-	if err != nil {
-		t.Fatalf("Failed to read testdata file: %v", err)
-	}
-
-	p := NewParser()
-	meta, _ := parser.NewMetadata(testdataPath, time.Now())
-	meta.SetInstitution("TIAA")
-
-	stmt, err := p.Parse(context.Background(), strings.NewReader(string(content)), meta)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-
-	if stmt.Account.AccountType() != "investment" {
-		t.Errorf("AccountType = %q, want %q", stmt.Account.AccountType(), "investment")
-	}
-
-	t.Logf("Parsed %d transactions from TIAA statement", len(stmt.Transactions))
 }

@@ -10,15 +10,14 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/parsers/ofx"
 )
 
-// Registry holds all registered parsers with thread-safe access via RWMutex.
+// Registry holds all registered parsers with thread-safe access for concurrent file parsing.
 type Registry struct {
 	mu      sync.RWMutex
 	parsers []parser.Parser
 }
 
 // New creates a registry with all built-in parsers.
-// Built-in parser registration errors are programmer errors and should panic.
-// Example: if err := r.Register(ofx.NewParser()); err != nil { panic(err) }
+// Built-in parser registration errors are programmer errors and will panic.
 func New() *Registry {
 	r := &Registry{parsers: []parser.Parser{}}
 
@@ -50,13 +49,9 @@ func (r *Registry) Register(p parser.Parser) error {
 	return nil
 }
 
-// FindParser returns the best parser for this file.
-// Reads up to 512 bytes for format detection via header inspection.
-// 512 bytes is sufficient for all known financial format headers:
-// - OFX/QFX: XML declaration + <OFX> tag typically within first 200 bytes
-// - CSV: Column headers typically < 200 bytes
-// This size also matches common filesystem block sizes for efficient reading.
-// Files smaller than 512 bytes are handled correctly (parsers receive actual file size).
+// FindParser returns the best parser for this file by reading up to 512 bytes
+// of the header for format detection. This size handles all known financial formats
+// (OFX, CSV) and aligns with common filesystem block sizes.
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	header, err := r.readHeader(path)
@@ -78,8 +73,6 @@ func (r *Registry) FindParser(path string) (parser.Parser, error) {
 }
 
 // readHeader reads the first 512 bytes of a file for format detection.
-// The file is opened and closed within this method to avoid holding file handles
-// during parser iteration, preventing resource exhaustion when processing many files.
 func (r *Registry) readHeader(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -93,7 +86,7 @@ func (r *Registry) readHeader(path string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read header from %s: %w", path, err)
 	}
 	// EOF is OK - some statement files (especially CSV or minimal test files) may be < 512 bytes.
-	// Parsers MUST handle headers from 0 to 512 bytes in length. Parser implementations that
+	// Parsers should handle headers from 0 to 512 bytes. Parser implementations that
 	// assume a minimum header size will fail on small files.
 	return header[:n], nil
 }

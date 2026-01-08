@@ -55,6 +55,13 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 		return nil, fmt.Errorf("failed to read OFX content: %w", err)
 	}
 
+	// Check for context cancellation before parsing
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	// Parse OFX response
 	response, err := ofxgo.ParseResponse(bytes.NewReader(content))
 	if err != nil {
@@ -74,20 +81,25 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 		return p.parseInvestment(response, meta)
 	}
 
-	return nil, fmt.Errorf("no supported statement type found in OFX file")
+	return nil, fmt.Errorf("no supported statement type found in OFX file (creditcard: %d, bank: %d, investment: %d)",
+		len(response.CreditCard), len(response.Bank), len(response.InvStmt))
 }
 
 // parseCreditCard parses credit card statement
 func (p *Parser) parseCreditCard(resp *ofxgo.Response, meta *parser.Metadata) (*parser.RawStatement, error) {
+	if len(resp.CreditCard) == 0 {
+		return nil, fmt.Errorf("parseCreditCard called with empty CreditCard array")
+	}
+
 	ccStmt, ok := resp.CreditCard[0].(*ofxgo.CCStatementResponse)
 	if !ok {
-		return nil, fmt.Errorf("failed to type assert credit card statement")
+		return nil, fmt.Errorf("failed to type assert credit card statement: expected *ofxgo.CCStatementResponse, got %T", resp.CreditCard[0])
 	}
 
 	// Extract institution ID from OFX response
-	institutionID := resp.Signon.Org.String()
-	if institutionID == "" {
-		return nil, fmt.Errorf("missing institution ID in OFX response")
+	institutionID, err := extractInstitutionID(resp)
+	if err != nil {
+		return nil, err
 	}
 
 	// Extract account ID
@@ -103,9 +115,7 @@ func (p *Parser) parseCreditCard(resp *ofxgo.Response, meta *parser.Metadata) (*
 	}
 
 	// Set institution name from metadata if available
-	if meta != nil && meta.Institution() != "" {
-		account.SetInstitutionName(meta.Institution())
-	}
+	setInstitutionNameFromMeta(account, meta)
 
 	// Extract period
 	var period *parser.Period
@@ -117,6 +127,11 @@ func (p *Parser) parseCreditCard(resp *ofxgo.Response, meta *parser.Metadata) (*
 		if err != nil {
 			return nil, fmt.Errorf("failed to create period: %w", err)
 		}
+	}
+
+	// Ensure period was created (transaction list is required)
+	if period == nil {
+		return nil, fmt.Errorf("missing transaction list in statement")
 	}
 
 	// Parse transactions
@@ -137,15 +152,19 @@ func (p *Parser) parseCreditCard(resp *ofxgo.Response, meta *parser.Metadata) (*
 
 // parseBank parses bank account statement
 func (p *Parser) parseBank(resp *ofxgo.Response, meta *parser.Metadata) (*parser.RawStatement, error) {
+	if len(resp.Bank) == 0 {
+		return nil, fmt.Errorf("parseBank called with empty Bank array")
+	}
+
 	bankStmt, ok := resp.Bank[0].(*ofxgo.StatementResponse)
 	if !ok {
-		return nil, fmt.Errorf("failed to type assert bank statement")
+		return nil, fmt.Errorf("failed to type assert bank statement: expected *ofxgo.StatementResponse, got %T", resp.Bank[0])
 	}
 
 	// Extract institution ID from OFX response
-	institutionID := resp.Signon.Org.String()
-	if institutionID == "" {
-		return nil, fmt.Errorf("missing institution ID in OFX response")
+	institutionID, err := extractInstitutionID(resp)
+	if err != nil {
+		return nil, err
 	}
 
 	// Extract account ID
@@ -164,9 +183,7 @@ func (p *Parser) parseBank(resp *ofxgo.Response, meta *parser.Metadata) (*parser
 	}
 
 	// Set institution name from metadata if available
-	if meta != nil && meta.Institution() != "" {
-		account.SetInstitutionName(meta.Institution())
-	}
+	setInstitutionNameFromMeta(account, meta)
 
 	// Extract period
 	var period *parser.Period
@@ -178,6 +195,11 @@ func (p *Parser) parseBank(resp *ofxgo.Response, meta *parser.Metadata) (*parser
 		if err != nil {
 			return nil, fmt.Errorf("failed to create period: %w", err)
 		}
+	}
+
+	// Ensure period was created (transaction list is required)
+	if period == nil {
+		return nil, fmt.Errorf("missing transaction list in statement")
 	}
 
 	// Parse transactions
@@ -198,15 +220,19 @@ func (p *Parser) parseBank(resp *ofxgo.Response, meta *parser.Metadata) (*parser
 
 // parseInvestment parses investment account statement
 func (p *Parser) parseInvestment(resp *ofxgo.Response, meta *parser.Metadata) (*parser.RawStatement, error) {
+	if len(resp.InvStmt) == 0 {
+		return nil, fmt.Errorf("parseInvestment called with empty InvStmt array")
+	}
+
 	invStmt, ok := resp.InvStmt[0].(*ofxgo.InvStatementResponse)
 	if !ok {
-		return nil, fmt.Errorf("failed to type assert investment statement")
+		return nil, fmt.Errorf("failed to type assert investment statement: expected *ofxgo.InvStatementResponse, got %T", resp.InvStmt[0])
 	}
 
 	// Extract institution ID from OFX response
-	institutionID := resp.Signon.Org.String()
-	if institutionID == "" {
-		return nil, fmt.Errorf("missing institution ID in OFX response")
+	institutionID, err := extractInstitutionID(resp)
+	if err != nil {
+		return nil, err
 	}
 
 	// Extract account ID
@@ -222,9 +248,7 @@ func (p *Parser) parseInvestment(resp *ofxgo.Response, meta *parser.Metadata) (*
 	}
 
 	// Set institution name from metadata if available
-	if meta != nil && meta.Institution() != "" {
-		account.SetInstitutionName(meta.Institution())
-	}
+	setInstitutionNameFromMeta(account, meta)
 
 	// Extract period
 	var period *parser.Period
@@ -236,6 +260,11 @@ func (p *Parser) parseInvestment(resp *ofxgo.Response, meta *parser.Metadata) (*
 		if err != nil {
 			return nil, fmt.Errorf("failed to create period: %w", err)
 		}
+	}
+
+	// Ensure period was created (transaction list is required)
+	if period == nil {
+		return nil, fmt.Errorf("missing transaction list in statement")
 	}
 
 	// Parse investment transactions
@@ -259,57 +288,13 @@ func (p *Parser) parseTransactions(tranList *ofxgo.TransactionList) ([]parser.Ra
 	transactions := make([]parser.RawTransaction, 0, len(tranList.Transactions))
 
 	for _, txn := range tranList.Transactions {
-		// Extract transaction ID
-		id := txn.FiTID.String()
-		if id == "" {
-			continue // Skip transactions without ID
-		}
-
-		// Extract date (prefer posted date, fallback to user date)
-		date := txn.DtPosted.Time
-		if date.IsZero() {
-			date = txn.DtUser.Time
-		}
-		if date.IsZero() {
-			continue // Skip transactions without date
-		}
-
-		// Extract posted date
-		postedDate := txn.DtPosted.Time
-		if postedDate.IsZero() {
-			postedDate = date // Fallback to transaction date
-		}
-
-		// Extract description (prefer Name, fallback to Memo)
-		description := txn.Name.String()
-		if description == "" {
-			description = txn.Memo.String()
-		}
-		description = strings.TrimSpace(description)
-		if description == "" {
-			continue // Skip transactions without description
-		}
-
-		// Extract amount
-		amount, _ := txn.TrnAmt.Float64()
-
-		// Create raw transaction
-		rawTxn, err := parser.NewRawTransaction(id, date, postedDate, description, amount)
+		rawTxn, err := extractTransaction(txn)
 		if err != nil {
-			continue // Skip invalid transactions
+			return nil, err
 		}
-
-		// Set transaction type
-		txnType := mapOFXTransactionType(txn)
-		rawTxn.SetType(txnType)
-
-		// Set memo
-		memo := strings.TrimSpace(txn.Memo.String())
-		if memo != "" {
-			rawTxn.SetMemo(memo)
+		if rawTxn != nil {
+			transactions = append(transactions, *rawTxn)
 		}
-
-		transactions = append(transactions, *rawTxn)
 	}
 
 	return transactions, nil
@@ -324,55 +309,13 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 	for _, invBankTxn := range tranList.BankTransactions {
 		// Each InvBankTransaction contains a list of regular transactions
 		for _, txn := range invBankTxn.Transactions {
-			// Extract transaction ID
-			id := txn.FiTID.String()
-			if id == "" {
-				continue
-			}
-
-			// Extract date
-			date := txn.DtPosted.Time
-			if date.IsZero() {
-				date = txn.DtUser.Time
-			}
-			if date.IsZero() {
-				continue
-			}
-
-			postedDate := txn.DtPosted.Time
-			if postedDate.IsZero() {
-				postedDate = date
-			}
-
-			// Extract description
-			description := txn.Name.String()
-			if description == "" {
-				description = txn.Memo.String()
-			}
-			description = strings.TrimSpace(description)
-			if description == "" {
-				continue
-			}
-
-			// Extract amount
-			amount, _ := txn.TrnAmt.Float64()
-
-			rawTxn, err := parser.NewRawTransaction(id, date, postedDate, description, amount)
+			rawTxn, err := extractTransaction(txn)
 			if err != nil {
-				continue
+				return nil, err
 			}
-
-			// Set transaction type
-			txnType := mapOFXTransactionType(txn)
-			rawTxn.SetType(txnType)
-
-			// Set memo
-			memo := strings.TrimSpace(txn.Memo.String())
-			if memo != "" {
-				rawTxn.SetMemo(memo)
+			if rawTxn != nil {
+				transactions = append(transactions, *rawTxn)
 			}
-
-			transactions = append(transactions, *rawTxn)
 		}
 	}
 
@@ -384,7 +327,6 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 }
 
 // mapBankAccountType maps OFX account type to internal account type
-// Note: ofxgo uses unexported acctType, so we need to handle the field value directly
 func mapBankAccountType(ofxAcct ofxgo.BankAcct) string {
 	switch ofxAcct.AcctType {
 	case ofxgo.AcctTypeChecking:
@@ -397,7 +339,6 @@ func mapBankAccountType(ofxAcct ofxgo.BankAcct) string {
 }
 
 // mapOFXTransactionType maps OFX transaction type to internal transaction type
-// Note: ofxgo uses unexported trnType, so we work with the transaction field directly
 func mapOFXTransactionType(txn ofxgo.Transaction) string {
 	switch txn.TrnType {
 	case ofxgo.TrnTypeCredit:
@@ -424,4 +365,76 @@ func mapOFXTransactionType(txn ofxgo.Transaction) string {
 		// For unknown types, infer from amount (empty string is also acceptable)
 		return ""
 	}
+}
+
+// extractInstitutionID extracts and validates institution ID from OFX response
+func extractInstitutionID(resp *ofxgo.Response) (string, error) {
+	institutionID := resp.Signon.Org.String()
+	if institutionID == "" {
+		return "", fmt.Errorf("missing institution ID in OFX response")
+	}
+	return institutionID, nil
+}
+
+// setInstitutionNameFromMeta sets institution name from metadata if available
+func setInstitutionNameFromMeta(account *parser.RawAccount, meta *parser.Metadata) {
+	if meta != nil && meta.Institution() != "" {
+		account.SetInstitutionName(meta.Institution())
+	}
+}
+
+// extractTransaction extracts common transaction fields from OFX transaction
+// Returns nil if transaction should be skipped (missing required fields)
+func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
+	// Extract transaction ID
+	id := txn.FiTID.String()
+	if id == "" {
+		return nil, nil // Skip transactions without ID
+	}
+
+	// Use posted date; if not available, fallback to user date
+	date := txn.DtPosted.Time
+	if date.IsZero() {
+		date = txn.DtUser.Time
+	}
+	if date.IsZero() {
+		return nil, nil // Skip transactions without date
+	}
+
+	// Extract posted date
+	postedDate := txn.DtPosted.Time
+	if postedDate.IsZero() {
+		postedDate = date // Fallback to transaction date
+	}
+
+	// Use Name field for description; if empty, fallback to Memo field
+	description := txn.Name.String()
+	if description == "" {
+		description = txn.Memo.String()
+	}
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return nil, nil // Skip transactions without description
+	}
+
+	// Extract amount
+	amount, _ := txn.TrnAmt.Float64()
+
+	// Create raw transaction
+	rawTxn, err := parser.NewRawTransaction(id, date, postedDate, description, amount)
+	if err != nil {
+		return nil, nil // Skip invalid transactions
+	}
+
+	// Set transaction type
+	txnType := mapOFXTransactionType(txn)
+	rawTxn.SetType(txnType)
+
+	// Set memo
+	memo := strings.TrimSpace(txn.Memo.String())
+	if memo != "" {
+		rawTxn.SetMemo(memo)
+	}
+
+	return rawTxn, nil
 }
