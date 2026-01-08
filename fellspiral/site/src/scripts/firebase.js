@@ -377,16 +377,10 @@ export async function getAllCards() {
 
     // If not authenticated, return only public cards (but check completeness first)
     if (!currentUser) {
-      // Check if we have incomplete card types and should fall back to static data
-      const types = new Set(publicCards.map((c) => c.type).filter(Boolean));
-      const expectedTypes = new Set(['Equipment', 'Skill', 'Upgrade', 'Origin']);
-      const missingTypes = [...expectedTypes].filter((type) => !types.has(type));
-
-      if (missingTypes.length > 1) {
-        console.warn(
-          `[getAllCards] Firestore missing ${missingTypes.length} expected types (${missingTypes.join(', ')}). ` +
-            `Falling back to static data.`
-        );
+      // Only fall back to static data if no public cards exist at all (to avoid incomplete library)
+      // This preserves user-created cards while ensuring demo data is available as fallback
+      if (publicCards.length === 0) {
+        console.warn('[getAllCards] No public cards in Firestore. Falling back to static data.');
         return cardsData || [];
       }
 
