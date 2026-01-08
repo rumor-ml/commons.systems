@@ -258,8 +258,8 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
 
     const publicCard2 = {
       title: `Public Card 2 ${Date.now()}`,
-      type: 'MagicSpell',
-      subtype: 'Offensive',
+      type: 'Skill',
+      subtype: 'Magic',
       isPublic: true,
       createdBy: 'other-user-uid',
       description: 'Second public card',
