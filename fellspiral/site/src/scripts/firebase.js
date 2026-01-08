@@ -481,15 +481,28 @@ export async function createCard(cardData) {
       throw new Error('User must be authenticated to create cards');
     }
 
-    const docRef = await addDoc(getCardsCollection(), {
-      ...cardData,
-      isPublic: cardData.isPublic ?? true, // Default to public for backward compatibility
-      createdBy: user.uid,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      lastModifiedBy: user.uid,
-      lastModifiedAt: serverTimestamp(),
+    console.log('[Firebase] createCard: Starting Firestore write', {
+      title: cardData.title,
+      type: cardData.type,
+      collection: getCardsCollectionName(),
+      uid: user.uid,
     });
+
+    // Timeout for create operations - helps surface issues in emulator tests
+    const FIRESTORE_CREATE_TIMEOUT_MS = 10000;
+    const docRef = await withTimeout(
+      addDoc(getCardsCollection(), {
+        ...cardData,
+        isPublic: cardData.isPublic ?? true, // Default to public for backward compatibility
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastModifiedBy: user.uid,
+        lastModifiedAt: serverTimestamp(),
+      }),
+      FIRESTORE_CREATE_TIMEOUT_MS,
+      `Firestore create timed out after ${FIRESTORE_CREATE_TIMEOUT_MS}ms - check emulator connectivity`
+    );
     return docRef.id;
   } catch (error) {
     console.error('[Firebase] Error creating card:', {
