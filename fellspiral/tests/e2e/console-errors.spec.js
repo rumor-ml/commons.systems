@@ -150,7 +150,7 @@ test.describe('Console Errors', () => {
     await page.waitForSelector('#cardEditorModal', { state: 'visible', timeout: 5000 });
 
     // 2. Close modal
-    await page.click('[data-action="cancel"]');
+    await page.click('#cancelModalBtn');
     await page.waitForSelector('#cardEditorModal', { state: 'hidden', timeout: 5000 });
 
     // 3. Use search (if available)
