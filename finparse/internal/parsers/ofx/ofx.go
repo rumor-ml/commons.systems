@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 // Each method operates solely on the input data provided, making the parser safe
 // for concurrent use without locking. All behavior is determined by the OFX file
 // content and optional Metadata.
+// TODO(#1319): Simplify comment to focus on contract, not implementation details
 type Parser struct{}
 
 var parserInstance = &Parser{}
@@ -73,11 +75,10 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 		return nil, fmt.Errorf("failed to read OFX content%s: %w", getFileInfo(meta), err)
 	}
 
-	// Check if context was cancelled before parsing.
+	// Check if context was cancelled after reading the file.
 	// Note: ofxgo.ParseResponse() does not support context cancellation,
-	// so cancellation requests during parsing will not be detected until
-	// after ParseResponse completes. This check provides cancellation support
-	// only before parsing begins.
+	// so this check only catches cancellation between file read and parsing.
+	// Cancellation during io.ReadAll or ParseResponse will not be detected.
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -300,9 +301,8 @@ func (p *Parser) parseTransactions(tranList *ofxgo.TransactionList) ([]parser.Ra
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse transaction at index %d: %w", i, err)
 		}
-		if rawTxn != nil {
-			transactions = append(transactions, *rawTxn)
-		}
+		// extractTransaction never returns nil without error, so no nil check needed
+		transactions = append(transactions, *rawTxn)
 	}
 
 	return transactions, nil
@@ -321,19 +321,16 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse investment transaction at index %d: %w", i, err)
 			}
-			if rawTxn != nil {
-				transactions = append(transactions, *rawTxn)
-			}
+			// extractTransaction never returns nil without error, so no nil check needed
+			transactions = append(transactions, *rawTxn)
 		}
 	}
 
-	// Security transactions (BuyStock, SellStock, ReinvestIncome, etc.) are not yet implemented.
-	// These transactions contain fields like units, price per share, and commission that require
-	// either: (1) extending RawTransaction to support security-specific fields, or (2) creating
-	// a separate SecurityTransaction type. Current implementation only extracts cash movements
-	// from InvBankTransaction list (dividends, interest, fees).
-	// TODO(#1294): Implement security transaction support - decide between extending RawTransaction
-	// or creating SecurityTransaction type based on normalization layer requirements
+	// Security transactions (BuyStock, SellStock, ReinvestIncome, etc.) are not implemented.
+	// Only cash movement transactions from InvBankTransaction are supported (dividends, interest, fees).
+	// Security transactions require either: (1) extending RawTransaction with security-specific fields
+	// (units, price per share, commission), or (2) creating a separate SecurityTransaction type.
+	// TODO(#1294): Implement security transaction support
 	securityTxnCount := len(tranList.InvTransactions)
 	if securityTxnCount > 0 {
 		return nil, fmt.Errorf("investment statement contains %d security transactions (BuyStock, SellStock, ReinvestIncome, etc.) which are not yet supported by this parser (see issue #1294). Only cash movement transactions (dividends, interest, fees) are currently supported", securityTxnCount)
@@ -343,6 +340,7 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 }
 
 // mapBankAccountType maps OFX account type to internal account type
+// TODO(#1323): Add support for MONEYMRKT, CREDITLINE, and CD account types or use fallback pattern
 func mapBankAccountType(ofxAcct ofxgo.BankAcct) (string, error) {
 	switch ofxAcct.AcctType {
 	case ofxgo.AcctTypeChecking:
@@ -381,9 +379,14 @@ func mapOFXTransactionType(txn ofxgo.Transaction) string {
 	default:
 		// Convert unknown transaction types to UNKNOWN_* format for downstream processing.
 		// The UNKNOWN_ prefix allows downstream code to identify and handle unsupported types.
-		// TODO(#1306): Consider logging unknown types to stderr or metrics for operational visibility.
-		// Currently returns UNKNOWN_* prefix for downstream detection but provides no runtime logging.
-		return fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
+		unknownType := fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
+
+		// Log unknown transaction type for operational visibility
+		// TODO(#1306): Add structured logging when project has logger infrastructure
+		fmt.Fprintf(os.Stderr, "Warning: Unknown OFX transaction type %v mapped to %s (transaction ID: %s)\n",
+			txn.TrnType, unknownType, txn.FiTID.String())
+
+		return unknownType
 	}
 }
 
@@ -421,9 +424,8 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		return nil, fmt.Errorf("transaction %s missing both posted date and user date", id)
 	}
 
-	// Use the same date for both transaction date and posted date.
-	// OFX has DtPosted and DtUser fields, with DtPosted as primary (see lines 413-419 for fallback logic).
-	// RawTransaction requires both date fields, so we use the resolved date for both.
+	// Use the resolved date for both date and postedDate fields.
+	// Both RawTransaction fields require valid dates, so we use the same resolved date.
 	postedDate := date
 
 	// Use Name field for description; if empty, fallback to Memo field
@@ -437,12 +439,14 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 	}
 
 	// Extract amount. Float64() returns (float64, bool) where the bool indicates exact representation.
-	// The exact flag is intentionally ignored because typical financial transactions (2 decimal places)
-	// fit within float64 precision. However, this may cause silent precision loss for high-precision
-	// currencies or very large amounts.
-	// TODO(#1307): Consider validating the exact flag or using a decimal library if precision loss occurs.
+	// Typical financial transactions (2 decimal places) fit within float64 precision, but high-precision
+	// currencies or very large amounts may lose precision. Log a warning when precision loss occurs.
+	// TODO(#1307): Consider using a decimal library if precision loss becomes common in production.
 	// TODO(#1317): Add test validating precision behavior with edge case amounts
-	amount, _ := txn.TrnAmt.Float64()
+	amount, exact := txn.TrnAmt.Float64()
+	if !exact {
+		fmt.Fprintf(os.Stderr, "Warning: Precision loss in transaction %s amount: %v (cannot be exactly represented as float64)\n", id, txn.TrnAmt)
+	}
 
 	// Create raw transaction
 	rawTxn, err := parser.NewRawTransaction(id, date, postedDate, description, amount)

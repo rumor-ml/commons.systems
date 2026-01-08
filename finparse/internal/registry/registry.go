@@ -11,6 +11,7 @@ import (
 )
 
 // Registry holds all registered parsers with thread-safe access for concurrent file parsing.
+// TODO(#1322): Add concurrent tests to verify thread safety of FindParser calls
 type Registry struct {
 	mu      sync.RWMutex
 	parsers []parser.Parser
@@ -70,6 +71,7 @@ func (r *Registry) register(p parser.Parser) error {
 //
 // Each parser's CanParse method receives the header and must validate it contains
 // sufficient data for reliable format detection.
+// TODO(#1320): Simplify comment to avoid duplicating implementation details from code
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	header, err := r.readHeader(path)
@@ -97,7 +99,13 @@ func (r *Registry) readHeader(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close() // TODO(#1304): Consider checking close error for completeness
+	defer func() {
+		if err := f.Close(); err != nil {
+			// Log close error for debugging (rare for read-only files, but can occur on network filesystems)
+			// TODO(#1304): Add structured logging when project has logger infrastructure
+			fmt.Fprintf(os.Stderr, "Warning: Failed to close file %s: %v\n", path, err)
+		}
+	}()
 
 	// TODO(#1293): Consider more specific error messages for directory vs file vs permission issues
 	header := make([]byte, 512)
@@ -105,10 +113,9 @@ func (r *Registry) readHeader(path string) ([]byte, error) {
 	if err != nil && err != io.EOF {
 		return nil, fmt.Errorf("failed to read header from %s: %w", path, err)
 	}
-	// EOF is acceptable - files smaller than 512 bytes will return their full content.
-	// Each parser's CanParse method is responsible for validating that the header
-	// contains sufficient data for format detection. Parsers should return false
-	// if the header is too small to reliably detect their format.
+	// Return the header bytes read (may be less than 512 for small files).
+	// Each parser's CanParse method must validate that the header contains
+	// sufficient data for format detection, returning false if header is too small.
 	return header[:n], nil
 }
 

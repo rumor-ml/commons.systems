@@ -1387,6 +1387,7 @@ NEWFILEUID:NONE
 	}
 }
 
+// TODO(#1321): Test name suggests skipping invalid transactions but only tests valid ones
 func TestParse_SkipInvalidTransactions(t *testing.T) {
 	ofxContent := `OFXHEADER:100
 DATA:OFXSGML
@@ -2634,4 +2635,121 @@ func TestNewRawTransaction_ErrorPaths(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test for investment statement with security transactions (pr-test-analyzer-in-scope-0)
+// Verifies error handling when parsing investment statements containing unsupported
+// security transactions (BuyStock, SellStock, ReinvestIncome, etc.)
+func TestParseInvestment_SecurityTransactionsError(t *testing.T) {
+	// Investment statement with security transaction (BUYSTOCK)
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20240101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTINV
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<INVSTMTMSGSRSV1>
+<INVSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<INVSTMTRS>
+<DTASOF>20240131235959
+<CURDEF>USD
+<INVACCTFROM>
+<BROKERID>TESTBROKER
+<ACCTID>987654321
+</INVACCTFROM>
+<INVTRANLIST>
+<DTSTART>20240101000000
+<DTEND>20240131235959
+<BUYSTOCK>
+<INVBUY>
+<INVTRAN>
+<FITID>SEC001
+<DTTRADE>20240115120000
+</INVTRAN>
+<SECID>
+<UNIQUEID>123456789
+<UNIQUEIDTYPE>CUSIP
+</SECID>
+<UNITS>10
+<UNITPRICE>100.00
+<TOTAL>-1000.00
+<SUBACCTSEC>OTHER
+<SUBACCTFUND>OTHER
+</INVBUY>
+<BUYTYPE>BUY
+</BUYSTOCK>
+</INVTRANLIST>
+<INVBAL>
+<AVAILCASH>4000.00
+</INVBAL>
+</INVSTMTRS>
+</INVSTMTTRNRS>
+</INVSTMTMSGSRSV1>
+</OFX>`
+
+	p := NewParser()
+	meta, err := parser.NewMetadata("/test/investment.ofx", time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
+
+	_, err = p.Parse(context.Background(), strings.NewReader(ofxContent), meta)
+	if err == nil {
+		t.Fatal("Expected error for investment statement with security transactions, got nil")
+	}
+
+	// Verify error message contains expected information
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "security transactions") {
+		t.Errorf("Error should mention 'security transactions', got: %v", err)
+	}
+	if !strings.Contains(errMsg, "1") {
+		t.Errorf("Error should include count of security transactions (1), got: %v", err)
+	}
+	if !strings.Contains(errMsg, "#1294") {
+		t.Errorf("Error should reference issue #1294, got: %v", err)
+	}
+}
+
+// Test documenting type assertion coverage gap (pr-test-analyzer-in-scope-1)
+// Type assertions at ofx.go:117-119, 176-178, 241-243 cannot be easily tested
+// because constructing malformed ofxgo.Response objects with incorrect types
+// requires manipulating unexported fields or mocking the ofxgo library's internal
+// parsing behavior.
+//
+// The error handling exists at these locations:
+// - parseCreditCard: Line 117-119 (type assert to *ofxgo.CCStatementResponse)
+// - parseBank: Line 176-178 (type assert to *ofxgo.StatementResponse)
+// - parseInvestment: Line 241-243 (type assert to *ofxgo.InvStatementResponse)
+//
+// Each returns a descriptive error with the actual type received (using formatting)
+// to aid debugging if the ofxgo library's response structure changes.
+//
+// See TODO(#1316) for tracking this coverage gap.
+func TestTypeAssertionFailures_CoverageGap(t *testing.T) {
+	t.Skip("Type assertion failures in parseCreditCard (line 117-119), parseBank (line 176-178), and parseInvestment (line 241-243) cannot be tested without constructing malformed ofxgo.Response objects. The ofxgo library controls response type construction through unexported fields. Error handling is documented and includes helpful error messages with actual type information. See TODO(#1316).")
 }
