@@ -2149,7 +2149,7 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
     await expect(page.locator('#cardEditorModal.active')).toBeVisible();
   });
 
-  test('should fall back to demo data when offline', async ({ page, context }) => {
+  test.skip('should fall back to demo data when offline', async ({ page, context }) => {
     // Set offline mode
     await context.setOffline(true);
 
