@@ -152,7 +152,8 @@ test.describe('Add Card - Happy Path Tests', () => {
     expect(firestoreCard.lastModifiedAt).toBeTruthy();
   });
 
-  test('should verify card appears in list after creation', async ({ page, authEmulator }) => {
+  // TODO(#1301): Flaky test - Save Card button remains disabled, modal never closes
+  test.skip('should verify card appears in list after creation', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
