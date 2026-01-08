@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
@@ -214,7 +215,7 @@ func TestRegistry_FindParser(t *testing.T) {
 				if err == nil {
 					t.Fatal("Expected error, got nil")
 				}
-				if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
 					t.Errorf("Expected error containing '%s', got '%s'", tt.errorContains, err.Error())
 				}
 				return
@@ -263,7 +264,7 @@ func TestRegistry_FindParser_FileErrors(t *testing.T) {
 			if err == nil {
 				t.Fatal("Expected error, got nil")
 			}
-			if !contains(err.Error(), tt.errorContains) {
+			if !strings.Contains(err.Error(), tt.errorContains) {
 				t.Errorf("Expected error containing '%s', got '%s'", tt.errorContains, err.Error())
 			}
 		})
@@ -439,16 +440,4 @@ func createTempFile(t *testing.T, content string) string {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 	return tmpFile
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
-				}
-			}
-			return false
-		}())
 }

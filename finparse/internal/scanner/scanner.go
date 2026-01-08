@@ -31,6 +31,7 @@ type ScanResult struct {
 // Scan walks the directory tree and finds all statement files
 func (s *Scanner) Scan() ([]ScanResult, error) {
 	var results []ScanResult
+	fileCount := 0
 
 	// Expand ~ to home directory
 	rootDir, err := s.expandHome(s.rootDir)
@@ -41,7 +42,7 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 	// Walk directory tree
 	err = filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return fmt.Errorf("error accessing %s: %w", path, err)
+			return fmt.Errorf("error accessing %s (processed %d files so far): %w", path, fileCount, err)
 		}
 
 		// Skip directories
@@ -57,18 +58,19 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 		// Extract metadata from path
 		metadata, err := s.extractMetadata(path, rootDir)
 		if err != nil {
-			return err
+			return fmt.Errorf("metadata extraction failed at %s (processed %d files so far): %w", path, fileCount, err)
 		}
 
 		// Validate metadata
 		if err := metadata.Validate(); err != nil {
-			return fmt.Errorf("invalid metadata for %s: %w", path, err)
+			return fmt.Errorf("invalid metadata for %s (processed %d files so far): %w", path, fileCount, err)
 		}
 
 		results = append(results, ScanResult{
 			Path:     path,
 			Metadata: metadata,
 		})
+		fileCount++
 
 		return nil
 	})
@@ -89,6 +91,7 @@ func (s *Scanner) isStatementFile(path string) bool {
 // extractMetadata parses directory structure to extract institution/account info
 // Path structure: {root}/{institution}/{account}/{period?}/file.ext
 // Example: ~/statements/american_express/2011/2025-10/statement.qfx
+// TODO(#1269): Return zero-value metadata on error instead of partial metadata
 func (s *Scanner) extractMetadata(filePath, rootDir string) (parser.Metadata, error) {
 	// Get relative path from root
 	relPath, err := filepath.Rel(rootDir, filePath)
@@ -143,9 +146,10 @@ func (s *Scanner) normalizeInstitutionName(dirName string) string {
 	return strings.Join(words, " ")
 }
 
-// looksLikePeriod checks if string might be a date period (lenient check: 7+ chars with dash at position 4)
+// looksLikePeriod checks if string might be a date period.
+// Lenient check: length >= 7 with dash at position 4 (typical YYYY-MM format).
+// Does not validate that characters are digits - relies on directory naming conventions.
 func (s *Scanner) looksLikePeriod(str string) bool {
-	// Simple check: starts with 4 digits
 	return len(str) >= 7 && str[4] == '-'
 }
 

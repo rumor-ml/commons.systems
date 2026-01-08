@@ -81,7 +81,7 @@ func run() error {
 
 	files, err := s.Scan()
 	if err != nil {
-		return fmt.Errorf("scan failed: %w", err)
+		return fmt.Errorf("failed to scan directory %s: %w", *inputDir, err)
 	}
 
 	if *verbose {
@@ -105,6 +105,7 @@ func run() error {
 		return nil
 	}
 
+	// TODO(#1271): Add success message in non-verbose mode for better user feedback
 	// TODO: Phase 2+ will implement actual parsing
 	fmt.Println("Parsing not yet implemented. Phase 1 complete.")
 

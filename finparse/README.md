@@ -25,16 +25,19 @@ finparse -input ~/statements -dry-run -verbose
 ## Development Status
 
 **Phase 1 Complete:**
+
 - ✅ Project structure
 - ✅ Domain types matching TypeScript schema
 - ✅ Parser interface and registry
 - ✅ File system scanner
 
 **Coming in Phase 2:**
+
 - OFX/QFX parser implementation
 - Bank, credit card, investment statement support
 
 **Coming in Phase 3:**
+
 - CSV parser (PNC format)
 
 ## Project Structure

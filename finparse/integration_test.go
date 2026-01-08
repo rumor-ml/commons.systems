@@ -222,15 +222,6 @@ func buildFinparse(t *testing.T) string {
 	return existingBin
 }
 
-// copyFile copies a file from src to dst
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0755)
-}
-
 // getFinparseRoot finds the finparse module root directory
 func getFinparseRoot(t *testing.T) string {
 	t.Helper()

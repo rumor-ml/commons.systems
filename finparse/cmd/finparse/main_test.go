@@ -77,47 +77,68 @@ func TestMain_VersionFlag(t *testing.T) {
 	}
 }
 
-// TestRun_InvalidInputDir tests error handling for invalid input directories
-func TestRun_InvalidInputDir(t *testing.T) {
-	// Save original flags
+// TestMain_ErrorExitCode tests that run() errors cause main() to exit with code 1
+func TestMain_ErrorExitCode(t *testing.T) {
+	// Build the binary
+	tmpBin := filepath.Join(t.TempDir(), "finparse")
+	buildCmd := exec.Command("go", "build", "-o", tmpBin, ".")
+	buildCmd.Dir = filepath.Join("..", "..", "cmd", "finparse")
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build binary: %v\nOutput: %s", err, output)
+	}
+
+	// Run with invalid directory (this triggers run() error -> os.Exit(1) path)
+	cmd := exec.Command(tmpBin, "-input", "/nonexistent/path")
+	err := cmd.Run()
+
+	// Should exit with error
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatal("Expected ExitError for invalid directory")
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Errorf("Expected exit code 1, got %d", exitErr.ExitCode())
+	}
+}
+
+// withFlags is a test helper that temporarily sets flag values and restores them after the test.
+func withFlags(t *testing.T, input string, dryRunVal, verboseVal bool) func() {
+	t.Helper()
 	origInput := *inputDir
 	origDryRun := *dryRun
 	origVerbose := *verbose
-	defer func() {
+
+	*inputDir = input
+	*dryRun = dryRunVal
+	*verbose = verboseVal
+
+	return func() {
 		*inputDir = origInput
 		*dryRun = origDryRun
 		*verbose = origVerbose
-	}()
+	}
+}
+
+// TestRun_InvalidInputDir tests error handling for invalid input directories
+func TestRun_InvalidInputDir(t *testing.T) {
+	defer withFlags(t, "", true, false)()
 
 	t.Run("non-existent directory", func(t *testing.T) {
-		// Set flags
 		*inputDir = "/nonexistent/directory/that/does/not/exist"
-		*dryRun = true
-		*verbose = false
 
 		// Run should fail
 		err := run()
 		if err == nil {
 			t.Error("Expected error for non-existent directory, got nil")
 		}
-		if err != nil && !strings.Contains(err.Error(), "scan failed") {
-			t.Errorf("Expected error containing 'scan failed', got: %v", err)
+		if err != nil && !strings.Contains(err.Error(), "failed to scan directory") {
+			t.Errorf("Expected error containing 'failed to scan directory', got: %v", err)
 		}
 	})
 }
 
 // TestRun_ValidDirectory tests successful execution with valid directory
 func TestRun_ValidDirectory(t *testing.T) {
-	// Save original flags
-	origInput := *inputDir
-	origDryRun := *dryRun
-	origVerbose := *verbose
-	defer func() {
-		*inputDir = origInput
-		*dryRun = origDryRun
-		*verbose = origVerbose
-	}()
-
 	// Create temp directory structure
 	tmpDir := t.TempDir()
 	instDir := filepath.Join(tmpDir, "test_bank")
@@ -132,10 +153,7 @@ func TestRun_ValidDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Set flags
-	*inputDir = tmpDir
-	*dryRun = true
-	*verbose = false
+	defer withFlags(t, tmpDir, true, false)()
 
 	// Run should succeed
 	err := run()
@@ -146,22 +164,8 @@ func TestRun_ValidDirectory(t *testing.T) {
 
 // TestRun_EmptyDirectory tests execution with empty directory
 func TestRun_EmptyDirectory(t *testing.T) {
-	// Save original flags
-	origInput := *inputDir
-	origDryRun := *dryRun
-	origVerbose := *verbose
-	defer func() {
-		*inputDir = origInput
-		*dryRun = origDryRun
-		*verbose = origVerbose
-	}()
-
 	tmpDir := t.TempDir()
-
-	// Set flags
-	*inputDir = tmpDir
-	*dryRun = true
-	*verbose = false
+	defer withFlags(t, tmpDir, true, false)()
 
 	// Run should succeed (no files found is not an error)
 	err := run()
@@ -172,16 +176,6 @@ func TestRun_EmptyDirectory(t *testing.T) {
 
 // TestRun_VerboseOutput tests verbose flag produces output
 func TestRun_VerboseOutput(t *testing.T) {
-	// Save original flags
-	origInput := *inputDir
-	origDryRun := *dryRun
-	origVerbose := *verbose
-	defer func() {
-		*inputDir = origInput
-		*dryRun = origDryRun
-		*verbose = origVerbose
-	}()
-
 	// Create temp directory structure
 	tmpDir := t.TempDir()
 	instDir := filepath.Join(tmpDir, "test_bank")
@@ -196,15 +190,12 @@ func TestRun_VerboseOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	defer withFlags(t, tmpDir, true, true)()
+
 	// Capture stdout
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-
-	// Set flags
-	*inputDir = tmpDir
-	*dryRun = true
-	*verbose = true
 
 	// Run
 	err := run()

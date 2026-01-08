@@ -29,10 +29,27 @@ type RawStatement struct {
 
 // RawAccount represents account information from the file
 type RawAccount struct {
-	InstitutionID   string // e.g., "AMEX", "C1", "PNC"
-	InstitutionName string // e.g., "American Express"
-	AccountID       string // From file or directory
-	AccountType     string // "checking", "savings", "credit", "investment"
+	institutionID   string // e.g., "AMEX", "C1", "PNC"
+	institutionName string // e.g., "American Express"
+	accountID       string // From file or directory
+	accountType     string // "checking", "savings", "credit", "investment"
+}
+
+// InstitutionID returns the institution identifier
+func (r *RawAccount) InstitutionID() string { return r.institutionID }
+
+// InstitutionName returns the institution name
+func (r *RawAccount) InstitutionName() string { return r.institutionName }
+
+// AccountID returns the account identifier
+func (r *RawAccount) AccountID() string { return r.accountID }
+
+// AccountType returns the account type
+func (r *RawAccount) AccountType() string { return r.accountType }
+
+// SetInstitutionName updates the institution name (populated from metadata after construction)
+func (r *RawAccount) SetInstitutionName(name string) {
+	r.institutionName = name
 }
 
 // NewRawAccount creates a validated raw account
@@ -43,21 +60,39 @@ func NewRawAccount(institutionID, institutionName, accountID, accountType string
 	if accountID == "" {
 		return nil, fmt.Errorf("account ID cannot be empty")
 	}
-	// Note: InstitutionName can be empty (will be filled from metadata)
-	// AccountType validation will happen during normalization to domain.AccountType
+	// Note: InstitutionName is optional and can be empty if not available in the parsed file.
+	// It will be populated from the directory-based metadata (extracted by Scanner) during processing.
+	// TODO(#1268): AccountType will be validated during normalization to domain.AccountType
+	// TODO(#1272): Add validation in normalization step to ensure InstitutionName gets populated from metadata
 
 	return &RawAccount{
-		InstitutionID:   institutionID,
-		InstitutionName: institutionName,
-		AccountID:       accountID,
-		AccountType:     accountType,
+		institutionID:   institutionID,
+		institutionName: institutionName,
+		accountID:       accountID,
+		accountType:     accountType,
 	}, nil
 }
 
 // Period represents the statement period
 type Period struct {
-	Start time.Time
-	End   time.Time
+	start time.Time
+	end   time.Time
+}
+
+// Start returns the period start time
+func (p *Period) Start() time.Time { return p.start }
+
+// End returns the period end time
+func (p *Period) End() time.Time { return p.end }
+
+// Duration returns the length of the period
+func (p *Period) Duration() time.Duration {
+	return p.end.Sub(p.start)
+}
+
+// Contains returns true if the given time falls within the period (inclusive)
+func (p *Period) Contains(t time.Time) bool {
+	return !t.Before(p.start) && !t.After(p.end)
 }
 
 // NewPeriod creates a validated period
@@ -73,20 +108,51 @@ func NewPeriod(start, end time.Time) (*Period, error) {
 	}
 
 	return &Period{
-		Start: start,
-		End:   end,
+		start: start,
+		end:   end,
 	}, nil
 }
 
 // RawTransaction represents a transaction before normalization
 type RawTransaction struct {
-	ID          string // FITID from OFX or generated for CSV
-	Date        time.Time
-	PostedDate  time.Time // May differ from transaction date
-	Description string
-	Amount      float64 // Positive=income, Negative=expense
-	Type        string  // "DEBIT", "CREDIT", etc.
-	Memo        string  // Additional context
+	id          string // FITID from OFX or generated for CSV
+	date        time.Time
+	postedDate  time.Time // May differ from transaction date
+	description string
+	amount      float64 // Positive=income, Negative=expense
+	txnType     string  // "DEBIT", "CREDIT", etc.
+	memo        string  // Additional context
+}
+
+// ID returns the transaction ID
+func (r *RawTransaction) ID() string { return r.id }
+
+// Date returns the transaction date
+func (r *RawTransaction) Date() time.Time { return r.date }
+
+// PostedDate returns the posted date
+func (r *RawTransaction) PostedDate() time.Time { return r.postedDate }
+
+// Description returns the transaction description
+func (r *RawTransaction) Description() string { return r.description }
+
+// Amount returns the transaction amount
+func (r *RawTransaction) Amount() float64 { return r.amount }
+
+// Type returns the transaction type
+func (r *RawTransaction) Type() string { return r.txnType }
+
+// Memo returns the transaction memo
+func (r *RawTransaction) Memo() string { return r.memo }
+
+// SetType sets the optional transaction type (e.g., "DEBIT", "CREDIT")
+func (r *RawTransaction) SetType(txnType string) {
+	r.txnType = txnType
+}
+
+// SetMemo sets the optional memo field
+func (r *RawTransaction) SetMemo(memo string) {
+	r.memo = memo
 }
 
 // NewRawTransaction creates a validated raw transaction
@@ -105,10 +171,10 @@ func NewRawTransaction(id string, date, postedDate time.Time, description string
 	}
 
 	return &RawTransaction{
-		ID:          id,
-		Date:        date,
-		PostedDate:  postedDate,
-		Description: description,
-		Amount:      amount,
+		id:          id,
+		date:        date,
+		postedDate:  postedDate,
+		description: description,
+		amount:      amount,
 	}, nil
 }
