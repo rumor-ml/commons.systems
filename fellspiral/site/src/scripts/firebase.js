@@ -425,19 +425,9 @@ export async function getAllCards() {
     const allCards = Array.from(cardMap.values());
     allCards.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 
-    // Check if we have incomplete card types and should fall back to static data
-    const types = new Set(allCards.map((c) => c.type).filter(Boolean));
-    const expectedTypes = new Set(['Equipment', 'Skill', 'Upgrade', 'Origin']);
-    const missingTypes = [...expectedTypes].filter((type) => !types.has(type));
-
-    if (missingTypes.length > 1) {
-      console.warn(
-        `[getAllCards] Firestore missing ${missingTypes.length} expected types (${missingTypes.join(', ')}). ` +
-          `Falling back to static data.`
-      );
-      return cardsData || [];
-    }
-
+    // For authenticated users: always return actual Firestore cards (never fall back to demo data)
+    // An empty array is a valid result - means user has no cards yet
+    // Falling back to demo data would cause data loss/confusion for users with 0 cards
     return allCards;
   } catch (error) {
     // Log detailed error information for debugging (especially Firefox-specific issues)
