@@ -14,26 +14,58 @@ test.describe('Card Visibility - Unauthenticated Users', () => {
   test.skip(!isEmulatorMode, 'Card visibility tests only run against emulator');
 
   test('should only see public cards when not authenticated', async ({ page }) => {
-    // Create test data: 1 public card, 1 private card
-    const publicCard = {
-      title: `Public Card ${Date.now()}`,
+    // Create test data: multiple public cards with different types and 1 private card
+    // Note: Must create cards with all expected types (Equipment, Skill, Upgrade, Origin)
+    // to prevent Firestore fallback to static data
+    const publicCard1 = {
+      title: `Public Card Equipment ${Date.now()}`,
       type: 'Equipment',
       subtype: 'Weapon',
       isPublic: true,
       createdBy: 'other-user-uid',
-      description: 'This is a public card',
+      description: 'This is a public equipment card',
+    };
+
+    const publicCard2 = {
+      title: `Public Card Skill ${Date.now()}`,
+      type: 'Skill',
+      subtype: 'Combat',
+      isPublic: true,
+      createdBy: 'other-user-uid',
+      description: 'This is a public skill card',
+    };
+
+    const publicCard3 = {
+      title: `Public Card Upgrade ${Date.now()}`,
+      type: 'Upgrade',
+      subtype: 'Enhancement',
+      isPublic: true,
+      createdBy: 'other-user-uid',
+      description: 'This is a public upgrade card',
+    };
+
+    const publicCard4 = {
+      title: `Public Card Origin ${Date.now()}`,
+      type: 'Origin',
+      subtype: 'Heritage',
+      isPublic: true,
+      createdBy: 'other-user-uid',
+      description: 'This is a public origin card',
     };
 
     const privateCard = {
       title: `Private Card ${Date.now()}`,
-      type: 'MagicSpell',
-      subtype: 'Offensive',
+      type: 'Equipment',
+      subtype: 'Armor',
       isPublic: false,
       createdBy: 'other-user-uid',
       description: 'This is a private card',
     };
 
-    await createCardInFirestore(publicCard);
+    await createCardInFirestore(publicCard1);
+    await createCardInFirestore(publicCard2);
+    await createCardInFirestore(publicCard3);
+    await createCardInFirestore(publicCard4);
     await createCardInFirestore(privateCard);
 
     // Navigate to cards page as guest
@@ -46,11 +78,17 @@ test.describe('Card Visibility - Unauthenticated Users', () => {
     // Wait for cards to load
     await page.waitForTimeout(3000);
 
-    // Verify only public card is visible
-    const isPublicVisible = await isCardVisibleInUI(page, publicCard.title);
+    // Verify public cards are visible and private card is not
+    const isPublic1Visible = await isCardVisibleInUI(page, publicCard1.title);
+    const isPublic2Visible = await isCardVisibleInUI(page, publicCard2.title);
+    const isPublic3Visible = await isCardVisibleInUI(page, publicCard3.title);
+    const isPublic4Visible = await isCardVisibleInUI(page, publicCard4.title);
     const isPrivateVisible = await isCardVisibleInUI(page, privateCard.title);
 
-    expect(isPublicVisible).toBe(true);
+    expect(isPublic1Visible).toBe(true);
+    expect(isPublic2Visible).toBe(true);
+    expect(isPublic3Visible).toBe(true);
+    expect(isPublic4Visible).toBe(true);
     expect(isPrivateVisible).toBe(false);
   });
 
