@@ -1,0 +1,110 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+
+	"github.com/rumor-ml/commons.systems/finparse/internal/registry"
+	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
+)
+
+const (
+	version = "0.1.0"
+)
+
+var (
+	// Global flags
+	versionFlag = flag.Bool("version", false, "Show version")
+
+	// Parse command flags
+	inputDir           = flag.String("input", "", "Input directory containing statements (required)")
+	outputFile         = flag.String("output", "", "Output JSON file (default: stdout)")
+	stateFile          = flag.String("state", "", "Deduplication state file")
+	rulesFile          = flag.String("rules", "", "Category rules file")
+	mergeMode          = flag.Bool("merge", false, "Merge with existing output file")
+	dryRun             = flag.Bool("dry-run", false, "Show what would be parsed without writing")
+	verbose            = flag.Bool("verbose", false, "Show detailed parsing logs")
+	formatFilter       = flag.String("format", "all", "Filter by format: ofx,csv,all")
+	institutionFilter  = flag.String("institution", "", "Filter by institution name")
+)
+
+func main() {
+	// Custom usage message
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "finparse - Financial statement parser for budget prototype\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "  finparse [flags]\n\n")
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  # Parse all statements to stdout\n")
+		fmt.Fprintf(os.Stderr, "  finparse -input ~/statements\n\n")
+		fmt.Fprintf(os.Stderr, "  # Parse to file with state tracking\n")
+		fmt.Fprintf(os.Stderr, "  finparse -input ~/statements -output budget.json -state state.json\n\n")
+		fmt.Fprintf(os.Stderr, "  # Dry run with verbose output\n")
+		fmt.Fprintf(os.Stderr, "  finparse -input ~/statements -dry-run -verbose\n\n")
+	}
+
+	flag.Parse()
+
+	// Handle version flag
+	if *versionFlag {
+		fmt.Printf("finparse version %s\n", version)
+		os.Exit(0)
+	}
+
+	// Validate required flags
+	if *inputDir == "" {
+		fmt.Fprintf(os.Stderr, "Error: -input flag is required\n\n")
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	// Run parser
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	// Create scanner
+	s := scanner.New(*inputDir)
+
+	// Scan for files
+	if *verbose {
+		fmt.Printf("Scanning directory: %s\n", *inputDir)
+	}
+
+	files, err := s.Scan()
+	if err != nil {
+		return fmt.Errorf("scan failed: %w", err)
+	}
+
+	if *verbose {
+		fmt.Printf("Found %d statement files\n", len(files))
+		for _, f := range files {
+			fmt.Printf("  - %s (institution: %s, account: %s)\n",
+				f.Path, f.Metadata.Institution, f.Metadata.AccountNumber)
+		}
+	}
+
+	// Create parser registry
+	reg := registry.New()
+
+	if *verbose {
+		fmt.Printf("Registered parsers: %v\n", reg.ListParsers())
+	}
+
+	// Phase 1: Just scanning and detection (no actual parsing yet)
+	if *dryRun {
+		fmt.Printf("Dry run complete. Would process %d files.\n", len(files))
+		return nil
+	}
+
+	// TODO: Phase 2+ will implement actual parsing
+	fmt.Println("Parsing not yet implemented. Phase 1 complete.")
+
+	return nil
+}
