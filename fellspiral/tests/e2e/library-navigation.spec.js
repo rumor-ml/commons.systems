@@ -335,11 +335,19 @@ const skipDataReflectionTests =
       // Wait for all expected types to be visible
       await waitForLibraryNavTypes(page, ['Equipment', 'Skill', 'Upgrade', 'Origin']);
 
-      // Calculate expected counts from cards.json
+      // Query Firestore directly to get actual counts (instead of using static cards.json)
+      // This handles cases where the emulator may have accumulated data from previous test runs
+      const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+      const { db } = await getFirestoreAdmin();
+      const collectionName = getCardsCollectionName();
+      const snapshot = await db.collection(collectionName).get();
+
+      // Calculate expected counts from actual Firestore data
       const typeCounts = new Map();
       const subtypeCounts = new Map();
 
-      cardsData.forEach((card) => {
+      snapshot.docs.forEach((doc) => {
+        const card = doc.data();
         const type = card.type || 'Unknown';
         const subtype = card.subtype || 'Unknown';
 
@@ -382,6 +390,31 @@ const skipDataReflectionTests =
       }
     });
 
+    // Helper to get Firestore Admin instance
+    async function getFirestoreAdmin() {
+      const adminModule = await import('firebase-admin');
+      const admin = adminModule.default;
+
+      if (!admin.apps.length) {
+        admin.initializeApp({
+          projectId: process.env.GCP_PROJECT_ID || 'demo-test',
+        });
+      }
+
+      const db = admin.firestore(admin.app());
+      if (!db._settingsConfigured) {
+        const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
+        const [host, port] = firestoreHost.split(':');
+        db.settings({
+          host: `${host}:${port}`,
+          ssl: false,
+        });
+        db._settingsConfigured = true;
+      }
+
+      return { db };
+    }
+
     test('Origin type should include former Foe subtypes', async ({ page }) => {
       await page.goto('/cards.html');
 
@@ -399,9 +432,16 @@ const skipDataReflectionTests =
       await originToggle.click();
       await page.waitForTimeout(300);
 
-      // Find all Origin subtypes from the data
+      // Query Firestore directly to get actual Origin subtypes
+      const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+      const { db } = await getFirestoreAdmin();
+      const collectionName = getCardsCollectionName();
+      const snapshot = await db.collection(collectionName).get();
+
+      // Find all Origin subtypes from actual Firestore data
       const originSubtypes = new Set();
-      cardsData.forEach((card) => {
+      snapshot.docs.forEach((doc) => {
+        const card = doc.data();
         if (card.type === 'Origin' && card.subtype) {
           originSubtypes.add(card.subtype);
         }
