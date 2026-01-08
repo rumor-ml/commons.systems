@@ -70,6 +70,46 @@ func TestRegistry_Register(t *testing.T) {
 	}
 }
 
+func TestRegistry_Register_NilParser(t *testing.T) {
+	reg := New()
+	err := reg.Register(nil)
+	if err == nil {
+		t.Error("Expected error when registering nil parser")
+	}
+	if !strings.Contains(err.Error(), "cannot register nil parser") {
+		t.Errorf("Expected 'cannot register nil parser' error, got: %v", err)
+	}
+}
+
+func TestRegistry_Register_DuplicateName(t *testing.T) {
+	reg := New()
+
+	// Register first parser
+	parser1 := &mockParser{name: "test-parser", canParseFunc: nil}
+	if err := reg.Register(parser1); err != nil {
+		t.Fatalf("Failed to register first parser: %v", err)
+	}
+
+	// Try to register second parser with same name
+	parser2 := &mockParser{name: "test-parser", canParseFunc: nil}
+	err := reg.Register(parser2)
+	if err == nil {
+		t.Error("Expected error when registering duplicate parser name")
+	}
+	if !strings.Contains(err.Error(), "already registered") {
+		t.Errorf("Expected 'already registered' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "test-parser") {
+		t.Errorf("Expected error to mention parser name 'test-parser', got: %v", err)
+	}
+
+	// Verify only one parser registered
+	parsers := reg.ListParsers()
+	if len(parsers) != 1 {
+		t.Errorf("Expected 1 parser after duplicate rejection, got %d", len(parsers))
+	}
+}
+
 func TestRegistry_ListParsers(t *testing.T) {
 	reg := New()
 

@@ -105,7 +105,27 @@ func run() error {
 		return nil
 	}
 
-	// TODO: Add success message in non-verbose mode for better user feedback
+	// Always show summary of scan results for user feedback
+	fmt.Printf("Scan complete: found %d statement files", len(files))
+	if len(files) > 0 {
+		// Show institution/account breakdown in summary
+		institutions := make(map[string]int)
+		for _, f := range files {
+			inst := f.Metadata.Institution()
+			if inst == "" {
+				inst = "<unknown>"
+			}
+			institutions[inst]++
+		}
+		fmt.Printf(" across %d institutions\n", len(institutions))
+		for inst, count := range institutions {
+			fmt.Printf("  - %s: %d files\n", inst, count)
+		}
+	} else {
+		fmt.Printf(" in %s\n", *inputDir)
+		fmt.Fprintf(os.Stderr, "Warning: No statement files found. Check directory path and ensure files have .qfx, .ofx, or .csv extensions.\n")
+	}
+
 	// TODO: Phase 2+ will implement actual parsing: call registry.FindParser(), invoke Parser.Parse(), and normalize to domain.Budget struct
 	fmt.Println("Parsing not yet implemented. Phase 1 complete.")
 

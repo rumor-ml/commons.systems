@@ -13,8 +13,9 @@ import (
 // Optional fields (institution, account, period) can be set after construction using setter methods.
 //
 // When Institution() or AccountNumber() return empty strings, the file path didn't match
-// the expected directory structure. Downstream processing must check for empty values and
-// either warn the user or treat the file as unorganized (not categorized by institution/account).
+// the expected directory structure. This is not an error - downstream processing should
+// handle empty values by either prompting the user for manual categorization or treating
+// the file as unorganized (not categorized by institution/account).
 type Metadata struct {
 	filePath      string
 	institution   string // Inferred from directory (e.g., "american_express")
@@ -67,6 +68,7 @@ func (m *Metadata) DetectedAt() time.Time {
 }
 
 // SetInstitution sets the institution name
+// TODO(#1284): Missing test for Metadata.SetInstitution allowing empty values
 func (m *Metadata) SetInstitution(institution string) {
 	m.institution = institution
 }

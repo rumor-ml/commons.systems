@@ -37,10 +37,13 @@ const (
 
 // Transaction matches TypeScript Transaction interface
 type Transaction struct {
-	ID                  string   `json:"id"`
-	Date                string   `json:"date"` // ISO format YYYY-MM-DD
-	Description         string   `json:"description"`
-	Amount              float64  `json:"amount"` // Sign convention: Positive=income, Negative=expense (matches TypeScript schema)
+	ID          string  `json:"id"`
+	Date        string  `json:"date"` // ISO format YYYY-MM-DD
+	Description string  `json:"description"`
+	Amount      float64 `json:"amount"` // Sign convention: Positive=income/inflow, Negative=expense/outflow
+	// For credit cards: charges are negative (outflow), payments are positive (inflow)
+	// For bank accounts: deposits are positive (inflow), withdrawals are negative (outflow)
+	// Parsers must normalize to this convention regardless of how the source file represents signs
 	Category            Category `json:"category"`
 	Redeemable          bool     `json:"redeemable"`
 	Vacation            bool     `json:"vacation"`
@@ -81,6 +84,105 @@ type Budget struct {
 	Transactions []Transaction `json:"transactions"`
 }
 
+// NewBudget creates an empty budget with initialized slices
+func NewBudget() *Budget {
+	return &Budget{
+		Institutions: []Institution{},
+		Accounts:     []Account{},
+		Statements:   []Statement{},
+		Transactions: []Transaction{},
+	}
+}
+
+// AddInstitution adds a validated institution, checking for duplicate IDs
+func (b *Budget) AddInstitution(inst Institution) error {
+	if inst.ID == "" || inst.Name == "" {
+		return fmt.Errorf("invalid institution: ID and Name are required")
+	}
+	for _, existing := range b.Institutions {
+		if existing.ID == inst.ID {
+			return fmt.Errorf("institution %s already exists", inst.ID)
+		}
+	}
+	b.Institutions = append(b.Institutions, inst)
+	return nil
+}
+
+// AddAccount adds a validated account, checking for duplicate IDs and valid institution reference
+func (b *Budget) AddAccount(acc Account) error {
+	if acc.ID == "" || acc.InstitutionID == "" || acc.Name == "" {
+		return fmt.Errorf("invalid account: ID, InstitutionID, and Name are required")
+	}
+
+	// Check institution exists
+	found := false
+	for _, inst := range b.Institutions {
+		if inst.ID == acc.InstitutionID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("institution %s not found", acc.InstitutionID)
+	}
+
+	// Check for duplicates
+	for _, existing := range b.Accounts {
+		if existing.ID == acc.ID {
+			return fmt.Errorf("account %s already exists", acc.ID)
+		}
+	}
+
+	b.Accounts = append(b.Accounts, acc)
+	return nil
+}
+
+// AddStatement adds a validated statement, checking for duplicate IDs and valid account reference
+func (b *Budget) AddStatement(stmt Statement) error {
+	if stmt.ID == "" || stmt.AccountID == "" {
+		return fmt.Errorf("invalid statement: ID and AccountID are required")
+	}
+
+	// Check account exists
+	found := false
+	for _, acc := range b.Accounts {
+		if acc.ID == stmt.AccountID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("account %s not found", stmt.AccountID)
+	}
+
+	// Check for duplicates
+	for _, existing := range b.Statements {
+		if existing.ID == stmt.ID {
+			return fmt.Errorf("statement %s already exists", stmt.ID)
+		}
+	}
+
+	b.Statements = append(b.Statements, stmt)
+	return nil
+}
+
+// AddTransaction adds a validated transaction, checking for duplicate IDs
+func (b *Budget) AddTransaction(txn Transaction) error {
+	if txn.ID == "" {
+		return fmt.Errorf("invalid transaction: ID is required")
+	}
+
+	// Check for duplicates
+	for _, existing := range b.Transactions {
+		if existing.ID == txn.ID {
+			return fmt.Errorf("transaction %s already exists", txn.ID)
+		}
+	}
+
+	b.Transactions = append(b.Transactions, txn)
+	return nil
+}
+
 // NewTransaction creates a validated transaction
 func NewTransaction(id, date, description string, amount float64, category Category) (*Transaction, error) {
 	if id == "" {
@@ -116,6 +218,31 @@ func (t *Transaction) SetRedemptionRate(rate float64) error {
 	return nil
 }
 
+// AddStatementID adds a statement ID with validation
+func (t *Transaction) AddStatementID(id string) error {
+	if id == "" {
+		return fmt.Errorf("statement ID cannot be empty")
+	}
+	t.StatementIDs = append(t.StatementIDs, id)
+	return nil
+}
+
+// CopyStatementIDs returns a copy of the statement IDs slice
+func (t *Transaction) CopyStatementIDs() []string {
+	return append([]string(nil), t.StatementIDs...)
+}
+
+// ValidateFlags checks consistency between Redeemable flag and RedemptionRate
+func (t *Transaction) ValidateFlags() error {
+	if t.Redeemable && t.RedemptionRate == 0.0 {
+		return fmt.Errorf("redeemable transaction should have non-zero redemption rate")
+	}
+	if !t.Redeemable && t.RedemptionRate > 0.0 {
+		return fmt.Errorf("transaction with redemption rate should be marked redeemable")
+	}
+	return nil
+}
+
 // NewStatement creates a validated statement
 func NewStatement(id, accountID, startDate, endDate string) (*Statement, error) {
 	if id == "" {
@@ -146,6 +273,20 @@ func NewStatement(id, accountID, startDate, endDate string) (*Statement, error) 
 		EndDate:        endDate,
 		TransactionIDs: []string{}, // Empty slice for JSON serialization
 	}, nil
+}
+
+// AddTransactionID adds a transaction ID with validation
+func (s *Statement) AddTransactionID(id string) error {
+	if id == "" {
+		return fmt.Errorf("transaction ID cannot be empty")
+	}
+	s.TransactionIDs = append(s.TransactionIDs, id)
+	return nil
+}
+
+// CopyTransactionIDs returns a copy of the transaction IDs slice
+func (s *Statement) CopyTransactionIDs() []string {
+	return append([]string(nil), s.TransactionIDs...)
 }
 
 // NewAccount creates a validated account

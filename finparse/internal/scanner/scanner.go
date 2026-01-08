@@ -10,7 +10,7 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 )
 
-// TODO(#1266): Consider adding unit tests for scanner and registry
+// Consider adding unit tests for scanner and registry in future phases
 
 // Scanner walks directory tree and finds statement files
 type Scanner struct {
@@ -75,8 +75,13 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 			return fmt.Errorf("metadata extraction failed at %s (processed %d files so far): %w", path, fileCount, err)
 		}
 
+		// Warn if metadata extraction produced empty values
+		if metadata.Institution() == "" || metadata.AccountNumber() == "" {
+			fmt.Fprintf(os.Stderr, "Warning: File %s has incomplete metadata (institution: %q, account: %q) - verify directory structure matches pattern: {institution}/{account}/[period]/file.ext\n",
+				path, metadata.Institution(), metadata.AccountNumber())
+		}
+
 		// Create validated ScanResult
-		// TODO(#1281): Add test for metadata validation error path
 		result, err := NewScanResult(path, metadata)
 		if err != nil {
 			return fmt.Errorf("failed to create scan result for %s (processed %d files so far): %w", path, fileCount, err)
@@ -157,17 +162,25 @@ func (s *Scanner) normalizeInstitutionName(dirName string) string {
 }
 
 // looksLikePeriod checks if string might be a date period.
-// Minimal structural check for YYYY-MM pattern: length >= 7 with dash at position 4.
-// Does not validate digits - accepts any string matching this pattern (e.g., "abcd-ef").
-// Relies on directory naming conventions to avoid false positives.
-// TODO(#1282): Add tests for false positives like "backup-2024" and "2025-Q1"
+// Validates YYYY-MM format using time.Parse to avoid false positives.
+// This prevents directory names like "backup-2024" or "test-data" from being
+// misinterpreted as valid statement periods, which would cause incorrect
+// period metadata in the final output.
 func (s *Scanner) looksLikePeriod(str string) bool {
-	return len(str) >= 7 && str[4] == '-'
+	// Must be exactly 7 characters for YYYY-MM format
+	if len(str) != 7 {
+		return false
+	}
+	// Try to parse as YYYY-MM
+	_, err := time.Parse("2006-01", str)
+	return err == nil
 }
 
-// expandHome expands ~ to home directory
-// TODO(#1267): Add validation of expanded path to provide better error messages
+// expandHome expands ~ to home directory.
+// Only supports ~/path format (current user's home).
+// Does not support ~username/path (other user's home).
 func (s *Scanner) expandHome(path string) (string, error) {
+	// Handle ~/path
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -175,5 +188,11 @@ func (s *Scanner) expandHome(path string) (string, error) {
 		}
 		return filepath.Join(home, path[2:]), nil
 	}
+
+	// Handle unsupported ~username/ format
+	if strings.HasPrefix(path, "~") && len(path) > 1 && path[1] != '/' {
+		return "", fmt.Errorf("unsupported path format: %s (use ~/path for current user's home directory)", path)
+	}
+
 	return path, nil
 }

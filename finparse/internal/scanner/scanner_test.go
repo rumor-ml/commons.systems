@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -274,6 +276,12 @@ func TestExpandHome(t *testing.T) {
 	result, err = scanner.expandHome("~")
 	require.NoError(t, err)
 	assert.Equal(t, "~", result, "should not expand lone tilde")
+
+	// Test unsupported ~username/ format
+	_, err = scanner.expandHome("~otheruser/statements")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported path format")
+	assert.Contains(t, err.Error(), "~otheruser/statements")
 }
 
 func TestLooksLikePeriod(t *testing.T) {
@@ -292,9 +300,9 @@ func TestLooksLikePeriod(t *testing.T) {
 		{"25-10", false}, // year too short
 		{"", false},
 		{"statements", false},
-		{"2025-1", false},  // month too short
-		{"2025-100", true}, // Still has dash at position 4
-		{"abcd-ef", true},  // Passes simple check (dash at position 4)
+		{"2025-1", false},   // month too short
+		{"2025-100", false}, // Invalid month (not YYYY-MM)
+		{"abcd-ef", false},  // Not a valid date period
 	}
 
 	for _, tt := range tests {
@@ -407,4 +415,19 @@ func TestExpandHome_UserHomeDirError(t *testing.T) {
 	//   if err != nil {
 	//     return "", fmt.Errorf("failed to get home directory: %w", err)
 	//   }
+}
+
+func TestNewScanResult_NilMetadata(t *testing.T) {
+	_, err := NewScanResult("/path/to/file.qfx", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata cannot be nil")
+}
+
+func TestNewScanResult_PathMismatch(t *testing.T) {
+	metadata, err := parser.NewMetadata("/path/to/file1.qfx", time.Now())
+	require.NoError(t, err)
+
+	_, err = NewScanResult("/path/to/file2.qfx", metadata)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "path mismatch")
 }

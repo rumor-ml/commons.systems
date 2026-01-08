@@ -21,6 +21,11 @@ type Parser interface {
 	Parse(ctx context.Context, r io.Reader, meta *Metadata) (*RawStatement, error)
 }
 
+// TODO(Phase 2): Consider making Transactions slice immutable with controlled access methods.
+// Current design exposes mutable []RawTransaction which allows external modification.
+// Trade-off: Simplicity vs. encapsulation. Working set is small (parser→normalization).
+// Review when building Phase 2 normalization layer.
+//
 // RawStatement represents parsed data before normalization
 type RawStatement struct {
 	Account      RawAccount
@@ -63,7 +68,9 @@ func NewRawAccount(institutionID, institutionName, accountID, accountType string
 		return nil, fmt.Errorf("account ID cannot be empty")
 	}
 	// Note: InstitutionName is optional and can be empty if not available in the parsed file.
-	// It MAY be populated from the directory-based metadata (extracted by Scanner) during processing.
+	// It SHOULD be populated from the directory-based metadata (extracted by Scanner) during the
+	// normalization step in the processing pipeline. Parser implementations should leave this
+	// empty and let the normalization layer populate it from Metadata.Institution().
 	// TODO: AccountType will be validated during normalization to domain.AccountType
 	// TODO: Add validation in normalization step to ensure InstitutionName gets populated from metadata
 
@@ -148,7 +155,8 @@ func (r *RawTransaction) Type() string { return r.txnType }
 func (r *RawTransaction) Memo() string { return r.memo }
 
 // SetType sets the optional transaction type.
-// Common values: "DEBIT", "CREDIT", "ATM", "CHECK", "TRANSFER", "FEE".
+// Example values from OFX/QFX: "DEBIT", "CREDIT", "ATM", "CHECK", "TRANSFER", "FEE", "POS", "PAYMENT".
+// CSV formats may use different values depending on the institution.
 // Type is free-form and not validated - normalization will handle type mapping.
 func (r *RawTransaction) SetType(txnType string) {
 	r.txnType = txnType
@@ -167,6 +175,7 @@ func NewRawTransaction(id string, date, postedDate time.Time, description string
 	if date.IsZero() {
 		return nil, fmt.Errorf("transaction date cannot be zero")
 	}
+	// TODO(#1286): Consider making the fallback explicit via validation mode, warning, or logging
 	if postedDate.IsZero() {
 		postedDate = date // If postedDate is zero, use transaction date as fallback
 	}
