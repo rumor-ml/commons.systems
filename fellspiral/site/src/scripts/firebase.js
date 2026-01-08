@@ -36,6 +36,7 @@ import cardsData from '../data/cards.json' assert { type: 'json' };
 // Initialize Firebase with config
 let app, db, auth;
 let initPromise = null;
+let getCardsCollection = null; // Will be set by initFirebase()
 
 /**
  * Check if error indicates emulator is already connected
@@ -169,9 +170,7 @@ export async function initFirebase() {
 
     // Get collection reference dynamically (supports parallel test worker isolation)
     // Previously cached at init time, but that became stale when worker context changed
-    function getCardsCollection() {
-      return collection(db, getCardsCollectionName());
-    }
+    getCardsCollection = () => collection(db, getCardsCollectionName());
 
     // Expose auth on window for test fixtures
     if (typeof window !== 'undefined') {
@@ -216,7 +215,7 @@ export async function initFirebase() {
         // Check both code and message for robustness across SDK versions
         if (isEmulatorAlreadyConnected(error)) {
           console.debug('[Firebase] Emulators already connected');
-          return { app, db, auth, getCardsCollection };
+          return { app, db, auth };
         }
 
         // Unexpected emulator connection errors after retry attempts
@@ -260,7 +259,7 @@ export async function initFirebase() {
       }
     }
 
-    return { app, db, auth, getCardsCollection };
+    return { app, db, auth };
   })();
 
   return initPromise;
