@@ -180,6 +180,7 @@ func NewRawTransaction(id string, date, postedDate time.Time, description string
 		return nil, fmt.Errorf("transaction date cannot be zero")
 	}
 	// TODO: Consider making the fallback explicit via validation mode, warning, or logging
+	// TODO(#1318): Consider logging when fallback is used or making it explicit in return value
 	if postedDate.IsZero() {
 		postedDate = date // If postedDate is zero, use transaction date as fallback
 	}

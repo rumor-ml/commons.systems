@@ -2174,22 +2174,10 @@ func TestCanParse_ValidExtensionButNonOFXContent(t *testing.T) {
 
 // Test for transaction with only DTUSER (no DTPOSTED) (pr-test-analyzer-in-scope-4)
 func TestParse_TransactionWithOnlyUserDate(t *testing.T) {
-	// NOTE: The ofxgo library enforces that DtPosted must be present during parsing
-	// (see ofxgo validation error: "Transaction.DtPosted not filled").
-	// While the OFX spec allows transactions with only DTUSER, the library we depend on
-	// requires DTPOSTED. The fallback logic at line 419-423 in ofx.go handles cases
-	// where DtPosted is zero AFTER parsing, but we cannot test the case where DtPosted
-	// is completely absent from the OFX file because ofxgo.ParseResponse() rejects it.
-	//
-	// The fallback logic is still valuable for edge cases where:
-	// - DtPosted exists but has zero value after parsing
-	// - Future ofxgo versions relax this constraint
-	// - Manual construction of ofxgo.Transaction objects
-	//
-	// Coverage of the fallback is validated by:
-	// - TestParse_TransactionPostedDateFallback (tests non-zero DtPosted case)
-	// - The existence of the fallback logic itself (lines 419-423)
-	t.Skip("Cannot construct OFX with only DTUSER - ofxgo library requires DtPosted to be present during parsing (validation: 'Transaction.DtPosted not filled'). Fallback logic at line 419-423 handles zero DtPosted after parsing.")
+	// NOTE: ofxgo library requires DtPosted field during parsing (validation: 'Transaction.DtPosted not filled').
+	// Cannot test the DtUser fallback logic at line 415-419 which handles zero DtPosted after parsing.
+	// Fallback coverage provided by TestParse_TransactionPostedDateFallback.
+	t.Skip("Cannot construct OFX with only DTUSER - ofxgo library requires DtPosted during parsing")
 }
 
 // Test for transaction with only MEMO field (no NAME) (pr-test-analyzer-in-scope-5)
@@ -2284,11 +2272,10 @@ NEWFILEUID:NONE
 // The unknown type fallback logic is documented but difficult to test in isolation.
 func TestMapOFXTransactionType_KnownTypes(t *testing.T) {
 	// This test documents that the unknown transaction type fallback exists
-	// The actual fallback logic at line 387-391 in ofx.go:
+	// The actual fallback logic at line 381-386 in ofx.go:
 	//   default:
-	//     rawType := fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
-	//     fmt.Printf("WARNING: Unknown OFX transaction type...")
-	//     return rawType
+	//     return fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
+	// (No logging, silent fallback with TODO(#1306) to add visibility)
 	//
 	// Cannot be easily tested because:
 	// 1. ofxgo.Transaction has unexported TrnType field

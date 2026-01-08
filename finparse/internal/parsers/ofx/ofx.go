@@ -65,9 +65,9 @@ func (p *Parser) CanParse(path string, header []byte) bool {
 // Parse extracts raw data from OFX/QFX file
 func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) (*parser.RawStatement, error) {
 	// Read entire content
-	// TODO(#1305): Consider checking ctx.Err() before io.ReadAll to fail fast if already cancelled.
-	// Note: This won't provide cancellation during the read itself since io.ReadAll doesn't support context.
-	// For true cancellation during read, would need to implement chunked reading with periodic context checks.
+	// TODO(#1305): Add ctx.Err() check before io.ReadAll to fail-fast if context is already cancelled.
+	// Low priority - the post-read check (line 81) catches cancellation; this only adds marginal latency improvement.
+	// Note: io.ReadAll doesn't support context, so true cancellation during read would require chunked reading.
 	content, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read OFX content%s: %w", getFileInfo(meta), err)
@@ -113,6 +113,7 @@ func (p *Parser) parseCreditCard(resp *ofxgo.Response, meta *parser.Metadata) (*
 		return nil, fmt.Errorf("parseCreditCard called with empty CreditCard array")
 	}
 
+	// TODO(#1316): Add test for type assertion failure with unexpected response type
 	ccStmt, ok := resp.CreditCard[0].(*ofxgo.CCStatementResponse)
 	if !ok {
 		return nil, fmt.Errorf("failed to type assert credit card statement: expected *ofxgo.CCStatementResponse, got %T", resp.CreditCard[0])
@@ -380,13 +381,14 @@ func mapOFXTransactionType(txn ofxgo.Transaction) string {
 	default:
 		// Convert unknown transaction types to UNKNOWN_* format for downstream processing.
 		// The UNKNOWN_ prefix allows downstream code to identify and handle unsupported types.
-		// TODO(#1306): Consider logging or collecting unknown types for visibility (currently silent).
-		// Alternative: return error with list of unknown types encountered during parsing.
+		// TODO(#1306): Consider logging unknown types to stderr or metrics for operational visibility.
+		// Currently returns UNKNOWN_* prefix for downstream detection but provides no runtime logging.
 		return fmt.Sprintf("UNKNOWN_%v", txn.TrnType)
 	}
 }
 
 // extractInstitutionID extracts and validates institution ID from OFX response
+// TODO(#1315): Add test for error path when Organization is empty
 func extractInstitutionID(resp *ofxgo.Response) (string, error) {
 	institutionID := resp.Signon.Org.String()
 	if institutionID == "" {
@@ -419,8 +421,9 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		return nil, fmt.Errorf("transaction %s missing both posted date and user date", id)
 	}
 
-	// Use the same date for both transaction date and posted date since OFX
-	// doesn't distinguish between them (DtPosted is used as the primary date)
+	// Use the same date for both transaction date and posted date.
+	// OFX has DtPosted and DtUser fields, with DtPosted as primary (see lines 413-419 for fallback logic).
+	// RawTransaction requires both date fields, so we use the resolved date for both.
 	postedDate := date
 
 	// Use Name field for description; if empty, fallback to Memo field
@@ -434,8 +437,11 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 	}
 
 	// Extract amount. Float64() returns (float64, bool) where the bool indicates exact representation.
-	// For currency amounts with 2 decimal places, precision loss is not a concern. If needed in future,
-	// the exact flag could be checked and logged, but for typical financial transactions this is acceptable.
+	// The exact flag is intentionally ignored because typical financial transactions (2 decimal places)
+	// fit within float64 precision. However, this may cause silent precision loss for high-precision
+	// currencies or very large amounts.
+	// TODO(#1307): Consider validating the exact flag or using a decimal library if precision loss occurs.
+	// TODO(#1317): Add test validating precision behavior with edge case amounts
 	amount, _ := txn.TrnAmt.Float64()
 
 	// Create raw transaction
