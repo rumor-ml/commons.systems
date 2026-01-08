@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
+	"github.com/rumor-ml/commons.systems/finparse/internal/parsers/ofx"
 )
 
 // Registry holds all registered parsers with thread-safe access via RWMutex.
@@ -19,13 +20,14 @@ type Registry struct {
 // Built-in parser registration errors are programmer errors and should panic.
 // Example: if err := r.Register(ofx.NewParser()); err != nil { panic(err) }
 func New() *Registry {
-	return &Registry{
-		parsers: []parser.Parser{
-			// TODO(Phase 2-3): Add built-in parsers here
-			// ofx.NewParser(),
-			// csv.NewPNCParser(),
-		},
+	r := &Registry{parsers: []parser.Parser{}}
+
+	// Register built-in parsers
+	if err := r.Register(ofx.NewParser()); err != nil {
+		panic(fmt.Sprintf("failed to register ofx parser: %v", err))
 	}
+
+	return r
 }
 
 // Register adds a custom parser (for extensibility)
