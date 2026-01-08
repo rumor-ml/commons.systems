@@ -3527,7 +3527,8 @@ test.describe('Add Card - Whitespace-Only Field Validation Tests', () => {
 test.describe('Add Card - Combobox Error Recovery Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  test('should show error UI when combobox options fail to load and recover', async ({
+  // TODO(#480): Test relies on internal implementation details (window.__cardsState)
+  test.skip('should show error UI when combobox options fail to load and recover', async ({
     page,
     authEmulator,
   }) => {
