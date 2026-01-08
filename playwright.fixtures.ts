@@ -22,6 +22,19 @@ if (!admin.apps.length) {
 }
 
 export const test = base.extend<AuthFixtures>({
+  page: async ({ page }, use) => {
+    // Inject test collection name for parallel worker isolation
+    // This ensures browser code queries the same collection that tests write to
+    const workerIndex = process.env.TEST_PARALLEL_INDEX || '0';
+    const collectionName = `cards-worker-${workerIndex}`;
+
+    await page.addInitScript((name) => {
+      window.__TEST_COLLECTION_NAME__ = name;
+    }, collectionName);
+
+    await use(page);
+  },
+
   authEmulator: async ({ page }, use) => {
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key

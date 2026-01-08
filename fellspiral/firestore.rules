@@ -35,7 +35,8 @@ service cloud.firestore {
       // NOTE: For automated CI/CD deployments, integrate migration check/execution into the pipeline.
       // Consequence if deployed without migration: Cards without isPublic field become UNREADABLE (users see empty library)
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
-                      || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                      || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                      || cardsCollection.matches('cards-worker-[0-9]+'))
                   && (resource.data.get('isPublic', false) == true
                       || (isAuthenticated() && resource.data.get('createdBy', '') == request.auth.uid));
 
@@ -52,7 +53,8 @@ service cloud.firestore {
       // (3) Server-side queries can use _createTime metadata for accurate ordering if needed.
       // TODO(#283): Add E2E test attempting to forge createdAt timestamp
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
-                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                        || cardsCollection.matches('cards-worker-[0-9]+'))
                     && isAuthenticated()
                     && request.resource.data.keys().hasAll(['title', 'type', 'subtype', 'isPublic'])
                     && request.resource.data.title is string
@@ -78,7 +80,8 @@ service cloud.firestore {
       // or restrict updates to createdBy only. See issue tracking for adoption metrics before changing.
       // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
-                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                        || cardsCollection.matches('cards-worker-[0-9]+'))
                     && isAuthenticated()
                     && (resource.data.get('createdBy', '') == request.auth.uid
                         || request.resource.data.lastModifiedBy == request.auth.uid)
@@ -87,7 +90,8 @@ service cloud.firestore {
       // Allow delete only if user is the creator
       // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow delete: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
-                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                        || cardsCollection.matches('cards-worker-[0-9]+'))
                     && isAuthenticated()
                     && resource.data.get('createdBy', '') == request.auth.uid;
     }
