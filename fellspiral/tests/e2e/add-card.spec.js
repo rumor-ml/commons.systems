@@ -2553,7 +2553,8 @@ test.describe('Add Card - Validation Error Recovery', () => {
     await expect(page.locator('#cardEditorModal')).not.toHaveClass(/show/, { timeout: 5000 });
   });
 
-  test('should show server-side validation error in modal (not alert)', async ({
+  // TODO(#1248): Implement window.__signOut() test helper before enabling this test
+  test.skip('should show server-side validation error in modal (not alert)', async ({
     page,
     authEmulator,
   }) => {
