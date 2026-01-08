@@ -6,7 +6,7 @@
     "firestoreHost": "127.0.0.1:8081",
     "authHost": "127.0.0.1:9099",
     "storageHost": "127.0.0.1:9199",
-    "hostingPort": 6030
+    "hostingPort": 6040
   },
   "timeouts": {
     "test": 60,

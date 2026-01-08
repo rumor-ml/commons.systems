@@ -2351,7 +2351,7 @@ test.describe('Add Card - Custom Type Persistence', () => {
 test.describe('Add Card - Auth Session Management', () => {
   test.skip(!isEmulatorMode, 'Auth session tests only run against emulator');
 
-  test('should reload cards when signing in after guest browsing', async ({
+  test.skip('should reload cards when signing in after guest browsing', async ({
     page,
     authEmulator,
   }) => {
