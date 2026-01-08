@@ -8,10 +8,19 @@
  */
 export function getCardsCollectionName() {
   // Test environment: Use worker-scoped collections for parallel test isolation
-  // TEST_PARALLEL_INDEX is set by Playwright when running with multiple workers
-  const workerIndex = process.env.TEST_PARALLEL_INDEX;
+  // Playwright sets PLAYWRIGHT_WORKER_INDEX (0-based) for each worker
+  // Check both TEST_PARALLEL_INDEX (custom) and PLAYWRIGHT_WORKER_INDEX (Playwright built-in)
+  const workerIndex = process.env.TEST_PARALLEL_INDEX || process.env.PLAYWRIGHT_WORKER_INDEX;
   if (workerIndex !== undefined && workerIndex !== null) {
     return `cards-worker-${workerIndex}`;
+  }
+
+  // In test/emulator environment, default to worker-0 for consistency with test fixtures
+  // This ensures test helpers and frontend use the same collection
+  // Check for emulator environment indicators: FIRESTORE_EMULATOR_HOST or PLAYWRIGHT_TEST context
+  // When running with emulator, always use cards-worker-0 to match frontend test fixture behavior
+  if (process.env.FIRESTORE_EMULATOR_HOST) {
+    return 'cards-worker-0';
   }
 
   // Check for PR number (from environment variable)

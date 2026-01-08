@@ -25,7 +25,9 @@ export const test = base.extend<AuthFixtures>({
   page: async ({ page }, use) => {
     // Inject test collection name for parallel worker isolation
     // This ensures browser code queries the same collection that tests write to
-    const workerIndex = process.env.TEST_PARALLEL_INDEX || '0';
+    // Playwright sets PLAYWRIGHT_WORKER_INDEX (0-based) for each worker
+    const workerIndex =
+      process.env.TEST_PARALLEL_INDEX || process.env.PLAYWRIGHT_WORKER_INDEX || '0';
     const collectionName = `cards-worker-${workerIndex}`;
 
     await page.addInitScript((name) => {
