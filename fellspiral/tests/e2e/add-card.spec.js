@@ -1067,6 +1067,7 @@ test.describe('Combobox Interaction Tests', () => {
 test.describe('Combobox - Error State Recovery', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
+  // TODO(#1250): Implement combobox error state handling before enabling this test
   test.skip('should show error message when getOptions() throws', async ({
     page,
     authEmulator,
@@ -1106,6 +1107,7 @@ test.describe('Combobox - Error State Recovery', () => {
     await expect(listbox).toHaveClass(/combobox-error/);
   });
 
+  // TODO(#1250): Implement combobox error state handling before enabling this test
   test.skip('should allow custom values when combobox has error', async ({
     page,
     authEmulator,
@@ -1147,6 +1149,7 @@ test.describe('Combobox - Error State Recovery', () => {
     });
   });
 
+  // TODO(#1250): Implement combobox error state handling before enabling this test
   test.skip('should clear error state on successful refresh', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -1430,6 +1433,7 @@ test.describe('Add Card - Double Submit Prevention', () => {
 test.describe('Add Card - Error Handling on Save Failure', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
+  // TODO(#1248): Implement window.__signOut() helper before enabling this test
   test.skip('should keep modal open and show error when user signs out mid-save', async ({
     page,
     authEmulator,
@@ -1707,46 +1711,6 @@ test.describe('Add Card - XSS Protection in Other Fields', () => {
     });
     expect(hasOnclickHandler).toBe(false);
   });
-
-  test.skip('should handle empty VALID_CARD_TYPES array gracefully', async ({
-    page,
-    authEmulator,
-  }) => {
-    const email = `xss-empty-types-${Date.now()}@test.com`;
-    await authEmulator.createTestUser(email);
-    await authEmulator.signInTestUser(email);
-
-    // Temporarily clear VALID_CARD_TYPES array to test edge case
-    await page.evaluate(() => {
-      // Save original array
-      window.__originalValidCardTypes = window.VALID_CARD_TYPES;
-      // Clear the array
-      window.VALID_CARD_TYPES = [];
-    });
-
-    const cardData = {
-      title: `Test Card ${Date.now()}-empty-types`,
-      type: 'Equipment',
-      subtype: 'Weapon',
-    };
-
-    await createCardViaUI(page, cardData);
-
-    // Verify sanitizeCardType handles empty array (should return empty string)
-    const sanitizedType = await page.evaluate(() => {
-      return window.sanitizeCardType('Equipment');
-    });
-    expect(sanitizedType).toBe('');
-
-    // Verify card still renders without crashing
-    const cardVisible = await page.locator('.card-item').first().isVisible();
-    expect(cardVisible).toBe(true);
-
-    // Restore original array
-    await page.evaluate(() => {
-      window.VALID_CARD_TYPES = window.__originalValidCardTypes;
-    });
-  });
 });
 
 // PHASE 6: Missing Tests (Issues 33-38) - PR Review Improvements
@@ -1754,6 +1718,7 @@ test.describe('Add Card - XSS Protection in Other Fields', () => {
 test.describe('Add Card - Firestore Security Rules', () => {
   test.skip(!isEmulatorMode, 'Security tests only run against emulator');
 
+  // TODO(#1245): Validate security rules before enabling this test
   test.skip('should prevent unauthenticated read access to cards', async ({ page }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -1773,6 +1738,7 @@ test.describe('Add Card - Firestore Security Rules', () => {
     console.log(`Unauthenticated card count: ${cardCount} (should be 0 or demo cards only)`);
   });
 
+  // TODO(#1246): Implement window.__signOut() helper (#1248) before enabling this test
   test.skip('should prevent cross-user card access', async ({ page, authEmulator, context }) => {
     // User 1 creates a card
     const user1Email = `user1-${Date.now()}@example.com`;
@@ -1842,6 +1808,7 @@ test.describe('Add Card - Firestore Security Rules', () => {
     expect(canReadAsUser2).toBe(false);
   });
 
+  // TODO(#1247): Test security rules for forged createdBy fields before enabling
   test.skip('should reject card creation with forged createdBy field', async ({
     page,
     authEmulator,
@@ -1947,6 +1914,7 @@ test.describe('Add Card - Firestore Security Rules', () => {
 test.describe('Add Card - Concurrent Save Handling', () => {
   test.skip(!isEmulatorMode, 'Concurrent tests only run against emulator');
 
+  // TODO(#1251): Implement test infrastructure for concurrent edits before enabling
   test.skip('should handle concurrent edits in different tabs (last write wins)', async ({
     page,
     authEmulator,
@@ -2149,28 +2117,6 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
     await expect(page.locator('#cardEditorModal.active')).toBeVisible();
   });
 
-  test.skip('should fall back to demo data when offline', async ({ page, context }) => {
-    // Set offline mode
-    await context.setOffline(true);
-
-    await page.goto('/cards.html');
-    await page.waitForLoadState('load');
-    await page.waitForTimeout(3000);
-
-    // Should show offline warning or demo data message
-    const hasOfflineIndicator = await page
-      .locator('text=/offline|demo data|unable to connect/i')
-      .isVisible();
-    expect(hasOfflineIndicator).toBe(true);
-
-    // Should show some cards (demo data from cardsData.js)
-    const cardCount = await page.locator('.card-item').count();
-    expect(cardCount).toBeGreaterThan(0);
-
-    // Restore online mode
-    await context.setOffline(false);
-  });
-
   test('should retry save on transient network failure', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -2224,6 +2170,7 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
     expect(firestoreCard.title).toBe(cardData.title);
   });
 
+  // TODO(#1253): Implement retry logic and error UI before enabling this test
   test.skip('should show persistent error after max retries exceeded', async ({
     page,
     authEmulator,
@@ -2302,6 +2249,7 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
 test.describe('Add Card - Custom Type Persistence', () => {
   test.skip(!isEmulatorMode, 'Custom type tests only run against emulator');
 
+  // TODO(#1252): Implement custom type persistence before enabling this test
   test.skip('should persist custom type for reuse in dropdown', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -2351,6 +2299,7 @@ test.describe('Add Card - Custom Type Persistence', () => {
 test.describe('Add Card - Auth Session Management', () => {
   test.skip(!isEmulatorMode, 'Auth session tests only run against emulator');
 
+  // TODO(#244): Enable after verifying guest-to-auth transition fix
   test.skip('should reload cards when signing in after guest browsing', async ({
     page,
     authEmulator,
@@ -2465,7 +2414,7 @@ test.describe('Add Card - Validation Error Recovery', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Try to submit with all required fields empty
     await page.click('#saveCardBtn');
@@ -2547,7 +2496,7 @@ test.describe('Add Card - Validation Error Recovery', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Test title length limit (max 100 characters)
     const longTitle = 'A'.repeat(101);
@@ -2617,7 +2566,7 @@ test.describe('Add Card - Validation Error Recovery', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Fill out form completely
     await page.fill('#cardTitle', `Server Error Test ${Date.now()}`);
@@ -2692,7 +2641,7 @@ test.describe('Combobox - Toggle Button Behavior', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Get references to combobox elements
     const typeInput = page.locator('#cardType');
@@ -2812,7 +2761,7 @@ test.describe('Combobox - Toggle Button Behavior', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     const typeInput = page.locator('#cardType');
     const typeListbox = page.locator('#typeListbox');
@@ -3170,7 +3119,7 @@ test.describe('Add Card - Timeout Error Recovery', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Fill out form
     const cardTitle = `Timeout Test ${Date.now()}`;
@@ -3240,7 +3189,7 @@ test.describe('Add Card - Timeout Error Recovery', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Fill out form
     const cardTitle = `Double Submit Test ${Date.now()}`;
@@ -3302,7 +3251,7 @@ test.describe('Add Card - Timeout Error Recovery', () => {
 
     // Open the add card modal
     await page.click('#addCardBtn');
-    await page.waitForSelector('#cardEditorModal.show', { timeout: 5000 });
+    await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Fill out form
     await page.fill('#cardTitle', `Network Timeout Test ${Date.now()}`);
