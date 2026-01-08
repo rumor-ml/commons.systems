@@ -34,7 +34,7 @@ import { FIREBASE_PORTS } from '../../../../shared/config/firebase-ports.ts';
 import cardsData from '../data/cards.json' assert { type: 'json' };
 
 // Initialize Firebase with config
-let app, db, auth, cardsCollection;
+let app, db, auth;
 let initPromise = null;
 
 /**
@@ -167,6 +167,12 @@ export async function initFirebase() {
     // Get auth instance
     auth = getAuth(app);
 
+    // Get collection reference dynamically (supports parallel test worker isolation)
+    // Previously cached at init time, but that became stale when worker context changed
+    function getCardsCollection() {
+      return collection(db, getCardsCollectionName());
+    }
+
     // Expose auth on window for test fixtures
     if (typeof window !== 'undefined') {
       window.auth = auth;
@@ -210,7 +216,7 @@ export async function initFirebase() {
         // Check both code and message for robustness across SDK versions
         if (isEmulatorAlreadyConnected(error)) {
           console.debug('[Firebase] Emulators already connected');
-          return { app, db, auth, cardsCollection };
+          return { app, db, auth, getCardsCollection };
         }
 
         // Unexpected emulator connection errors after retry attempts
@@ -254,10 +260,7 @@ export async function initFirebase() {
       }
     }
 
-    // Collection reference
-    cardsCollection = collection(db, getCardsCollectionName());
-
-    return { app, db, auth, cardsCollection };
+    return { app, db, auth, getCardsCollection };
   })();
 
   return initPromise;
@@ -354,7 +357,7 @@ export async function getAllCards() {
 
     // Query 1: Public cards (everyone can see these)
     const publicQuery = query(
-      cardsCollection,
+      getCardsCollection(),
       where('isPublic', '==', true),
       orderBy('title', 'asc')
     );
@@ -393,7 +396,7 @@ export async function getAllCards() {
 
     // Query 2: Private cards owned by the current user
     const privateQuery = query(
-      cardsCollection,
+      getCardsCollection(),
       where('isPublic', '==', false),
       where('createdBy', '==', currentUser.uid),
       orderBy('title', 'asc')
@@ -495,7 +498,7 @@ export async function createCard(cardData) {
       throw new Error('User must be authenticated to create cards');
     }
 
-    const docRef = await addDoc(cardsCollection, {
+    const docRef = await addDoc(getCardsCollection(), {
       ...cardData,
       isPublic: cardData.isPublic ?? true, // Default to public for backward compatibility
       createdBy: user.uid,
@@ -586,7 +589,7 @@ export async function importCards(cards) {
     for (const card of cards) {
       try {
         // Check if card with this title already exists
-        const existingCards = await getDocs(query(cardsCollection, orderBy('title', 'asc')));
+        const existingCards = await getDocs(query(getCardsCollection(), orderBy('title', 'asc')));
 
         let existingCard = null;
         existingCards.forEach((doc) => {
