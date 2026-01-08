@@ -227,7 +227,37 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for modal to close (modal loses .active class and becomes hidden)
   // Increased timeout to 10000ms to allow for slow Firestore writes in emulator
-  await page.waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 10000 });
+  await page
+    .waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 10000 })
+    .catch(async (error) => {
+      // Capture diagnostic state when modal doesn't close
+      const modalState = await page.evaluate(() => {
+        const modal = document.getElementById('cardEditorModal');
+        const form = document.getElementById('cardForm');
+        const errorBanner = modal?.querySelector('.error-banner');
+        const validationErrors = Array.from(
+          modal?.querySelectorAll('.has-error .error-message') || []
+        ).map((el) => el.textContent);
+
+        return {
+          modalActive: modal?.classList.contains('active'),
+          formFields: {
+            title: document.getElementById('cardTitle')?.value,
+            type: document.getElementById('cardType')?.value,
+            subtype: document.getElementById('cardSubtype')?.value,
+          },
+          hasErrorBanner: !!errorBanner,
+          errorBannerText: errorBanner?.textContent?.trim(),
+          validationErrors,
+          saveButtonDisabled: document.getElementById('saveCardBtn')?.disabled,
+        };
+      });
+
+      throw new Error(
+        `Modal did not close after save. State: ${JSON.stringify(modalState, null, 2)}. ` +
+          `Original error: ${error.message}`
+      );
+    });
 
   // Wait for card to appear in UI list using DOM condition wait (faster and more reliable than fixed timeout)
   // The card list updates via Firestore real-time listeners, so we wait for the specific card title to appear
