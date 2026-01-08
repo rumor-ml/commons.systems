@@ -209,8 +209,21 @@ export async function createCardViaUI(page, cardData) {
       throw originalError; // Re-throw with enhanced message but original stack/type
     });
 
+  // Ensure save button is enabled before clicking
+  const saveBtn = page.locator('#saveCardBtn');
+  await saveBtn.waitFor({ state: 'visible', timeout: 5000 });
+
+  // Wait for button to be enabled (not disabled)
+  await page.waitForFunction(
+    () => {
+      const btn = document.getElementById('saveCardBtn');
+      return btn && !btn.disabled;
+    },
+    { timeout: 5000 }
+  );
+
   // Submit form
-  await page.locator('#saveCardBtn').click();
+  await saveBtn.click();
 
   // Wait for modal to close (modal loses .active class and becomes hidden)
   // Increased timeout to 10000ms to allow for slow Firestore writes in emulator
