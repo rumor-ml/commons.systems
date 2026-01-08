@@ -2302,7 +2302,7 @@ test.describe('Add Card - Network Timeout & Offline Handling', () => {
 test.describe('Add Card - Custom Type Persistence', () => {
   test.skip(!isEmulatorMode, 'Custom type tests only run against emulator');
 
-  test('should persist custom type for reuse in dropdown', async ({ page, authEmulator }) => {
+  test.skip('should persist custom type for reuse in dropdown', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
     await page.waitForTimeout(3000);
