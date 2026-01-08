@@ -1,9 +1,11 @@
 package finparse_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -202,6 +204,96 @@ func TestIntegration_RegistryIntegration(t *testing.T) {
 	}
 	if !strings.Contains(outputStr, "1234") {
 		t.Errorf("Expected account number '1234' in output, got:\n%s", outputStr)
+	}
+}
+
+// TestIntegration_FileCountDisplay tests the statement file count message formatting
+func TestIntegration_FileCountDisplay(t *testing.T) {
+	tests := []struct {
+		name        string
+		fileCount   int
+		expectedMsg string
+	}{
+		{
+			name:        "zero files",
+			fileCount:   0,
+			expectedMsg: "Found 0 statement files",
+		},
+		{
+			name:        "one file",
+			fileCount:   1,
+			expectedMsg: "Found 1 statement files", // Current implementation doesn't fix pluralization
+		},
+		{
+			name:        "two files",
+			fileCount:   2,
+			expectedMsg: "Found 2 statement files",
+		},
+		{
+			name:        "five files",
+			fileCount:   5,
+			expectedMsg: "Found 5 statement files",
+		},
+		{
+			name:        "ten files",
+			fileCount:   10,
+			expectedMsg: "Found 10 statement files",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			// Create specified number of statement files
+			for i := 0; i < tt.fileCount; i++ {
+				instDir := filepath.Join(tmpDir, fmt.Sprintf("bank_%d", i))
+				acctDir := filepath.Join(instDir, strconv.Itoa(1000+i))
+				if err := os.MkdirAll(acctDir, 0755); err != nil {
+					t.Fatal(err)
+				}
+
+				testFile := filepath.Join(acctDir, "statement.ofx")
+				if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Build the binary
+			binPath := buildFinparse(t)
+
+			// Run with verbose to see file count message
+			cmd := exec.Command(binPath, "-input", tmpDir, "-dry-run", "-verbose")
+			output, err := cmd.CombinedOutput()
+
+			if err != nil {
+				t.Fatalf("CLI execution failed: %v\nOutput: %s", err, output)
+			}
+
+			outputStr := string(output)
+
+			// Verify expected count message is present
+			if !strings.Contains(outputStr, tt.expectedMsg) {
+				t.Errorf("Expected message %q in output, got:\n%s", tt.expectedMsg, outputStr)
+			}
+
+			// Additional verification: ensure count accuracy by checking actual file list
+			if tt.fileCount > 0 {
+				// Count the number of institution lines in verbose output
+				// Each file should have a line like "  - /path/to/file (institution: X, account: Y)"
+				institutionLines := 0
+				for _, line := range strings.Split(outputStr, "\n") {
+					if strings.Contains(line, "(institution:") && strings.Contains(line, "account:") {
+						institutionLines++
+					}
+				}
+
+				if institutionLines != tt.fileCount {
+					t.Errorf("Expected %d institution lines in output, found %d. Output:\n%s",
+						tt.fileCount, institutionLines, outputStr)
+				}
+			}
+		})
 	}
 }
 

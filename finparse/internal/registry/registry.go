@@ -9,21 +9,19 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 )
 
-// Registry holds all registered parsers with thread-safe access
-// Thread-safe access via RWMutex (see sync.RWMutex in Registry struct)
+// Registry holds all registered parsers with thread-safe access via RWMutex.
 type Registry struct {
 	mu      sync.RWMutex
 	parsers []parser.Parser
 }
 
-// New creates a registry with all built-in parsers
+// New creates a registry with all built-in parsers.
+// Built-in parser registration errors are programmer errors and should panic.
+// Example: if err := r.Register(ofx.NewParser()); err != nil { panic(err) }
 func New() *Registry {
 	return &Registry{
 		parsers: []parser.Parser{
-			// Parsers will be added in Phase 2-3
-			// TODO: When uncommenting, Register errors for built-in parsers should be treated as programmer errors
-			// and trigger a panic in New() since these registrations are hardcoded and should never fail.
-			// Example: if err := r.Register(ofx.NewParser()); err != nil { panic(err) }
+			// TODO(Phase 2-3): Add built-in parsers here
 			// ofx.NewParser(),
 			// csv.NewPNCParser(),
 		},
@@ -51,11 +49,12 @@ func (r *Registry) Register(p parser.Parser) error {
 }
 
 // FindParser returns the best parser for this file.
-// Reads first 512 bytes for format detection via header inspection.
+// Reads up to 512 bytes for format detection via header inspection.
 // 512 bytes is sufficient for all known financial format headers:
 // - OFX/QFX: XML declaration + <OFX> tag typically within first 200 bytes
 // - CSV: Column headers typically < 200 bytes
 // This size also matches common filesystem block sizes for efficient reading.
+// Files smaller than 512 bytes are handled correctly (parsers receive actual file size).
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	header, err := r.readHeader(path)

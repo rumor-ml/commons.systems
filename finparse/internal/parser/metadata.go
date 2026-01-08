@@ -8,14 +8,9 @@ import (
 // Metadata contains context about the file being parsed.
 // Extracted from directory structure: ~/statements/{institution}/{account}/[{period}/]file.ext
 //
-// Create instances using NewMetadata(filePath, detectedAt). This constructor validates
-// required fields (filePath and detectedAt) to ensure metadata is always in a valid state.
-// Optional fields (institution, account, period) can be set after construction using setter methods.
-//
-// When Institution() or AccountNumber() return empty strings, the file path didn't match
-// the expected directory structure. This is not an error - downstream processing should
-// handle empty values by either prompting the user for manual categorization or treating
-// the file as unorganized (not categorized by institution/account).
+// Create instances using NewMetadata(filePath, detectedAt) which validates required fields.
+// Optional fields (institution, account, period) are set after construction using setters.
+// Empty institution/account values indicate the path didn't match the expected structure.
 type Metadata struct {
 	filePath      string
 	institution   string // Inferred from directory (e.g., "american_express")
@@ -67,8 +62,8 @@ func (m *Metadata) DetectedAt() time.Time {
 	return m.detectedAt
 }
 
-// SetInstitution sets the institution name
-// TODO(#1284): Missing test for Metadata.SetInstitution allowing empty values
+// SetInstitution sets the institution name. Empty string is valid and indicates
+// the institution could not be extracted from the directory structure.
 func (m *Metadata) SetInstitution(institution string) {
 	m.institution = institution
 }

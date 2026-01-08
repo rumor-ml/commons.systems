@@ -34,18 +34,26 @@ var (
 func main() {
 	// Custom usage message
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "finparse - Financial statement parser for budget prototype\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  finparse [flags]\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprint(os.Stderr, `finparse - Financial statement parser for budget prototype
+
+Usage:
+  finparse [flags]
+
+Flags:
+`)
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  # Parse all statements to stdout\n")
-		fmt.Fprintf(os.Stderr, "  finparse -input ~/statements\n\n")
-		fmt.Fprintf(os.Stderr, "  # Parse to file with state tracking\n")
-		fmt.Fprintf(os.Stderr, "  finparse -input ~/statements -output budget.json -state state.json\n\n")
-		fmt.Fprintf(os.Stderr, "  # Dry run with verbose output\n")
-		fmt.Fprintf(os.Stderr, "  finparse -input ~/statements -dry-run -verbose\n\n")
+		fmt.Fprint(os.Stderr, `
+Examples:
+  # Parse all statements to stdout
+  finparse -input ~/statements
+
+  # Parse to file with state tracking
+  finparse -input ~/statements -output budget.json -state state.json
+
+  # Dry run with verbose output
+  finparse -input ~/statements -dry-run -verbose
+
+`)
 	}
 
 	flag.Parse()
@@ -126,7 +134,12 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "Warning: No statement files found. Check directory path and ensure files have .qfx, .ofx, or .csv extensions.\n")
 	}
 
-	// TODO: Phase 2+ will implement actual parsing: call registry.FindParser(), invoke Parser.Parse(), and normalize to domain.Budget struct
+	// TODO(Phase 2): Implement parsing pipeline:
+	//   1. For each file: parser := registry.FindParser(file.Path)
+	//   2. Call parser.Parse(ctx, reader, file.Metadata) -> RawStatement
+	//   3. Normalize RawStatement to domain types (Institution, Account, Statement, Transaction)
+	//   4. Add to Budget struct using Budget.Add* methods (handles validation & dedup)
+	//   5. Marshal Budget to JSON and write to output or stdout
 	fmt.Println("Parsing not yet implemented. Phase 1 complete.")
 
 	return nil

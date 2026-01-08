@@ -431,3 +431,27 @@ func TestNewScanResult_PathMismatch(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "path mismatch")
 }
+
+func TestScanner_Scan_WarnsOnIncompleteMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create file at root (no institution or account dirs)
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "statement.qfx"), []byte("test"), 0644))
+
+	scanner := New(tmpDir)
+	results, err := scanner.Scan()
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	// Verify warning is stored in Warnings field
+	result := results[0]
+	assert.NotEmpty(t, result.Warnings, "Expected warnings for incomplete metadata")
+	assert.Len(t, result.Warnings, 1, "Expected exactly one warning")
+
+	warning := result.Warnings[0]
+	assert.Contains(t, warning, "incomplete metadata", "Expected 'incomplete metadata' in warning")
+	assert.Contains(t, warning, "verify directory structure", "Expected guidance about directory structure")
+	assert.Contains(t, warning, `institution: ""`, "Expected empty institution in warning")
+	assert.Contains(t, warning, `account: ""`, "Expected empty account in warning")
+}

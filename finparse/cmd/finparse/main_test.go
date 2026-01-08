@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -193,13 +194,15 @@ func TestRun_VerboseOutput(t *testing.T) {
 	defer withFlags(t, tmpDir, true, true)()
 
 	// Capture stdout
-	// TODO(#1278): Check errors from pipe creation and reading
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
 	os.Stdout = w
 
 	// Run
-	err := run()
+	err = run()
 
 	// Restore stdout
 	w.Close()
@@ -210,9 +213,11 @@ func TestRun_VerboseOutput(t *testing.T) {
 	}
 
 	// Read captured output
-	output := make([]byte, 4096)
-	n, _ := r.Read(output)
-	outputStr := string(output[:n])
+	output, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("Failed to read output: %v", err)
+	}
+	outputStr := string(output)
 
 	// Verify verbose output
 	if !strings.Contains(outputStr, "Scanning directory:") {
@@ -244,11 +249,14 @@ func TestRun_NonVerboseSuccess(t *testing.T) {
 
 	// Capture stdout
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
 	os.Stdout = w
 
 	// Run
-	err := run()
+	err = run()
 
 	// Restore stdout
 	w.Close()
@@ -259,9 +267,11 @@ func TestRun_NonVerboseSuccess(t *testing.T) {
 	}
 
 	// Read captured output
-	output := make([]byte, 4096)
-	n, _ := r.Read(output)
-	outputStr := string(output[:n])
+	output, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("Failed to read output: %v", err)
+	}
+	outputStr := string(output)
 
 	// Verify the "Parsing not yet implemented" message is printed
 	// This protects against accidental removal of the message (main.go:110)
@@ -275,5 +285,140 @@ func TestRun_NonVerboseSuccess(t *testing.T) {
 	}
 	if strings.Contains(outputStr, "Found") && strings.Contains(outputStr, "statement files") {
 		t.Errorf("Expected no verbose file count in non-verbose mode, got:\n%s", outputStr)
+	}
+}
+
+// TestRun_NonDryRun_ZeroFiles tests non-dry-run execution with zero files found
+// This covers the specific code path at main.go:124-126 that shows a warning
+// when no statement files are found, which is critical UX feedback.
+func TestRun_NonDryRun_ZeroFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	defer withFlags(t, tmpDir, false, false)()
+
+	// Capture stdout and stderr
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create stdout pipe: %v", err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create stderr pipe: %v", err)
+	}
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	err = run()
+
+	// Close writers and restore streams
+	wOut.Close()
+	wErr.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	if err != nil {
+		t.Errorf("Expected no error for empty directory, got: %v", err)
+	}
+
+	// Read stdout
+	stdoutBuf, err := io.ReadAll(rOut)
+	if err != nil {
+		t.Fatalf("Failed to read stdout: %v", err)
+	}
+	stdoutStr := string(stdoutBuf)
+
+	// Read stderr
+	stderrBuf, err := io.ReadAll(rErr)
+	if err != nil {
+		t.Fatalf("Failed to read stderr: %v", err)
+	}
+	stderrStr := string(stderrBuf)
+
+	// Verify the zero-files path shows correct message
+	if !strings.Contains(stdoutStr, "found 0 statement files") {
+		t.Errorf("Expected stdout to show 'found 0 statement files', got:\n%s", stdoutStr)
+	}
+
+	// Verify warning message about no files found (main.go:126)
+	if !strings.Contains(stderrStr, "Warning: No statement files found") {
+		t.Errorf("Expected stderr warning about no files found, got:\n%s", stderrStr)
+	}
+	if !strings.Contains(stderrStr, "Check directory path") {
+		t.Errorf("Expected stderr to suggest checking directory path, got:\n%s", stderrStr)
+	}
+}
+
+// TestRun_NonDryRun_MultipleInstitutions tests non-dry-run with multiple institutions
+// This covers the institution breakdown logic at main.go:112-123 which formats
+// and displays a summary of files by institution - critical user feedback.
+func TestRun_NonDryRun_MultipleInstitutions(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files from 2 institutions with different counts
+	amexDir := filepath.Join(tmpDir, "american_express", "2011")
+	if err := os.MkdirAll(amexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(amexDir, "stmt1.qfx"), []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(amexDir, "stmt2.qfx"), []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	chaseDir := filepath.Join(tmpDir, "chase", "5678")
+	if err := os.MkdirAll(chaseDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chaseDir, "stmt.csv"), []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	defer withFlags(t, tmpDir, false, false)()
+
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
+	os.Stdout = w
+
+	err = run()
+
+	// Restore stdout
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Read captured output
+	output, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("Failed to read output: %v", err)
+	}
+	outputStr := string(output)
+
+	// Verify total file count
+	if !strings.Contains(outputStr, "found 3 statement files") {
+		t.Errorf("Expected output to show 'found 3 statement files', got:\n%s", outputStr)
+	}
+
+	// Verify institution count (main.go:120)
+	if !strings.Contains(outputStr, "across 2 institutions") {
+		t.Errorf("Expected 'across 2 institutions' in output, got:\n%s", outputStr)
+	}
+
+	// Verify American Express with 2 files (main.go:122)
+	if !strings.Contains(outputStr, "American Express: 2 files") {
+		t.Errorf("Expected 'American Express: 2 files' in output, got:\n%s", outputStr)
+	}
+
+	// Verify Chase with 1 file (main.go:122)
+	if !strings.Contains(outputStr, "Chase: 1 files") {
+		t.Errorf("Expected 'Chase: 1 files' in output, got:\n%s", outputStr)
 	}
 }

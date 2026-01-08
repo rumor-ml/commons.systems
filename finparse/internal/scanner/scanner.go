@@ -10,7 +10,7 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 )
 
-// Consider adding unit tests for scanner and registry in future phases
+// TODO(#1287): Consider removing vague comment about future unit tests
 
 // Scanner walks directory tree and finds statement files
 type Scanner struct {
@@ -26,6 +26,7 @@ func New(rootDir string) *Scanner {
 type ScanResult struct {
 	Path     string
 	Metadata *parser.Metadata
+	Warnings []string // Metadata quality warnings
 }
 
 // NewScanResult creates a new ScanResult with validation
@@ -36,10 +37,21 @@ func NewScanResult(path string, metadata *parser.Metadata) (ScanResult, error) {
 	if path != metadata.FilePath() {
 		return ScanResult{}, fmt.Errorf("path mismatch: %s != %s", path, metadata.FilePath())
 	}
-	return ScanResult{
+
+	result := ScanResult{
 		Path:     path,
 		Metadata: metadata,
-	}, nil
+		Warnings: []string{},
+	}
+
+	// Add warning if metadata incomplete
+	if metadata.Institution() == "" || metadata.AccountNumber() == "" {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("incomplete metadata (institution: %q, account: %q) - verify directory structure",
+				metadata.Institution(), metadata.AccountNumber()))
+	}
+
+	return result, nil
 }
 
 // Scan walks the directory tree and finds all statement files
@@ -73,12 +85,6 @@ func (s *Scanner) Scan() ([]ScanResult, error) {
 		metadata, err := s.extractMetadata(path, rootDir)
 		if err != nil {
 			return fmt.Errorf("metadata extraction failed at %s (processed %d files so far): %w", path, fileCount, err)
-		}
-
-		// Warn if metadata extraction produced empty values
-		if metadata.Institution() == "" || metadata.AccountNumber() == "" {
-			fmt.Fprintf(os.Stderr, "Warning: File %s has incomplete metadata (institution: %q, account: %q) - verify directory structure matches pattern: {institution}/{account}/[period]/file.ext\n",
-				path, metadata.Institution(), metadata.AccountNumber())
 		}
 
 		// Create validated ScanResult
@@ -161,11 +167,9 @@ func (s *Scanner) normalizeInstitutionName(dirName string) string {
 	return strings.Join(words, " ")
 }
 
-// looksLikePeriod checks if string might be a date period.
-// Validates YYYY-MM format using time.Parse to avoid false positives.
-// This prevents directory names like "backup-2024" or "test-data" from being
-// misinterpreted as valid statement periods, which would cause incorrect
-// period metadata in the final output.
+// looksLikePeriod checks if string is a valid YYYY-MM period using time.Parse.
+// Returns false for directory names like "backup-2024" or "test-data" to avoid
+// misinterpreting them as statement periods.
 func (s *Scanner) looksLikePeriod(str string) bool {
 	// Must be exactly 7 characters for YYYY-MM format
 	if len(str) != 7 {
@@ -178,7 +182,7 @@ func (s *Scanner) looksLikePeriod(str string) bool {
 
 // expandHome expands ~ to home directory.
 // Only supports ~/path format (current user's home).
-// Does not support ~username/path (other user's home).
+// Does not support ~username/path (requires user lookup and potential security issues).
 func (s *Scanner) expandHome(path string) (string, error) {
 	// Handle ~/path
 	if strings.HasPrefix(path, "~/") {

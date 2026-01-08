@@ -17,14 +17,17 @@ type Parser interface {
 	CanParse(path string, header []byte) bool
 
 	// Parse extracts raw data from file
-	// TODO(#1281): Add behavioral tests for Parse() method contract (context cancellation, IO errors, metadata propagation)
+	// TODO: Add behavioral tests for Parse() method contract (context cancellation, IO errors, metadata propagation)
 	Parse(ctx context.Context, r io.Reader, meta *Metadata) (*RawStatement, error)
 }
 
-// TODO(Phase 2): Consider making Transactions slice immutable with controlled access methods.
+// TODO(Phase 2): Consider making Transactions slice immutable with controlled access methods
+// if normalization layer needs to prevent external modification of parser results.
 // Current design exposes mutable []RawTransaction which allows external modification.
 // Trade-off: Simplicity vs. encapsulation. Working set is small (parser→normalization).
-// Review when building Phase 2 normalization layer.
+// Review during Phase 2 normalization if you observe: (1) accidental mutations causing bugs,
+// (2) need to cache/share RawStatement across goroutines, or (3) validation requirements
+// that are bypassed by direct slice access.
 //
 // RawStatement represents parsed data before normalization
 type RawStatement struct {
@@ -53,8 +56,8 @@ func (r *RawAccount) AccountID() string { return r.accountID }
 // AccountType returns the account type
 func (r *RawAccount) AccountType() string { return r.accountType }
 
-// SetInstitutionName updates the institution name (populated from metadata after construction).
-// Empty names are allowed as InstitutionName may remain unpopulated if metadata is unavailable.
+// SetInstitutionName updates the institution name from metadata after construction.
+// Empty names are allowed when metadata is unavailable.
 func (r *RawAccount) SetInstitutionName(name string) {
 	r.institutionName = name
 }
@@ -67,12 +70,10 @@ func NewRawAccount(institutionID, institutionName, accountID, accountType string
 	if accountID == "" {
 		return nil, fmt.Errorf("account ID cannot be empty")
 	}
-	// Note: InstitutionName is optional and can be empty if not available in the parsed file.
-	// It SHOULD be populated from the directory-based metadata (extracted by Scanner) during the
-	// normalization step in the processing pipeline. Parser implementations should leave this
-	// empty and let the normalization layer populate it from Metadata.Institution().
-	// TODO: AccountType will be validated during normalization to domain.AccountType
-	// TODO: Add validation in normalization step to ensure InstitutionName gets populated from metadata
+	// Note: InstitutionName is optional at construction. Parser implementations should leave
+	// this empty - it will be populated during normalization from Metadata.Institution().
+	// TODO: Add normalization validation to ensure InstitutionName is populated from metadata
+	// TODO: Validate AccountType during normalization against domain.AccountType enum
 
 	return &RawAccount{
 		institutionID:   institutionID,
@@ -175,7 +176,7 @@ func NewRawTransaction(id string, date, postedDate time.Time, description string
 	if date.IsZero() {
 		return nil, fmt.Errorf("transaction date cannot be zero")
 	}
-	// TODO(#1286): Consider making the fallback explicit via validation mode, warning, or logging
+	// TODO: Consider making the fallback explicit via validation mode, warning, or logging
 	if postedDate.IsZero() {
 		postedDate = date // If postedDate is zero, use transaction date as fallback
 	}

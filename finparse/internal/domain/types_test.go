@@ -161,11 +161,11 @@ func TestNewTransaction_Validation(t *testing.T) {
 			if tx.Category != CategoryIncome {
 				t.Errorf("Expected Category CategoryIncome, got %s", tx.Category)
 			}
-			if tx.StatementIDs == nil {
+			if tx.GetStatementIDs() == nil {
 				t.Error("Expected StatementIDs to be empty slice, not nil")
 			}
-			if len(tx.StatementIDs) != 0 {
-				t.Errorf("Expected StatementIDs length 0, got %d", len(tx.StatementIDs))
+			if len(tx.GetStatementIDs()) != 0 {
+				t.Errorf("Expected StatementIDs length 0, got %d", len(tx.GetStatementIDs()))
 			}
 			if tx.RedemptionRate != 0.0 {
 				t.Errorf("Expected RedemptionRate 0.0, got %f", tx.RedemptionRate)
@@ -293,11 +293,11 @@ func TestNewStatement_Validation(t *testing.T) {
 			if stmt.EndDate != "2024-01-31" {
 				t.Errorf("Expected EndDate '2024-01-31', got '%s'", stmt.EndDate)
 			}
-			if stmt.TransactionIDs == nil {
+			if stmt.GetTransactionIDs() == nil {
 				t.Error("Expected TransactionIDs to be empty slice, not nil")
 			}
-			if len(stmt.TransactionIDs) != 0 {
-				t.Errorf("Expected TransactionIDs length 0, got %d", len(stmt.TransactionIDs))
+			if len(stmt.GetTransactionIDs()) != 0 {
+				t.Errorf("Expected TransactionIDs length 0, got %d", len(stmt.GetTransactionIDs()))
 			}
 		}
 	})
