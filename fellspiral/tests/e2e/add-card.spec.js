@@ -2831,13 +2831,8 @@ test.describe('Combobox - Toggle Button Behavior', () => {
 
 // TODO(#1255): Fix auth listener cleanup and memory leak issues
 test.describe.skip('Auth Listener - Cleanup and Memory Leak Prevention', () => {
-  test.skip(!isEmulatorMode, 'Auth listener tests only run against emulator');
-
   // TODO(#1255): Fix auth listener cleanup - authenticated class not being removed
-  test.skip('should clean up auth listener on re-initialization', async ({
-    page,
-    authEmulator,
-  }) => {
+  test('should clean up auth listener on re-initialization', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
     await page.waitForTimeout(3000);
@@ -2893,6 +2888,7 @@ test.describe.skip('Auth Listener - Cleanup and Memory Leak Prevention', () => {
     expect(hasAuthClass).toBe(false);
   });
 
+  // TODO(#1255): Fix memory leak detection
   test('should not accumulate listeners causing memory leaks', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');

@@ -55,7 +55,7 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
     retries: process.env.CI ? 2 : 0,
     // Limit to 2 workers for stability (balances speed vs resource usage)
     // Each worker gets isolated Firestore collection via TEST_PARALLEL_INDEX
-    workers: process.env.CI ? 2 : 1,
+    workers: 2,
     timeout: site.timeout || 60000,
     maxFailures: 1, // Stop on first test failure
     globalSetup: site.globalSetup,

@@ -131,7 +131,7 @@ async function globalSetup() {
 
     // Determine number of workers for parallel test execution
     // Limit to 2 workers for stability (balances speed vs resource usage)
-    const workerCount = process.env.CI ? 2 : 1;
+    const workerCount = 2;
     console.log(`   Seeding collections for ${workerCount} worker(s)...`);
 
     // Helper function to validate and seed a collection
