@@ -14,7 +14,9 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 )
 
-// Parser implements OFX/QFX parsing
+// Parser implements OFX/QFX parsing with a stateless design.
+// No configuration is needed as OFX format parsing uses standard rules.
+// All parser behavior is determined by the OFX file content and optional Metadata.
 type Parser struct{}
 
 // NewParser creates a new OFX parser
@@ -52,10 +54,15 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 	// Read entire content
 	content, err := io.ReadAll(r)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read OFX content: %w", err)
+		fileInfo := ""
+		if meta != nil && meta.FilePath() != "" {
+			fileInfo = fmt.Sprintf(" from %s", meta.FilePath())
+		}
+		return nil, fmt.Errorf("failed to read OFX content%s: %w", fileInfo, err)
 	}
 
-	// Check for context cancellation before parsing
+	// Check if context was cancelled before starting parse
+	// Note: the parsing operation itself is not cancellable
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -65,7 +72,11 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 	// Parse OFX response
 	response, err := ofxgo.ParseResponse(bytes.NewReader(content))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse OFX file: %w", err)
+		fileInfo := ""
+		if meta != nil && meta.FilePath() != "" {
+			fileInfo = fmt.Sprintf(" from %s", meta.FilePath())
+		}
+		return nil, fmt.Errorf("failed to parse OFX file%s (%d bytes): %w", fileInfo, len(content), err)
 	}
 
 	// Route to appropriate handler based on statement type
@@ -81,7 +92,7 @@ func (p *Parser) Parse(ctx context.Context, r io.Reader, meta *parser.Metadata) 
 		return p.parseInvestment(response, meta)
 	}
 
-	return nil, fmt.Errorf("no supported statement type found in OFX file (creditcard: %d, bank: %d, investment: %d)",
+	return nil, fmt.Errorf("no supported statement type found in OFX file. Expected at least one of: credit card (CREDITCARDMSGSRSV1), bank (BANKMSGSRSV1), or investment (INVSTMTMSGSRSV1) statement. The file may be malformed or empty (creditcard: %d, bank: %d, investment: %d)",
 		len(response.CreditCard), len(response.Bank), len(response.InvStmt))
 }
 
@@ -117,30 +128,24 @@ func (p *Parser) parseCreditCard(resp *ofxgo.Response, meta *parser.Metadata) (*
 	// Set institution name from metadata if available
 	setInstitutionNameFromMeta(account, meta)
 
-	// Extract period
-	var period *parser.Period
-	if ccStmt.BankTranList != nil {
-		period, err = parser.NewPeriod(
-			ccStmt.BankTranList.DtStart.Time,
-			ccStmt.BankTranList.DtEnd.Time,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create period: %w", err)
-		}
+	// Transaction list is required
+	if ccStmt.BankTranList == nil {
+		return nil, fmt.Errorf("missing transaction list in credit card statement")
 	}
 
-	// Ensure period was created (transaction list is required)
-	if period == nil {
-		return nil, fmt.Errorf("missing transaction list in statement")
+	// Extract period
+	period, err := parser.NewPeriod(
+		ccStmt.BankTranList.DtStart.Time,
+		ccStmt.BankTranList.DtEnd.Time,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create period: %w", err)
 	}
 
 	// Parse transactions
-	var transactions []parser.RawTransaction
-	if ccStmt.BankTranList != nil {
-		transactions, err = p.parseTransactions(ccStmt.BankTranList)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse transactions: %w", err)
-		}
+	transactions, err := p.parseTransactions(ccStmt.BankTranList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse transactions: %w", err)
 	}
 
 	return &parser.RawStatement{
@@ -185,30 +190,24 @@ func (p *Parser) parseBank(resp *ofxgo.Response, meta *parser.Metadata) (*parser
 	// Set institution name from metadata if available
 	setInstitutionNameFromMeta(account, meta)
 
-	// Extract period
-	var period *parser.Period
-	if bankStmt.BankTranList != nil {
-		period, err = parser.NewPeriod(
-			bankStmt.BankTranList.DtStart.Time,
-			bankStmt.BankTranList.DtEnd.Time,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create period: %w", err)
-		}
+	// Transaction list is required
+	if bankStmt.BankTranList == nil {
+		return nil, fmt.Errorf("missing transaction list in bank statement")
 	}
 
-	// Ensure period was created (transaction list is required)
-	if period == nil {
-		return nil, fmt.Errorf("missing transaction list in statement")
+	// Extract period
+	period, err := parser.NewPeriod(
+		bankStmt.BankTranList.DtStart.Time,
+		bankStmt.BankTranList.DtEnd.Time,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create period: %w", err)
 	}
 
 	// Parse transactions
-	var transactions []parser.RawTransaction
-	if bankStmt.BankTranList != nil {
-		transactions, err = p.parseTransactions(bankStmt.BankTranList)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse transactions: %w", err)
-		}
+	transactions, err := p.parseTransactions(bankStmt.BankTranList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse transactions: %w", err)
 	}
 
 	return &parser.RawStatement{
@@ -250,30 +249,24 @@ func (p *Parser) parseInvestment(resp *ofxgo.Response, meta *parser.Metadata) (*
 	// Set institution name from metadata if available
 	setInstitutionNameFromMeta(account, meta)
 
-	// Extract period
-	var period *parser.Period
-	if invStmt.InvTranList != nil {
-		period, err = parser.NewPeriod(
-			invStmt.InvTranList.DtStart.Time,
-			invStmt.InvTranList.DtEnd.Time,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create period: %w", err)
-		}
+	// Transaction list is required
+	if invStmt.InvTranList == nil {
+		return nil, fmt.Errorf("missing transaction list in investment statement")
 	}
 
-	// Ensure period was created (transaction list is required)
-	if period == nil {
-		return nil, fmt.Errorf("missing transaction list in statement")
+	// Extract period
+	period, err := parser.NewPeriod(
+		invStmt.InvTranList.DtStart.Time,
+		invStmt.InvTranList.DtEnd.Time,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create period: %w", err)
 	}
 
 	// Parse investment transactions
-	var transactions []parser.RawTransaction
-	if invStmt.InvTranList != nil {
-		transactions, err = p.parseInvestmentTransactions(invStmt.InvTranList)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse investment transactions: %w", err)
-		}
+	transactions, err := p.parseInvestmentTransactions(invStmt.InvTranList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse investment transactions: %w", err)
 	}
 
 	return &parser.RawStatement{
@@ -286,15 +279,23 @@ func (p *Parser) parseInvestment(resp *ofxgo.Response, meta *parser.Metadata) (*
 // parseTransactions converts OFX transactions to RawTransactions (for bank/credit card)
 func (p *Parser) parseTransactions(tranList *ofxgo.TransactionList) ([]parser.RawTransaction, error) {
 	transactions := make([]parser.RawTransaction, 0, len(tranList.Transactions))
+	var skippedCount int
 
-	for _, txn := range tranList.Transactions {
+	for i, txn := range tranList.Transactions {
 		rawTxn, err := extractTransaction(txn)
 		if err != nil {
-			return nil, err
+			// Log the error with context but continue processing other transactions
+			fmt.Printf("WARNING: Skipping transaction at index %d: %v\n", i, err)
+			skippedCount++
+			continue
 		}
 		if rawTxn != nil {
 			transactions = append(transactions, *rawTxn)
 		}
+	}
+
+	if skippedCount > 0 {
+		fmt.Printf("WARNING: Skipped %d invalid transactions out of %d total\n", skippedCount, len(tranList.Transactions))
 	}
 
 	return transactions, nil
@@ -303,15 +304,19 @@ func (p *Parser) parseTransactions(tranList *ofxgo.TransactionList) ([]parser.Ra
 // parseInvestmentTransactions converts OFX investment transactions to RawTransactions
 func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]parser.RawTransaction, error) {
 	transactions := make([]parser.RawTransaction, 0)
+	var skippedCount int
 
 	// Parse bank transactions within investment accounts
 	// These are typically cash movements (dividends, interest, fees, etc.)
 	for _, invBankTxn := range tranList.BankTransactions {
 		// Each InvBankTransaction contains a list of regular transactions
-		for _, txn := range invBankTxn.Transactions {
+		for i, txn := range invBankTxn.Transactions {
 			rawTxn, err := extractTransaction(txn)
 			if err != nil {
-				return nil, err
+				// Log the error with context but continue processing other transactions
+				fmt.Printf("WARNING: Skipping investment transaction at index %d: %v\n", i, err)
+				skippedCount++
+				continue
 			}
 			if rawTxn != nil {
 				transactions = append(transactions, *rawTxn)
@@ -319,9 +324,19 @@ func (p *Parser) parseInvestmentTransactions(tranList *ofxgo.InvTranList) ([]par
 		}
 	}
 
-	// For security-related transactions (buy/sell/reinvest), we need type-specific
-	// handling which varies significantly. For now, we focus on cash movements.
-	// TODO: Add detailed parsing for security transactions if needed
+	if skippedCount > 0 {
+		fmt.Printf("WARNING: Skipped %d invalid investment transactions\n", skippedCount)
+	}
+
+	// Security transactions (BuyStock, SellStock, ReinvestIncome, etc.) have complex
+	// fields like units, price per share, and commission that don't map to simple
+	// RawTransaction model. Current implementation only extracts cash movements from
+	// InvBankTransaction list (dividends, interest, fees).
+	// TODO: Add security transaction support if needed for brokerage statements
+	securityTxnCount := len(tranList.InvTransactions)
+	if securityTxnCount > 0 {
+		fmt.Printf("WARNING: Investment statement contains %d security transactions that are not yet supported and will be omitted. Only cash movements will be included.\n", securityTxnCount)
+	}
 
 	return transactions, nil
 }
@@ -334,7 +349,8 @@ func mapBankAccountType(ofxAcct ofxgo.BankAcct) string {
 	case ofxgo.AcctTypeSavings:
 		return "savings"
 	default:
-		return "checking" // Default to checking for unknown types
+		fmt.Printf("WARNING: Unknown OFX account type %v for account %s, defaulting to checking\n", ofxAcct.AcctType, ofxAcct.AcctID.String())
+		return "checking"
 	}
 }
 
@@ -362,7 +378,7 @@ func mapOFXTransactionType(txn ofxgo.Transaction) string {
 	case ofxgo.TrnTypeDep:
 		return "DEPOSIT"
 	default:
-		// For unknown types, infer from amount (empty string is also acceptable)
+		// Unknown transaction type - return empty string
 		return ""
 	}
 }
@@ -384,12 +400,11 @@ func setInstitutionNameFromMeta(account *parser.RawAccount, meta *parser.Metadat
 }
 
 // extractTransaction extracts common transaction fields from OFX transaction
-// Returns nil if transaction should be skipped (missing required fields)
 func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 	// Extract transaction ID
 	id := txn.FiTID.String()
 	if id == "" {
-		return nil, nil // Skip transactions without ID
+		return nil, fmt.Errorf("transaction missing required ID field")
 	}
 
 	// Use posted date; if not available, fallback to user date
@@ -398,7 +413,7 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 		date = txn.DtUser.Time
 	}
 	if date.IsZero() {
-		return nil, nil // Skip transactions without date
+		return nil, fmt.Errorf("transaction %s missing both posted date and user date", id)
 	}
 
 	// Extract posted date
@@ -414,7 +429,7 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 	}
 	description = strings.TrimSpace(description)
 	if description == "" {
-		return nil, nil // Skip transactions without description
+		return nil, fmt.Errorf("transaction %s missing both name and memo fields", id)
 	}
 
 	// Extract amount
@@ -423,7 +438,7 @@ func extractTransaction(txn ofxgo.Transaction) (*parser.RawTransaction, error) {
 	// Create raw transaction
 	rawTxn, err := parser.NewRawTransaction(id, date, postedDate, description, amount)
 	if err != nil {
-		return nil, nil // Skip invalid transactions
+		return nil, fmt.Errorf("failed to create transaction %s: %w", id, err)
 	}
 
 	// Set transaction type

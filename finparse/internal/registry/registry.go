@@ -18,10 +18,12 @@ type Registry struct {
 
 // New creates a registry with all built-in parsers.
 // Built-in parser registration errors are programmer errors and will panic.
+// TODO(#1291): Explain what programmer errors could cause registration to fail
 func New() *Registry {
 	r := &Registry{parsers: []parser.Parser{}}
 
 	// Register built-in parsers
+	// TODO(#1292): Registry panic on built-in parser registration failure lacks context
 	if err := r.Register(ofx.NewParser()); err != nil {
 		panic(fmt.Sprintf("failed to register ofx parser: %v", err))
 	}
@@ -50,8 +52,8 @@ func (r *Registry) Register(p parser.Parser) error {
 }
 
 // FindParser returns the best parser for this file by reading up to 512 bytes
-// of the header for format detection. This size handles all known financial formats
-// (OFX, CSV) and aligns with common filesystem block sizes.
+// for format detection. This size is sufficient for OFX headers (which include
+// OFXHEADER markers in first ~100 bytes) and CSV files (header row).
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	header, err := r.readHeader(path)
@@ -80,14 +82,15 @@ func (r *Registry) readHeader(path string) ([]byte, error) {
 	}
 	defer f.Close()
 
+	// TODO(#1293): Consider more specific error messages for directory vs file vs permission issues
 	header := make([]byte, 512)
 	n, err := f.Read(header)
 	if err != nil && err != io.EOF {
 		return nil, fmt.Errorf("failed to read header from %s: %w", path, err)
 	}
-	// EOF is OK - some statement files (especially CSV or minimal test files) may be < 512 bytes.
-	// Parsers should handle headers from 0 to 512 bytes. Parser implementations that
-	// assume a minimum header size will fail on small files.
+	// EOF is acceptable - files smaller than 512 bytes will return their full content.
+	// The registry does not enforce minimum header size; parsers are responsible for
+	// validating that headers contain sufficient data for format detection.
 	return header[:n], nil
 }
 
