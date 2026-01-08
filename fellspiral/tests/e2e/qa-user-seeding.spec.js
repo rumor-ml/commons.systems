@@ -4,9 +4,28 @@
  */
 
 import { test, expect } from '../../../playwright.fixtures.ts';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-// Only run against emulator
-const isEmulatorMode = !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Read test environment config
+function getTestEnvConfig() {
+  const testEnvPath = join(__dirname, '../../../.test-env.json');
+  if (!existsSync(testEnvPath)) return null;
+  try {
+    return JSON.parse(readFileSync(testEnvPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+const testEnvConfig = getTestEnvConfig();
+const isEmulatorMode = testEnvConfig?.mode === 'emulator';
+const authHost = testEnvConfig?.emulators?.authHost || '127.0.0.1:9099';
+const projectId = testEnvConfig?.emulators?.projectId || 'demo-test';
 
 test.describe('QA User Seeding', () => {
   test.skip(!isEmulatorMode, 'QA user seeding tests only run against emulator');
@@ -20,7 +39,6 @@ test.describe('QA User Seeding', () => {
     await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
 
     // Check if QA GitHub user exists via Auth emulator REST API
-    const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
     const response = await page.request.post(
       `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:lookup?key=fake-api-key`,
       {
@@ -66,11 +84,9 @@ test.describe('QA User Seeding', () => {
       // We can't directly interact with the popup, but we can verify the user exists
       // by checking the emulator's account list
 
-      const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
-
       // Get all accounts from emulator
       const response = await page.request.get(
-        `http://${authHost}/emulator/v1/projects/demo-test/accounts`,
+        `http://${authHost}/emulator/v1/projects/${projectId}/accounts`,
         {
           headers: {
             Authorization: 'Bearer owner',
@@ -91,7 +107,6 @@ test.describe('QA User Seeding', () => {
     } else {
       // Button not found - user might already be signed in or layout is different
       // Just verify the user exists in the emulator
-      const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
       const response = await page.request.post(
         `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:lookup?key=fake-api-key`,
         {

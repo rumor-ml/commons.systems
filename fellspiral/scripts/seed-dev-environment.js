@@ -58,57 +58,76 @@ const auth = getAuth();
 const db = getFirestore();
 
 /**
- * Seed QA GitHub user to Auth emulator
- * Creates user and links GitHub provider for OAuth testing
+ * Seed QA GitHub user to Auth emulator using batchCreate REST API
+ * This is the only way to create users with OAuth provider data that shows
+ * up in the emulator's OAuth popup (e.g., "Sign in with GitHub")
  */
 async function seedQAGitHubUser() {
   try {
-    // Check if user already exists
+    // Check if user already exists with GitHub provider
     const existingUser = await auth.getUser(QA_GITHUB_USER.uid).catch(() => null);
 
     if (existingUser) {
-      // Check if GitHub provider is already linked
       const hasGitHub = existingUser.providerData?.some((p) => p.providerId === 'github.com');
       if (hasGitHub) {
         console.log(`   ✓ QA GitHub user already exists (${QA_GITHUB_USER.email})`);
         return true;
       }
-
-      // User exists but GitHub not linked - link it now
-      console.log('   ⏳ Linking GitHub provider to existing user...');
-      await auth.updateUser(QA_GITHUB_USER.uid, {
-        providerToLink: {
-          providerId: 'github.com',
-          uid: QA_GITHUB_USER.githubUid,
-          displayName: QA_GITHUB_USER.displayName,
-          email: QA_GITHUB_USER.email,
-          photoURL: QA_GITHUB_USER.photoURL,
-        },
-      });
-      console.log(`   ✅ Linked GitHub provider to QA user`);
-      return true;
+      // User exists but no GitHub provider - delete and recreate
+      console.log('   ⏳ Recreating QA user with GitHub provider...');
+      await auth.deleteUser(QA_GITHUB_USER.uid);
     }
 
-    // Create new user with email (required base)
-    console.log('   ⏳ Creating QA GitHub user...');
-    await auth.createUser({
-      uid: QA_GITHUB_USER.uid,
-      email: QA_GITHUB_USER.email,
-      emailVerified: true,
-      displayName: QA_GITHUB_USER.displayName,
-      photoURL: QA_GITHUB_USER.photoURL,
-    });
+    // Use batchCreate REST API to create user with GitHub provider
+    // This is required for the OAuth provider to show in the emulator's popup
+    const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+    const projectId = 'demo-test';
 
-    // Link GitHub provider to the user
-    await auth.updateUser(QA_GITHUB_USER.uid, {
-      providerToLink: {
-        providerId: 'github.com',
-        uid: QA_GITHUB_USER.githubUid,
-        displayName: QA_GITHUB_USER.displayName,
-        email: QA_GITHUB_USER.email,
-        photoURL: QA_GITHUB_USER.photoURL,
-      },
-    });
+    const response = await fetch(
+      `http://${authHost}/identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:batchCreate`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer owner',
+        },
+        body: JSON.stringify({
+          users: [
+            {
+              localId: QA_GITHUB_USER.uid,
+              email: QA_GITHUB_USER.email,
+              displayName: QA_GITHUB_USER.displayName,
+              photoUrl: QA_GITHUB_USER.photoURL,
+              emailVerified: true,
+              providerUserInfo: [
+                {
+                  providerId: 'github.com',
+                  rawId: QA_GITHUB_USER.githubUid,
+                  displayName: QA_GITHUB_USER.displayName,
+                  email: QA_GITHUB_USER.email,
+                  photoUrl: QA_GITHUB_USER.photoURL,
+                  screenName: QA_GITHUB_USER.githubUsername,
+                },
+              ],
+            },
+          ],
+        }),
+      }
+    );
+
+    const result = await response.json();
+
+    if (result.error && result.error.length > 0) {
+      // Check if it's a duplicate error (user already exists with same rawId)
+      const isDuplicate = result.error.some(
+        (e) => e.message && e.message.includes('raw id exists')
+      );
+      if (isDuplicate) {
+        console.log(`   ✓ QA GitHub user already exists (${QA_GITHUB_USER.email})`);
+        return true;
+      }
+      throw new Error(result.error.map((e) => e.message).join(', '));
+    }
 
     console.log(`   ✅ Created QA GitHub user: ${QA_GITHUB_USER.email}`);
     console.log(
