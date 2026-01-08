@@ -162,8 +162,8 @@ test.describe('Card Visibility - Authenticated Users', () => {
 
     const ownPrivateCard = {
       title: `My Private Card ${Date.now()}`,
-      type: 'MagicSpell',
-      subtype: 'Offensive',
+      type: 'Skill',
+      subtype: 'Attack',
       isPublic: false,
       createdBy: userUid, // Owned by current user
       description: 'Private card owned by me',
@@ -171,8 +171,8 @@ test.describe('Card Visibility - Authenticated Users', () => {
 
     const otherPrivateCard = {
       title: `Other Private Card ${Date.now()}`,
-      type: 'Blessing',
-      subtype: 'Utility',
+      type: 'Upgrade',
+      subtype: 'Enhancement',
       isPublic: false,
       createdBy: 'other-user-uid', // Not owned by current user
       description: 'Private card by another user',
@@ -364,8 +364,8 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
 
     const user2PrivateCard = {
       title: `User2 Private ${Date.now()}`,
-      type: 'MagicSpell',
-      subtype: 'Offensive',
+      type: 'Skill',
+      subtype: 'Defense',
       isPublic: false,
       createdBy: user2Uid,
       description: 'User 2 private card',
@@ -373,8 +373,8 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
 
     const publicCard = {
       title: `Public Shared ${Date.now()}`,
-      type: 'Blessing',
-      subtype: 'Utility',
+      type: 'Upgrade',
+      subtype: 'Reinforcement',
       isPublic: true,
       createdBy: user1Uid,
       description: 'Public card visible to all',
