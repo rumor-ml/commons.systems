@@ -1537,34 +1537,24 @@ function validateCardForm() {
 
 // Show validation errors inline
 function showValidationErrors(errors) {
-  console.log('showValidationErrors called with errors:', errors);
   errors.forEach((error) => {
     const input = document.getElementById(error.field);
-    console.log(`Processing error for ${error.field}:`, error.message, 'input:', input);
     const formGroup = input?.closest('.form-group');
-    if (!formGroup) {
-      console.log(`No form group found for ${error.field}`);
-      return;
-    }
+    if (!formGroup) return;
 
     formGroup.classList.add('has-error');
 
     // Find or create error message element
     let errorMsg = formGroup.querySelector('.error-message');
     if (!errorMsg) {
-      console.log(`Creating new error message element for ${error.field}`);
       errorMsg = document.createElement('div');
       errorMsg.className = 'error-message';
       // Insert after the input/combobox
       const insertAfter = input.closest('.combobox') || input;
       insertAfter.parentElement.appendChild(errorMsg);
-    } else {
-      console.log(`Found existing error message element for ${error.field}`);
     }
 
-    console.log(`Setting error text for ${error.field} to: "${error.message}"`);
     errorMsg.textContent = error.message;
-    console.log(`After setting, errorMsg.textContent is: "${errorMsg.textContent}"`);
     input.classList.add('error');
 
     // Clear error state on next input (once: true auto-removes listener)
@@ -1617,9 +1607,7 @@ async function handleCardSave(e) {
 
   // Client-side validation BEFORE submission lock
   const validationErrors = validateCardForm();
-  console.log('handleCardSave - validationErrors:', validationErrors);
   if (validationErrors.length > 0) {
-    console.log('Showing validation errors');
     showValidationErrors(validationErrors);
     return; // Don't proceed with save
   }
