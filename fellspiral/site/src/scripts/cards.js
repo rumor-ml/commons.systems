@@ -1556,7 +1556,11 @@ function showValidationErrors(errors) {
       insertAfter.parentElement.appendChild(errorMsg);
     }
 
-    errorMsg.textContent = error.message;
+    // Set the error message - using innerHTML instead of textContent for better compatibility
+    if (errorMsg && error && error.message) {
+      // Use textContent for plain text (safer against XSS)
+      errorMsg.textContent = String(error.message);
+    }
     input.classList.add('error');
 
     // Clear error state on next input (once: true auto-removes listener)
