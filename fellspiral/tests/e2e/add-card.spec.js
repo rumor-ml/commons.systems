@@ -2057,8 +2057,6 @@ test.describe('Add Card - Concurrent Save Handling', () => {
     await page2.waitForTimeout(3000);
 
     // User 2 signs in
-    await page2.evaluate(() => window.__signOut());
-    await page2.waitForTimeout(1000);
     await authEmulator.createTestUser(user2Email);
     await authEmulator.signInTestUser(user2Email, page2);
 
