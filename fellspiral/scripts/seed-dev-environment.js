@@ -81,7 +81,9 @@ async function seedQAGitHubUser() {
     // Use batchCreate REST API to create user with GitHub provider
     // This is required for the OAuth provider to show in the emulator's popup
     const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
-    const projectId = 'demo-test';
+    // Use GCP_PROJECT_ID from environment (set by allocate-test-ports.sh)
+    // Each worktree gets a unique project ID like demo-test-314015698
+    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
 
     const response = await fetch(
       `http://${authHost}/identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:batchCreate`,

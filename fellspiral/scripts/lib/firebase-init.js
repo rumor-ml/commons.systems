@@ -25,11 +25,13 @@ export function initializeFirebase() {
 
   if (isEmulatorMode) {
     // Firebase Admin SDK automatically connects to emulators when env vars are set
-    // Use demo project ID (no credentials needed for emulators)
+    // Use GCP_PROJECT_ID from environment (set by allocate-test-ports.sh)
+    // Each worktree gets a unique project ID like demo-test-314015698
+    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
     initializeApp({
-      projectId: 'demo-test',
+      projectId,
     });
-    console.log('Using Firebase emulators (no credentials required)');
+    console.log(`Using Firebase emulators (projectId: ${projectId})`);
     return true;
   }
 
