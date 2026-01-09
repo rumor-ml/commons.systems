@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
+	"github.com/rumor-ml/commons.systems/finparse/internal/parsers/csv"
 	"github.com/rumor-ml/commons.systems/finparse/internal/parsers/ofx"
 )
 
@@ -25,6 +26,10 @@ func New(customParsers ...parser.Parser) (*Registry, error) {
 	// Register built-in parsers
 	if err := r.register(ofx.NewParser()); err != nil {
 		return nil, fmt.Errorf("failed to register ofx parser: %w", err)
+	}
+
+	if err := r.register(csv.NewParser()); err != nil {
+		return nil, fmt.Errorf("failed to register csv-pnc parser: %w", err)
 	}
 
 	// Register custom parsers

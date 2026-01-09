@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
+	"github.com/rumor-ml/commons.systems/finparse/internal/output"
 	"github.com/rumor-ml/commons.systems/finparse/internal/registry"
 	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
+	"github.com/rumor-ml/commons.systems/finparse/internal/transform"
 )
 
 const (
@@ -79,6 +83,9 @@ Examples:
 }
 
 func run() error {
+	// Create context for parsing operations
+	ctx := context.Background()
+
 	// Create scanner
 	s := scanner.New(*inputDir)
 
@@ -137,13 +144,72 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "Warning: No statement files found. Check directory path and ensure files have .qfx, .ofx, or .csv extensions.\n")
 	}
 
-	// TODO(Phase 2): Implement parsing pipeline:
-	//   1. For each file: parser := registry.FindParser(file.Path)
-	//   2. Call parser.Parse(ctx, reader, file.Metadata) -> RawStatement
-	//   3. Normalize RawStatement to domain types (Institution, Account, Statement, Transaction)
-	//   4. Add to Budget struct using Budget.Add* methods (handles validation & dedup)
-	//   5. Marshal Budget to JSON and write to output or stdout
-	fmt.Println("Parsing not yet implemented. Phase 1 complete.")
+	// Phase 4: Transform and output
+	budget := domain.NewBudget()
+
+	if *verbose {
+		fmt.Println("\nParsing and transforming statements...")
+	}
+
+	for _, file := range files {
+		// 1. Find parser
+		parser, err := reg.FindParser(file.Path)
+		if err != nil {
+			return fmt.Errorf("failed to find parser for %s: %w", file.Path, err)
+		}
+		if parser == nil {
+			return fmt.Errorf("no parser found for %s", file.Path)
+		}
+
+		if *verbose {
+			fmt.Printf("  Parsing %s with %s parser\n", file.Path, parser.Name())
+		}
+
+		// 2. Open file and parse
+		f, err := os.Open(file.Path)
+		if err != nil {
+			return fmt.Errorf("failed to open %s: %w", file.Path, err)
+		}
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+		f.Close() // Close immediately after parsing
+
+		if err != nil {
+			return fmt.Errorf("parse failed for %s: %w", file.Path, err)
+		}
+
+		// 3. Transform to domain types
+		if err := transform.TransformStatement(rawStmt, budget); err != nil {
+			return fmt.Errorf("transform failed for %s: %w", file.Path, err)
+		}
+	}
+
+	if *verbose {
+		institutions := budget.GetInstitutions()
+		accounts := budget.GetAccounts()
+		statements := budget.GetStatements()
+		transactions := budget.GetTransactions()
+
+		fmt.Printf("\nTransformation complete:\n")
+		fmt.Printf("  Institutions: %d\n", len(institutions))
+		fmt.Printf("  Accounts: %d\n", len(accounts))
+		fmt.Printf("  Statements: %d\n", len(statements))
+		fmt.Printf("  Transactions: %d\n", len(transactions))
+	}
+
+	// 4. Write output
+	opts := output.WriteOptions{
+		MergeMode: *mergeMode,
+		FilePath:  *outputFile,
+	}
+
+	if err := output.WriteBudgetToFile(budget, opts); err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
+
+	if *outputFile != "" {
+		fmt.Printf("\nOutput written to %s\n", *outputFile)
+	}
 
 	return nil
 }
