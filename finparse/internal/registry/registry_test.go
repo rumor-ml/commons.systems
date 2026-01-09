@@ -42,13 +42,16 @@ func TestRegistry_New(t *testing.T) {
 		t.Fatal("New() returned nil registry")
 	}
 
-	// Should have built-in parsers (OFX)
+	// Should have built-in parsers (OFX and CSV-PNC)
 	initialParsers := reg.ListParsers()
-	if len(initialParsers) != 1 {
-		t.Errorf("Expected 1 initial parser (ofx), got %d", len(initialParsers))
+	if len(initialParsers) != 2 {
+		t.Errorf("Expected 2 initial parsers (ofx, csv-pnc), got %d", len(initialParsers))
 	}
 	if initialParsers[0] != "ofx" {
-		t.Errorf("Expected initial parser 'ofx', got '%s'", initialParsers[0])
+		t.Errorf("Expected first parser 'ofx', got '%s'", initialParsers[0])
+	}
+	if initialParsers[1] != "csv-pnc" {
+		t.Errorf("Expected second parser 'csv-pnc', got '%s'", initialParsers[1])
 	}
 }
 
@@ -59,13 +62,16 @@ func TestRegistry_MustNew(t *testing.T) {
 		t.Fatal("MustNew() returned nil registry")
 	}
 
-	// Should have built-in parsers (OFX)
+	// Should have built-in parsers (OFX and CSV-PNC)
 	initialParsers := reg.ListParsers()
-	if len(initialParsers) != 1 {
-		t.Errorf("Expected 1 initial parser (ofx), got %d", len(initialParsers))
+	if len(initialParsers) != 2 {
+		t.Errorf("Expected 2 initial parsers (ofx, csv-pnc), got %d", len(initialParsers))
 	}
 	if initialParsers[0] != "ofx" {
-		t.Errorf("Expected initial parser 'ofx', got '%s'", initialParsers[0])
+		t.Errorf("Expected first parser 'ofx', got '%s'", initialParsers[0])
+	}
+	if initialParsers[1] != "csv-pnc" {
+		t.Errorf("Expected second parser 'csv-pnc', got '%s'", initialParsers[1])
 	}
 }
 
@@ -76,14 +82,17 @@ func TestRegistry_Register(t *testing.T) {
 
 	// Verify both built-in and custom parser are registered
 	parsers := reg.ListParsers()
-	if len(parsers) != 2 {
-		t.Fatalf("Expected 2 parsers (ofx + test-parser), got %d", len(parsers))
+	if len(parsers) != 3 {
+		t.Fatalf("Expected 3 parsers (ofx + csv-pnc + test-parser), got %d", len(parsers))
 	}
 	if parsers[0] != "ofx" {
 		t.Errorf("Expected parser name 'ofx' at index 0, got '%s'", parsers[0])
 	}
-	if parsers[1] != "test-parser" {
-		t.Errorf("Expected parser name 'test-parser' at index 1, got '%s'", parsers[1])
+	if parsers[1] != "csv-pnc" {
+		t.Errorf("Expected parser name 'csv-pnc' at index 1, got '%s'", parsers[1])
+	}
+	if parsers[2] != "test-parser" {
+		t.Errorf("Expected parser name 'test-parser' at index 2, got '%s'", parsers[2])
 	}
 
 	// Register multiple parsers
@@ -94,8 +103,8 @@ func TestRegistry_Register(t *testing.T) {
 	)
 
 	parsers2 := reg2.ListParsers()
-	if len(parsers2) != 4 {
-		t.Errorf("Expected 4 parsers (ofx + 3 custom), got %d", len(parsers2))
+	if len(parsers2) != 5 {
+		t.Errorf("Expected 5 parsers (ofx + csv-pnc + 3 custom), got %d", len(parsers2))
 	}
 }
 
@@ -126,17 +135,30 @@ func TestRegistry_Register_DuplicateName(t *testing.T) {
 		t.Errorf("Expected error to mention parser name 'test-parser', got: %v", err)
 	}
 
-	// Test duplicate with built-in parser name
+	// Test duplicate with built-in parser name (OFX)
 	ofxDuplicate := &mockParser{name: "ofx", canParseFunc: nil}
 	_, err = New(ofxDuplicate)
 	if err == nil {
-		t.Error("Expected error when registering duplicate built-in parser name")
+		t.Error("Expected error when registering duplicate built-in parser name (ofx)")
 	}
 	if !strings.Contains(err.Error(), "already registered") {
 		t.Errorf("Expected 'already registered' error, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "ofx") {
 		t.Errorf("Expected error to mention parser name 'ofx', got: %v", err)
+	}
+
+	// Test duplicate with built-in parser name (CSV-PNC)
+	csvDuplicate := &mockParser{name: "csv-pnc", canParseFunc: nil}
+	_, err = New(csvDuplicate)
+	if err == nil {
+		t.Error("Expected error when registering duplicate built-in parser name (csv-pnc)")
+	}
+	if !strings.Contains(err.Error(), "already registered") {
+		t.Errorf("Expected 'already registered' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "csv-pnc") {
+		t.Errorf("Expected error to mention parser name 'csv-pnc', got: %v", err)
 	}
 }
 
@@ -148,26 +170,29 @@ func TestRegistry_ListParsers(t *testing.T) {
 	if parsers == nil {
 		t.Error("ListParsers should return slice, not nil")
 	}
-	if len(parsers) != 1 {
-		t.Errorf("Expected 1 built-in parser (ofx), got %d", len(parsers))
+	if len(parsers) != 2 {
+		t.Errorf("Expected 2 built-in parsers (ofx, csv-pnc), got %d", len(parsers))
 	}
 	if parsers[0] != "ofx" {
 		t.Errorf("Expected first parser to be 'ofx', got '%s'", parsers[0])
 	}
+	if parsers[1] != "csv-pnc" {
+		t.Errorf("Expected second parser to be 'csv-pnc', got '%s'", parsers[1])
+	}
 
 	// Create registry with additional parsers
 	reg2 := MustNew(
-		&mockParser{name: "csv-pnc", canParseFunc: nil},
 		&mockParser{name: "csv-amex", canParseFunc: nil},
+		&mockParser{name: "csv-chase", canParseFunc: nil},
 	)
 
 	parsers2 := reg2.ListParsers()
-	if len(parsers2) != 3 {
-		t.Fatalf("Expected 3 parsers, got %d", len(parsers2))
+	if len(parsers2) != 4 {
+		t.Fatalf("Expected 4 parsers, got %d", len(parsers2))
 	}
 
 	// Verify order preserved (built-in first, then custom in order)
-	expected := []string{"ofx", "csv-pnc", "csv-amex"}
+	expected := []string{"ofx", "csv-pnc", "csv-amex", "csv-chase"}
 	for i, name := range expected {
 		if parsers2[i] != name {
 			t.Errorf("Parser %d: expected '%s', got '%s'", i, name, parsers2[i])
