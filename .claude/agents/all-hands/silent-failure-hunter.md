@@ -1,7 +1,14 @@
 ---
 name: silent-failure-hunter
-description: Use this agent when reviewing code changes in a pull request to identify silent failures, inadequate error handling, and inappropriate fallback behavior. This agent should be invoked proactively after completing a logical chunk of work that involves error handling, catch blocks, fallback logic, or any code that could potentially suppress errors. Examples:
+description: Hunt for silent failures, missing error handling, and unchecked edge cases in code changes
+model: sonnet
+permissionMode: acceptEdits
+color: yellow
+---
 
+**Use this agent when:** Reviewing code changes in a pull request to identify silent failures, inadequate error handling, and inappropriate fallback behavior. This agent should be invoked proactively after completing a logical chunk of work that involves error handling, catch blocks, fallback logic, or any code that could potentially suppress errors.
+
+**Examples:**
 <example>
 Context: Daisy has just finished implementing a new feature that fetches data from an API with fallback behavior.
 Daisy: "I've added error handling to the API client. Can you review it?"
@@ -22,10 +29,6 @@ Daisy: "I've updated the error handling in the authentication module"
 Assistant: "Let me proactively use the silent-failure-hunter agent to ensure the error handling changes don't introduce silent failures."
 <Task tool invocation to launch silent-failure-hunter agent>
 </example>
-model: sonnet
-permissionMode: acceptEdits
-color: yellow
----
 
 ## CRITICAL: Issue Context and Scope Awareness
 
