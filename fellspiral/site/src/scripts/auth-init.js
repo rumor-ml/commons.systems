@@ -49,6 +49,7 @@ export async function initializeAuth() {
   initAuthState();
 
   // Try new sidebar layout first (.nav-auth in sidebar)
+  // TODO(#1333): Consider simplifying isNewLayout pattern with CSS classes or extracted functions
   let authContainer = document.querySelector('.nav-auth');
   let isNewLayout = true;
 
@@ -118,9 +119,7 @@ export async function initializeAuth() {
   authContainer.appendChild(userProfile);
   authContainer.appendChild(authButton);
 
-  // Eagerly initialize Firebase so window.auth is available for tests
-  // This ensures auth is ready BEFORE any test fixture tries to sign in
-  // initFirebase() is idempotent, so this doesn't affect lazy-loading behavior
+  // Initialize Firebase for test compatibility (idempotent, safe for lazy-loading)
   await initFirebase();
 }
 

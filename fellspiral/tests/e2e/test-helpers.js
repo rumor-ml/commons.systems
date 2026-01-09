@@ -38,7 +38,8 @@ export async function setupDesktopViewport(page) {
 
 /**
  * Generate unique test card data
- * Returns a frozen object to prevent accidental mutation during tests.
+ * Returns a shallowly frozen object to prevent accidental mutation of top-level properties.
+ * Note: nested properties (arrays, objects) are not frozen and can still be mutated.
  * @param {string} suffix - Optional suffix to add to title for uniqueness
  * @returns {Readonly<{
  *   title: string, type: string, subtype: string,
@@ -186,7 +187,8 @@ export async function createCardViaUI(page, cardData) {
   await fillOptionalField(page, 'cardCost', cardData.cost);
 
   // Wait for auth.currentUser to be populated (critical for Firestore writes)
-  // window.__testAuth is set by authEmulator fixture and used by firebase.js's getAuthInstance()
+  // window.__testAuth is set by the auth emulator setup and contains the Firebase Auth instance.
+  // Tests must wait for auth.currentUser to be populated before performing Firestore writes.
   // IMPORTANT: Use != null (not !==) to check for both null AND undefined
   await page
     .waitForFunction(
@@ -204,9 +206,21 @@ export async function createCardViaUI(page, cardData) {
         currentUserUid: window.__testAuth?.currentUser?.uid,
       }));
 
-      // Preserve original error type and stack, just enhance the message
-      originalError.message = `Auth not ready after 5s: ${JSON.stringify(authState)}. ${originalError.message}`;
-      throw originalError; // Re-throw with enhanced message but original stack/type
+      // Create new error with enhanced message, preserving original as cause
+      const enhancedError = new Error(
+        `Auth not ready after 5s. Auth state: ${JSON.stringify(authState)}`
+      );
+
+      // Preserve original error properties
+      enhancedError.name = originalError.name || 'TimeoutError';
+      enhancedError.cause = originalError; // Standard Error.cause property (ES2022)
+
+      // Copy stack trace from original error
+      if (originalError.stack) {
+        enhancedError.stack = originalError.stack;
+      }
+
+      throw enhancedError;
     });
 
   // Ensure save button is enabled before clicking
@@ -229,7 +243,7 @@ export async function createCardViaUI(page, cardData) {
   // Increased timeout to 16000ms to allow for slow Firestore writes in emulator (Firestore timeout is 15s)
   await page
     .waitForSelector('#cardEditorModal.active', { state: 'hidden', timeout: 16000 })
-    .catch(async (error) => {
+    .catch(async (originalError) => {
       // Capture diagnostic state when modal doesn't close
       const modalState = await page.evaluate(() => {
         const modal = document.getElementById('cardEditorModal');
@@ -253,10 +267,25 @@ export async function createCardViaUI(page, cardData) {
         };
       });
 
-      throw new Error(
-        `Modal did not close after save. State: ${JSON.stringify(modalState, null, 2)}. ` +
-          `Original error: ${error.message}`
+      // Create enhanced error with clear message and diagnostic data as property
+      const enhancedError = new Error(
+        `Modal did not close after clicking save (timeout: 16s). Check error.diagnostics for details.`
       );
+
+      // Attach diagnostic data as structured property (not in message)
+      enhancedError.diagnostics = modalState;
+      enhancedError.cause = originalError;
+      enhancedError.name = 'ModalCloseTimeoutError';
+
+      // Preserve original stack trace
+      if (originalError.stack) {
+        enhancedError.stack = originalError.stack;
+      }
+
+      // Log diagnostic state separately for debugging
+      console.error('[Test] Modal close timeout diagnostics:', modalState);
+
+      throw enhancedError;
     });
 
   // Wait for card to appear in UI list using DOM condition wait (faster and more reliable than fixed timeout)
@@ -279,6 +308,7 @@ export async function createCardViaUI(page, cardData) {
 }
 
 // Shared Firebase Admin instance for Firestore operations
+// TODO(#1334): Consider using simpler initialization promise pattern
 let _adminApp = null;
 let _firestoreDb = null;
 
@@ -334,6 +364,7 @@ async function getFirestoreAdmin() {
  * @throws {Error} If card not found within timeout
  */
 export async function waitForCardInFirestore(cardTitle, timeout = 10000) {
+  // TODO(#1336): Consider caching dynamic import pattern at module level
   // Import collection name helper
   const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
 
@@ -379,6 +410,7 @@ export async function waitForCardInFirestore(cardTitle, timeout = 10000) {
  * @param {number} initialDelayMs - Initial delay between retries in ms (default: 500, higher for Firefox compatibility)
  * @returns {Promise<Object|null>} Card document with id and data, or null if not found after retries
  */
+// TODO(#311): Replace all uses of getCardFromFirestore() with waitForCardInFirestore() and remove this deprecated function
 export async function getCardFromFirestore(cardTitle, maxRetries = 5, initialDelayMs = 500) {
   // Import collection name helper
   const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');

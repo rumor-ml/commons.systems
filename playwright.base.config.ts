@@ -32,6 +32,33 @@ export interface WebServerConfig extends BaseSiteConfig {
 // Discriminated union: only valid state combinations are representable
 export type SiteConfig = HostingEmulatorConfig | WebServerConfig;
 
+/**
+ * Gets web server configuration with proper type narrowing.
+ * Returns undefined for hosting-emulator mode or when using deployed URL.
+ */
+function getWebServerConfig(site: SiteConfig): PlaywrightTestConfig['webServer'] {
+  if (site.mode === 'hosting-emulator') {
+    // Modern: No webServer needed, emulators started externally
+    return undefined;
+  }
+
+  // TypeScript now knows site is WebServerConfig due to discriminated union
+  return {
+    // Legacy: Apps still using webServerCommand (not yet migrated to hosting emulator)
+    command: process.env.CI ? site.webServerCommand.ci : site.webServerCommand.local,
+    url: `http://localhost:${site.port}`,
+    reuseExistingServer: true,
+    timeout: 120 * 1000,
+    env: {
+      // Filter out undefined values from process.env
+      ...(Object.fromEntries(
+        Object.entries(process.env).filter(([_, v]) => v !== undefined)
+      ) as Record<string, string>),
+      ...(site.env || {}),
+    },
+  };
+}
+
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
   const isDeployed = process.env.DEPLOYED === 'true';
 
@@ -102,23 +129,6 @@ export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
             },
           ],
 
-    webServer: isDeployed
-      ? undefined
-      : site.mode === 'web-server'
-        ? {
-            // Legacy: Apps still using webServerCommand (not yet migrated to hosting emulator)
-            command: process.env.CI ? site.webServerCommand.ci : site.webServerCommand.local,
-            url: `http://localhost:${site.port}`,
-            reuseExistingServer: true,
-            timeout: 120 * 1000,
-            env: {
-              // Filter out undefined values from process.env
-              ...(Object.fromEntries(
-                Object.entries(process.env).filter(([_, v]) => v !== undefined)
-              ) as Record<string, string>),
-              ...(site.env || {}),
-            },
-          }
-        : undefined, // Modern: No webServer needed, emulators started externally
+    webServer: isDeployed ? undefined : getWebServerConfig(site),
   });
 }

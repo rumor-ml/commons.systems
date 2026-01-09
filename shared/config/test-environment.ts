@@ -15,32 +15,31 @@ import { join } from 'path';
 export type TestMode = 'emulator' | 'deployed';
 
 /**
- * Complete test environment configuration
+ * Firebase emulator configuration
  */
-export interface TestEnvironment {
-  /** Test mode: emulator (local/CI) or deployed (production) */
-  mode: TestMode;
+export interface EmulatorConfig {
+  /** GCP Project ID for emulator isolation */
+  projectId: string;
 
+  /** Firestore emulator host (format: "host:port") */
+  firestoreHost: string;
+
+  /** Auth emulator host (format: "host:port") */
+  authHost: string;
+
+  /** Storage emulator host (format: "host:port") */
+  storageHost: string;
+
+  /** Hosting emulator port number */
+  hostingPort: number;
+}
+
+/**
+ * Base test environment configuration shared by all modes
+ */
+interface BaseTestEnvironment {
   /** Whether running in CI environment */
   isCI: boolean;
-
-  /** Firebase emulator configuration */
-  emulators: {
-    /** GCP Project ID for emulator isolation */
-    projectId: string;
-
-    /** Firestore emulator host (format: "host:port") */
-    firestoreHost: string;
-
-    /** Auth emulator host (format: "host:port") */
-    authHost: string;
-
-    /** Storage emulator host (format: "host:port") */
-    storageHost: string;
-
-    /** Hosting emulator port number */
-    hostingPort: number;
-  };
 
   /** Test timeout configuration */
   timeouts: {
@@ -53,10 +52,40 @@ export interface TestEnvironment {
     /** Timeout multiplier for slow systems */
     multiplier: number;
   };
-
-  /** Optional deployed URL for production testing */
-  deployedUrl?: string;
 }
+
+/**
+ * Test environment configuration for emulator mode
+ */
+export interface EmulatorTestEnvironment extends BaseTestEnvironment {
+  /** Test mode: emulator (local/CI) */
+  mode: 'emulator';
+
+  /** Firebase emulator configuration (required for emulator mode) */
+  emulators: EmulatorConfig;
+
+  /** Deployed URL is not used in emulator mode */
+  deployedUrl?: never;
+}
+
+/**
+ * Test environment configuration for deployed mode
+ */
+export interface DeployedTestEnvironment extends BaseTestEnvironment {
+  /** Test mode: deployed (production) */
+  mode: 'deployed';
+
+  /** Emulator configuration is not used in deployed mode */
+  emulators?: never;
+
+  /** Deployed URL for production testing (required for deployed mode) */
+  deployedUrl: string;
+}
+
+/**
+ * Complete test environment configuration (discriminated union)
+ */
+export type TestEnvironment = EmulatorTestEnvironment | DeployedTestEnvironment;
 
 /**
  * Load and validate test environment configuration
@@ -115,8 +144,9 @@ export function validateTestEnvironment(config: any, source: string = 'config'):
     errors.push(`isCI must be boolean, got: ${typeof config.isCI}`);
   }
 
-  // Validate emulators (only for emulator mode)
+  // Mode-specific validation
   if (config.mode === 'emulator') {
+    // Validate emulators (required for emulator mode)
     if (!config.emulators) {
       errors.push('emulators configuration is required for emulator mode');
     } else {
@@ -142,6 +172,21 @@ export function validateTestEnvironment(config: any, source: string = 'config'):
         );
       }
     }
+
+    // Deployed URL should not be present in emulator mode
+    if (config.deployedUrl !== undefined) {
+      errors.push('deployedUrl should not be set in emulator mode');
+    }
+  } else if (config.mode === 'deployed') {
+    // Validate deployedUrl (required for deployed mode)
+    if (!config.deployedUrl || typeof config.deployedUrl !== 'string') {
+      errors.push('deployedUrl is required and must be a non-empty string for deployed mode');
+    }
+
+    // Emulators should not be present in deployed mode
+    if (config.emulators !== undefined) {
+      errors.push('emulators should not be set in deployed mode');
+    }
   }
 
   // Validate timeouts
@@ -155,11 +200,6 @@ export function validateTestEnvironment(config: any, source: string = 'config'):
         errors.push(`timeouts.${field} must be a positive number, got: ${value}`);
       }
     }
-  }
-
-  // Validate deployedUrl (optional, only for deployed mode)
-  if (config.deployedUrl !== undefined && typeof config.deployedUrl !== 'string') {
-    errors.push(`deployedUrl must be a string if provided, got: ${typeof config.deployedUrl}`);
   }
 
   // Throw if any validation errors
@@ -182,26 +222,39 @@ export function validateTestEnvironment(config: any, source: string = 'config'):
 export function getTestEnvironmentFromEnv(): TestEnvironment {
   const isCI = process.env.CI === 'true';
   const deployedUrl = process.env.DEPLOYED_URL;
-  const mode: TestMode = deployedUrl ? 'deployed' : 'emulator';
 
   // Get timeout multiplier (default: 1)
   const timeoutMultiplier = parseInt(process.env.TIMEOUT_MULTIPLIER || '1');
 
-  return {
-    mode,
-    isCI,
-    emulators: {
-      projectId: process.env.GCP_PROJECT_ID || 'demo-test',
-      firestoreHost: process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081',
-      authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099',
-      storageHost: process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199',
-      hostingPort: parseInt(process.env.HOSTING_PORT || '5002'),
-    },
-    timeouts: {
-      test: 60 * timeoutMultiplier,
-      emulatorStartup: 120 * timeoutMultiplier,
-      multiplier: timeoutMultiplier,
-    },
-    deployedUrl,
+  // Build base timeouts configuration
+  const timeouts = {
+    test: 60 * timeoutMultiplier,
+    emulatorStartup: 120 * timeoutMultiplier,
+    multiplier: timeoutMultiplier,
   };
+
+  // Return discriminated union based on mode
+  if (deployedUrl) {
+    // Deployed mode: requires deployedUrl, no emulators
+    return {
+      mode: 'deployed',
+      isCI,
+      deployedUrl,
+      timeouts,
+    };
+  } else {
+    // Emulator mode: requires emulators, no deployedUrl
+    return {
+      mode: 'emulator',
+      isCI,
+      emulators: {
+        projectId: process.env.GCP_PROJECT_ID || 'demo-test',
+        firestoreHost: process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081',
+        authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099',
+        storageHost: process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199',
+        hostingPort: parseInt(process.env.HOSTING_PORT || '5002'),
+      },
+      timeouts,
+    };
+  }
 }

@@ -39,7 +39,7 @@ import cardsData from '../data/cards.json';
 const TIMEOUTS = {
   BLUR_DELAY_MS: 200, // Browser event ordering safety margin
   AUTH_RETRY_MS: 500, // Firebase SDK init wait
-  FIRESTORE_MS: 5000, // Firestore query timeout
+  FIRESTORE_MS: 5000, // Firestore query timeout (unused - queries use hardcoded values)
   DEBOUNCE_MS: 300, // Button click debounce
 };
 
@@ -61,7 +61,7 @@ let isSaving = false;
 //   - Custom type/subtype values from combobox "Add New" feature
 //   - User display names, error messages containing user input
 // Example: escapeHtml("<script>alert('xss')</script>") → "&lt;script&gt;alert('xss')&lt;/script&gt;"
-// NOTE: Only escapes HTML context - do NOT use for JavaScript strings or URLs
+// NOTE: Only escapes HTML context. For JavaScript strings, use JSON.stringify(). For URLs, use encodeURIComponent(). This function does NOT provide URL injection protection.
 // TODO(#480): Add E2E test for XSS in custom types via "Add New" combobox option
 function escapeHtml(text) {
   if (text == null) return '';
@@ -112,6 +112,8 @@ const CARD_CONSTRAINTS = {
 
 /**
  * Validate card data structure and return validation errors.
+ * TODO: Consolidate with firebase.js validateCardData - both functions validate same fields
+ * but have different signatures (return errors vs throw). Consider shared validation module.
  * @param {Partial<CardData>} cardData - Card data to validate
  * @returns {{ valid: boolean, errors: Array<{ field: string, message: string }> }}
  */
@@ -189,9 +191,8 @@ const VALID_VIEW_MODES = /** @type {const} */ (['grid', 'list']);
  * @property {number} authListenerRetries - Count of auth listener setup retry attempts
  *   Rationale: Firebase auth can be slow to initialize, especially on cold start or slow networks.
  *   Retries prevent race condition where UI initializes before auth state is available.
- *   Each retry waits 500ms, so 10 retries = 5 second maximum wait before giving up.
+ *   10 retry attempts with 500ms delay between each = 4.5 seconds total wait (9 delays), plus initial attempt.
  * @property {number} authListenerMaxRetries - Maximum allowed retries for auth listener setup (default: 10)
- *   10 retries × 500ms delay = 5 seconds total timeout for auth initialization
  */
 const state = {
   cards: [],
@@ -514,8 +515,7 @@ function createCombobox(config) {
   });
 
   input.addEventListener('blur', () => {
-    // 200ms delay prevents blur from closing dropdown before click events fire
-    // Browsers vary in mousedown→blur→click ordering; delay ensures clicks register first
+    // Delay allows click events to fire before blur closes dropdown (browser event ordering varies)
     // TODO(#483): Replace setTimeout with relatedTarget check for more robust solution
     setTimeout(hide, TIMEOUTS.BLUR_DELAY_MS);
   });
@@ -651,6 +651,7 @@ function initSubtypeCombobox() {
   return true;
 }
 
+// TODO(#1332): Consolidate showErrorUI and showWarningBanner patterns into unified factory
 // Show error UI with retry option
 function showErrorUI(message, onRetry) {
   const container = document.querySelector('.card-container');
@@ -1114,8 +1115,10 @@ function isAuthNotInitializedError(error) {
 }
 
 // Setup auth state listener to show/hide auth-controls
-// TODO(#480): Add E2E test coverage for auth listener retry logic (lines 889-950)
+// TODO(#480): Add E2E test coverage for auth listener retry logic
 // Test scenarios: SDK not ready on first attempt, max retries exceeded, recovery after transient failure
+// Missing tests: retry happens when auth not ready, retry succeeds after init, max retry limit respected,
+// user sees UI when retries exhausted, auth listener properly attaches after successful retry
 //
 // Auth Initialization Retry Logic:
 // Firebase Auth SDK initialization is asynchronous. When this function runs before
@@ -1170,7 +1173,10 @@ function setupAuthStateListener() {
         // User will need to refresh to get auth-gated features
         return;
       }
-      // Auth not ready yet - silently retry without logging error
+      // Auth not ready yet - retry with debug logging for timing diagnostics
+      console.debug(
+        `[Cards] Auth not ready, retry ${state.authListenerRetries}/${state.authListenerMaxRetries}`
+      );
       setTimeout(setupAuthStateListener, TIMEOUTS.AUTH_RETRY_MS);
       return;
     }
@@ -1665,6 +1671,7 @@ async function handleCardSave(e) {
       cardData: { title: cardData.title, type: cardData.type },
     });
 
+    // TODO(#1331): Simplify error categorization with lookup object pattern
     // Categorize errors for specific user guidance using switch for cleaner code
     let errorCategory = 'unknown';
     let userMessage = 'Failed to save card. ';

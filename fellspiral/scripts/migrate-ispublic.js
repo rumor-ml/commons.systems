@@ -6,6 +6,16 @@
  * Context: PR #244 adds isPublic field requirement to Firestore security rules.
  * Existing cards without this field will become unreadable after rule deployment.
  *
+ * ⚠️  CRITICAL DEPLOYMENT ORDER - MUST FOLLOW THIS SEQUENCE:
+ *
+ * 1. Run this migration script to backfill isPublic on existing cards
+ * 2. Verify migration completed successfully (all cards have isPublic field)
+ * 3. Deploy new security rules (require isPublic field)
+ *
+ * ⚠️  DO NOT deploy security rules until ALL cards are migrated!
+ *    If migration fails mid-way, fix the error and re-run before deploying rules.
+ *    Deploying rules before migration completes will make unmigrated cards unreadable.
+ *
  * This script:
  * 1. Queries all cards in the main collection
  * 2. Identifies cards missing the isPublic field
@@ -183,11 +193,6 @@ if (isMainModule) {
     const cardsRef = db.collection('cards');
 
     try {
-      // DEPLOYMENT SEQUENCE (CRITICAL - follow this order to prevent data access issues):
-      // 1. Run this migration script to backfill isPublic on existing cards
-      // 2. Verify migration completed successfully (all cards now have isPublic field)
-      // 3. Deploy new security rules (require isPublic field)
-      // If migration fails mid-way, DO NOT deploy security rules until all cards are migrated
       // Get all cards (no query filter - we need to check all cards)
       const snapshot = await cardsRef.get();
 

@@ -326,9 +326,10 @@ function validateCardData(cardData) {
 // Fetches public cards (everyone can see) and private cards (only if authenticated and owned by user)
 export async function getAllCards() {
   await initFirebase();
-  // Timeout of 30 seconds for emulator environment (may be slower due to system load)
+  // Query timeout of 30 seconds for emulator environment (may be slower due to system load)
   // Production: typical latency 1-2s cold-start, 100-500ms warm queries
   // Emulator: can be slower due to JVM startup, especially on overloaded systems or Firefox
+  // Note: Create operations use 15-second timeout (see FIRESTORE_CREATE_TIMEOUT_MS in createCard)
   const FIRESTORE_TIMEOUT_MS = 30000;
 
   try {
@@ -339,6 +340,7 @@ export async function getAllCards() {
 
     // If no currentUser yet, wait for auth state to be restored (max 5 seconds)
     // This handles the case where auth is persistent but state hasn't been restored yet
+    // Assumes authInstance exists (initialized by initFirebase above)
     if (!currentUser) {
       currentUser = await new Promise((resolve) => {
         const unsubscribe = authInstance.onAuthStateChanged((user) => {
