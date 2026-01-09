@@ -306,7 +306,7 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     await page.waitForTimeout(3000);
 
     const guestCardCount = await page.locator('.card-item').count();
-    expect(guestCardCount).toBeGreaterThanOrEqual(52); // 50 seeded + 2 test cards
+    expect(guestCardCount).toBeGreaterThanOrEqual(2); // At least our 2 test cards (seeded cards are in worker-specific collections)
 
     const isCard1VisibleAsGuest = await isCardVisibleInUI(page, publicCard1.title);
     const isCard2VisibleAsGuest = await isCardVisibleInUI(page, publicCard2.title);
