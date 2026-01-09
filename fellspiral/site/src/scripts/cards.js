@@ -34,15 +34,38 @@ import { initLibraryNav } from './library-nav.js';
 import cardsData from '../data/cards.json';
 
 // Timeout constants for various operations
-// TODO(#1094): Consider freezing TIMEOUTS object to prevent runtime mutation
-const TIMEOUTS = {
+const TIMEOUTS = Object.freeze({
   BLUR_DELAY_MS: 200, // Browser event ordering safety margin
   AUTH_RETRY_MS: 500, // Firebase SDK init wait
   DEBOUNCE_MS: 300, // Button click debounce
+});
+
+// Error message lookup for Firestore save operations
+const FIRESTORE_SAVE_ERRORS = {
+  'permission-denied': {
+    category: 'permission',
+    message: 'You do not have permission to save cards. Please contact support.',
+  },
+  unauthenticated: {
+    category: 'authentication',
+    message: 'You must be logged in to save cards. Please refresh and sign in again.',
+  },
+  unavailable: {
+    category: 'unavailable',
+    message: 'The server is temporarily unavailable. Please try again in a moment.',
+  },
+  'invalid-argument': {
+    category: 'validation',
+    message: 'Validation error', // Will append error.message
+  },
+  'failed-precondition': {
+    category: 'precondition',
+    message: 'Operation failed due to server validation. Please check your input.',
+  },
 };
 
 // Submission lock to prevent double-submit on rapid clicks or Enter key spam.
-// Set at start of handleCardSave(), cleared in finally block.
+// Set at start of handleCardSave(), cleared at end of function or in error handlers.
 // Separate from button.disabled to handle Enter key submissions.
 let isSaving = false;
 
@@ -52,14 +75,16 @@ let isSaving = false;
 // XSS Attack Vectors Prevented:
 //   - Script injection: <script>alert('xss')</script> → escaped, not executed
 //   - Event handler injection: <img onerror="alert('xss')"> → escaped, not executed
-//   - Protocol injection: <a href="javascript:alert('xss')"> → escaped, not clickable
 //
 // CRITICAL: Use for ALL user-generated content before inserting into DOM:
 //   - Card titles, descriptions, types, subtypes in renderCards()
 //   - Custom type/subtype values from combobox "Add New" feature
 //   - User display names, error messages containing user input
 // Example: escapeHtml("<script>alert('xss')</script>") → "&lt;script&gt;alert('xss')&lt;/script&gt;"
-// NOTE: Only escapes HTML context. For JavaScript strings, use JSON.stringify(). For URLs, use encodeURIComponent(). This function does NOT provide URL injection protection.
+// NOTE: Only escapes HTML content context (text nodes, attribute values that will be HTML-encoded).
+// For href/src attributes, validate URLs against allowlist or use URL constructor validation.
+// For JavaScript strings, use JSON.stringify(). This function does NOT provide URL protocol injection protection.
+// TODO(#1371): Clarify whether app uses user input in href/src attributes
 // TODO(#480): Add E2E test for XSS in custom types via "Add New" combobox option
 function escapeHtml(text) {
   if (text == null) return '';
@@ -68,9 +93,69 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+/**
+ * Handle combobox error state by disabling input and showing error message
+ * @param {string} comboboxId - ID of the combobox
+ * @param {HTMLElement} listbox - Listbox element to show error in
+ * @param {HTMLInputElement} input - Input element to disable
+ * @param {HTMLElement} combobox - Combobox container element
+ * @param {Error} error - The error that occurred
+ */
+function handleComboboxError(comboboxId, listbox, input, combobox, error) {
+  console.error('[Cards] Error in combobox:', {
+    comboboxId: comboboxId,
+    errorType: error.constructor.name,
+    message: error.message,
+    stack: error.stack,
+  });
+
+  // Show error state in UI
+  listbox.replaceChildren();
+  listbox.classList.add('combobox-error');
+
+  const errorLi = document.createElement('li');
+  errorLi.className = 'combobox-option combobox-error-message';
+  errorLi.textContent = 'Unable to load options. Please refresh the page.';
+  listbox.appendChild(errorLi);
+
+  // Disable input to prevent submission with broken combobox
+  input.disabled = true;
+  input.placeholder = 'Options unavailable - please refresh';
+  combobox.dataset.broken = 'true';
+
+  console.error(`[Cards] Combobox ${comboboxId} is broken. User must refresh page.`);
+}
+
+/**
+ * Create blocking error screen for critical failures
+ * @param {string} title - Error title
+ * @param {string} message - Error message
+ * @param {string} [buttonText='Refresh Page'] - Button text
+ * @returns {HTMLElement} Error screen element
+ */
+function createBlockingErrorScreen(title, message, buttonText = 'Refresh Page') {
+  const errorScreen = document.createElement('div');
+  errorScreen.style.cssText =
+    'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); color: white; display: flex; align-items: center; justify-content: center; z-index: 10000; flex-direction: column; padding: 2rem;';
+
+  const titleEl = document.createElement('h1');
+  titleEl.textContent = title;
+  errorScreen.appendChild(titleEl);
+
+  const messageEl = document.createElement('p');
+  messageEl.textContent = message;
+  errorScreen.appendChild(messageEl);
+
+  const button = document.createElement('button');
+  button.textContent = buttonText;
+  button.onclick = () => window.location.reload();
+  errorScreen.appendChild(button);
+
+  return errorScreen;
+}
+
 // Whitelist of valid card types for class attribute
-// TODO(#1098): Freeze VALID_CARD_TYPES to prevent runtime mutations
-const VALID_CARD_TYPES = ['Equipment', 'Skill', 'Upgrade', 'Foe', 'Origin'];
+const VALID_CARD_TYPES = Object.freeze(['Equipment', 'Skill', 'Upgrade', 'Foe', 'Origin']);
 function sanitizeCardType(type) {
   return VALID_CARD_TYPES.includes(type) ? type : '';
 }
@@ -103,12 +188,11 @@ function sanitizeCardType(type) {
  * Validation constraints for card data fields.
  * Centralized to ensure consistency between client and server validation.
  */
-// TODO(#1098): Freeze CARD_CONSTRAINTS to prevent runtime mutations
-const CARD_CONSTRAINTS = {
+const CARD_CONSTRAINTS = Object.freeze({
   TITLE_MAX_LENGTH: 100,
   DESCRIPTION_MAX_LENGTH: 500,
-  REQUIRED_FIELDS: ['title', 'type', 'subtype'],
-};
+  REQUIRED_FIELDS: Object.freeze(['title', 'type', 'subtype']),
+});
 
 /**
  * Validate card data structure and return validation errors.
@@ -127,22 +211,25 @@ function validateCardData(cardData) {
     };
   }
 
-  // Required field validation
-  if (!cardData.title || typeof cardData.title !== 'string' || !cardData.title.trim()) {
-    errors.push({ field: 'title', message: 'Title is required' });
-  } else if (cardData.title.length > CARD_CONSTRAINTS.TITLE_MAX_LENGTH) {
+  // Required field validation - use CARD_CONSTRAINTS array
+  const requiredFields = {
+    title: { value: cardData.title, message: 'Title is required' },
+    type: { value: cardData.type, message: 'Type is required' },
+    subtype: { value: cardData.subtype, message: 'Subtype is required' },
+  };
+
+  for (const [field, config] of Object.entries(requiredFields)) {
+    if (!config.value || typeof config.value !== 'string' || !config.value.trim()) {
+      errors.push({ field, message: config.message });
+    }
+  }
+
+  // Title length validation
+  if (cardData.title && cardData.title.length > CARD_CONSTRAINTS.TITLE_MAX_LENGTH) {
     errors.push({
       field: 'title',
       message: `Title must be ${CARD_CONSTRAINTS.TITLE_MAX_LENGTH} characters or less`,
     });
-  }
-
-  if (!cardData.type || typeof cardData.type !== 'string' || !cardData.type.trim()) {
-    errors.push({ field: 'type', message: 'Type is required' });
-  }
-
-  if (!cardData.subtype || typeof cardData.subtype !== 'string' || !cardData.subtype.trim()) {
-    errors.push({ field: 'subtype', message: 'Subtype is required' });
   }
 
   // Optional field validation
@@ -212,7 +299,7 @@ const state = {
   listenersAttached: false, // Track if event listeners are attached to prevent duplicates
   authTimeoutId: null, // Timeout ID for backup auth check cleanup
   authListenerRetries: 0, // Counter for auth listener setup retry attempts
-  authListenerMaxRetries: 10, // Max retry attempts before giving up (10 retries = 5 seconds)
+  authListenerMaxRetries: 10, // Max retry attempts before giving up (9 retries × 500ms = 4.5 seconds)
 };
 
 /**
@@ -367,41 +454,8 @@ function createCombobox(config) {
         throw new TypeError(`getOptions() returned non-array: ${typeof availableOptions}`);
       }
     } catch (error) {
-      // Categorize combobox-specific errors for debugging
-      const errorCategory =
-        error instanceof TypeError
-          ? 'type_error'
-          : error.name === 'ReferenceError'
-            ? 'missing_data'
-            : 'unknown';
-
-      console.error('[Cards] Error fetching combobox options:', {
-        comboboxId: comboboxId,
-        inputValue: input.value,
-        message: error.message,
-        stack: error.stack,
-        errorType: error.constructor.name,
-        category: errorCategory,
-      });
-
-      // Show error state in UI
-      listbox.replaceChildren();
-      listbox.classList.add('combobox-error');
-
-      const errorLi = document.createElement('li');
-      errorLi.className = 'combobox-option combobox-error-message';
-      errorLi.textContent = 'Unable to load options. Please refresh the page.';
-      listbox.appendChild(errorLi);
-
-      // Disable input to prevent submission with broken combobox
-      input.disabled = true;
-      input.placeholder = 'Options unavailable - please refresh';
-      combobox.dataset.broken = 'true';
-
-      // Throw error to prevent form submission with broken combobox state
-      throw new Error(
-        `Combobox ${comboboxId} is broken and cannot be used. Please refresh the page.`
-      );
+      handleComboboxError(comboboxId, listbox, input, combobox, error);
+      return; // Return early instead of throwing
     }
 
     // Render options - separate try-catch for DOM errors with clearer context
@@ -441,31 +495,8 @@ function createCombobox(config) {
         );
       }
     } catch (error) {
-      console.error('[Cards] Error rendering combobox options:', {
-        comboboxId: comboboxId,
-        errorType: error.constructor.name,
-        message: error.message,
-        stack: error.stack,
-      });
-
-      // Show error state in UI instead of crashing the app
-      listbox.classList.add('combobox-error');
-      listbox.replaceChildren();
-      const errorLi = document.createElement('li');
-      errorLi.className = 'combobox-option';
-      errorLi.textContent = 'Error loading options';
-      errorLi.style.cssText = 'font-style: italic; color: var(--color-error);';
-      listbox.appendChild(errorLi);
-
-      // Disable input to prevent submission with broken combobox
-      input.disabled = true;
-      input.placeholder = 'Options unavailable - please refresh';
-      combobox.dataset.broken = 'true';
-
-      // Throw error to prevent form submission with broken combobox state
-      throw new Error(
-        `Combobox ${comboboxId} is broken and cannot be used. Please refresh the page.`
-      );
+      handleComboboxError(comboboxId, listbox, input, combobox, error);
+      return; // Return early instead of throwing
     }
   }
 
@@ -598,7 +629,11 @@ function destroyCombobox(combobox, name) {
 
     if (isListenerCleanupError) {
       // Benign: event listener cleanup failed, log warning but continue
-      console.warn(`[Cards] Failed to cleanup ${name} combobox listeners (benign):`, error.message);
+      console.warn(`[Cards] Failed to cleanup ${name} combobox listeners (benign):`, {
+        message: error.message,
+        stack: error.stack,
+        errorType: error.constructor.name,
+      });
       return null;
     }
 
@@ -770,19 +805,39 @@ async function init() {
     // Initialize library navigation (populates library section)
     // Don't await - let it load in background to avoid blocking card display
     initLibraryNav().catch((error) => {
-      console.warn('[Cards] Library navigation initialization failed - continuing anyway:', error);
+      // Use console.error with structured context for Sentry tracking
+      console.error('[Cards] Library navigation initialization failed:', {
+        errorId: 'LIBRARY_NAV_INIT_FAILED',
+        message: error.message,
+        code: error.code,
+        stack: error.stack,
+      });
 
-      // Show non-blocking warning banner to user with auto-dismiss
+      // Categorize error severity
+      const isCritical = error.code === 'permission-denied' || error.message?.includes('required');
+
+      // Show non-blocking warning banner to user
       const warningBanner = createBanner(
         'Library navigation failed to load. You can still use cards normally.'
       );
       warningBanner.style.cssText =
         'background: var(--color-warning); color: white; padding: 0.75rem; text-align: center; font-size: 0.9rem;';
 
+      // Add dismiss button for user control
+      const dismissBtn = document.createElement('button');
+      dismissBtn.textContent = '×';
+      dismissBtn.style.cssText =
+        'margin-left: 1rem; background: none; border: none; color: white; cursor: pointer; font-size: 1.5rem;';
+      dismissBtn.onclick = () => warningBanner.remove();
+      warningBanner.appendChild(dismissBtn);
+
       const mainContent = document.querySelector('main') || document.body;
       mainContent.insertBefore(warningBanner, mainContent.firstChild);
 
-      setTimeout(() => warningBanner.remove(), 5000);
+      // Only auto-dismiss non-critical errors
+      if (!isCritical) {
+        setTimeout(() => warningBanner.remove(), 10000); // Increased from 5s to 10s
+      }
     });
 
     // Setup hash routing (only once)
@@ -859,13 +914,8 @@ async function loadCards() {
     });
     state.error = error.message;
 
-    // TODO(#483): loadCards() fallback could mask auth errors - getAuthInstance() might be null
-    // Distinguish between permission-denied (expected for anonymous) and unauthenticated (session expired)
-    // TODO(#588): Never fall back to demo data - show explicit auth error instead
     const isAuthenticated = !!getAuthInstance()?.currentUser;
 
-    // TODO(#588): CRITICAL - Never fall back to demo data for authenticated users - causes data loss
-    // Authenticated user with permission-denied will see demo data, add cards thinking they're saving → work lost
     if (error.code === 'permission-denied') {
       if (!isAuthenticated) {
         // Permission denied for anonymous users is expected
@@ -907,7 +957,6 @@ async function loadCards() {
       return;
     }
 
-    // TODO(#588): Never fall back to demo data for authenticated users
     // All other errors: show error without demo data fallback
     state.cards = [];
     state.filteredCards = [];
@@ -1176,23 +1225,10 @@ function setupAuthStateListener() {
         console.error('[Cards] Auth listener setup failed after max retries');
 
         // Show blocking error screen
-        const errorScreen = document.createElement('div');
-        errorScreen.style.cssText =
-          'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); color: white; display: flex; align-items: center; justify-content: center; z-index: 10000; flex-direction: column; padding: 2rem;';
-
-        const title = document.createElement('h1');
-        title.textContent = 'Authentication Failed';
-        errorScreen.appendChild(title);
-
-        const message = document.createElement('p');
-        message.textContent = `Cannot initialize authentication system after ${state.authListenerMaxRetries} attempts.`;
-        errorScreen.appendChild(message);
-
-        const button = document.createElement('button');
-        button.textContent = 'Refresh Page';
-        button.onclick = () => window.location.reload();
-        errorScreen.appendChild(button);
-
+        const errorScreen = createBlockingErrorScreen(
+          'Authentication Failed',
+          `Cannot initialize authentication system after ${state.authListenerMaxRetries} attempts.`
+        );
         document.body.appendChild(errorScreen);
 
         // Throw to halt initialization
@@ -1418,7 +1454,15 @@ function renderCards() {
       );
     }
   } catch (error) {
-    console.error('Error rendering cards:', error);
+    console.error('[Cards] CRITICAL: Rendering failed:', {
+      message: error.message,
+      stack: error.stack,
+      cardsCount: state.filteredCards.length,
+    });
+
+    showErrorUI('Failed to display cards. Please refresh the page.', () =>
+      window.location.reload()
+    );
   }
 }
 
@@ -1698,51 +1742,30 @@ async function handleCardSave(e) {
       cardData: { title: cardData.title, type: cardData.type },
     });
 
-    // TODO(#1331): Simplify error categorization with lookup object pattern
-    // Categorize errors for specific user guidance using switch for cleaner code
+    // Categorize error and determine user message
     let errorCategory = 'unknown';
     let userMessage = 'Failed to save card. ';
 
-    switch (error.code) {
-      case 'permission-denied':
-        errorCategory = 'permission';
-        userMessage += 'You do not have permission to save cards. Please contact support.';
-        break;
+    // Look up error by code
+    const errorInfo = FIRESTORE_SAVE_ERRORS[error.code];
 
-      case 'unauthenticated':
-        errorCategory = 'authentication';
-        userMessage += 'You must be logged in to save cards. Please refresh and sign in again.';
-        break;
-
-      case 'unavailable':
-        errorCategory = 'unavailable';
-        userMessage += 'The server is temporarily unavailable. Please try again in a moment.';
-        break;
-
-      case 'invalid-argument':
-        errorCategory = 'validation';
-        userMessage += `Validation error: ${error.message}`;
-        break;
-
-      case 'failed-precondition':
-        errorCategory = 'precondition';
-        userMessage += 'Operation failed due to server validation. Please check your input.';
-        break;
-
-      default:
-        // Handle cases where error.code is not set but message indicates specific errors
-        // TODO(#483): Remove string matching once Firebase provides consistent error.code
-        if (error.message?.includes('required')) {
-          errorCategory = 'validation';
-          userMessage += `Validation error: ${error.message}`;
-        } else if (error.message?.includes('timeout')) {
-          errorCategory = 'timeout';
-          userMessage += 'The operation timed out. Please check your connection and try again.';
-        } else {
-          // TODO(#483): Sanitize error messages - don't expose raw Firebase errors to users
-          errorCategory = 'unexpected';
-          userMessage += `Unexpected error: ${error.message}. If this persists, please refresh the page.`;
-        }
+    if (errorInfo) {
+      errorCategory = errorInfo.category;
+      if (errorInfo.category === 'validation') {
+        userMessage += `${errorInfo.message}: ${error.message}`;
+      } else {
+        userMessage += errorInfo.message;
+      }
+    } else if (error.message?.includes('required')) {
+      // Fallback: string matching for missing error codes
+      errorCategory = 'validation';
+      userMessage += `Validation error: ${error.message}`;
+    } else if (error.message?.includes('timeout')) {
+      errorCategory = 'timeout';
+      userMessage += 'The operation timed out. Please check your connection and try again.';
+    } else {
+      errorCategory = 'unexpected';
+      userMessage += `Unexpected error: ${error.message}. If this persists, please refresh the page.`;
     }
 
     console.error(`[Cards] Save error category: ${errorCategory}`);

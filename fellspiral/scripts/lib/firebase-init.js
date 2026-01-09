@@ -13,6 +13,7 @@
 import { initializeApp, cert, applicationDefault, getApps } from 'firebase-admin/app';
 import { readFileSync } from 'fs';
 
+// TODO(#1357): Extract credential validation to allow graceful error recovery in server context
 export function initializeFirebase() {
   if (getApps().length > 0) {
     return true;
@@ -26,6 +27,7 @@ export function initializeFirebase() {
   if (isEmulatorMode) {
     // Firebase Admin SDK automatically connects to emulators when env vars are set
     // Use GCP_PROJECT_ID from environment (set by allocate-test-ports.sh)
+    // TODO(#1370): Verify allocate-test-ports.sh script exists or update comment
     // Each worktree gets a unique project ID like demo-test-314015698
     const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
     initializeApp({

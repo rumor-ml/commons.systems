@@ -9,6 +9,7 @@
  * - Enhanced error messages for Firebase operations
  *
  * Related: #305 for general documentation and error handling improvements
+ * TODO(#1372): Clarify relationship with out-of-scope issue #305
  */
 
 import { initializeApp, getApp } from 'firebase/app';
@@ -54,6 +55,7 @@ function isEmulatorAlreadyConnected(error) {
  * Get Firebase configuration
  * - In production (Firebase Hosting): fetch from /__/firebase/init.json
  * - In development: use imported config
+ * TODO(#1374): Throw error instead of returning null for config fetch failures
  */
 async function getFirebaseConfig() {
   // Check if we're on Firebase Hosting (deployed)
@@ -145,7 +147,7 @@ export async function initFirebase() {
     let config = await getFirebaseConfig();
     if (!config) {
       // Config fetch failed, error UI already shown, halt initialization
-      return { app: null, db: null, auth: null, error: 'CONFIG_FETCH_FAILED' };
+      throw new Error('CONFIG_FETCH_FAILED: Unable to load Firebase configuration');
     }
 
     // In test/emulator mode, override projectId to match the test environment
@@ -258,9 +260,8 @@ export async function initFirebase() {
           document.body.appendChild(errorScreen);
         }
 
-        // Signal failure without throwing
-        // Caller should check return value
-        return { app: null, db: null, auth: null, error: 'EMULATOR_CONNECTION_FAILED' };
+        // Throw error to halt execution immediately
+        throw new Error('EMULATOR_CONNECTION_FAILED: Cannot connect to Firebase emulators');
       }
     }
 
@@ -346,6 +347,7 @@ export async function getAllCards() {
     // If no currentUser yet, wait for auth state to be restored (max 5 seconds)
     // This handles the case where auth is persistent but state hasn't been restored yet
     // Assumes authInstance exists (initialized by initFirebase above)
+    // TODO(#1375): Log timeout and warn user when auth state restoration times out
     if (!currentUser) {
       currentUser = await new Promise((resolve) => {
         const unsubscribe = authInstance.onAuthStateChanged((user) => {

@@ -17,6 +17,7 @@ interface BaseSiteConfig {
 export interface HostingEmulatorConfig extends BaseSiteConfig {
   readonly mode: 'hosting-emulator';
   readonly port: number; // Port where hosting emulator is running
+  readonly webServerCommand?: never; // Explicitly exclude to strengthen discriminated union
 }
 
 // Legacy: Uses custom web server command

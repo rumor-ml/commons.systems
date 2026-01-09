@@ -3,7 +3,7 @@ import { getCardsCollectionNameFromConfig } from './collection-name-core.js';
 /**
  * Get the Firestore collection name for cards based on environment
  *
- * Test environment with parallel workers: "cards-worker-{workerId}"
+ * Test environment with parallel workers: "cards-worker-{workerIndex}"
  * Production (main branch): "cards"
  * PR Preview: "cards_pr_{pr_number}"
  * Feature branch preview: "cards_preview_{sanitized_branch}"
@@ -17,9 +17,9 @@ export function getCardsCollectionName() {
     return `cards-worker-${workerIndex}`;
   }
 
-  // In test/emulator environment, default to worker-0 for consistency with test fixtures
+  // In emulator environment, default to worker-0 for consistency with test fixtures
   // This ensures test helpers and frontend use the same collection
-  // Check for emulator environment indicators: FIRESTORE_EMULATOR_HOST or PLAYWRIGHT_TEST context
+  // Check FIRESTORE_EMULATOR_HOST to detect emulator mode
   // When running with emulator, always use cards-worker-0 to match frontend test fixture behavior
   if (process.env.FIRESTORE_EMULATOR_HOST) {
     return 'cards-worker-0';

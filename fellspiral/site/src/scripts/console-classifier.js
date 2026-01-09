@@ -27,6 +27,7 @@ export class ConsoleErrorClassifier {
     }
 
     // Expected - known initialization races (with TODO for fix)
+    // TODO(#1373): Add issue reference for initialization race fix
     // These errors are caught and retried by the application
     if (errorMessage.includes('Auth not initialized')) {
       console.warn('[Expected Error] Auth initialization race - will retry');

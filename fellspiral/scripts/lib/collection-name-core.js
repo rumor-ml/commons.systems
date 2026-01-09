@@ -17,7 +17,7 @@ export function getCardsCollectionNameFromConfig(config) {
 
   // Check for branch name
   if (branchName && branchName !== 'main') {
-    // Sanitize branch name: lowercase, alphanumeric + hyphens, max 63 chars
+    // Sanitize branch name: lowercase, alphanumeric + hyphens, max 50 chars
     const sanitized = branchName
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, '-')
