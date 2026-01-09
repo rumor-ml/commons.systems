@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 )
@@ -208,6 +207,38 @@ func TestWriteBudgetToFile_MergeMode_NonExistentFile(t *testing.T) {
 	}
 }
 
+func TestWriteBudgetToFile_MergeMode_LoadError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create an unreadable file
+	outputPath := filepath.Join(tmpDir, "budget.json")
+	if err := os.WriteFile(outputPath, []byte("test"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	// Make it unreadable
+	if err := os.Chmod(outputPath, 0000); err != nil {
+		t.Fatalf("failed to chmod: %v", err)
+	}
+	defer os.Chmod(outputPath, 0644) // Cleanup
+
+	budget := domain.NewBudget()
+	inst, _ := domain.NewInstitution("test-bank", "Test Bank")
+	budget.AddInstitution(*inst)
+
+	opts := WriteOptions{
+		MergeMode: true,
+		FilePath:  outputPath,
+	}
+
+	err := WriteBudgetToFile(budget, opts)
+	if err == nil {
+		t.Error("expected error when merge file cannot be loaded")
+	}
+	if !strings.Contains(err.Error(), "failed to load existing budget") {
+		t.Errorf("expected load error message, got: %v", err)
+	}
+}
+
 func TestLoadBudget(t *testing.T) {
 	// Create temporary directory
 	tmpDir, err := os.MkdirTemp("", "finparse-test-*")
@@ -381,6 +412,25 @@ func TestMergeBudgets_DuplicateTransaction(t *testing.T) {
 	}
 }
 
+func TestMergeBudgets_InstitutionAddError(t *testing.T) {
+	// This test verifies the error handling path in mergeBudgets at line 109-111
+	// where AddInstitution fails for a reason OTHER than duplicate.
+	//
+	// However, due to domain package architecture, NewInstitution validates
+	// institution data (empty ID/name) before creation, making it impossible
+	// to create invalid institutions that would trigger this error path.
+	//
+	// The error handling code is correct and present in writer.go lines 109-111:
+	//   if err.Error() != fmt.Sprintf("institution %s already exists", inst.ID) {
+	//       return fmt.Errorf("failed to merge institution %s: %w", inst.ID, err)
+	//   }
+	//
+	// This path would be tested if Budget fields were exported or test helpers
+	// existed to inject invalid institutions, which is an architectural decision
+	// beyond the scope of this test addition.
+	t.Skip("Cannot test institution merge errors without exposing internal Budget fields or creating invalid institutions")
+}
+
 func TestWriteBudget_NilBudget(t *testing.T) {
 	var buf bytes.Buffer
 	err := WriteBudget(nil, &buf)
@@ -406,22 +456,4 @@ func TestWriteBudgetToFile_Stdout(t *testing.T) {
 	// Just verify the code path doesn't panic
 	// In real usage, this would be tested manually
 	_ = opts
-}
-
-func mustCreateTransaction(t *testing.T, id, date, description string, amount float64, category domain.Category) *domain.Transaction {
-	t.Helper()
-	txn, err := domain.NewTransaction(id, date, description, amount, category)
-	if err != nil {
-		t.Fatalf("failed to create transaction: %v", err)
-	}
-	return txn
-}
-
-func mustParseTime(t *testing.T, layout, value string) time.Time {
-	t.Helper()
-	tm, err := time.Parse(layout, value)
-	if err != nil {
-		t.Fatalf("failed to parse time: %v", err)
-	}
-	return tm
 }

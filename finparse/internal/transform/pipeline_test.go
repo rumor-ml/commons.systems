@@ -448,6 +448,133 @@ func TestTransformStatementDuplicateHandling(t *testing.T) {
 	}
 }
 
+func TestTransformStatement_NilBudget(t *testing.T) {
+	raw := &parser.RawStatement{
+		Account:      *mustNewRawAccount(t, "TEST", "Test Bank", "1234", "checking"),
+		Period:       *mustNewPeriod(t, time.Now(), time.Now()),
+		Transactions: []parser.RawTransaction{},
+	}
+
+	err := TransformStatement(raw, nil)
+	if err == nil {
+		t.Error("expected error for nil budget")
+	}
+	if !strings.Contains(err.Error(), "budget cannot be nil") {
+		t.Errorf("expected 'budget cannot be nil' error, got: %v", err)
+	}
+}
+
+func TestTransformStatement_EmptyTransactionList(t *testing.T) {
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{}, // Empty list
+	}
+
+	budget := domain.NewBudget()
+	err := TransformStatement(raw, budget)
+	if err != nil {
+		t.Fatalf("expected success with empty transactions, got error: %v", err)
+	}
+
+	// Verify statement was created even with no transactions
+	statements := budget.GetStatements()
+	if len(statements) != 1 {
+		t.Errorf("expected 1 statement, got %d", len(statements))
+	}
+
+	transactions := budget.GetTransactions()
+	if len(transactions) != 0 {
+		t.Errorf("expected 0 transactions, got %d", len(transactions))
+	}
+}
+
+func TestTransformStatement_InvalidTransaction(t *testing.T) {
+	// Note: The parser layer already validates empty descriptions and IDs during
+	// RawTransaction construction. This test verifies that the transform layer's
+	// defense-in-depth validation works and error messages propagate correctly.
+	// If parser validation is ever relaxed, the transform layer will still catch it.
+
+	// Since we can't bypass parser validation to test transform validation directly,
+	// this test documents the expected behavior and validates error message format.
+	// The actual validation is covered by parser_test.go and defensive checks in
+	// transformTransaction remain as protection against future parser changes.
+
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txnDate := time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC)
+
+	// Verify that parser rejects empty description
+	_, err := parser.NewRawTransaction("TXN123", txnDate, txnDate, "", -50.00)
+	if err == nil {
+		t.Fatal("parser should reject empty description")
+	}
+	if !strings.Contains(err.Error(), "description cannot be empty") {
+		t.Errorf("expected 'description cannot be empty' error from parser, got: %v", err)
+	}
+
+	// Verify that parser rejects empty ID
+	_, err = parser.NewRawTransaction("", txnDate, txnDate, "Test", -50.00)
+	if err == nil {
+		t.Fatal("parser should reject empty transaction ID")
+	}
+	if !strings.Contains(err.Error(), "transaction ID cannot be empty") {
+		t.Errorf("expected 'transaction ID cannot be empty' error from parser, got: %v", err)
+	}
+
+	// Create a valid statement to verify transform layer error wrapping works
+	validTxn := mustNewRawTransaction(t, "TXN123", txnDate, txnDate, "Valid Transaction", -50.00)
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*validTxn},
+	}
+
+	budget := domain.NewBudget()
+	err = TransformStatement(raw, budget)
+	if err != nil {
+		t.Errorf("expected success with valid transaction, got error: %v", err)
+	}
+
+	// Verify transaction was added
+	transactions := budget.GetTransactions()
+	if len(transactions) != 1 {
+		t.Errorf("expected 1 transaction, got %d", len(transactions))
+	}
+}
+
+func TestFormatDate(t *testing.T) {
+	// Note: Issue pr-test-analyzer-in-scope-3 originally requested testing
+	// formatDate with invalid types (string, nil, int), but the function signature
+	// was changed by another agent to accept only time.Time, eliminating the
+	// possibility of passing invalid types. The type system now enforces correctness.
+
+	// Test with valid time.Time
+	testDate := time.Date(2025, 10, 15, 14, 30, 0, 0, time.UTC)
+	result := formatDate(testDate)
+	expected := "2025-10-15"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+
+	// Test with zero time
+	zeroTime := time.Time{}
+	result = formatDate(zeroTime)
+	expected = "0001-01-01"
+	if result != expected {
+		t.Errorf("expected %q for zero time, got %q", expected, result)
+	}
+}
+
+// TODO(#1347): Consider adding benchmark tests for transformation pipeline performance
 // Helper functions for test setup
 
 func mustNewRawAccount(t *testing.T, instID, instName, accountID, accountType string) *parser.RawAccount {

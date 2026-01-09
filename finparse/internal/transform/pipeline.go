@@ -1,8 +1,10 @@
 package transform
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
@@ -18,6 +20,7 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 		return fmt.Errorf("budget cannot be nil")
 	}
 
+	// TODO(#1343): Repetitive numbered comments - consider function-level documentation instead
 	// 1. Transform and add institution
 	institution, err := transformInstitution(&raw.Account)
 	if err != nil {
@@ -27,10 +30,10 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 	// Only add institution if it doesn't already exist (idempotent)
 	if err := budget.AddInstitution(*institution); err != nil {
 		// Check if error is due to duplicate - if so, continue (merge mode)
-		if !strings.Contains(err.Error(), "already exists") {
+		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return fmt.Errorf("failed to add institution: %w", err)
 		}
-		// Institution already exists, continue with existing one
+		// Institution already exists in budget, continue with transformation
 	}
 
 	// 2. Transform and add account
@@ -42,10 +45,10 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 	// Only add account if it doesn't already exist (idempotent)
 	if err := budget.AddAccount(*account); err != nil {
 		// Check if error is due to duplicate - if so, continue (merge mode)
-		if !strings.Contains(err.Error(), "already exists") {
+		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return fmt.Errorf("failed to add account: %w", err)
 		}
-		// Account already exists, continue with existing one
+		// Account already exists in budget, continue with transformation
 	}
 
 	// 3. Transform and add statement
@@ -80,12 +83,19 @@ func transformInstitution(raw *parser.RawAccount) (*domain.Institution, error) {
 		return nil, fmt.Errorf("institution name cannot be empty")
 	}
 
-	slug := SlugifyInstitution(name)
+	slug, err := SlugifyInstitution(name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to slugify institution name: %w", err)
+	}
 	if slug == "" {
 		return nil, fmt.Errorf("failed to generate institution slug from name: %s", name)
 	}
 
-	return domain.NewInstitution(slug, name)
+	institution, err := domain.NewInstitution(slug, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create institution: %w", err)
+	}
+	return institution, nil
 }
 
 // transformAccount creates a domain Account from RawAccount
@@ -106,10 +116,15 @@ func transformAccount(raw *parser.RawAccount, institutionID string) (*domain.Acc
 	}
 
 	// Use account number as the display name
-	// TODO: Consider adding more descriptive names in future phases
+	// TODO(Phase 6+): Support user-defined account nicknames (e.g., "Primary Checking")
+	// instead of generic names. Would require additional metadata storage.
 	accountName := fmt.Sprintf("Account %s", ExtractLast4(accountNumber))
 
-	return domain.NewAccount(accountID, institutionID, accountName, accountType)
+	account, err := domain.NewAccount(accountID, institutionID, accountName, accountType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create account: %w", err)
+	}
+	return account, nil
 }
 
 // transformStatement creates a domain Statement from RawStatement
@@ -124,7 +139,11 @@ func transformStatement(raw *parser.RawStatement, accountID string) (*domain.Sta
 	startDate := formatDate(periodStart)
 	endDate := formatDate(periodEnd)
 
-	return domain.NewStatement(statementID, accountID, startDate, endDate)
+	statement, err := domain.NewStatement(statementID, accountID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create statement: %w", err)
+	}
+	return statement, nil
 }
 
 // transformTransaction creates a domain Transaction from RawTransaction
@@ -188,12 +207,6 @@ func mapAccountType(rawType string) (domain.AccountType, error) {
 }
 
 // formatDate converts time.Time to YYYY-MM-DD format
-func formatDate(t interface{}) string {
-	// Handle both time.Time and types that can convert to it
-	switch v := t.(type) {
-	case interface{ Format(string) string }:
-		return v.Format("2006-01-02")
-	default:
-		return fmt.Sprintf("%v", t)
-	}
+func formatDate(t time.Time) string {
+	return t.Format("2006-01-02")
 }

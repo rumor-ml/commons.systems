@@ -2,9 +2,13 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrAlreadyExists is a sentinel error for duplicate entity detection
+var ErrAlreadyExists = errors.New("already exists")
 
 // Category represents the budget category enum (12 standard categories from TypeScript schema).
 // Use ValidateCategory to ensure validity before use.
@@ -136,7 +140,7 @@ func (b *Budget) AddInstitution(inst Institution) error {
 	}
 	for _, existing := range b.institutions {
 		if existing.ID == inst.ID {
-			return fmt.Errorf("institution %s already exists", inst.ID)
+			return fmt.Errorf("institution %s: %w", inst.ID, ErrAlreadyExists)
 		}
 	}
 	b.institutions = append(b.institutions, inst)
@@ -154,7 +158,7 @@ func (b *Budget) AddAccount(acc Account) error {
 	}
 
 	if b.hasAccount(acc.ID) {
-		return fmt.Errorf("account %s already exists", acc.ID)
+		return fmt.Errorf("account %s: %w", acc.ID, ErrAlreadyExists)
 	}
 
 	b.accounts = append(b.accounts, acc)

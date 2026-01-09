@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 )
 
 // WriteOptions configures how the budget is written
+// TODO(#1342): Consider whether inline struct field comments add sufficient value
 type WriteOptions struct {
 	MergeMode bool   // If true, load existing file and merge
 	FilePath  string // Output path (empty = stdout)
@@ -22,6 +24,7 @@ func WriteBudget(budget *domain.Budget, w io.Writer) error {
 	}
 
 	encoder := json.NewEncoder(w)
+	// TODO(#1345): Comment restates obvious code without adding value
 	encoder.SetIndent("", "  ") // 2-space indentation
 	if err := encoder.Encode(budget); err != nil {
 		return fmt.Errorf("failed to encode budget as JSON: %w", err)
@@ -31,7 +34,7 @@ func WriteBudget(budget *domain.Budget, w io.Writer) error {
 }
 
 // WriteBudgetToFile writes Budget to file or stdout based on options
-func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) error {
+func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 	if budget == nil {
 		return fmt.Errorf("budget cannot be nil")
 	}
@@ -44,7 +47,8 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) error {
 			if !os.IsNotExist(err) {
 				return fmt.Errorf("failed to load existing budget for merge: %w", err)
 			}
-			// File doesn't exist, continue with fresh budget
+			// File doesn't exist, create new file
+			fmt.Fprintf(os.Stderr, "Warning: merge mode requested but %s does not exist, creating new file\n", opts.FilePath)
 		} else {
 			// Merge new budget into existing budget
 			if err := mergeBudgets(existingBudget, budget); err != nil {
@@ -64,9 +68,13 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to create output file %s: %w", opts.FilePath, err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close output file %s: %w", opts.FilePath, closeErr)
+		}
+	}()
 
-	if err := WriteBudget(budget, f); err != nil {
+	if err = WriteBudget(budget, f); err != nil {
 		return fmt.Errorf("failed to write budget to %s: %w", opts.FilePath, err)
 	}
 
@@ -81,9 +89,15 @@ func LoadBudget(filePath string) (*domain.Budget, error) {
 
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, err // Return raw error so caller can check os.IsNotExist
+		// Return unwrapped error so caller can check os.IsNotExist
+		// to distinguish "file not found" from other loading errors
+		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close %s: %v\n", filePath, closeErr)
+		}
+	}()
 
 	var budget domain.Budget
 	decoder := json.NewDecoder(f)
@@ -105,8 +119,9 @@ func mergeBudgets(target, source *domain.Budget) error {
 	// Merge institutions (idempotent)
 	for _, inst := range source.GetInstitutions() {
 		if err := target.AddInstitution(inst); err != nil {
-			// Skip if already exists
-			if err.Error() != fmt.Sprintf("institution %s already exists", inst.ID) {
+			// Continue if error is the specific "already exists" error (idempotent)
+			// Return error for any other failure (e.g., validation errors)
+			if !errors.Is(err, domain.ErrAlreadyExists) {
 				return fmt.Errorf("failed to merge institution %s: %w", inst.ID, err)
 			}
 		}
@@ -115,8 +130,9 @@ func mergeBudgets(target, source *domain.Budget) error {
 	// Merge accounts (idempotent)
 	for _, acc := range source.GetAccounts() {
 		if err := target.AddAccount(acc); err != nil {
-			// Skip if already exists
-			if err.Error() != fmt.Sprintf("account %s already exists", acc.ID) {
+			// Continue if error is the specific "already exists" error (idempotent)
+			// Return error for any other failure (e.g., validation errors)
+			if !errors.Is(err, domain.ErrAlreadyExists) {
 				return fmt.Errorf("failed to merge account %s: %w", acc.ID, err)
 			}
 		}

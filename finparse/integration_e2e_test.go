@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
@@ -288,6 +289,20 @@ NEWFILEUID:NONE
 	opts.MergeMode = true
 	if err := output.WriteBudgetToFile(budget2, opts); err == nil {
 		t.Errorf("expected error for duplicate statement in merge mode")
+	} else {
+		// Verify error message is meaningful
+		if !strings.Contains(err.Error(), "already exists") {
+			t.Errorf("expected clear 'already exists' error message, got: %v", err)
+		}
+	}
+
+	// Verify original file is unchanged after merge failure
+	original, loadErr := output.LoadBudget(outputFile)
+	if loadErr != nil {
+		t.Errorf("failed to load file after merge failure: %v", loadErr)
+	}
+	if original != nil && len(original.GetStatements()) != 1 {
+		t.Errorf("file was corrupted after merge failure: expected 1 statement, got %d", len(original.GetStatements()))
 	}
 }
 

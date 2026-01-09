@@ -26,11 +26,13 @@ var (
 	dryRun   = flag.Bool("dry-run", false, "Show what would be parsed without writing")
 	verbose  = flag.Bool("verbose", false, "Show detailed parsing logs")
 
-	// Future phase flags (Phase 2+, not yet implemented)
-	outputFile        = flag.String("output", "", "Output JSON file (default: stdout)")
+	// Output and merge flags (Phase 4)
+	outputFile = flag.String("output", "", "Output JSON file (default: stdout)")
+	mergeMode  = flag.Bool("merge", false, "Merge with existing output file")
+
+	// Future phase flags (Phase 5+, not yet implemented)
 	stateFile         = flag.String("state", "", "Deduplication state file")
 	rulesFile         = flag.String("rules", "", "Category rules file")
-	mergeMode         = flag.Bool("merge", false, "Merge with existing output file")
 	formatFilter      = flag.String("format", "all", "Filter by format: ofx,csv,all")
 	institutionFilter = flag.String("institution", "", "Filter by institution name")
 )
@@ -117,7 +119,7 @@ func run() error {
 		fmt.Printf("Registered parsers: %v\n", reg.ListParsers())
 	}
 
-	// Phase 1: Just scanning and detection (no actual parsing yet)
+	// Dry run mode: stop after scanning, don't parse
 	if *dryRun {
 		fmt.Printf("Dry run complete. Would process %d files.\n", len(files))
 		return nil
@@ -152,6 +154,7 @@ func run() error {
 	}
 
 	for _, file := range files {
+		// TODO(#1341): Consider removing numbered step comments in favor of descriptive prefixes
 		// 1. Find parser
 		parser, err := reg.FindParser(file.Path)
 		if err != nil {
@@ -170,10 +173,14 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("failed to open %s: %w", file.Path, err)
 		}
+		// TODO(#1340): Remove obvious inline comment
+		defer func() {
+			if closeErr := f.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close %s: %v\n", file.Path, closeErr)
+			}
+		}()
 
 		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
-		f.Close() // Close immediately after parsing
-
 		if err != nil {
 			return fmt.Errorf("parse failed for %s: %w", file.Path, err)
 		}

@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// TODO(#1346): Consider adding property-based tests for ID generation stability
+
 func TestSlugifyInstitution(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -61,11 +63,29 @@ func TestSlugifyInstitution(t *testing.T) {
 			input:    "Bank 123",
 			expected: "bank-123",
 		},
+		{
+			name:     "only special characters",
+			input:    "!@#$%^&*()",
+			expected: "",
+		},
+		{
+			name:     "only hyphens",
+			input:    "---",
+			expected: "",
+		},
+		{
+			name:     "special chars with spaces",
+			input:    "!!! --- ###",
+			expected: "",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SlugifyInstitution(tt.input)
+			result, err := SlugifyInstitution(tt.input)
+			if err != nil {
+				t.Errorf("SlugifyInstitution(%q) returned unexpected error: %v", tt.input, err)
+			}
 			if result != tt.expected {
 				t.Errorf("SlugifyInstitution(%q) = %q, expected %q", tt.input, result, tt.expected)
 			}

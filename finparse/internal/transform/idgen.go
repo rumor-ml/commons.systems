@@ -14,14 +14,17 @@ import (
 
 // SlugifyInstitution converts institution name to a URL-safe slug.
 // Examples: "American Express" → "american-express", "PNC Bank" → "pnc-bank"
-func SlugifyInstitution(name string) string {
+func SlugifyInstitution(name string) (string, error) {
 	if name == "" {
-		return ""
+		return "", nil
 	}
 
 	// Normalize unicode (e.g., accented characters)
 	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
-	normalized, _, _ := transform.String(t, name)
+	normalized, _, err := transform.String(t, name)
+	if err != nil {
+		return "", fmt.Errorf("failed to normalize institution name %q: %w", name, err)
+	}
 
 	// Convert to lowercase
 	slug := strings.ToLower(normalized)
@@ -33,7 +36,7 @@ func SlugifyInstitution(name string) string {
 	// Trim leading/trailing hyphens
 	slug = strings.Trim(slug, "-")
 
-	return slug
+	return slug, nil
 }
 
 // ExtractLast4 returns the last 4 characters of the account number.
@@ -48,7 +51,9 @@ func ExtractLast4(accountNumber string) string {
 
 // GenerateAccountID creates a deterministic account ID.
 // Format: "acc-{institutionSlug}-{last4}"
-// Example: GenerateAccountID("american-express", "2011") → "acc-amex-2011"
+// Example: GenerateAccountID("amex", "2011") → "acc-amex-2011"
+//
+//	GenerateAccountID("bank-of-america", "5678") → "acc-boa-5678"
 func GenerateAccountID(institutionSlug, accountNumber string) string {
 	last4 := ExtractLast4(accountNumber)
 
