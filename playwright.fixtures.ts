@@ -11,6 +11,25 @@ import admin from 'firebase-admin';
 type UserId = string & { readonly __brand: 'UserId' };
 
 /**
+ * Validate and create a UserId from a raw value
+ * @param value - Raw value to validate (typically from API response)
+ * @returns UserId if valid
+ * @throws Error if value is not a valid Firebase Auth UID
+ */
+function createUserId(value: unknown): UserId {
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`UserId must be a non-empty string, got: ${typeof value}`);
+  }
+
+  // Firebase UIDs are typically 28 characters alphanumeric
+  if (!/^[a-zA-Z0-9]{20,}$/.test(value)) {
+    throw new Error(`Invalid UserId format: ${value}`);
+  }
+
+  return value as UserId;
+}
+
+/**
  * Test fixtures for Firebase Authentication emulator operations.
  *
  * These fixtures provide helper methods for E2E tests to manage auth state.
@@ -20,6 +39,8 @@ type UserId = string & { readonly __brand: 'UserId' };
  * - `createTestUser` must be called BEFORE `signInTestUser` for a given email
  * - `signInTestUser` requires the user to already exist in the emulator
  * - `signOutTestUser` has no preconditions
+ *
+ * TODO(#1360): Add runtime precondition enforcement for AuthFixtures usage order invariants
  *
  * @example
  * ```typescript
@@ -141,7 +162,7 @@ export const test = base.extend<AuthFixtures>({
         }
       );
       const data = await response.json();
-      return data.localId as UserId;
+      return createUserId(data.localId);
     };
 
     const signInTestUser = async (email: string, password: string = 'testpassword123') => {

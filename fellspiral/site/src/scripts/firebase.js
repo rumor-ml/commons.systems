@@ -145,7 +145,7 @@ export async function initFirebase() {
     let config = await getFirebaseConfig();
     if (!config) {
       // Config fetch failed, error UI already shown, halt initialization
-      return { app: null, db: null, auth: null, error: 'CONFIG_FETCH_FAILED' };
+      throw new Error('CONFIG_FETCH_FAILED: Unable to load Firebase configuration');
     }
 
     // In test/emulator mode, override projectId to match the test environment
@@ -258,9 +258,8 @@ export async function initFirebase() {
           document.body.appendChild(errorScreen);
         }
 
-        // Signal failure without throwing
-        // Caller should check return value
-        return { app: null, db: null, auth: null, error: 'EMULATOR_CONNECTION_FAILED' };
+        // Throw error to halt execution immediately
+        throw new Error('EMULATOR_CONNECTION_FAILED: Cannot connect to Firebase emulators');
       }
     }
 

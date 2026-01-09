@@ -28,12 +28,8 @@ service cloud.firestore {
       // .get('isPublic', false) returns false for missing fields, denying access
       // Migration consideration: Existing cards without isPublic field won't be readable
       // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
-      // DEPLOYMENT DECISION TREE (for manual deployments):
-      // 1. First, run: node fellspiral/scripts/migrate-ispublic.js --dry-run
-      // 2. If output shows "Cards needing migration: 0" → safe to deploy rules immediately
-      // 3. If output shows cards needing migration → run migration WITHOUT --dry-run → verify success → then deploy rules
-      // NOTE: For automated CI/CD deployments, integrate migration check/execution into the pipeline.
-      // Consequence if deployed without migration: Cards without isPublic field become UNREADABLE (users see empty library)
+      // DEPLOYMENT: Run migration script before deploying these rules to prevent cards becoming unreadable.
+      // For detailed deployment procedures, see the CRITICAL DEPLOYMENT ORDER section in migrate-ispublic.js
       allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
                       || cardsCollection.matches('cards_preview_[a-z0-9-]+')
                       || cardsCollection.matches('cards-worker-[0-9]+'))
@@ -69,6 +65,7 @@ service cloud.firestore {
                     && (!request.resource.data.keys().hasAny(['description'])
                         || request.resource.data.description.size() <= 500);
 
+      // ⚠️  SECURITY: Any authenticated user can edit ANY card (wiki-style)
       // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
       // INTENTIONAL DESIGN: Wiki-style collaborative editing where any authenticated user can edit.
       // This implements the "Card creator or collaborator" requirement with universal collaboration

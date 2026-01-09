@@ -17,6 +17,7 @@ export type TestMode = 'emulator' | 'deployed';
 /**
  * Branded type for validated host:port strings
  */
+// TODO(#1358): Add runtime validation guards (isHostPort, assertHostPort) to prevent unsafe casts
 type HostPort = string & { readonly __brand: 'HostPort' };
 
 /**
@@ -100,6 +101,7 @@ export interface DeployedTestEnvironment extends BaseTestEnvironment {
 /**
  * Complete test environment configuration (discriminated union)
  */
+// TODO(#1359): Consider adding type guard functions (isEmulatorEnvironment, isDeployedEnvironment) for cleaner narrowing
 export type TestEnvironment = EmulatorTestEnvironment | DeployedTestEnvironment;
 
 /**

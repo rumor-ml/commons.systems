@@ -316,7 +316,7 @@ let _firestoreDb = null;
  * Get or initialize Firebase Admin SDK and Firestore connection
  * Reuses the same instance across multiple calls to avoid settings() errors
  */
-async function getFirestoreAdmin() {
+export async function getFirestoreAdmin() {
   if (_adminApp && _firestoreDb) {
     return { app: _adminApp, db: _firestoreDb };
   }

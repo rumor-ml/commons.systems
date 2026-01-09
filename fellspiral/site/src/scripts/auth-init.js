@@ -108,10 +108,25 @@ export async function initializeAuth() {
       // User signed out
     },
     onError: (error) => {
-      console.error('Auth error:', error);
-      // Show user-friendly error message
+      // Structured logging with full error context for debugging
+      console.error('[Auth] Sign-in error:', {
+        code: error.code,
+        message: error.message,
+        stack: error.stack,
+      });
+
+      // Show inline error banner with retry option
       const errorMessage = getErrorMessage(error.code);
-      alert(errorMessage);
+      const authErrorBanner = createErrorBanner(errorMessage, error.code);
+
+      // Remove existing error banner before adding new one
+      const existingBanner = authContainer.querySelector('.auth-error-banner');
+      if (existingBanner) {
+        existingBanner.remove();
+      }
+
+      // Insert banner at the top of auth container
+      authContainer.insertBefore(authErrorBanner, authContainer.firstChild);
     },
   });
 
@@ -141,4 +156,67 @@ function getErrorMessage(errorCode) {
     default:
       return `Authentication error: ${errorCode}`;
   }
+}
+
+/**
+ * Create inline error banner with retry option
+ * @param {string} message - User-friendly error message
+ * @param {string} errorCode - Firebase error code
+ * @returns {HTMLElement} Error banner element
+ */
+function createErrorBanner(message, errorCode) {
+  const banner = document.createElement('div');
+  banner.className = 'auth-error-banner';
+
+  // Apply inline styles using design system tokens
+  banner.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background-color: var(--color-error-muted);
+    border: 1px solid var(--color-error);
+    border-radius: 6px;
+    margin-bottom: 12px;
+  `;
+
+  // Error message
+  const messageElement = document.createElement('p');
+  messageElement.style.cssText = `
+    margin: 0;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    line-height: 1.5;
+  `;
+  messageElement.textContent = message;
+
+  // Retry button
+  const retryButton = document.createElement('button');
+  retryButton.className = 'btn btn--sm';
+  retryButton.textContent = 'Try Again';
+  retryButton.style.cssText = `
+    align-self: flex-start;
+  `;
+  retryButton.onclick = () => {
+    // Trigger sign-in by clicking the auth button
+    const authButton = document.querySelector('.auth-button button');
+    if (authButton) {
+      authButton.click();
+    }
+  };
+
+  banner.appendChild(messageElement);
+  banner.appendChild(retryButton);
+
+  // Auto-dismiss for non-critical errors after 10 seconds
+  const criticalErrors = ['auth/network-request-failed', 'auth/popup-blocked'];
+  if (!criticalErrors.includes(errorCode)) {
+    setTimeout(() => {
+      if (banner.parentNode) {
+        banner.remove();
+      }
+    }, 10000);
+  }
+
+  return banner;
 }

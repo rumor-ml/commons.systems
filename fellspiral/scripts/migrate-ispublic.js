@@ -165,14 +165,40 @@ if (isMainModule) {
     // Initialize new app
     const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-    if (serviceAccountPath) {
-      const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
+    if (!serviceAccountPath) {
+      console.error('ERROR: GOOGLE_APPLICATION_CREDENTIALS environment variable not set');
+      console.error('Please set it to point to your Firebase service account JSON file');
+      process.exit(1);
+    }
+
+    let serviceAccountContent;
+    try {
+      serviceAccountContent = readFileSync(serviceAccountPath, 'utf8');
+    } catch (readError) {
+      console.error(`ERROR: Failed to read service account file: ${serviceAccountPath}`);
+      console.error(`Reason: ${readError.message}`);
+      console.error('Please verify the file exists and you have read permissions');
+      process.exit(1);
+    }
+
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(serviceAccountContent);
+    } catch (parseError) {
+      console.error(`ERROR: Service account file contains invalid JSON: ${serviceAccountPath}`);
+      console.error(`Parse error: ${parseError.message}`);
+      console.error('Please verify the file is a valid Firebase service account JSON file');
+      process.exit(1);
+    }
+
+    try {
       app = admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
-    } else {
-      console.error('ERROR: GOOGLE_APPLICATION_CREDENTIALS environment variable not set');
-      console.error('Please set it to point to your Firebase service account JSON file');
+    } catch (initError) {
+      console.error('ERROR: Failed to initialize Firebase Admin SDK');
+      console.error(`Reason: ${initError.message}`);
+      console.error('Please verify your service account credentials are correct');
       process.exit(1);
     }
   }

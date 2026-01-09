@@ -13,6 +13,7 @@
 import { initializeApp, cert, applicationDefault, getApps } from 'firebase-admin/app';
 import { readFileSync } from 'fs';
 
+// TODO(#1357): Extract credential validation to allow graceful error recovery in server context
 export function initializeFirebase() {
   if (getApps().length > 0) {
     return true;
