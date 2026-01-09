@@ -39,7 +39,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     console.log(`Cleaned up ${deletedCount} test cards`);
   });
 
-  // TODO(#244): Flaky - Firestore emulator times out intermittently during card creation
+  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
   test.skip('should create card with all fields populated', async ({ page, authEmulator }) => {
     await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2000);
@@ -68,7 +68,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     expect(firestoreCard.description).toBe(cardData.description);
   });
 
-  // TODO(#244): Flaky - Firestore emulator times out intermittently during card creation
+  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
   test.skip('should create card with only required fields', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -99,7 +99,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     expect(firestoreCard.title).toBe(cardData.title);
   });
 
-  // TODO(#244): Flaky - Firestore emulator times out intermittently during card creation
+  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
   test.skip('should verify card persists to Firestore emulator', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -355,7 +355,7 @@ test.describe('Add Card - Form Validation Tests', () => {
     expect(isValid).toBe(false);
   });
 
-  // TODO(#244): Flaky - Firestore emulator times out intermittently during card creation
+  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
   test.skip('should parse comma-separated tags correctly', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -394,7 +394,7 @@ test.describe('Add Card - Form Validation Tests', () => {
     }
   });
 
-  // TODO(#244): Flaky - Firestore emulator times out intermittently during card creation
+  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
   test.skip('should handle tags with extra spaces', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -816,7 +816,7 @@ test.describe('Add Card - Integration Tests', () => {
     });
   });
 
-  // TODO(#244): Firestore emulator timeout during card creation
+  // TODO(#1325): Firestore emulator timeout during card creation
   test.skip('should be able to filter newly created card by type', async ({
     page,
     authEmulator,
@@ -2319,8 +2319,7 @@ test.describe('Add Card - Custom Type Persistence', () => {
 test.describe('Add Card - Auth Session Management', () => {
   test.skip(!isEmulatorMode, 'Auth session tests only run against emulator');
 
-  // TODO(#244): Enable after verifying guest-to-auth transition fix
-  test.skip('should reload cards when signing in after guest browsing', async ({
+  test('should reload cards when signing in after guest browsing', async ({
     page,
     authEmulator,
   }) => {
@@ -3631,7 +3630,7 @@ test.describe('Add Card - Combobox Error Recovery Tests', () => {
 test.describe('Add Card - Form Pre-Population on Failed Save Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  // TODO(#244): Flaky test - Save button not becoming visible within timeout
+  // TODO(#1326): Flaky test - Save button not becoming visible within timeout
   // This tests sign-out/sign-in edge case during save failure recovery
   test.skip('should preserve all form values after save failure', async ({
     page,
@@ -3928,7 +3927,7 @@ test.describe('Form Validation - Field Length Limits', () => {
 test.describe('Add Card - Edge Cases and Security Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  // TODO(#244): Test bug - accesses window.firestore which isn't exposed by Firebase SDK
+  // TODO(#1326): Test bug - accesses window.firestore which isn't exposed by Firebase SDK
   test.skip('should prevent double-submit via rapid Enter key presses', async ({
     page,
     authEmulator,
@@ -4015,7 +4014,7 @@ test.describe('Add Card - Edge Cases and Security Tests', () => {
     expect(modalVisible).toBe(false); // Modal should have closed normally
   });
 
-  // TODO(#244): Test bug - accesses window.firestore which isn't exposed by Firebase SDK
+  // TODO(#1326): Test bug - accesses window.firestore which isn't exposed by Firebase SDK
   test.skip('should clear isSaving flag after Firestore write failure', async ({
     page,
     authEmulator,
@@ -4076,7 +4075,7 @@ test.describe('Add Card - Edge Cases and Security Tests', () => {
 test.describe('Add Card - Security Tests', () => {
   test.skip(!isEmulatorMode, 'Security tests only run against emulator');
 
-  // TODO(#244): Test bug - page.evaluate attempting to import module causing execution issues
+  // TODO(#1326): Test bug - page.evaluate attempting to import module causing execution issues
   test.skip('should prevent forged server timestamps (createdAt)', async ({
     page,
     authEmulator,
@@ -4195,7 +4194,7 @@ test.describe('Add Card - Security Tests', () => {
     }
   });
 
-  // TODO(#244): Test bug - page.evaluate attempting to import module causing execution issues
+  // TODO(#1326): Test bug - page.evaluate attempting to import module causing execution issues
   test.skip('should reject oversized title field (server-side validation)', async ({
     page,
     authEmulator,
@@ -4412,7 +4411,7 @@ test.describe('Add Card - Security Tests', () => {
 test.describe('Add Card - XSS Protection Tests', () => {
   test.skip(!isEmulatorMode, 'XSS tests only run against emulator');
 
-  // TODO(#244): Test flakiness - strict mode violation due to multiple matching cards from previous test runs
+  // TODO(#1326): Test flakiness - strict mode violation due to multiple matching cards from previous test runs
   test.skip('should escape XSS in custom type via Add New', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');

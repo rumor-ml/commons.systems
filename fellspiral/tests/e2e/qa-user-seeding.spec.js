@@ -30,7 +30,7 @@ const projectId = testEnvConfig?.emulators?.projectId || 'demo-test';
 test.describe('QA User Seeding', () => {
   test.skip(!isEmulatorMode, 'QA user seeding tests only run against emulator');
 
-  // TODO(#244): This test checks dev environment seeding (npm run predev), not test setup.
+  // TODO(#1327): This test checks dev environment seeding (npm run predev), not test setup.
   // The QA GitHub user is seeded by seed-dev-environment.js which runs via predev hook.
   // Test global-setup.ts seeds a different user (qa-test-user-id).
   test.skip('should have QA GitHub user seeded in Auth emulator', async ({ page }) => {
@@ -70,7 +70,7 @@ test.describe('QA User Seeding', () => {
     expect(githubProvider.rawId).toBe('12345678');
   });
 
-  // TODO(#244): Same as above - depends on dev environment seeding
+  // TODO(#1327): Same as above - depends on dev environment seeding
   test.skip('should show QA GitHub user in Sign in with GitHub popup', async ({ page }) => {
     // Navigate to cards page
     await page.goto('/cards.html');

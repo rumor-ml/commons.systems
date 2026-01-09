@@ -17,6 +17,10 @@ export default createPlaywrightConfig({
     VITE_USE_FIREBASE_EMULATOR: 'true',
     // Pass emulator projectId to the application
     VITE_GCP_PROJECT_ID: process.env.GCP_PROJECT_ID || '',
+    // Ensure test helpers use correct collection (falls back to cards-worker-0)
+    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081',
+    // Enable auth emulator mode detection for tests
+    FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099',
   },
   globalSetup: join(__dirname, 'global-setup.ts'),
 });

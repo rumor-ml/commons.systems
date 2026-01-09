@@ -243,9 +243,7 @@ test.describe('Card Visibility - Authenticated Users', () => {
 test.describe('Card Visibility - Auth State Changes (Regression for #244)', () => {
   test.skip(!isEmulatorMode, 'Auth state change tests only run against emulator');
 
-  // TODO(#244): Critical regression test failing - cards not visible as guest despite collection name fix
-  // Needs deeper investigation: createCardInFirestore may not be writing to same collection frontend reads
-  test.skip('CRITICAL: cards should persist and remain visible after signing in (fix #244)', async ({
+  test('CRITICAL: cards should persist and remain visible after signing in (fix #244)', async ({
     page,
     authEmulator,
   }) => {
@@ -315,8 +313,7 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     await expect(addCardBtn).toBeVisible();
   });
 
-  // TODO(#244): Cards created by createCardInFirestore not appearing in UI
-  test.skip('cards should update correctly when switching between users', async ({
+  test('cards should update correctly when switching between users', async ({
     page,
     authEmulator,
   }) => {
