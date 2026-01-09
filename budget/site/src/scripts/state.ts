@@ -1,5 +1,5 @@
 import { CATEGORIES } from '../islands/constants';
-import { Category, BudgetPlan, TimeGranularity, WeekId } from '../islands/types';
+import { Category, BudgetPlan, TimeGranularity, WeekId, parseWeekId } from '../islands/types';
 
 /**
  * Budget application state (persisted to localStorage)
@@ -8,7 +8,7 @@ import { Category, BudgetPlan, TimeGranularity, WeekId } from '../islands/types'
  * @property budgetPlan - User's budget configuration (null = no budget set)
  * @property viewGranularity - Time aggregation level for historic view
  * @property selectedWeek - Specific week for week view (null = current week).
- *   Should be null when viewGranularity is 'month'.
+ *   Should be null when viewGranularity is 'month' (ignored in monthly view).
  * @property planningMode - Whether budget plan editor is visible
  */
 export interface BudgetState {
@@ -23,6 +23,12 @@ export interface BudgetState {
 export class StateManager {
   private static STORAGE_KEY = 'budget-state';
 
+  /**
+   * Create and display a banner notification
+   * @param message - Text to display
+   * @param type - Banner style ('warning' or 'error')
+   * @param autoDismiss - If true, banner auto-dismisses after 10s. If false, remains until manually closed.
+   */
   private static createBanner(
     message: string,
     type: 'warning' | 'error',
@@ -65,7 +71,6 @@ export class StateManager {
   }
 
   public static showErrorBanner(message: string): void {
-    // Error banners remain until manually dismissed (unlike warning banners which auto-dismiss after 10s)
     this.createBanner(message, 'error', false);
   }
 
@@ -88,7 +93,8 @@ export class StateManager {
 
       const parsed = JSON.parse(stored);
 
-      // Migration (added 2026-01): Convert old selectedCategory format to hiddenCategories. Can be removed after 2026-06 when all users have migrated.
+      // TODO(2026-06): Remove selectedCategory migration after all users have migrated
+      // Migration (added 2026-01): Convert old selectedCategory format to hiddenCategories.
       if ('selectedCategory' in parsed && parsed.selectedCategory !== null) {
         const hiddenCategories = CATEGORIES.filter((cat) => cat !== parsed.selectedCategory);
         return {
@@ -144,10 +150,10 @@ export class StateManager {
           ? parsed.viewGranularity
           : 'month';
 
-      // Validate selectedWeek (basic ISO week format check)
+      // Validate selectedWeek
       let selectedWeek: WeekId | null = null;
-      if (typeof parsed.selectedWeek === 'string' && /^\d{4}-W\d{2}$/.test(parsed.selectedWeek)) {
-        selectedWeek = parsed.selectedWeek;
+      if (typeof parsed.selectedWeek === 'string') {
+        selectedWeek = parseWeekId(parsed.selectedWeek);
       }
 
       return {

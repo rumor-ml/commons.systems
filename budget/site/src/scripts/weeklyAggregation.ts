@@ -8,6 +8,7 @@ import {
   CashFlowPrediction,
   QualifierBreakdown,
 } from '../islands/types';
+import { StateManager } from './state';
 
 /**
  * Determine the ISO week identifier for a given date.
@@ -139,7 +140,7 @@ export function aggregateTransactionsByWeek(
     } catch (error) {
       console.error(`Failed to get boundaries for week ${week}:`, error);
       skippedWeeks.add(week);
-      // Skip this week's data - it's corrupted
+      // Skip this week - invalid week ID format or date calculation error. Transactions in this week will be excluded from the view.
       return;
     }
 
@@ -158,9 +159,17 @@ export function aggregateTransactionsByWeek(
 
   // Notify user if any weeks were skipped
   if (skippedWeeks.size > 0) {
-    const message = `Warning: ${skippedWeeks.size} week(s) with invalid dates were excluded from the view: ${Array.from(skippedWeeks).join(', ')}. Check your transaction data for date errors.`;
-    console.warn(message);
-    console.warn('TO FIX: Import transactions with valid date formats (YYYY-MM-DD)');
+    const weekList = Array.from(skippedWeeks).join(', ');
+    const message = `Data quality issue: ${skippedWeeks.size} week(s) excluded due to invalid dates: ${weekList}. Some transactions may not be visible. Check your imported transaction data for date formatting errors (expected: YYYY-MM-DD).`;
+
+    console.error(message);
+    console.error('Affected weeks:', Array.from(skippedWeeks));
+    console.error('TO FIX: Re-import transactions with valid date formats');
+
+    // Show user-facing warning banner
+    StateManager.showWarningBanner(
+      `⚠️ ${skippedWeeks.size} week(s) of transaction data excluded due to date errors. Your charts may be incomplete. Check browser console for details.`
+    );
   }
 
   // Sort by week and category
@@ -180,7 +189,7 @@ export function aggregateTransactionsByWeek(
  * @param weeklyData - All weekly transaction data
  * @param budgetPlan - Budget plan with category targets and rollover settings
  * @param fromWeek - Start week (inclusive) - typically first week of data
- * @param toWeek - End week (exclusive) - calculates rollover accumulated BEFORE this week begins. Use this pattern to get the starting rollover balance for a week.
+ * @param toWeek - End week (exclusive) - calculates rollover accumulated BEFORE this week begins. To get the rollover balance at the start of week X, pass X as toWeek (e.g., calculateRolloverAccumulation(data, plan, firstWeek, '2025-W05') returns rollover accumulated through W04).
  * @returns Map of category to accumulated rollover amount at the start of toWeek
  */
 export function calculateRolloverAccumulation(
@@ -215,9 +224,7 @@ export function calculateRolloverAccumulation(
       const target = budget.weeklyTarget;
       const variance = actual - target;
 
-      // Variance = actual - target
-      // Positive variance means better than planned (spent less than budget OR earned more than target)
-      // Negative variance means worse than planned (spent more than budget OR earned less than target)
+      // See calculateWeeklyComparison JSDoc for variance calculation convention
       const currentRollover = rolloverMap.get(cat) || 0;
       rolloverMap.set(cat, currentRollover + variance);
     });
@@ -368,7 +375,6 @@ export function getNextWeek(currentWeek: WeekId): WeekId {
     return getISOWeek(nextMonday.toISOString().substring(0, 10));
   } catch (error) {
     console.error(`Failed to calculate next week from ${currentWeek}:`, error);
-    // Throw instead of falling back - let caller handle this
     throw new Error(`Invalid week ID "${currentWeek}": cannot calculate next week`);
   }
 }
@@ -387,7 +393,6 @@ export function getPreviousWeek(currentWeek: WeekId): WeekId {
     return getISOWeek(prevMonday.toISOString().substring(0, 10));
   } catch (error) {
     console.error(`Failed to calculate previous week from ${currentWeek}:`, error);
-    // Throw instead of falling back - let caller handle this
     throw new Error(`Invalid week ID "${currentWeek}": cannot calculate previous week`);
   }
 }

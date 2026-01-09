@@ -57,7 +57,16 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
   const Component = COMPONENTS[componentName];
 
   if (!Component) {
-    console.warn(`Island "${componentName}" not found`);
+    console.error(`Island component "${componentName}" not found in registry`);
+    console.error('Available components:', Object.keys(COMPONENTS));
+    console.error('Element:', element);
+
+    // Show user-facing error in the island container
+    showErrorInContainer(
+      element,
+      `Component "${componentName}" not found`,
+      'This component failed to load. This is likely a bug. Check browser console for details.'
+    );
     return;
   }
 

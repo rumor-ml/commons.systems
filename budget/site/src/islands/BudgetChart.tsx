@@ -79,59 +79,78 @@ export function BudgetChart({
       return;
     }
 
-    try {
-      setLoading(true);
+    setLoading(true);
 
-      const hiddenSet = new Set(hiddenCategories);
+    const hiddenSet = new Set(hiddenCategories);
 
-      // WEEKLY MODE: Single-week bar chart view with budget comparison overlays
-      if (granularity === 'week') {
-        // Aggregate transactions by week
-        const weeklyData = aggregateTransactionsByWeek(transactions, {
+    // Chart rendering strategy depends on granularity:
+    // - WEEKLY MODE: Category comparison for a single week with budget overlays (for detailed budget tracking)
+    // - MONTHLY MODE: Time-series view across multiple months with trend lines (for long-term analysis)
+
+    // WEEKLY MODE
+    if (granularity === 'week') {
+      // Aggregate transactions by week
+      let weeklyData;
+      try {
+        weeklyData = aggregateTransactionsByWeek(transactions, {
           hiddenCategories: hiddenSet,
           showVacation,
         });
+      } catch (err) {
+        console.error('Failed to aggregate transactions by week:', err, {
+          transactionCount: transactions.length,
+          hiddenCategories: Array.from(hiddenSet),
+        });
+        setError('Failed to process transaction data. Check console for details.');
+        setLoading(false);
+        return;
+      }
 
-        if (weeklyData.length === 0) {
-          const hasAnyTransactions = transactions.length > 0;
-          const allCategoriesHidden = hiddenCategories.length > 0;
-          const nonTransferCount = transactions.filter((t) => !t.transfer).length;
+      if (weeklyData.length === 0) {
+        const hasAnyTransactions = transactions.length > 0;
+        const allCategoriesHidden = hiddenCategories.length > 0;
+        const nonTransferCount = transactions.filter((t) => !t.transfer).length;
 
-          let message = 'No transaction data available for weekly view';
+        const getMessage = (): string => {
           if (!hasAnyTransactions) {
-            message = 'No transactions loaded. Import transaction data to begin.';
-          } else if (nonTransferCount === 0) {
-            message = 'Only transfers found (transfers are excluded from budget view)';
-          } else if (allCategoriesHidden) {
-            message = `${hiddenCategories.length} categories are hidden. Click categories in the legend to show them.`;
-          } else if (!showVacation) {
-            message =
-              'No non-vacation transactions available. Enable "Show Vacation" to see vacation spending.';
+            return 'No transactions loaded. Import transaction data to begin.';
           }
+          if (nonTransferCount === 0) {
+            return 'Only transfers found (transfers are excluded from budget view)';
+          }
+          if (allCategoriesHidden) {
+            return `${hiddenCategories.length} categories are hidden. Click categories in the legend to show them.`;
+          }
+          if (!showVacation) {
+            return 'No non-vacation transactions available. Enable "Show Vacation" to see vacation spending.';
+          }
+          return 'No transaction data available for weekly view';
+        };
 
-          renderEmptyState(containerRef.current, message);
-          setLoading(false);
-          return;
-        }
+        renderEmptyState(containerRef.current, getMessage());
+        setLoading(false);
+        return;
+      }
 
-        // Determine which week to display
-        const activeWeek = selectedWeek || getCurrentWeek();
+      // Determine which week to display
+      const activeWeek = selectedWeek || getCurrentWeek();
 
-        // Filter data for the selected week only
-        const weekData = weeklyData.filter((d) => d.week === activeWeek);
+      // Filter data for the selected week only
+      const weekData = weeklyData.filter((d) => d.week === activeWeek);
 
-        if (weekData.length === 0) {
-          renderEmptyState(
-            containerRef.current,
-            `No transaction data for week ${activeWeek}. Try navigating to a different week.`
-          );
-          setLoading(false);
-          return;
-        }
+      if (weekData.length === 0) {
+        renderEmptyState(
+          containerRef.current,
+          `No transaction data for week ${activeWeek}. Try navigating to a different week.`
+        );
+        setLoading(false);
+        return;
+      }
 
-        // Calculate budget comparisons if budget plan exists
-        let comparisons: Map<Category, { target: number; rolloverAccumulated: number }> = new Map();
-        if (budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0) {
+      // Calculate budget comparisons if budget plan exists
+      let comparisons: Map<Category, { target: number; rolloverAccumulated: number }> = new Map();
+      if (budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0) {
+        try {
           const comparisonData = calculateWeeklyComparison(weeklyData, budgetPlan, activeWeek);
           comparisonData.forEach((c) => {
             comparisons.set(c.category, {
@@ -139,8 +158,18 @@ export function BudgetChart({
               rolloverAccumulated: c.rolloverAccumulated,
             });
           });
+        } catch (err) {
+          console.error('Failed to calculate budget comparisons:', err, {
+            activeWeek,
+            budgetCategories: Object.keys(budgetPlan.categoryBudgets),
+          });
+          // Continue rendering without budget overlays
+          console.warn('Rendering chart without budget comparison overlays');
         }
+      }
 
+      // Chart rendering
+      try {
         // Clear container
         containerRef.current.replaceChildren();
 
@@ -241,11 +270,28 @@ export function BudgetChart({
         });
 
         containerRef.current.appendChild(plot);
+      } catch (err) {
+        console.error('Failed to render weekly chart:', err, {
+          activeWeek,
+          dataPoints: weekData.length,
+          budgetOverlays: comparisons.size,
+        });
+        setError('Failed to render chart visualization. Try switching to monthly view.');
         setLoading(false);
         return;
       }
 
-      // MONTHLY MODE: Time-series view showing stacked category bars with net income trend lines
+      setLoading(false);
+      return;
+    }
+
+    // MONTHLY MODE
+    // Data transformation
+    let monthlyData: MonthlyData[];
+    let netIncomeData: { month: Date; netIncome: number }[];
+    let trailingAvgData: { month: Date; trailingAvg: number }[];
+
+    try {
       // Filter out transfers and apply filters
       const filteredTransactions = transactions.filter((txn) => {
         if (txn.transfer) return false;
@@ -302,8 +348,8 @@ export function BudgetChart({
       });
 
       // Convert to array format for Plot
-      const monthlyData: MonthlyData[] = [];
-      const netIncomeData: { month: Date; netIncome: number }[] = [];
+      monthlyData = [];
+      netIncomeData = [];
 
       monthlyMap.forEach((categoryMap, month) => {
         let monthIncome = 0;
@@ -342,11 +388,8 @@ export function BudgetChart({
       });
       netIncomeData.sort((a, b) => a.month.getTime() - b.month.getTime());
 
-      // Store monthlyData in ref for tooltip access
-      monthlyDataRef.current = monthlyData;
-
       // Calculate 3-month trailing average
-      const trailingAvgData = netIncomeData.map((item, idx) => {
+      trailingAvgData = netIncomeData.map((item, idx) => {
         const start = Math.max(0, idx - 2);
         const slice = netIncomeData.slice(start, idx + 1);
         const avg = d3.mean(slice, (d) => d.netIncome) || 0;
@@ -355,12 +398,27 @@ export function BudgetChart({
           trailingAvg: avg,
         };
       });
+    } catch (err) {
+      console.error('Failed to transform monthly data:', err);
+      setError('Failed to process transaction data for monthly view.');
+      setLoading(false);
+      return;
+    }
 
+    // Store monthlyData in ref for tooltip access
+    monthlyDataRef.current = monthlyData;
+
+    // Chart rendering
+    let plot: Element;
+    try {
       // Clear container
       containerRef.current.replaceChildren();
 
+      // Partition data once for both plot rendering and event listeners
+      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
+
       // Create the plot
-      const plot = Plot.plot({
+      plot = Plot.plot({
         width: containerRef.current.clientWidth || 800,
         height: 500,
         marginTop: 20,
@@ -392,7 +450,7 @@ export function BudgetChart({
 
           // Stacked bars for expenses (negative values)
           Plot.barY(
-            partitionByIncome(monthlyData).expense,
+            expenseData,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -402,7 +460,7 @@ export function BudgetChart({
 
           // Stacked bars for income (positive values)
           Plot.barY(
-            partitionByIncome(monthlyData).income,
+            incomeData,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -431,7 +489,15 @@ export function BudgetChart({
       });
 
       containerRef.current.appendChild(plot);
+    } catch (err) {
+      console.error('Failed to render monthly chart:', err);
+      setError('Failed to render chart visualization. Try switching to weekly view.');
+      setLoading(false);
+      return;
+    }
 
+    // Event listener attachment
+    try {
       // Attach event listeners to bar segments for tooltips
       // We need to match bars to data - Plot renders bars in two groups (expenses and income)
       // The bars are in g[aria-label="bar"] elements - expenses first, then income
@@ -439,6 +505,8 @@ export function BudgetChart({
       const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
       const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
       const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
+
+      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
 
       // Helper function to attach event listeners to bar segments
       const attachBarEventListeners = (bars: NodeListOf<Element>, data: MonthlyData[]) => {
@@ -499,16 +567,15 @@ export function BudgetChart({
         });
       };
 
-      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
       attachBarEventListeners(expenseBars, expenseData);
       attachBarEventListeners(incomeBars, incomeData);
-
-      setLoading(false);
     } catch (err) {
-      console.error('Error rendering chart:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      setLoading(false);
+      console.error('Failed to attach event listeners:', err);
+      // Non-critical - tooltips won't work but chart is visible
+      console.warn('Chart rendered but tooltips may not work');
     }
+
+    setLoading(false);
   }, [transactions, hiddenCategories, showVacation, granularity, selectedWeek, budgetPlan]);
 
   // Handle document clicks to unpin tooltip

@@ -6,6 +6,7 @@ import {
   getPreviousWeek,
 } from '../scripts/weeklyAggregation';
 import { dispatchBudgetEvent } from '../utils/events';
+import { StateManager } from '../scripts/state';
 
 interface TimeSelectorProps {
   granularity: TimeGranularity;
@@ -20,32 +21,27 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
   const canGoPrevious = availableWeeks.length > 0 && activeWeek > availableWeeks[0];
   const canGoNext = activeWeek < currentWeek;
 
+  const navigateToWeek = (getWeek: () => WeekId, direction: string) => {
+    try {
+      const week = getWeek();
+      dispatchBudgetEvent('budget:week-change', { week });
+    } catch (error) {
+      console.error(`Failed to navigate to ${direction} week:`, error);
+      StateManager.showErrorBanner(
+        `Failed to navigate to ${direction} week. Resetting to current week.`
+      );
+      dispatchBudgetEvent('budget:week-change', { week: null });
+    }
+  };
+
   const handlePrevious = () => {
     if (!canGoPrevious) return;
-
-    try {
-      const prevWeek = getPreviousWeek(activeWeek);
-      dispatchBudgetEvent('budget:week-change', { week: prevWeek });
-    } catch (error) {
-      console.error('Failed to navigate to previous week:', error);
-      // Reset to current week and notify user
-      dispatchBudgetEvent('budget:week-change', { week: null });
-      alert('Navigation failed due to invalid week data. Resetting to current week.');
-    }
+    navigateToWeek(() => getPreviousWeek(activeWeek), 'previous');
   };
 
   const handleNext = () => {
     if (!canGoNext) return;
-
-    try {
-      const nextWeek = getNextWeek(activeWeek);
-      dispatchBudgetEvent('budget:week-change', { week: nextWeek });
-    } catch (error) {
-      console.error('Failed to navigate to next week:', error);
-      // Reset to current week and notify user
-      dispatchBudgetEvent('budget:week-change', { week: null });
-      alert('Navigation failed due to invalid week data. Resetting to current week.');
-    }
+    navigateToWeek(() => getNextWeek(activeWeek), 'next');
   };
 
   const handleCurrentWeek = () => {
@@ -74,13 +70,18 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
     } catch (error) {
       console.error(`Failed to format week ${week}:`, error);
 
-      // Check if it's a format validation error
+      // Best-effort attempt to provide specific error messages
+      // Note: This may not distinguish all error types reliably
       if (!week.match(/^\d{4}-W\d{2}$/)) {
         return `Invalid format: ${week} (expected YYYY-WNN)`;
       }
 
-      // Otherwise show the week ID with hint to check console
-      return `Cannot display week ${week} (see console for details)`;
+      // Trigger reset to current week instead of displaying broken state
+      StateManager.showWarningBanner('Invalid week data detected. Resetting to current week.');
+      dispatchBudgetEvent('budget:week-change', { week: null });
+
+      // Return current week formatting as temporary display
+      return 'Current Week';
     }
   };
 

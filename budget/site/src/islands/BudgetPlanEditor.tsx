@@ -45,14 +45,41 @@ export function BudgetPlanEditor({
   }, [debouncedBudgets, historicData]);
 
   const handleTargetChange = (category: Category, value: string) => {
-    const numValue = parseFloat(value);
-    if (isNaN(numValue)) {
+    // Allow empty string to clear budget
+    if (value.trim() === '') {
       // Remove budget entirely when value is cleared to allow users to exclude categories
-      // from budget planning. Rollover state is preserved if the budget is re-added later.
+      // from budget planning. Rollover will default to enabled if the budget is re-added later.
       const updated = { ...categoryBudgets };
       delete updated[category];
       setCategoryBudgets(updated);
       return;
+    }
+
+    const numValue = parseFloat(value);
+
+    // Validate numeric input
+    if (isNaN(numValue)) {
+      console.warn(`Invalid budget value for ${category}: "${value}"`);
+      return;
+    }
+
+    // Validate range
+    const absValue = Math.abs(numValue);
+    if (absValue > 1000000) {
+      console.warn(`Unusually large budget value for ${category}: ${numValue}`);
+    }
+
+    // Validate whole string was parsed (detect "123abc" scenarios)
+    if (value.trim() !== numValue.toString() && !value.includes('.')) {
+      console.warn(`Partial numeric parsing for ${category}: "${value}" → ${numValue}`);
+    }
+
+    // Validate sign for expense categories
+    const isExpenseCategory = category !== 'income';
+    if (isExpenseCategory && numValue > 0) {
+      console.warn(
+        `Budget for expense category ${category} should be negative, got ${numValue}. Consider using -${numValue} instead.`
+      );
     }
 
     setCategoryBudgets({

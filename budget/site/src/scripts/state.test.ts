@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { StateManager, BudgetState } from './state';
 import { CATEGORIES } from '../islands/constants';
+import { weekId } from '../islands/types';
 
 describe('StateManager', () => {
   beforeEach(() => {
@@ -499,7 +500,7 @@ describe('StateManager', () => {
         showVacation: false,
         budgetPlan: null,
         viewGranularity: 'week',
-        selectedWeek: '2025-W05',
+        selectedWeek: weekId('2025-W05'),
         planningMode: false,
       };
       localStorage.setItem('budget-state', JSON.stringify(initialState));
@@ -514,7 +515,7 @@ describe('StateManager', () => {
         showVacation: false,
         budgetPlan: null,
         viewGranularity: 'month',
-        selectedWeek: '2025-W05',
+        selectedWeek: weekId('2025-W05'),
         planningMode: false,
       });
     });
@@ -522,7 +523,7 @@ describe('StateManager', () => {
     it('returns updated state after save', () => {
       const updated = StateManager.save({
         showVacation: false,
-        selectedWeek: '2025-W10',
+        selectedWeek: weekId('2025-W10'),
       });
 
       expect(updated.showVacation).toBe(false);
@@ -604,7 +605,7 @@ describe('StateManager', () => {
       expect(loaded.planningMode).toBe(true);
 
       // Third save
-      StateManager.save({ viewGranularity: 'week', selectedWeek: '2025-W08' });
+      StateManager.save({ viewGranularity: 'week', selectedWeek: weekId('2025-W08') });
       loaded = StateManager.load();
       expect(loaded.viewGranularity).toBe('week');
       expect(loaded.selectedWeek).toBe('2025-W08');
@@ -963,6 +964,205 @@ describe('StateManager', () => {
 
       expect(document.querySelector('.bg-warning')).toBeTruthy();
       expect(document.querySelector('.bg-error')).toBeTruthy();
+    });
+  });
+
+  describe('Integration - Budget Plan Persistence Across Page Reload', () => {
+    it('persists simple budget plan across simulated page reload', () => {
+      // Step 1: Create and save a budget plan
+      const budgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      StateManager.save({ budgetPlan });
+
+      // Step 2: Simulate page reload by clearing localStorage spy cache
+      // (localStorage itself persists, but we verify it's actually stored)
+      const storedData = localStorage.getItem('budget-state');
+      expect(storedData).toBeTruthy();
+
+      // Step 3: Load state (simulating fresh page load)
+      const loadedState = StateManager.load();
+
+      // Step 4: Verify all budget plan properties are intact
+      expect(loadedState.budgetPlan).toEqual(budgetPlan);
+      expect(loadedState.budgetPlan?.categoryBudgets.groceries).toEqual({
+        weeklyTarget: 100,
+        rolloverEnabled: true,
+      });
+      expect(loadedState.budgetPlan?.lastModified).toBe('2025-01-09T12:00:00Z');
+    });
+
+    it('persists complex budget plan with multiple categories and mixed rollover settings', () => {
+      // Create a complex budget plan with multiple categories
+      const complexBudgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: 150, rolloverEnabled: true },
+          dining: { weeklyTarget: 75, rolloverEnabled: false },
+          housing: { weeklyTarget: 500, rolloverEnabled: true },
+          utilities: { weeklyTarget: 100, rolloverEnabled: false },
+          entertainment: { weeklyTarget: 50, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T15:30:00Z',
+      };
+
+      // Save the complex budget plan
+      StateManager.save({ budgetPlan: complexBudgetPlan });
+
+      // Verify it's stored in localStorage
+      const storedData = localStorage.getItem('budget-state');
+      expect(storedData).toBeTruthy();
+      const parsed = JSON.parse(storedData!);
+      expect(parsed.budgetPlan).toBeDefined();
+
+      // Simulate page reload by loading fresh
+      const loadedState = StateManager.load();
+
+      // Verify all properties survived the round trip
+      expect(loadedState.budgetPlan).toEqual(complexBudgetPlan);
+      expect(Object.keys(loadedState.budgetPlan!.categoryBudgets)).toHaveLength(5);
+
+      // Verify each category's settings
+      expect(loadedState.budgetPlan?.categoryBudgets.groceries).toEqual({
+        weeklyTarget: 150,
+        rolloverEnabled: true,
+      });
+      expect(loadedState.budgetPlan?.categoryBudgets.dining).toEqual({
+        weeklyTarget: 75,
+        rolloverEnabled: false,
+      });
+      expect(loadedState.budgetPlan?.categoryBudgets.housing).toEqual({
+        weeklyTarget: 500,
+        rolloverEnabled: true,
+      });
+      expect(loadedState.budgetPlan?.categoryBudgets.utilities).toEqual({
+        weeklyTarget: 100,
+        rolloverEnabled: false,
+      });
+      expect(loadedState.budgetPlan?.categoryBudgets.entertainment).toEqual({
+        weeklyTarget: 50,
+        rolloverEnabled: true,
+      });
+    });
+
+    it('persists budget plan alongside other state properties', () => {
+      // Save a complete state with budget plan and other properties
+      const budgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: 200, rolloverEnabled: true },
+          dining: { weeklyTarget: 100, rolloverEnabled: false },
+        },
+        lastModified: '2025-01-09T10:00:00Z',
+      };
+
+      StateManager.save({
+        budgetPlan,
+        hiddenCategories: ['income', 'utilities'],
+        showVacation: false,
+        viewGranularity: 'week',
+        selectedWeek: weekId('2025-W02'),
+        planningMode: true,
+      });
+
+      // Simulate page reload
+      const loadedState = StateManager.load();
+
+      // Verify budget plan persisted
+      expect(loadedState.budgetPlan).toEqual(budgetPlan);
+
+      // Verify other state properties also persisted
+      expect(loadedState.hiddenCategories).toEqual(['income', 'utilities']);
+      expect(loadedState.showVacation).toBe(false);
+      expect(loadedState.viewGranularity).toBe('week');
+      expect(loadedState.selectedWeek).toBe('2025-W02');
+      expect(loadedState.planningMode).toBe(true);
+    });
+
+    it('handles budget plan validation during reload with partially corrupted data', () => {
+      // Save a valid budget plan
+      const validBudgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+          dining: { weeklyTarget: 50, rolloverEnabled: false },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      StateManager.save({ budgetPlan: validBudgetPlan });
+
+      // Manually corrupt part of the data in localStorage
+      const stored = localStorage.getItem('budget-state');
+      const parsed = JSON.parse(stored!);
+      parsed.budgetPlan.categoryBudgets['invalid-category'] = {
+        weeklyTarget: 75,
+        rolloverEnabled: true,
+      };
+      parsed.budgetPlan.categoryBudgets.groceries.weeklyTarget = 'not-a-number';
+
+      localStorage.setItem('budget-state', JSON.stringify(parsed));
+
+      // Simulate page reload
+      const loadedState = StateManager.load();
+
+      // Verify invalid category was filtered out
+      expect(loadedState.budgetPlan?.categoryBudgets).not.toHaveProperty('invalid-category');
+
+      // Verify invalid weeklyTarget was filtered out (entire entry removed)
+      expect(loadedState.budgetPlan?.categoryBudgets).not.toHaveProperty('groceries');
+
+      // Verify valid entry survived
+      expect(loadedState.budgetPlan?.categoryBudgets.dining).toEqual({
+        weeklyTarget: 50,
+        rolloverEnabled: false,
+      });
+    });
+
+    it('survives multiple save/reload cycles without data loss', () => {
+      // Initial budget plan
+      const budgetPlan1 = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T10:00:00Z',
+      };
+
+      StateManager.save({ budgetPlan: budgetPlan1 });
+      let loaded = StateManager.load();
+      expect(loaded.budgetPlan).toEqual(budgetPlan1);
+
+      // Update with more categories
+      const budgetPlan2 = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+          dining: { weeklyTarget: 75, rolloverEnabled: false },
+          housing: { weeklyTarget: 500, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T11:00:00Z',
+      };
+
+      StateManager.save({ budgetPlan: budgetPlan2 });
+      loaded = StateManager.load();
+      expect(loaded.budgetPlan).toEqual(budgetPlan2);
+      expect(Object.keys(loaded.budgetPlan!.categoryBudgets)).toHaveLength(3);
+
+      // Modify existing categories
+      const budgetPlan3 = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: 150, rolloverEnabled: false },
+          dining: { weeklyTarget: 75, rolloverEnabled: false },
+          housing: { weeklyTarget: 500, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      StateManager.save({ budgetPlan: budgetPlan3 });
+      loaded = StateManager.load();
+      expect(loaded.budgetPlan).toEqual(budgetPlan3);
+      expect(loaded.budgetPlan?.categoryBudgets.groceries?.weeklyTarget).toBe(150);
+      expect(loaded.budgetPlan?.categoryBudgets.groceries?.rolloverEnabled).toBe(false);
     });
   });
 });

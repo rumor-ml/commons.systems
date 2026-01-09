@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TimeSelector } from './TimeSelector';
-import { TimeGranularity, WeekId } from './types';
+import { WeekId, weekId } from './types';
 import * as weeklyAggregation from '../scripts/weeklyAggregation';
 import * as events from '../utils/events';
 
@@ -64,9 +64,9 @@ describe('TimeSelector', () => {
       const weekNum = parseInt(match[2], 10);
       const nextWeek = weekNum + 1;
       if (nextWeek > 52) {
-        return `${year + 1}-W01`;
+        return weekId(`${year + 1}-W01`);
       }
-      return `${year}-W${nextWeek.toString().padStart(2, '0')}`;
+      return weekId(`${year}-W${nextWeek.toString().padStart(2, '0')}`);
     });
     mockGetPreviousWeek.mockImplementation((week: WeekId) => {
       const match = week.match(/^(\d{4})-W(\d{2})$/);
@@ -75,9 +75,9 @@ describe('TimeSelector', () => {
       const weekNum = parseInt(match[2], 10);
       const prevWeek = weekNum - 1;
       if (prevWeek < 1) {
-        return `${year - 1}-W52`;
+        return weekId(`${year - 1}-W52`);
       }
-      return `${year}-W${prevWeek.toString().padStart(2, '0')}`;
+      return weekId(`${year}-W${prevWeek.toString().padStart(2, '0')}`);
     });
   });
 
@@ -272,7 +272,7 @@ describe('TimeSelector', () => {
 
       expect(mockGetPreviousWeek).toHaveBeenCalledWith(selectedWeek);
       expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
-        week: '2025-W05', // Previous week from mock
+        week: weekId('2025-W05'), // Previous week from mock
       });
     });
 
@@ -291,7 +291,7 @@ describe('TimeSelector', () => {
 
       expect(mockGetNextWeek).toHaveBeenCalledWith(selectedWeek);
       expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
-        week: '2025-W07', // Next week from mock
+        week: weekId('2025-W07'), // Next week from mock
       });
     });
 
@@ -358,7 +358,11 @@ describe('TimeSelector', () => {
       });
 
       render(
-        <TimeSelector granularity="week" selectedWeek="2025-W10" availableWeeks={availableWeeks} />
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W10')}
+          availableWeeks={availableWeeks}
+        />
       );
 
       // Should display formatted date range
@@ -400,7 +404,7 @@ describe('TimeSelector', () => {
       render(
         <TimeSelector
           granularity="week"
-          selectedWeek="invalid-week"
+          selectedWeek={'invalid-week' as WeekId}
           availableWeeks={availableWeeks}
         />
       );
@@ -419,14 +423,14 @@ describe('TimeSelector', () => {
 
   describe('Year Boundary Handling', () => {
     it('should handle navigation from last week of year to first week of next year', () => {
-      const lastWeek: WeekId = '2024-W52' as WeekId;
-      mockGetCurrentWeek.mockReturnValue('2025-W02');
+      const lastWeek: WeekId = weekId('2024-W52');
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W02'));
 
       render(
         <TimeSelector
           granularity="week"
           selectedWeek={lastWeek}
-          availableWeeks={['2024-W52', '2025-W01', '2025-W02']}
+          availableWeeks={[weekId('2024-W52'), weekId('2025-W01'), weekId('2025-W02')]}
         />
       );
 
@@ -436,19 +440,19 @@ describe('TimeSelector', () => {
       expect(mockGetNextWeek).toHaveBeenCalledWith(lastWeek);
       // Mock returns 2025-W01
       expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
-        week: '2025-W01',
+        week: weekId('2025-W01'),
       });
     });
 
     it('should handle navigation from first week of year to last week of previous year', () => {
-      const firstWeek: WeekId = '2025-W01' as WeekId;
-      mockGetCurrentWeek.mockReturnValue('2025-W10');
+      const firstWeek: WeekId = weekId('2025-W01');
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W10'));
 
       render(
         <TimeSelector
           granularity="week"
           selectedWeek={firstWeek}
-          availableWeeks={['2024-W52', '2025-W01', '2025-W10']}
+          availableWeeks={[weekId('2024-W52'), weekId('2025-W01'), weekId('2025-W10')]}
         />
       );
 
@@ -458,7 +462,7 @@ describe('TimeSelector', () => {
       expect(mockGetPreviousWeek).toHaveBeenCalledWith(firstWeek);
       // Mock returns 2024-W52
       expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
-        week: '2024-W52',
+        week: weekId('2024-W52'),
       });
     });
 
@@ -469,7 +473,11 @@ describe('TimeSelector', () => {
       });
 
       render(
-        <TimeSelector granularity="week" selectedWeek="2025-W01" availableWeeks={availableWeeks} />
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W01')}
+          availableWeeks={availableWeeks}
+        />
       );
 
       // Week crosses year boundary - should display Dec and Jan
@@ -480,8 +488,8 @@ describe('TimeSelector', () => {
 
   describe('Week 53 Handling', () => {
     it('should handle week 53 years correctly', () => {
-      const week53: WeekId = '2020-W53' as WeekId;
-      mockGetCurrentWeek.mockReturnValue('2025-W10');
+      const week53: WeekId = weekId('2020-W53');
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W10'));
       mockGetWeekBoundaries.mockReturnValue({
         start: '2020-12-26',
         end: '2021-01-01',
@@ -491,7 +499,7 @@ describe('TimeSelector', () => {
         <TimeSelector
           granularity="week"
           selectedWeek={week53}
-          availableWeeks={['2020-W53', '2025-W10']}
+          availableWeeks={[weekId('2020-W53'), weekId('2025-W10')]}
         />
       );
 
@@ -502,6 +510,22 @@ describe('TimeSelector', () => {
   });
 
   describe('Edge Cases', () => {
+    it('should handle null selectedWeek with empty availableWeeks', () => {
+      render(<TimeSelector granularity="week" selectedWeek={null} availableWeeks={[]} />);
+
+      // Both navigation buttons should be disabled
+      const previousButton = screen.getByText('← Previous');
+      const nextButton = screen.getByText('Next →');
+      expect(previousButton).toBeDisabled();
+      expect(nextButton).toBeDisabled(); // Disabled because activeWeek === currentWeek
+
+      // Current Week button should not appear (already at current)
+      expect(screen.queryByText('Current Week')).not.toBeInTheDocument();
+
+      // Should show current week display despite no data
+      expect(screen.getByText(new RegExp(currentWeek))).toBeInTheDocument();
+    });
+
     it('should handle empty availableWeeks array', () => {
       render(<TimeSelector granularity="week" selectedWeek={currentWeek} availableWeeks={[]} />);
 
@@ -514,7 +538,7 @@ describe('TimeSelector', () => {
 
     it('should handle single week in availableWeeks', () => {
       const singleWeek = availableWeeks[0];
-      mockGetCurrentWeek.mockReturnValue('2025-W10');
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W10'));
 
       render(
         <TimeSelector granularity="week" selectedWeek={singleWeek} availableWeeks={[singleWeek]} />
@@ -528,8 +552,8 @@ describe('TimeSelector', () => {
     });
 
     it('should handle selectedWeek not in availableWeeks', () => {
-      const outsideWeek: WeekId = '2024-W30' as WeekId;
-      mockGetCurrentWeek.mockReturnValue('2025-W10');
+      const outsideWeek: WeekId = weekId('2024-W30');
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W10'));
 
       render(
         <TimeSelector

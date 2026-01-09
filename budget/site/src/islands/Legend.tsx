@@ -26,6 +26,23 @@ export function Legend({
   granularity = 'month',
   selectedWeek = null,
 }: LegendProps) {
+  // Derived state: whether we have a valid budget plan with categories
+  const hasBudgetPlan = Boolean(budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0);
+
+  // Helper to determine budget status: over, under, or null
+  function getBudgetStatus(
+    target: number | undefined,
+    variance: number | undefined
+  ): 'over' | 'under' | null {
+    if (target === undefined || variance === undefined) return null;
+    const varianceIsPositive = variance > 0;
+    const isIncomeCategory = target > 0;
+    // Positive variance means better than planned
+    // For income: earned more than target (good = under budget, meaning room to spare)
+    // For expenses: spent less than budget (good = under budget, meaning room to spare)
+    return varianceIsPositive === isIncomeCategory ? 'under' : 'over';
+  }
+
   // Calculate category summaries from transactions
   const categorySummaries = useMemo(() => {
     // Guard clause: validate transactions prop
@@ -34,11 +51,9 @@ export function Legend({
     }
 
     // In weekly mode with budget plan, show budget comparison for selected week. Otherwise, show all-time totals for each category.
-    if (
-      granularity === 'week' &&
-      budgetPlan &&
-      Object.keys(budgetPlan.categoryBudgets).length > 0
-    ) {
+    if (granularity === 'week' && hasBudgetPlan) {
+      // TypeScript: budgetPlan is guaranteed non-null here due to hasBudgetPlan check
+      const plan = budgetPlan!;
       const hiddenSet = new Set(hiddenCategories);
       const weeklyData = aggregateTransactionsByWeek(transactions, {
         hiddenCategories: hiddenSet,
@@ -46,7 +61,7 @@ export function Legend({
       });
       const activeWeek = selectedWeek || getCurrentWeek();
       const weekData = weeklyData.filter((d) => d.week === activeWeek);
-      const comparisons = calculateWeeklyComparison(weeklyData, budgetPlan, activeWeek);
+      const comparisons = calculateWeeklyComparison(weeklyData, plan, activeWeek);
 
       // Map comparisons to summary format
       return comparisons.map((c) => ({
@@ -56,7 +71,7 @@ export function Legend({
         target: c.target,
         variance: c.variance,
         rolloverAccumulated: c.rolloverAccumulated,
-        hasRollover: budgetPlan.categoryBudgets[c.category]?.rolloverEnabled || false,
+        hasRollover: plan.categoryBudgets[c.category]?.rolloverEnabled || false,
       }));
     }
 
@@ -119,11 +134,10 @@ export function Legend({
           categorySummaries.map(
             ({ category, total, count, target, variance, rolloverAccumulated, hasRollover }) => {
               const isHidden = hiddenCategories.includes(category);
-              const hasBudget = target !== undefined;
-              const isOverBudget =
-                hasBudget && variance !== undefined && (target > 0 ? variance < 0 : variance > 0);
-              const isUnderBudget =
-                hasBudget && variance !== undefined && (target > 0 ? variance > 0 : variance < 0);
+              const budgetStatus = getBudgetStatus(target, variance);
+              const isOverBudget = budgetStatus === 'over';
+              const isUnderBudget = budgetStatus === 'under';
+              const hasBudget = budgetStatus !== null;
 
               return (
                 <div
@@ -184,9 +198,7 @@ export function Legend({
           Indicators
         </h4>
         <div className="space-y-3">
-          {granularity === 'week' &&
-          budgetPlan &&
-          Object.keys(budgetPlan.categoryBudgets).length > 0 ? (
+          {granularity === 'week' && hasBudgetPlan ? (
             <>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-text-secondary">✓ Under budget</span>

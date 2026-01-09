@@ -151,6 +151,27 @@ export function isValidCategoryBudget(budget: CategoryBudget, category: Category
 }
 
 /**
+ * Factory function to create a validated CategoryBudget.
+ * @param category - The category this budget applies to
+ * @param weeklyTarget - Target spending/earning per week
+ * @param rolloverEnabled - Whether unspent budget carries to next week
+ * @returns CategoryBudget if valid, null otherwise
+ */
+export function createCategoryBudget(
+  category: Category,
+  weeklyTarget: number,
+  rolloverEnabled: boolean
+): CategoryBudget | null {
+  const budget: CategoryBudget = { weeklyTarget, rolloverEnabled };
+
+  if (!isValidCategoryBudget(budget, category)) {
+    return null;
+  }
+
+  return budget;
+}
+
+/**
  * Complete budget plan configuration
  * @property categoryBudgets - Budget targets per category.
  *   Missing categories indicate no budget has been set for that category.
@@ -201,32 +222,32 @@ export function isValidISOTimestamp(value: string): boolean {
  * Do not manually construct WeeklyData instances.
  */
 export interface WeeklyData {
-  week: WeekId;
-  category: Category;
-  amount: number;
-  isIncome: boolean;
-  qualifiers: QualifierBreakdown;
-  weekStartDate: string;
-  weekEndDate: string;
+  readonly week: WeekId;
+  readonly category: Category;
+  readonly amount: number;
+  readonly isIncome: boolean;
+  readonly qualifiers: Readonly<QualifierBreakdown>;
+  readonly weekStartDate: string;
+  readonly weekEndDate: string;
 }
 
 // Budget vs actual comparison
 export interface WeeklyBudgetComparison {
-  week: WeekId;
-  category: Category;
-  actual: number;
-  target: number;
-  variance: number; // actual - target
-  rolloverAccumulated: number; // Cumulative from previous weeks
-  effectiveTarget: number; // target + rolloverAccumulated
+  readonly week: WeekId;
+  readonly category: Category;
+  readonly actual: number;
+  readonly target: number;
+  readonly variance: number; // actual - target
+  readonly rolloverAccumulated: number; // Cumulative from previous weeks
+  readonly effectiveTarget: number; // target + rolloverAccumulated
 }
 
 // Predicted cash flow
 export interface CashFlowPrediction {
-  totalIncomeTarget: number;
-  totalExpenseTarget: number;
-  predictedNetIncome: number;
-  historicAvgIncome: number;
-  historicAvgExpense: number;
-  variance: number; // predicted - historic
+  readonly totalIncomeTarget: number;
+  readonly totalExpenseTarget: number;
+  readonly predictedNetIncome: number;
+  readonly historicAvgIncome: number;
+  readonly historicAvgExpense: number;
+  readonly variance: number; // predicted - historic
 }

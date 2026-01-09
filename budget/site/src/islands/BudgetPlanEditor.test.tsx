@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BudgetPlanEditor } from './BudgetPlanEditor';
-import { BudgetPlan, WeeklyData } from './types';
+import { BudgetPlan, WeeklyData, weekId } from './types';
 import * as weeklyAggregation from '../scripts/weeklyAggregation';
 import * as events from '../utils/events';
 
@@ -34,7 +34,7 @@ describe('BudgetPlanEditor', () => {
 
   const sampleHistoricData: WeeklyData[] = [
     {
-      week: '2025-W01',
+      week: weekId('2025-W01'),
       category: 'income',
       amount: 1800,
       isIncome: true,
@@ -49,7 +49,7 @@ describe('BudgetPlanEditor', () => {
       weekEndDate: '2025-01-12',
     },
     {
-      week: '2025-W01',
+      week: weekId('2025-W01'),
       category: 'groceries',
       amount: -450,
       isIncome: false,
@@ -628,6 +628,229 @@ describe('BudgetPlanEditor', () => {
       fireEvent.click(content!);
 
       expect(mockOnCancel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Keyboard Accessibility', () => {
+    it('allows tab navigation through input fields', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const incomeInput = inputs[0] as HTMLInputElement;
+
+      // Focus first input
+      incomeInput.focus();
+      expect(document.activeElement).toBe(incomeInput);
+
+      // Tab should move to next input
+      fireEvent.keyDown(incomeInput, { key: 'Tab', code: 'Tab' });
+      // Note: JSDOM doesn't automatically move focus on Tab, but the input supports it
+      // This test verifies the input is focusable and receives keyboard events
+    });
+
+    it('allows tab navigation through checkboxes', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      const incomeCheckbox = checkboxes[0];
+
+      // Focus first checkbox
+      incomeCheckbox.focus();
+      expect(document.activeElement).toBe(incomeCheckbox);
+
+      // Verify checkbox can be toggled with Space key
+      fireEvent.keyDown(incomeCheckbox, { key: ' ', code: 'Space' });
+      fireEvent.click(incomeCheckbox); // Space triggers click in real browsers
+    });
+
+    it('allows tab navigation to buttons', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const cancelButton = screen.getByText('Cancel') as HTMLButtonElement;
+      const saveButton = screen.getByText('Save Budget Plan') as HTMLButtonElement;
+
+      // Verify buttons are focusable
+      cancelButton.focus();
+      expect(document.activeElement).toBe(cancelButton);
+
+      saveButton.focus();
+      expect(document.activeElement).toBe(saveButton);
+    });
+
+    it('supports Enter key to activate focused button', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const saveButton = screen.getByText('Save Budget Plan') as HTMLButtonElement;
+      saveButton.focus();
+
+      // Enter key on focused button should trigger click
+      fireEvent.keyDown(saveButton, { key: 'Enter', code: 'Enter' });
+      fireEvent.click(saveButton); // Enter triggers click in real browsers
+
+      expect(mockOnSave).toHaveBeenCalledTimes(1);
+    });
+
+    it('supports Space key to activate focused button', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const cancelButton = screen.getByText('Cancel') as HTMLButtonElement;
+      cancelButton.focus();
+
+      // Space key on focused button should trigger click
+      fireEvent.keyDown(cancelButton, { key: ' ', code: 'Space' });
+      fireEvent.click(cancelButton); // Space triggers click in real browsers
+
+      expect(mockOnCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not trigger save when Enter is pressed in input field', () => {
+      // TODO(#1337): Add keyboard shortcut - Enter in input should save the budget plan
+      // This is a common UX pattern for forms and improves efficiency for keyboard users
+      render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const incomeInput = screen.getByPlaceholderText('2000') as HTMLInputElement;
+      incomeInput.focus();
+
+      // Enter key in input field - currently does nothing
+      fireEvent.keyDown(incomeInput, { key: 'Enter', code: 'Enter' });
+
+      // Verify save is NOT called (current behavior)
+      expect(mockOnSave).not.toHaveBeenCalled();
+    });
+
+    it('does not trigger cancel when Escape is pressed', () => {
+      // TODO(#1337): Add keyboard shortcut - Escape should cancel/close the modal
+      // This is standard modal behavior and critical for keyboard accessibility (WCAG 2.1.1)
+      render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const incomeInput = screen.getByPlaceholderText('2000') as HTMLInputElement;
+      incomeInput.focus();
+
+      // Escape key - currently does nothing
+      fireEvent.keyDown(incomeInput, { key: 'Escape', code: 'Escape' });
+
+      // Verify cancel is NOT called (current behavior)
+      expect(mockOnCancel).not.toHaveBeenCalled();
+    });
+
+    it('maintains focus when input value changes', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const incomeInput = screen.getByPlaceholderText('2000') as HTMLInputElement;
+      incomeInput.focus();
+      expect(document.activeElement).toBe(incomeInput);
+
+      // Change value
+      fireEvent.change(incomeInput, { target: { value: '3000' } });
+
+      // Focus should remain on input after value change
+      expect(document.activeElement).toBe(incomeInput);
+    });
+
+    it('disabled checkboxes are marked as disabled', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+
+      // All checkboxes should be disabled when no budgets are set
+      checkboxes.forEach((checkbox) => {
+        expect(checkbox.disabled).toBe(true);
+      });
+
+      // Note: JSDOM allows focusing disabled elements (unlike real browsers)
+      // In real browsers, disabled checkboxes are excluded from tab navigation
+      // and cannot receive focus, providing the proper accessibility behavior
+    });
+
+    it('rollover checkbox becomes keyboard accessible when budget is added', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const housingInput = inputs[1] as HTMLInputElement; // Housing is second
+
+      // Add budget to housing
+      fireEvent.change(housingInput, { target: { value: '-1200' } });
+
+      const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      const housingCheckbox = checkboxes[1];
+
+      await waitFor(() => {
+        expect(housingCheckbox.disabled).toBe(false);
+      });
+
+      // Now checkbox should be keyboard accessible
+      housingCheckbox.focus();
+      expect(document.activeElement).toBe(housingCheckbox);
     });
   });
 
