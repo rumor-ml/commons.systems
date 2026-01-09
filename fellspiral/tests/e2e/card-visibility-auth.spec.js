@@ -269,18 +269,43 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     await createCardInFirestore(publicCard1);
     await createCardInFirestore(publicCard2);
 
+    // Verify cards were actually written to Firestore before navigating to page
+    await waitForCardInFirestore(publicCard1.title, 5000);
+    await waitForCardInFirestore(publicCard2.title, 5000);
+
     // Step 1: Visit as guest and verify cards are visible
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
+    // CRITICAL: Verify test collection name is set before frontend queries Firestore
+    // This prevents the frontend from querying the wrong collection due to race conditions
+    // Regression test for flaky test failures where window.__TEST_COLLECTION_NAME__ was undefined
+    await page
+      .waitForFunction(() => window.__TEST_COLLECTION_NAME__ != null, { timeout: 5000 })
+      .catch(async (error) => {
+        // If timeout, enhance error with debug info
+        const debugInfo = await page.evaluate(() => ({
+          hasTestCollectionName: !!window.__TEST_COLLECTION_NAME__,
+          testCollectionName: window.__TEST_COLLECTION_NAME__,
+          windowKeys: Object.keys(window).filter((k) => k.startsWith('__')),
+        }));
+        throw new Error(
+          `window.__TEST_COLLECTION_NAME__ not set within 5s. ` +
+            `Debug info: ${JSON.stringify(debugInfo)}. ` +
+            `Original error: ${error.message}`
+        );
+      });
+
     // Wait for Firebase auth to initialize
     await page.waitForFunction(() => window.auth != null, { timeout: 10000 });
 
-    // Wait for cards to load
+    // Wait for cards to load from Firestore real-time listener
+    // The page loads with seeded cards (50) + our 2 new test cards (52 total)
+    // Give the real-time listener time to receive all updates
     await page.waitForTimeout(3000);
 
     const guestCardCount = await page.locator('.card-item').count();
-    expect(guestCardCount).toBeGreaterThanOrEqual(2); // At least our 2 public cards
+    expect(guestCardCount).toBeGreaterThanOrEqual(52); // 50 seeded + 2 test cards
 
     const isCard1VisibleAsGuest = await isCardVisibleInUI(page, publicCard1.title);
     const isCard2VisibleAsGuest = await isCardVisibleInUI(page, publicCard2.title);
