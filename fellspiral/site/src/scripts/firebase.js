@@ -93,8 +93,9 @@ async function getFirebaseConfig() {
         document.body.insertBefore(errorBanner, document.body.firstChild);
       }
 
-      // Re-throw error to halt initialization - do not continue with potentially wrong config
-      throw error;
+      // Return null to signal failure without throwing
+      // Higher-level code should check for null config
+      return null;
     }
   }
 
@@ -142,6 +143,10 @@ export async function initFirebase() {
   initPromise = (async () => {
     // Get Firebase config (async for Firebase Hosting auto-config)
     let config = await getFirebaseConfig();
+    if (!config) {
+      // Config fetch failed, error UI already shown, halt initialization
+      return { app: null, db: null, auth: null, error: 'CONFIG_FETCH_FAILED' };
+    }
 
     // In test/emulator mode, override projectId to match the test environment
     // This ensures tests query the same Firestore namespace where test data is seeded
@@ -219,7 +224,6 @@ export async function initFirebase() {
         }
 
         // Unexpected emulator connection errors after retry attempts
-        // TODO(#1084): firebase.js throws error after logging it, but no user-facing error message in UI
         console.error('[Firebase] CRITICAL: Emulator connection failed after retries:', {
           error: msg,
           firestoreHost: `${firestoreHost}:${firestorePort}`,
@@ -227,7 +231,7 @@ export async function initFirebase() {
           env: import.meta.env?.MODE,
         });
 
-        // CRITICAL: Show blocking error screen and halt execution
+        // CRITICAL: Show blocking error screen
         // Prevents accidental writes to production database
         if (typeof window !== 'undefined') {
           const errorScreen = document.createElement('div');
@@ -254,8 +258,9 @@ export async function initFirebase() {
           document.body.appendChild(errorScreen);
         }
 
-        // Throw error to halt execution - do not allow any Firebase operations
-        throw error;
+        // Signal failure without throwing
+        // Caller should check return value
+        return { app: null, db: null, auth: null, error: 'EMULATOR_CONNECTION_FAILED' };
       }
     }
 

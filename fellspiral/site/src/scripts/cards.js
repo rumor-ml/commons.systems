@@ -20,7 +20,6 @@ import {
   updateCard as updateCardInDB,
   deleteCard as deleteCardInDB,
   importCards as importCardsFromData,
-  withTimeout,
   getAuthInstance,
 } from './firebase.js';
 
@@ -39,7 +38,6 @@ import cardsData from '../data/cards.json';
 const TIMEOUTS = {
   BLUR_DELAY_MS: 200, // Browser event ordering safety margin
   AUTH_RETRY_MS: 500, // Firebase SDK init wait
-  FIRESTORE_MS: 5000, // Firestore query timeout (unused - queries use hardcoded values)
   DEBOUNCE_MS: 300, // Button click debounce
 };
 
@@ -95,8 +93,10 @@ function sanitizeCardType(type) {
  * @property {string} [cost] - Optional cost value
  * @property {boolean} [isPublic] - Whether card is publicly visible (default: true for backward compatibility)
  * @property {string} [createdBy] - UID of user who created the card
- * @property {FirebaseFirestore.Timestamp} [createdAt] - Timestamp when card was created
- * @property {FirebaseFirestore.Timestamp} [updatedAt] - Timestamp when card was last updated
+ * @property {import('firebase/firestore').Timestamp} [createdAt] - Timestamp when card was created
+ * @property {import('firebase/firestore').Timestamp} [updatedAt] - Timestamp when card was last updated
+ * @property {string} [lastModifiedBy] - UID of user who last modified the card
+ * @property {import('firebase/firestore').Timestamp} [lastModifiedAt] - Timestamp when card was last modified
  */
 
 /**
@@ -112,7 +112,7 @@ const CARD_CONSTRAINTS = {
 
 /**
  * Validate card data structure and return validation errors.
- * TODO: Consolidate with firebase.js validateCardData - both functions validate same fields
+ * TODO(#1351): Consolidate with firebase.js validateCardData - both functions validate same fields
  * but have different signatures (return errors vs throw). Consider shared validation module.
  * @param {Partial<CardData>} cardData - Card data to validate
  * @returns {{ valid: boolean, errors: Array<{ field: string, message: string }> }}
@@ -191,7 +191,7 @@ const VALID_VIEW_MODES = /** @type {const} */ (['grid', 'list']);
  * @property {number} authListenerRetries - Count of auth listener setup retry attempts
  *   Rationale: Firebase auth can be slow to initialize, especially on cold start or slow networks.
  *   Retries prevent race condition where UI initializes before auth state is available.
- *   10 retry attempts with 500ms delay between each = 4.5 seconds total wait (9 delays), plus initial attempt.
+ *   Initial attempt plus up to 9 retry attempts with 500ms delay = 4.5 seconds max total wait time (10 total attempts, 9 delays).
  * @property {number} authListenerMaxRetries - Maximum allowed retries for auth listener setup (default: 10)
  */
 const state = {
@@ -256,8 +256,8 @@ function resetState() {
   state.loading = false;
   state.error = null;
   state.listenersAttached = false;
-  // TODO(#462): Add impact context to cleanup comment
-  // Clean up pending auth timeout
+  // Clean up pending auth timeout to prevent memory leaks and duplicate auth checks.
+  // If not cleared, the backup auth check from a previous initialization could fire after reset, causing stale state updates.
   if (state.authTimeoutId) {
     clearTimeout(state.authTimeoutId);
     state.authTimeoutId = null;
@@ -295,8 +295,6 @@ function getSubtypesForType(type) {
  * @property {string} listboxId - ID of the combobox listbox element (required)
  * @property {Function} getOptions - Function that returns array of available option strings (required)
  * @property {Function} [onSelect] - Callback function invoked when an option is selected (optional)
- * @property {string} [placeholder] - Placeholder text for the input field (optional)
- * @property {boolean} [allowCustom] - Whether to allow custom values via "Add New" option (optional, default: true)
  */
 
 // Generic combobox controller
@@ -400,8 +398,10 @@ function createCombobox(config) {
       input.placeholder = 'Options unavailable - please refresh';
       combobox.dataset.broken = 'true';
 
-      // Don't re-throw - UI error is shown, form validation will catch broken state
-      return;
+      // Throw error to prevent form submission with broken combobox state
+      throw new Error(
+        `Combobox ${comboboxId} is broken and cannot be used. Please refresh the page.`
+      );
     }
 
     // Render options - separate try-catch for DOM errors with clearer context
@@ -462,8 +462,10 @@ function createCombobox(config) {
       input.placeholder = 'Options unavailable - please refresh';
       combobox.dataset.broken = 'true';
 
-      // Don't re-throw - UI error is shown, form validation will catch broken state
-      return;
+      // Throw error to prevent form submission with broken combobox state
+      throw new Error(
+        `Combobox ${comboboxId} is broken and cannot be used. Please refresh the page.`
+      );
     }
   }
 
@@ -482,11 +484,17 @@ function createCombobox(config) {
           stack: error.stack,
         });
 
-        // Show user-facing error - don't re-throw as combobox should remain usable
+        // Show user-facing error and throw to prevent further operations with broken state
         showFormError(
-          `Failed to update form after selecting "${value}". Please try again or refresh the page.`
+          `Failed to update form after selecting "${value}". Please close this dialog and try again. If the problem persists, refresh the page.`
         );
-        // Return without re-throwing - error is logged and user is notified
+        // Mark form as broken to prevent submission
+        const form = document.getElementById('cardForm');
+        if (form) {
+          form.dataset.broken = 'true';
+        }
+        // Re-throw to halt further operations
+        throw new Error(`onSelect callback failed for ${comboboxId}: ${error.message}`);
       }
     }
   }
@@ -594,13 +602,13 @@ function destroyCombobox(combobox, name) {
       return null;
     }
 
-    // Critical: unexpected error during destroy - show error UI but don't throw
-    // Throwing would prevent further cleanup operations from running
+    // Critical: unexpected error during destroy - show error UI and throw
     console.error(`[Cards] CRITICAL: Failed to destroy ${name} combobox:`, error);
     showErrorUI('Failed to reset combobox. Please refresh the page to avoid issues.', () =>
       window.location.reload()
     );
-    // Return null to allow caller to continue cleanup (e.g., destroy other comboboxes)
+    // Throw to prevent further operations that assume cleanup succeeded
+    throw new Error(`Critical error destroying ${name} combobox: ${error.message}`);
   }
   return null;
 }
@@ -1130,7 +1138,7 @@ function isAuthNotInitializedError(error) {
 // TODO(#483): Consolidate to error codes once Firebase provides consistent error.code
 //
 // On detection, we retry after AUTH_RETRY_MS (500ms) up to authListenerMaxRetries (10)
-// times, totaling 5 seconds max wait. This handles cold starts and slow networks.
+// times, totaling 4.5 seconds max wait (9 × 500ms delays). This handles cold starts and slow networks.
 function setupAuthStateListener() {
   try {
     // Reset retry counter on successful setup
@@ -1166,12 +1174,29 @@ function setupAuthStateListener() {
       state.authListenerRetries++;
       if (state.authListenerRetries >= state.authListenerMaxRetries) {
         console.error('[Cards] Auth listener setup failed after max retries');
-        showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
-          window.location.reload()
-        );
-        // Don't throw - error UI is shown, app can continue in degraded mode
-        // User will need to refresh to get auth-gated features
-        return;
+
+        // Show blocking error screen
+        const errorScreen = document.createElement('div');
+        errorScreen.style.cssText =
+          'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.9); color: white; display: flex; align-items: center; justify-content: center; z-index: 10000; flex-direction: column; padding: 2rem;';
+
+        const title = document.createElement('h1');
+        title.textContent = 'Authentication Failed';
+        errorScreen.appendChild(title);
+
+        const message = document.createElement('p');
+        message.textContent = `Cannot initialize authentication system after ${state.authListenerMaxRetries} attempts.`;
+        errorScreen.appendChild(message);
+
+        const button = document.createElement('button');
+        button.textContent = 'Refresh Page';
+        button.onclick = () => window.location.reload();
+        errorScreen.appendChild(button);
+
+        document.body.appendChild(errorScreen);
+
+        // Throw to halt initialization
+        throw new Error('Auth listener setup failed after max retries');
       }
       // Auth not ready yet - retry with debug logging for timing diagnostics
       console.debug(
@@ -1181,12 +1206,13 @@ function setupAuthStateListener() {
       return;
     }
 
-    // Only log if it's NOT an expected "auth not ready" error
+    // Unexpected errors - halt initialization
     console.error('[Cards] Auth state listener setup failed:', error.message);
     showErrorUI('Authentication monitoring failed. Please refresh the page.', () =>
       window.location.reload()
     );
-    // Don't throw - error UI is shown, app continues in degraded mode
+    // Throw to halt initialization
+    throw error;
   }
 }
 
@@ -1443,7 +1469,8 @@ function openCardEditor(card = null) {
         formExists: !!form,
       });
       showWarningBanner('Card editor is not available. Please refresh the page to continue.');
-      return;
+      // Throw for missing modal elements (critical error)
+      throw new Error('Card editor modal elements missing from DOM');
     }
 
     // Reset form
@@ -1748,11 +1775,31 @@ async function handleCardSave(e) {
       stack: error.stack,
       cardId: id || newCardId,
     });
-    // State corruption is recoverable via refresh - show warning but continue
-    // Card is saved in Firestore, so data is safe
-    showWarningBanner(
-      'Card saved but local display may be outdated. Refresh the page to see all changes.'
+
+    // Card is in Firestore but UI is broken - this is critical
+    showFormError(
+      'Card was saved successfully, but the display failed to update. ' +
+        'Please refresh the page to see your card. ' +
+        'Do not close this dialog until you refresh.'
     );
+
+    // Add refresh button to error message
+    const errorBanner = document.querySelector('.form-error-banner');
+    if (errorBanner) {
+      const refreshBtn = document.createElement('button');
+      refreshBtn.textContent = 'Refresh Page Now';
+      refreshBtn.className = 'btn-primary';
+      refreshBtn.onclick = () => window.location.reload();
+      errorBanner.appendChild(refreshBtn);
+    }
+
+    // DON'T close modal or apply filters - keep it open so user sees the error
+    // Re-enable button and reset lock so user can retry or refresh
+    if (saveBtn) saveBtn.disabled = false;
+    isSaving = false;
+
+    // Throw to prevent closeCardEditor and applyFilters from running
+    throw new Error('State update failed after Firestore write');
   }
 
   try {
@@ -1764,8 +1811,31 @@ async function handleCardSave(e) {
       message: error.message,
       stack: error.stack,
     });
-    // Card is saved in Firestore, just show warning
-    showFormError('Card saved but UI update failed. Please refresh the page to see your card.');
+
+    showFormError(
+      'Card saved but UI update failed. You MUST refresh the page now. ' +
+        'Do not try to save again or you will create duplicate cards.'
+    );
+
+    // Keep Save button disabled to prevent duplicate saves
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Please Refresh Page';
+    }
+
+    // Keep isSaving = true to prevent further submissions
+    // Add prominent refresh button
+    const errorBanner = document.querySelector('.form-error-banner');
+    if (errorBanner) {
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'btn-primary';
+      refreshBtn.textContent = 'Refresh Page Now';
+      refreshBtn.onclick = () => window.location.reload();
+      errorBanner.appendChild(refreshBtn);
+    }
+
+    // Throw to prevent finally block from resetting isSaving
+    throw new Error('UI update failed after save');
   } finally {
     // Re-enable Save button and reset submission lock
     if (saveBtn) {
@@ -1801,18 +1871,29 @@ async function deleteCard() {
       closeCardEditor();
       applyFilters();
     } catch (error) {
-      console.error('[Cards] Error deleting card:', { id, error: error.message });
+      console.error('[Cards] Error deleting card:', { id, error: error.message, code: error.code });
 
-      // Handle not-found errors specifically
-      if (error.message?.includes('not found') || error.code === 'not-found') {
+      // Only treat as "already deleted" if error code confirms it
+      if (error.code === 'not-found') {
         showFormError('Card was already deleted. Refreshing list.');
-        // Remove from local state anyway
         state.cards = state.cards.filter((c) => c.id !== id);
         closeCardEditor();
         applyFilters();
-      } else {
-        showFormError(`Error deleting card: ${error.message}`);
+        return;
       }
+
+      // All other errors - don't modify state, keep modal open
+      let errorMessage = 'Error deleting card: ';
+      if (error.code === 'permission-denied') {
+        errorMessage += 'You do not have permission to delete this card.';
+      } else if (error.code === 'unavailable') {
+        errorMessage += 'Server temporarily unavailable. Please try again.';
+      } else {
+        errorMessage += error.message;
+      }
+
+      showFormError(errorMessage + ' Please try again or refresh the page.');
+      // Don't close modal - let user retry or cancel manually
     }
   }
 }

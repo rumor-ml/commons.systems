@@ -2,10 +2,94 @@
 import { test as base, expect } from '@playwright/test';
 import admin from 'firebase-admin';
 
+/**
+ * Branded type for User ID to provide semantic meaning and prevent mixing with plain strings.
+ * @example
+ * const userId: UserId = await createTestUser('test@example.com');
+ * await signInTestUser(userId); // Type-safe - only accepts UserId
+ */
+type UserId = string & { readonly __brand: 'UserId' };
+
+/**
+ * Test fixtures for Firebase Authentication emulator operations.
+ *
+ * These fixtures provide helper methods for E2E tests to manage auth state.
+ *
+ * @remarks
+ * **IMPORTANT: Usage order invariants**
+ * - `createTestUser` must be called BEFORE `signInTestUser` for a given email
+ * - `signInTestUser` requires the user to already exist in the emulator
+ * - `signOutTestUser` has no preconditions
+ *
+ * @example
+ * ```typescript
+ * test('my test', async ({ page, authEmulator }) => {
+ *   // 1. Create user first
+ *   const userId = await authEmulator.createTestUser('test@example.com');
+ *
+ *   // 2. Sign in with the created user's ID
+ *   await authEmulator.signInTestUser('test@example.com');
+ *
+ *   // 3. Perform test actions...
+ *
+ *   // 4. Sign out when done (optional)
+ *   await authEmulator.signOutTestUser();
+ * });
+ * ```
+ */
 type AuthFixtures = {
   authEmulator: {
-    createTestUser: (email: string, password?: string) => Promise<string>;
+    /**
+     * Creates a new test user in the Firebase Auth emulator.
+     *
+     * @param email - User email address (should be unique per test)
+     * @param password - User password (default: 'testpassword123')
+     * @returns Promise resolving to the user's UID
+     *
+     * @remarks
+     * - Email format is not validated by this function
+     * - Password requirements are not enforced in emulator mode
+     * - The user is created but NOT signed in - call `signInTestUser` afterward
+     *
+     * @example
+     * const userId = await authEmulator.createTestUser(`test-${Date.now()}@example.com`);
+     */
+    createTestUser: (email: string, password?: string) => Promise<UserId>;
+
+    /**
+     * Signs in a test user using the Firebase Auth emulator.
+     *
+     * @param email - Email of user to sign in
+     * @param password - User password (default: 'testpassword123')
+     * @returns Promise that resolves when sign-in completes and auth state propagates
+     *
+     * @precondition User must have been created with `createTestUser` first
+     * @throws Error if user does not exist or credentials are invalid
+     *
+     * @remarks
+     * - Uses custom token authentication via Firebase Admin SDK
+     * - Waits for auth state to propagate to the page
+     * - Sets `window.__testAuth` and adds 'authenticated' class to body
+     *
+     * @example
+     * await authEmulator.createTestUser('test@example.com');
+     * await authEmulator.signInTestUser('test@example.com');
+     */
     signInTestUser: (email: string, password?: string) => Promise<void>;
+
+    /**
+     * Signs out the current test user by clearing auth state.
+     *
+     * @returns Promise that resolves when sign-out completes
+     *
+     * @remarks
+     * - Clears all Firebase auth keys from localStorage
+     * - Reloads the page to reset state
+     * - Safe to call even if no user is signed in
+     *
+     * @example
+     * await authEmulator.signOutTestUser();
+     */
     signOutTestUser: () => Promise<void>;
   };
 };
@@ -41,7 +125,10 @@ export const test = base.extend<AuthFixtures>({
     const AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || 'localhost:9099';
     const API_KEY = 'fake-api-key'; // Emulator accepts any API key
 
-    const createTestUser = async (email: string, password: string = 'testpassword123') => {
+    const createTestUser = async (
+      email: string,
+      password: string = 'testpassword123'
+    ): Promise<UserId> => {
       // Use Firebase Auth emulator API to create test user
       const response = await page.request.post(
         `http://${AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
@@ -54,7 +141,7 @@ export const test = base.extend<AuthFixtures>({
         }
       );
       const data = await response.json();
-      return data.localId;
+      return data.localId as UserId;
     };
 
     const signInTestUser = async (email: string, password: string = 'testpassword123') => {

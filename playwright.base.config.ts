@@ -3,34 +3,63 @@ import { defineConfig, devices, PlaywrightTestConfig } from '@playwright/test';
 
 // Base configuration shared by both modes
 interface BaseSiteConfig {
-  siteName: string;
-  deployedUrl?: string;
-  testDir?: string;
-  env?: Record<string, string>;
-  timeout?: number;
-  expect?: { timeout?: number };
-  globalSetup?: string;
-  globalTeardown?: string;
+  readonly siteName: string;
+  readonly deployedUrl?: string;
+  readonly testDir?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly timeout?: number;
+  readonly expect?: { readonly timeout?: number };
+  readonly globalSetup?: string;
+  readonly globalTeardown?: string;
 }
 
 // Modern: Uses Firebase Hosting emulator (no web server command needed)
 export interface HostingEmulatorConfig extends BaseSiteConfig {
-  mode: 'hosting-emulator';
-  port: number; // Port where hosting emulator is running
+  readonly mode: 'hosting-emulator';
+  readonly port: number; // Port where hosting emulator is running
 }
 
 // Legacy: Uses custom web server command
 export interface WebServerConfig extends BaseSiteConfig {
-  mode: 'web-server';
-  port: number; // Port where web server will run
-  webServerCommand: {
-    local: string;
-    ci: string;
+  readonly mode: 'web-server';
+  readonly port: number; // Port where web server will run
+  readonly webServerCommand: {
+    readonly local: string;
+    readonly ci: string;
   };
 }
 
 // Discriminated union: only valid state combinations are representable
 export type SiteConfig = HostingEmulatorConfig | WebServerConfig;
+
+/**
+ * Validates SiteConfig invariants at runtime.
+ * Throws an error if the configuration violates constraints.
+ */
+export function validateSiteConfig(config: SiteConfig): void {
+  // Validate port range
+  if (config.port < 1 || config.port > 65535) {
+    throw new Error(`Invalid port: ${config.port}. Port must be between 1 and 65535.`);
+  }
+
+  // Validate env values (no undefined values allowed in Record<string, string>)
+  if (config.env) {
+    for (const [key, value] of Object.entries(config.env)) {
+      if (value === undefined) {
+        throw new Error(
+          `Environment variable "${key}" has undefined value. All env values must be strings.`
+        );
+      }
+    }
+  }
+
+  // Validate mode-specific requirements
+  if (config.mode === 'web-server') {
+    if (!config.webServerCommand?.local || !config.webServerCommand?.ci) {
+      throw new Error('WebServerConfig requires both local and ci webServerCommand values.');
+    }
+  }
+}
 
 /**
  * Gets web server configuration with proper type narrowing.
@@ -60,6 +89,9 @@ function getWebServerConfig(site: SiteConfig): PlaywrightTestConfig['webServer']
 }
 
 export function createPlaywrightConfig(site: SiteConfig): PlaywrightTestConfig {
+  // Validate configuration before use
+  validateSiteConfig(site);
+
   const isDeployed = process.env.DEPLOYED === 'true';
 
   // Set environment variables for test process

@@ -15,23 +15,38 @@ import { join } from 'path';
 export type TestMode = 'emulator' | 'deployed';
 
 /**
+ * Branded type for validated host:port strings
+ */
+type HostPort = string & { readonly __brand: 'HostPort' };
+
+/**
+ * Branded type for validated port numbers
+ */
+type ValidPort = number & { readonly __brand: 'ValidPort' };
+
+/**
+ * Branded type for non-empty strings
+ */
+type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
+
+/**
  * Firebase emulator configuration
  */
 export interface EmulatorConfig {
   /** GCP Project ID for emulator isolation */
-  projectId: string;
+  projectId: NonEmptyString;
 
   /** Firestore emulator host (format: "host:port") */
-  firestoreHost: string;
+  firestoreHost: HostPort;
 
   /** Auth emulator host (format: "host:port") */
-  authHost: string;
+  authHost: HostPort;
 
   /** Storage emulator host (format: "host:port") */
-  storageHost: string;
+  storageHost: HostPort;
 
   /** Hosting emulator port number */
-  hostingPort: number;
+  hostingPort: ValidPort;
 }
 
 /**
@@ -86,6 +101,140 @@ export interface DeployedTestEnvironment extends BaseTestEnvironment {
  * Complete test environment configuration (discriminated union)
  */
 export type TestEnvironment = EmulatorTestEnvironment | DeployedTestEnvironment;
+
+/**
+ * Validate and create a host:port string
+ * @throws Error if format is invalid
+ */
+function validateHostPort(value: string, fieldName: string): HostPort {
+  if (!value || typeof value !== 'string' || !value.includes(':')) {
+    throw new Error(`${fieldName} must be a string in format "host:port", got: ${value}`);
+  }
+  return value as HostPort;
+}
+
+/**
+ * Validate and create a valid port number
+ * @throws Error if port is out of range
+ */
+function validatePort(value: number, fieldName: string): ValidPort {
+  if (typeof value !== 'number' || value < 1 || value > 65535) {
+    throw new Error(`${fieldName} must be a valid port number (1-65535), got: ${value}`);
+  }
+  return value as ValidPort;
+}
+
+/**
+ * Validate and create a non-empty string
+ * @throws Error if string is empty
+ */
+function validateNonEmptyString(value: string, fieldName: string): NonEmptyString {
+  if (!value || typeof value !== 'string') {
+    throw new Error(`${fieldName} must be a non-empty string, got: ${value}`);
+  }
+  return value as NonEmptyString;
+}
+
+/**
+ * Factory function to create a validated EmulatorConfig
+ * Enforces all format invariants at construction time
+ *
+ * @param config - Raw configuration object
+ * @returns Validated EmulatorConfig
+ * @throws Error if any field is invalid
+ */
+export function createEmulatorConfig(config: {
+  projectId: string;
+  firestoreHost: string;
+  authHost: string;
+  storageHost: string;
+  hostingPort: number;
+}): EmulatorConfig {
+  return {
+    projectId: validateNonEmptyString(config.projectId, 'projectId'),
+    firestoreHost: validateHostPort(config.firestoreHost, 'firestoreHost'),
+    authHost: validateHostPort(config.authHost, 'authHost'),
+    storageHost: validateHostPort(config.storageHost, 'storageHost'),
+    hostingPort: validatePort(config.hostingPort, 'hostingPort'),
+  };
+}
+
+/**
+ * Factory function to create a validated EmulatorTestEnvironment
+ * Enforces discriminated union invariants at construction time
+ *
+ * @param config - Raw configuration object
+ * @returns Validated EmulatorTestEnvironment
+ * @throws Error if configuration is invalid
+ */
+export function createEmulatorEnvironment(config: {
+  emulators: EmulatorConfig;
+  isCI: boolean;
+  timeouts: {
+    test: number;
+    emulatorStartup: number;
+    multiplier: number;
+  };
+}): EmulatorTestEnvironment {
+  // Validate timeouts
+  if (typeof config.timeouts.test !== 'number' || config.timeouts.test <= 0) {
+    throw new Error('timeouts.test must be a positive number');
+  }
+  if (typeof config.timeouts.emulatorStartup !== 'number' || config.timeouts.emulatorStartup <= 0) {
+    throw new Error('timeouts.emulatorStartup must be a positive number');
+  }
+  if (typeof config.timeouts.multiplier !== 'number' || config.timeouts.multiplier <= 0) {
+    throw new Error('timeouts.multiplier must be a positive number');
+  }
+
+  return {
+    mode: 'emulator',
+    isCI: config.isCI,
+    emulators: config.emulators,
+    timeouts: config.timeouts,
+  };
+}
+
+/**
+ * Factory function to create a validated DeployedTestEnvironment
+ * Enforces discriminated union invariants at construction time
+ *
+ * @param config - Raw configuration object
+ * @returns Validated DeployedTestEnvironment
+ * @throws Error if configuration is invalid
+ */
+export function createDeployedEnvironment(config: {
+  deployedUrl: string;
+  isCI: boolean;
+  timeouts: {
+    test: number;
+    emulatorStartup: number;
+    multiplier: number;
+  };
+}): DeployedTestEnvironment {
+  // Validate deployedUrl
+  if (!config.deployedUrl || typeof config.deployedUrl !== 'string') {
+    throw new Error('deployedUrl must be a non-empty string');
+  }
+
+  // Validate timeouts
+  if (typeof config.timeouts.test !== 'number' || config.timeouts.test <= 0) {
+    throw new Error('timeouts.test must be a positive number');
+  }
+  if (typeof config.timeouts.emulatorStartup !== 'number' || config.timeouts.emulatorStartup <= 0) {
+    throw new Error('timeouts.emulatorStartup must be a positive number');
+  }
+  if (typeof config.timeouts.multiplier !== 'number' || config.timeouts.multiplier <= 0) {
+    throw new Error('timeouts.multiplier must be a positive number');
+  }
+
+  return {
+    mode: 'deployed',
+    isCI: config.isCI,
+    deployedUrl: config.deployedUrl,
+    timeouts: config.timeouts,
+  };
+}
 
 /**
  * Load and validate test environment configuration
@@ -233,28 +382,28 @@ export function getTestEnvironmentFromEnv(): TestEnvironment {
     multiplier: timeoutMultiplier,
   };
 
-  // Return discriminated union based on mode
+  // Return discriminated union based on mode using factory functions
   if (deployedUrl) {
     // Deployed mode: requires deployedUrl, no emulators
-    return {
-      mode: 'deployed',
-      isCI,
+    return createDeployedEnvironment({
       deployedUrl,
+      isCI,
       timeouts,
-    };
+    });
   } else {
     // Emulator mode: requires emulators, no deployedUrl
-    return {
-      mode: 'emulator',
+    const emulators = createEmulatorConfig({
+      projectId: process.env.GCP_PROJECT_ID || 'demo-test',
+      firestoreHost: process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081',
+      authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099',
+      storageHost: process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199',
+      hostingPort: parseInt(process.env.HOSTING_PORT || '5002'),
+    });
+
+    return createEmulatorEnvironment({
+      emulators,
       isCI,
-      emulators: {
-        projectId: process.env.GCP_PROJECT_ID || 'demo-test',
-        firestoreHost: process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081',
-        authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099',
-        storageHost: process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199',
-        hostingPort: parseInt(process.env.HOSTING_PORT || '5002'),
-      },
       timeouts,
-    };
+    });
   }
 }

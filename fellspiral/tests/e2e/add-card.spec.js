@@ -39,8 +39,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     console.log(`Cleaned up ${deletedCount} test cards`);
   });
 
-  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
-  test.skip('should create card with all fields populated', async ({ page, authEmulator }) => {
+  test('should create card with all fields populated', async ({ page, authEmulator }) => {
     await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2000);
 
@@ -68,8 +67,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     expect(firestoreCard.description).toBe(cardData.description);
   });
 
-  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
-  test.skip('should create card with only required fields', async ({ page, authEmulator }) => {
+  test('should create card with only required fields', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
@@ -99,8 +97,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     expect(firestoreCard.title).toBe(cardData.title);
   });
 
-  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
-  test.skip('should verify card persists to Firestore emulator', async ({ page, authEmulator }) => {
+  test('should verify card persists to Firestore emulator', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
@@ -124,8 +121,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     expect(firestoreCard.title).toBe(cardData.title);
   });
 
-  // TODO(#1263): Fix Firefox ESM module loading error in authEmulator fixture
-  test.skip('should verify Firestore document structure includes metadata', async ({
+  test('should verify Firestore document structure includes metadata', async ({
     page,
     authEmulator,
   }) => {
@@ -355,8 +351,7 @@ test.describe('Add Card - Form Validation Tests', () => {
     expect(isValid).toBe(false);
   });
 
-  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
-  test.skip('should parse comma-separated tags correctly', async ({ page, authEmulator }) => {
+  test('should parse comma-separated tags correctly', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
@@ -394,8 +389,7 @@ test.describe('Add Card - Form Validation Tests', () => {
     }
   });
 
-  // TODO(#1325): Flaky - Firestore emulator times out intermittently during card creation
-  test.skip('should handle tags with extra spaces', async ({ page, authEmulator }) => {
+  test('should handle tags with extra spaces', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
@@ -1084,7 +1078,7 @@ test.describe('Combobox Interaction Tests', () => {
 test.describe('Combobox - Error State Recovery', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  // TODO(#1250): Implement combobox error state handling before enabling this test
+  // TODO(#1250): Fix combobox error message display when getOptions() throws
   test.skip('should show error message when getOptions() throws', async ({
     page,
     authEmulator,
@@ -1124,11 +1118,7 @@ test.describe('Combobox - Error State Recovery', () => {
     await expect(listbox).toHaveClass(/combobox-error/);
   });
 
-  // TODO(#1250): Implement combobox error state handling before enabling this test
-  test.skip('should allow custom values when combobox has error', async ({
-    page,
-    authEmulator,
-  }) => {
+  test('should allow custom values when combobox has error', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
     await page.waitForTimeout(3000);
@@ -1166,7 +1156,7 @@ test.describe('Combobox - Error State Recovery', () => {
     });
   });
 
-  // TODO(#1250): Implement combobox error state handling before enabling this test
+  // TODO(#1250): Fix combobox error message display when getOptions() throws
   test.skip('should clear error state on successful refresh', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
@@ -1229,8 +1219,7 @@ test.describe('Combobox - Error State Recovery', () => {
 test.describe('Add Card - XSS Protection in Custom Types', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  // TODO: "Add New" option not appearing for XSS payload - combobox logic issue
-  test.skip('should sanitize script tags in custom type values via "Add New"', async ({
+  test('should sanitize script tags in custom type values via "Add New"', async ({
     page,
     authEmulator,
   }) => {

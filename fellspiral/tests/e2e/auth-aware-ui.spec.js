@@ -8,30 +8,34 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 test.describe('Auth-Aware UI - Logged Out State', () => {
   test('should hide Add Card button when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     const addCardBtn = page.locator('#addCardBtn');
-    await expect(addCardBtn).toBeAttached();
+    await expect(addCardBtn).toBeAttached({ timeout: 10000 });
     await expect(addCardBtn).toHaveCSS('display', 'none');
   });
 
   test('should hide Import button when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     const importBtn = page.locator('#importCardsBtn');
-    await expect(importBtn).toBeAttached();
+    await expect(importBtn).toBeAttached({ timeout: 10000 });
     await expect(importBtn).toHaveCSS('display', 'none');
   });
 
   test('should hide Export button when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     const exportBtn = page.locator('#exportCardsBtn');
-    await expect(exportBtn).toBeAttached();
+    await expect(exportBtn).toBeAttached({ timeout: 10000 });
     await expect(exportBtn).toHaveCSS('display', 'none');
   });
 
   test('should not have authenticated class on body when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     const body = page.locator('body');
     await expect(body).not.toHaveClass(/authenticated/);
@@ -39,6 +43,7 @@ test.describe('Auth-Aware UI - Logged Out State', () => {
 
   test('all auth-controls should be hidden when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Get all elements with auth-controls class
     const authControls = page.locator('.auth-controls');
@@ -55,24 +60,27 @@ test.describe('Auth-Aware UI - Logged Out State', () => {
 test.describe('Auth-Aware UI - Modal Controls', () => {
   test('should hide Delete button in modal when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Delete button should be in DOM but hidden
     const deleteBtn = page.locator('#deleteCardBtn');
-    await expect(deleteBtn).toBeAttached();
+    await expect(deleteBtn).toBeAttached({ timeout: 10000 });
     await expect(deleteBtn).toHaveCSS('display', 'none');
   });
 
   test('should hide Save button in modal when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Save button should be in DOM but hidden
     const saveBtn = page.locator('#saveCardBtn');
-    await expect(saveBtn).toBeAttached();
+    await expect(saveBtn).toBeAttached({ timeout: 10000 });
     await expect(saveBtn).toHaveCSS('display', 'none');
   });
 
   test('modal should not be open initially', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     const modal = page.locator('#cardEditorModal');
     await expect(modal).not.toHaveClass(/active/);
@@ -82,6 +90,7 @@ test.describe('Auth-Aware UI - Modal Controls', () => {
 test.describe('Auth-Aware UI - Body Class Management', () => {
   test('body should not have authenticated class on page load', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Wait for page to load
     await page.waitForSelector('.card-toolbar', { timeout: 5000 });
@@ -104,6 +113,7 @@ test.describe('Auth-Aware UI - Body Class Management', () => {
 test.describe('Auth-Aware UI - CSS Verification', () => {
   test('auth-controls class should have display:none by default', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Check computed styles for auth-controls class
     const addCardBtn = page.locator('#addCardBtn.auth-controls');
@@ -116,6 +126,7 @@ test.describe('Auth-Aware UI - CSS Verification', () => {
 
   test('body without authenticated class should hide auth-controls', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Verify body doesn't have authenticated class
     const body = page.locator('body');
@@ -132,6 +143,7 @@ test.describe('Auth-Aware UI - Read-Only Mode', () => {
   // TODO(#1264): Fix flaky card loading timeout with parallel execution
   test.skip('should allow viewing cards when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Wait for cards to load
     await page.waitForSelector('.card-item, .empty-state', { timeout: 5000 });
@@ -143,6 +155,7 @@ test.describe('Auth-Aware UI - Read-Only Mode', () => {
 
   test('should allow using search when logged out', async ({ page }) => {
     await page.goto('/cards.html');
+    await page.waitForLoadState('domcontentloaded');
 
     // Wait for page to load
     await page.waitForSelector('#searchCards', { timeout: 5000 });
