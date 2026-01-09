@@ -439,6 +439,7 @@ func TestWriteBudget_NilBudget(t *testing.T) {
 	}
 }
 
+// TODO(#1354): Test stdout path is incomplete - should redirect os.Stdout and verify output
 func TestWriteBudgetToFile_Stdout(t *testing.T) {
 	// Create budget
 	budget := domain.NewBudget()
@@ -456,4 +457,76 @@ func TestWriteBudgetToFile_Stdout(t *testing.T) {
 	// Just verify the code path doesn't panic
 	// In real usage, this would be tested manually
 	_ = opts
+}
+
+func TestWriteBudgetToFile_WriteError(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "budget.json")
+
+	// Create a budget
+	budget := domain.NewBudget()
+	inst, _ := domain.NewInstitution("test-bank", "Test Bank")
+	budget.AddInstitution(*inst)
+
+	// Make directory read-only to prevent file writes
+	if err := os.Chmod(tmpDir, 0444); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(tmpDir, 0755)
+
+	opts := WriteOptions{FilePath: outputPath}
+	err := WriteBudgetToFile(budget, opts)
+
+	if err == nil {
+		t.Error("expected error when directory is read-only")
+	}
+	if !strings.Contains(err.Error(), "failed to create temp file") {
+		t.Errorf("expected create temp file error, got: %v", err)
+	}
+}
+
+func TestLoadBudget_EmptyPath(t *testing.T) {
+	_, err := LoadBudget("")
+	if err == nil {
+		t.Error("expected error for empty file path")
+	}
+	if !strings.Contains(err.Error(), "file path cannot be empty") {
+		t.Errorf("expected empty path error, got: %v", err)
+	}
+}
+
+func TestMergeBudgets_NilTarget(t *testing.T) {
+	source := domain.NewBudget()
+	err := mergeBudgets(nil, source)
+	if err == nil {
+		t.Error("expected error for nil target")
+	}
+	if !strings.Contains(err.Error(), "budgets cannot be nil") {
+		t.Errorf("expected nil budget error, got: %v", err)
+	}
+}
+
+func TestMergeBudgets_NilSource(t *testing.T) {
+	target := domain.NewBudget()
+	err := mergeBudgets(target, nil)
+	if err == nil {
+		t.Error("expected error for nil source")
+	}
+	if !strings.Contains(err.Error(), "budgets cannot be nil") {
+		t.Errorf("expected nil budget error, got: %v", err)
+	}
+}
+
+func TestWriteBudgetToFile_NilBudget(t *testing.T) {
+	opts := WriteOptions{
+		FilePath:  filepath.Join(t.TempDir(), "test.json"),
+		MergeMode: false,
+	}
+	err := WriteBudgetToFile(nil, opts)
+	if err == nil {
+		t.Error("expected error for nil budget")
+	}
+	if !strings.Contains(err.Error(), "budget cannot be nil") {
+		t.Errorf("expected nil budget error, got: %v", err)
+	}
 }

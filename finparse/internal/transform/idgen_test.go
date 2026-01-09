@@ -9,88 +9,123 @@ import (
 
 func TestSlugifyInstitution(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected string
+		name        string
+		input       string
+		expected    string
+		expectError bool
 	}{
 		{
-			name:     "simple name with space",
-			input:    "American Express",
-			expected: "american-express",
+			name:        "simple name with space",
+			input:       "American Express",
+			expected:    "american-express",
+			expectError: false,
 		},
 		{
-			name:     "already lowercase",
-			input:    "pnc bank",
-			expected: "pnc-bank",
+			name:        "already lowercase",
+			input:       "pnc bank",
+			expected:    "pnc-bank",
+			expectError: false,
 		},
 		{
-			name:     "special characters",
-			input:    "Wells Fargo & Co.",
-			expected: "wells-fargo-co",
+			name:        "special characters",
+			input:       "Wells Fargo & Co.",
+			expected:    "wells-fargo-co",
+			expectError: false,
 		},
 		{
-			name:     "multiple spaces",
-			input:    "Capital  One   Bank",
-			expected: "capital-one-bank",
+			name:        "multiple spaces",
+			input:       "Capital  One   Bank",
+			expected:    "capital-one-bank",
+			expectError: false,
 		},
 		{
-			name:     "unicode characters",
-			input:    "Café Crédit",
-			expected: "cafe-credit",
+			name:        "unicode characters",
+			input:       "Café Crédit",
+			expected:    "cafe-credit",
+			expectError: false,
 		},
 		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
+			name:        "empty string",
+			input:       "",
+			expected:    "",
+			expectError: true,
 		},
 		{
-			name:     "single word",
-			input:    "Chase",
-			expected: "chase",
+			name:        "single word",
+			input:       "Chase",
+			expected:    "chase",
+			expectError: false,
 		},
 		{
-			name:     "trailing special chars",
-			input:    "Bank of America!",
-			expected: "bank-of-america",
+			name:        "trailing special chars",
+			input:       "Bank of America!",
+			expected:    "bank-of-america",
+			expectError: false,
 		},
 		{
-			name:     "leading special chars",
-			input:    "!Chase Bank",
-			expected: "chase-bank",
+			name:        "leading special chars",
+			input:       "!Chase Bank",
+			expected:    "chase-bank",
+			expectError: false,
 		},
 		{
-			name:     "numbers in name",
-			input:    "Bank 123",
-			expected: "bank-123",
+			name:        "numbers in name",
+			input:       "Bank 123",
+			expected:    "bank-123",
+			expectError: false,
 		},
 		{
-			name:     "only special characters",
-			input:    "!@#$%^&*()",
-			expected: "",
+			name:        "only special characters",
+			input:       "!@#$%^&*()",
+			expected:    "",
+			expectError: true,
 		},
 		{
-			name:     "only hyphens",
-			input:    "---",
-			expected: "",
+			name:        "only hyphens",
+			input:       "---",
+			expected:    "",
+			expectError: true,
 		},
 		{
-			name:     "special chars with spaces",
-			input:    "!!! --- ###",
-			expected: "",
+			name:        "special chars with spaces",
+			input:       "!!! --- ###",
+			expected:    "",
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := SlugifyInstitution(tt.input)
-			if err != nil {
-				t.Errorf("SlugifyInstitution(%q) returned unexpected error: %v", tt.input, err)
-			}
-			if result != tt.expected {
-				t.Errorf("SlugifyInstitution(%q) = %q, expected %q", tt.input, result, tt.expected)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("SlugifyInstitution(%q) expected error, got nil", tt.input)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("SlugifyInstitution(%q) returned unexpected error: %v", tt.input, err)
+				}
+				if result != tt.expected {
+					t.Errorf("SlugifyInstitution(%q) = %q, expected %q", tt.input, result, tt.expected)
+				}
 			}
 		})
 	}
+}
+
+// TestSlugifyInstitution_UnicodeNormalizationError documents the error handling
+// for unicode normalization failures. This error path is defensive code that's
+// extremely rare in practice because:
+// 1. Go strings are valid UTF-8 by construction
+// 2. The transform.String function rarely fails with valid inputs
+// 3. Would require malformed UTF-8 or artificially injected failing transformer
+//
+// The error handling exists to provide context (institution name) if this
+// ever occurs due to corrupt input data, making debugging possible.
+func TestSlugifyInstitution_UnicodeNormalizationError(t *testing.T) {
+	t.Skip("Unicode normalization error path is defensive code that's extremely difficult to trigger with valid Go strings. " +
+		"Testing would require injecting a failing transformer or crafting malformed UTF-8 that Go's string handling prevents. " +
+		"Error handling at idgen.go:24-27 wraps failures with institution name context for debugging if this ever occurs.")
 }
 
 func TestExtractLast4(t *testing.T) {

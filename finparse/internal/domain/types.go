@@ -231,10 +231,10 @@ func (b *Budget) MarshalJSON() ([]byte, error) {
 		Statements   []Statement   `json:"statements"`
 		Transactions []Transaction `json:"transactions"`
 	}{
-		Institutions: b.institutions,
-		Accounts:     b.accounts,
-		Statements:   b.statements,
-		Transactions: b.transactions,
+		Institutions: append([]Institution(nil), b.institutions...),
+		Accounts:     append([]Account(nil), b.accounts...),
+		Statements:   append([]Statement(nil), b.statements...),
+		Transactions: append([]Transaction(nil), b.transactions...),
 	})
 }
 
@@ -310,12 +310,6 @@ func (t *Transaction) GetStatementIDs() []string {
 	return result
 }
 
-// CopyStatementIDs returns a copy of the statement IDs slice
-// Deprecated: Use GetStatementIDs instead
-func (t *Transaction) CopyStatementIDs() []string {
-	return append([]string(nil), t.statementIDs...)
-}
-
 // ValidateFlags checks consistency between Redeemable flag and RedemptionRate
 func (t *Transaction) ValidateFlags() error {
 	if t.Redeemable && t.RedemptionRate == 0.0 {
@@ -330,12 +324,16 @@ func (t *Transaction) ValidateFlags() error {
 // MarshalJSON implements custom JSON marshaling for Transaction
 func (t *Transaction) MarshalJSON() ([]byte, error) {
 	type Alias Transaction
+	// Create defensive copy for marshaling
+	statementIDsCopy := make([]string, len(t.statementIDs))
+	copy(statementIDsCopy, t.statementIDs)
+
 	return json.Marshal(&struct {
 		*Alias
 		StatementIDs []string `json:"statementIds"`
 	}{
 		Alias:        (*Alias)(t),
-		StatementIDs: t.statementIDs,
+		StatementIDs: statementIDsCopy,
 	})
 }
 
@@ -352,6 +350,10 @@ func (t *Transaction) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	t.statementIDs = aux.StatementIDs
+	// Validate redemption rate
+	if t.RedemptionRate < 0 || t.RedemptionRate > 1 {
+		return fmt.Errorf("redemption rate must be in [0,1], got %f", t.RedemptionRate)
+	}
 	return nil
 }
 
@@ -374,8 +376,8 @@ func NewStatement(id, accountID, startDate, endDate string) (*Statement, error) 
 		return nil, fmt.Errorf("invalid end date: %w", err)
 	}
 
-	if !start.Before(end) {
-		return nil, fmt.Errorf("start date must be before end date")
+	if end.Before(start) {
+		return nil, fmt.Errorf("end date %s cannot be before start date %s", endDate, startDate)
 	}
 
 	return &Statement{
@@ -406,21 +408,19 @@ func (s *Statement) GetTransactionIDs() []string {
 	return result
 }
 
-// CopyTransactionIDs returns a copy of the transaction IDs slice
-// Deprecated: Use GetTransactionIDs instead
-func (s *Statement) CopyTransactionIDs() []string {
-	return append([]string(nil), s.transactionIDs...)
-}
-
 // MarshalJSON implements custom JSON marshaling for Statement
 func (s *Statement) MarshalJSON() ([]byte, error) {
 	type Alias Statement
+	// Create defensive copy for marshaling
+	transactionIDsCopy := make([]string, len(s.transactionIDs))
+	copy(transactionIDsCopy, s.transactionIDs)
+
 	return json.Marshal(&struct {
 		*Alias
 		TransactionIDs []string `json:"transactionIds"`
 	}{
 		Alias:          (*Alias)(s),
-		TransactionIDs: s.transactionIDs,
+		TransactionIDs: transactionIDsCopy,
 	})
 }
 

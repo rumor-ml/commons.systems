@@ -11,7 +11,8 @@ import (
 )
 
 // TransformStatement converts RawStatement to domain types and adds to Budget.
-// This is the main orchestrator that handles the complete transformation flow.
+// Institutions and accounts are added idempotently (duplicates are silently skipped).
+// Statements and transactions will fail on duplicates (data quality issue).
 func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 	if raw == nil {
 		return fmt.Errorf("raw statement cannot be nil")
@@ -27,13 +28,11 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 		return fmt.Errorf("failed to transform institution: %w", err)
 	}
 
-	// Only add institution if it doesn't already exist (idempotent)
+	// Add institution (idempotent)
 	if err := budget.AddInstitution(*institution); err != nil {
-		// Check if error is due to duplicate - if so, continue (merge mode)
 		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return fmt.Errorf("failed to add institution: %w", err)
 		}
-		// Institution already exists in budget, continue with transformation
 	}
 
 	// 2. Transform and add account
@@ -42,13 +41,11 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 		return fmt.Errorf("failed to transform account: %w", err)
 	}
 
-	// Only add account if it doesn't already exist (idempotent)
+	// Add account (idempotent)
 	if err := budget.AddAccount(*account); err != nil {
-		// Check if error is due to duplicate - if so, continue (merge mode)
 		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return fmt.Errorf("failed to add account: %w", err)
 		}
-		// Account already exists in budget, continue with transformation
 	}
 
 	// 3. Transform and add statement
@@ -62,14 +59,17 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 	}
 
 	// 4. Transform and add transactions
+	// TODO(#1347): Consider adding benchmark tests for large transaction volumes
 	for i, rawTxn := range raw.Transactions {
 		txn, err := transformTransaction(&rawTxn, statement.ID)
 		if err != nil {
-			return fmt.Errorf("failed to transform transaction %d: %w", i, err)
+			return fmt.Errorf("failed to transform transaction %d/%d (ID: %q, date: %s): %w",
+				i+1, len(raw.Transactions), rawTxn.ID(), rawTxn.Date().Format("2006-01-02"), err)
 		}
 
 		if err := budget.AddTransaction(*txn); err != nil {
-			return fmt.Errorf("failed to add transaction %d: %w", i, err)
+			return fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w",
+				i+1, len(raw.Transactions), txn.ID, err)
 		}
 	}
 
@@ -87,9 +87,6 @@ func transformInstitution(raw *parser.RawAccount) (*domain.Institution, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to slugify institution name: %w", err)
 	}
-	if slug == "" {
-		return nil, fmt.Errorf("failed to generate institution slug from name: %s", name)
-	}
 
 	institution, err := domain.NewInstitution(slug, name)
 	if err != nil {
@@ -105,9 +102,8 @@ func transformAccount(raw *parser.RawAccount, institutionID string) (*domain.Acc
 		return nil, fmt.Errorf("account number cannot be empty")
 	}
 
-	// Generate account ID
-	institutionSlug := institutionID // Institution ID is already slugified
-	accountID := GenerateAccountID(institutionSlug, accountNumber)
+	// Generate account ID (institutionID is already slugified)
+	accountID := GenerateAccountID(institutionID, accountNumber)
 
 	// Map account type
 	accountType, err := mapAccountType(raw.AccountType())
@@ -115,7 +111,7 @@ func transformAccount(raw *parser.RawAccount, institutionID string) (*domain.Acc
 		return nil, err
 	}
 
-	// Use account number as the display name
+	// Create display name from last 4 digits (e.g., "Account 2011")
 	// TODO(Phase 6+): Support user-defined account nicknames (e.g., "Primary Checking")
 	// instead of generic names. Would require additional metadata storage.
 	accountName := fmt.Sprintf("Account %s", ExtractLast4(accountNumber))
@@ -164,7 +160,7 @@ func transformTransaction(raw *parser.RawTransaction, statementID string) (*doma
 
 	amount := raw.Amount()
 
-	// Phase 4 defaults: category="other", all flags false, redemptionRate=0.5
+	// Phase 4 defaults: category="other", all flags false, redemptionRate=0.0
 	txn, err := domain.NewTransaction(txnID, date, description, amount, domain.CategoryOther)
 	if err != nil {
 		return nil, err
@@ -174,7 +170,7 @@ func transformTransaction(raw *parser.RawTransaction, statementID string) (*doma
 	txn.Redeemable = false
 	txn.Vacation = false
 	txn.Transfer = false
-	if err := txn.SetRedemptionRate(0.5); err != nil {
+	if err := txn.SetRedemptionRate(0.0); err != nil {
 		return nil, fmt.Errorf("failed to set redemption rate: %w", err)
 	}
 	txn.LinkedTransactionID = nil
@@ -189,6 +185,7 @@ func transformTransaction(raw *parser.RawTransaction, statementID string) (*doma
 
 // mapAccountType converts raw account type string to domain AccountType enum
 func mapAccountType(rawType string) (domain.AccountType, error) {
+	original := rawType
 	// Normalize: lowercase and trim whitespace
 	normalized := strings.ToLower(strings.TrimSpace(rawType))
 
@@ -202,7 +199,13 @@ func mapAccountType(rawType string) (domain.AccountType, error) {
 	case "investment", "brokerage":
 		return domain.AccountTypeInvestment, nil
 	default:
-		return "", fmt.Errorf("unknown account type: %s", rawType)
+		validTypes := []string{"checking", "savings", "credit", "investment"}
+		if original != normalized {
+			return "", fmt.Errorf("unknown account type: %q (normalized to %q). Valid types: %v",
+				original, normalized, validTypes)
+		}
+		return "", fmt.Errorf("unknown account type: %q. Valid types: %v",
+			original, validTypes)
 	}
 }
 

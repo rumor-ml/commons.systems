@@ -16,7 +16,7 @@ import (
 // Examples: "American Express" → "american-express", "PNC Bank" → "pnc-bank"
 func SlugifyInstitution(name string) (string, error) {
 	if name == "" {
-		return "", nil
+		return "", fmt.Errorf("institution name cannot be empty")
 	}
 
 	// Normalize unicode (e.g., accented characters)
@@ -36,6 +36,10 @@ func SlugifyInstitution(name string) (string, error) {
 	// Trim leading/trailing hyphens
 	slug = strings.Trim(slug, "-")
 
+	if slug == "" {
+		return "", fmt.Errorf("institution name %q contains no alphanumeric characters", name)
+	}
+
 	return slug, nil
 }
 
@@ -51,9 +55,12 @@ func ExtractLast4(accountNumber string) string {
 
 // GenerateAccountID creates a deterministic account ID.
 // Format: "acc-{institutionSlug}-{last4}"
+// The institutionSlug parameter should already be in slug format (e.g., from SlugifyInstitution).
+// Note: Common slugs are abbreviated internally (e.g., "bank-of-america" → "boa").
 // Example: GenerateAccountID("amex", "2011") → "acc-amex-2011"
 //
 //	GenerateAccountID("bank-of-america", "5678") → "acc-boa-5678"
+//	GenerateAccountID("pnc-bank", "5678") → "acc-pnc-bank-5678"
 func GenerateAccountID(institutionSlug, accountNumber string) string {
 	last4 := ExtractLast4(accountNumber)
 

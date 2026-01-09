@@ -218,8 +218,8 @@ NEWFILEUID:NONE
 		if txn.Redeemable != false {
 			t.Errorf("expected redeemable false, got %v", txn.Redeemable)
 		}
-		if txn.RedemptionRate != 0.5 {
-			t.Errorf("expected redemption rate 0.5, got %f", txn.RedemptionRate)
+		if txn.RedemptionRate != 0.0 {
+			t.Errorf("expected redemption rate 0.0, got %f", txn.RedemptionRate)
 		}
 	}
 

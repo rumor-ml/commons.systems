@@ -193,20 +193,20 @@ func TestRun_VerboseOutput(t *testing.T) {
 
 	defer withFlags(t, tmpDir, true, true)()
 
-	// Capture stdout
-	oldStdout := os.Stdout
+	// Capture stderr (verbose output goes to stderr)
+	oldStderr := os.Stderr
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("Failed to create pipe: %v", err)
 	}
-	os.Stdout = w
+	os.Stderr = w
 
 	// Run
 	err = run()
 
-	// Restore stdout
+	// Restore stderr
 	w.Close()
-	os.Stdout = oldStdout
+	os.Stderr = oldStderr
 
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)

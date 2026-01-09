@@ -1,6 +1,7 @@
 package output
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,29 +61,53 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 
 	// Write to stdout if no file path specified
 	if opts.FilePath == "" {
-		return WriteBudget(budget, os.Stdout)
-	}
-
-	// Write to file
-	f, err := os.Create(opts.FilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create output file %s: %w", opts.FilePath, err)
-	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close output file %s: %w", opts.FilePath, closeErr)
+		// For stdout, validate by encoding to buffer first to catch errors
+		// before writing any partial output
+		var buf bytes.Buffer
+		if err := WriteBudget(budget, &buf); err != nil {
+			return fmt.Errorf("failed to encode budget (no output written): %w", err)
 		}
-	}()
+		// Only write to stdout after successful encoding
+		if _, err := os.Stdout.Write(buf.Bytes()); err != nil {
+			return fmt.Errorf("failed to write to stdout: %w", err)
+		}
+		return nil
+	}
 
-	if err = WriteBudget(budget, f); err != nil {
-		return fmt.Errorf("failed to write budget to %s: %w", opts.FilePath, err)
+	// Write to temporary file first for atomic replacement
+	tmpFile := opts.FilePath + ".tmp"
+	f, err := os.Create(tmpFile)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file %s: %w", tmpFile, err)
+	}
+
+	// Write budget to temp file
+	writeErr := WriteBudget(budget, f)
+	closeErr := f.Close()
+
+	// Handle write error first
+	if writeErr != nil {
+		os.Remove(tmpFile) // Clean up on write failure
+		return fmt.Errorf("failed to write budget to temp file: %w", writeErr)
+	}
+
+	// Then handle close error
+	if closeErr != nil {
+		os.Remove(tmpFile) // Clean up on close failure
+		return fmt.Errorf("failed to close temp file before rename: %w", closeErr)
+	}
+
+	// Atomic rename (on Unix systems, this is atomic)
+	if err = os.Rename(tmpFile, opts.FilePath); err != nil {
+		os.Remove(tmpFile) // Clean up on rename failure
+		return fmt.Errorf("failed to rename temp file to %s: %w", opts.FilePath, err)
 	}
 
 	return nil
 }
 
 // LoadBudget reads existing budget.json for merge mode
-func LoadBudget(filePath string) (*domain.Budget, error) {
+func LoadBudget(filePath string) (budget *domain.Budget, err error) {
 	if filePath == "" {
 		return nil, fmt.Errorf("file path cannot be empty")
 	}
@@ -94,18 +119,18 @@ func LoadBudget(filePath string) (*domain.Budget, error) {
 		return nil, err
 	}
 	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close %s: %v\n", filePath, closeErr)
+		if closeErr := f.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close %s: %w", filePath, closeErr)
 		}
 	}()
 
-	var budget domain.Budget
+	var b domain.Budget
 	decoder := json.NewDecoder(f)
-	if err := decoder.Decode(&budget); err != nil {
+	if err = decoder.Decode(&b); err != nil {
 		return nil, fmt.Errorf("failed to decode budget JSON: %w", err)
 	}
 
-	return &budget, nil
+	return &b, nil
 }
 
 // mergeBudgets adds all entities from source into target

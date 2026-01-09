@@ -85,6 +85,7 @@ Examples:
 }
 
 func run() error {
+	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling
 	// Create context for parsing operations
 	ctx := context.Background()
 
@@ -93,7 +94,7 @@ func run() error {
 
 	// Scan for files
 	if *verbose {
-		fmt.Printf("Scanning directory: %s\n", *inputDir)
+		fmt.Fprintf(os.Stderr, "Scanning directory: %s\n", *inputDir)
 	}
 
 	files, err := s.Scan()
@@ -102,9 +103,9 @@ func run() error {
 	}
 
 	if *verbose {
-		fmt.Printf("Found %d statement files\n", len(files))
+		fmt.Fprintf(os.Stderr, "Found %d statement files\n", len(files))
 		for _, f := range files {
-			fmt.Printf("  - %s (institution: %s, account: %s)\n",
+			fmt.Fprintf(os.Stderr, "  - %s (institution: %s, account: %s)\n",
 				f.Path, f.Metadata.Institution(), f.Metadata.AccountNumber())
 		}
 	}
@@ -116,7 +117,7 @@ func run() error {
 	}
 
 	if *verbose {
-		fmt.Printf("Registered parsers: %v\n", reg.ListParsers())
+		fmt.Fprintf(os.Stderr, "Registered parsers: %v\n", reg.ListParsers())
 	}
 
 	// Dry run mode: stop after scanning, don't parse
@@ -150,10 +151,10 @@ func run() error {
 	budget := domain.NewBudget()
 
 	if *verbose {
-		fmt.Println("\nParsing and transforming statements...")
+		fmt.Fprintln(os.Stderr, "\nParsing and transforming statements...")
 	}
 
-	for _, file := range files {
+	for i, file := range files {
 		// TODO(#1341): Consider removing numbered step comments in favor of descriptive prefixes
 		// 1. Find parser
 		parser, err := reg.FindParser(file.Path)
@@ -165,7 +166,7 @@ func run() error {
 		}
 
 		if *verbose {
-			fmt.Printf("  Parsing %s with %s parser\n", file.Path, parser.Name())
+			fmt.Fprintf(os.Stderr, "  Parsing %s with %s parser\n", file.Path, parser.Name())
 		}
 
 		// 2. Open file and parse
@@ -173,21 +174,23 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("failed to open %s: %w", file.Path, err)
 		}
-		// TODO(#1340): Remove obvious inline comment
-		defer func() {
-			if closeErr := f.Close(); closeErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to close %s: %v\n", file.Path, closeErr)
-			}
-		}()
 
 		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+
+		// Close immediately after parsing
+		closeErr := f.Close()
 		if err != nil {
-			return fmt.Errorf("parse failed for %s: %w", file.Path, err)
+			return fmt.Errorf("parse failed for file %d of %d (%s): %w",
+				i+1, len(files), file.Path, err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("failed to close %s: %w", file.Path, closeErr)
 		}
 
 		// 3. Transform to domain types
 		if err := transform.TransformStatement(rawStmt, budget); err != nil {
-			return fmt.Errorf("transform failed for %s: %w", file.Path, err)
+			return fmt.Errorf("transform failed for file %d of %d (%s): %w",
+				i+1, len(files), file.Path, err)
 		}
 	}
 
@@ -197,11 +200,11 @@ func run() error {
 		statements := budget.GetStatements()
 		transactions := budget.GetTransactions()
 
-		fmt.Printf("\nTransformation complete:\n")
-		fmt.Printf("  Institutions: %d\n", len(institutions))
-		fmt.Printf("  Accounts: %d\n", len(accounts))
-		fmt.Printf("  Statements: %d\n", len(statements))
-		fmt.Printf("  Transactions: %d\n", len(transactions))
+		fmt.Fprintf(os.Stderr, "\nTransformation complete:\n")
+		fmt.Fprintf(os.Stderr, "  Institutions: %d\n", len(institutions))
+		fmt.Fprintf(os.Stderr, "  Accounts: %d\n", len(accounts))
+		fmt.Fprintf(os.Stderr, "  Statements: %d\n", len(statements))
+		fmt.Fprintf(os.Stderr, "  Transactions: %d\n", len(transactions))
 	}
 
 	// 4. Write output

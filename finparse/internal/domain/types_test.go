@@ -259,9 +259,12 @@ func TestNewStatement_Validation(t *testing.T) {
 	})
 
 	t.Run("start date equals end date", func(t *testing.T) {
-		_, err := NewStatement("stmt1", "acc1", "2024-01-15", "2024-01-15")
-		if err == nil {
-			t.Error("Expected error when start date equals end date")
+		stmt, err := NewStatement("stmt1", "acc1", "2024-01-15", "2024-01-15")
+		if err != nil {
+			t.Errorf("Expected no error for same-day statement, got %v", err)
+		}
+		if stmt == nil {
+			t.Error("Expected statement, got nil")
 		}
 	})
 
