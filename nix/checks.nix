@@ -97,6 +97,41 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # === Pre-Push Hooks ===
+    # Check for console.log statements in source code before push
+    # This catches debug statements that would fail CI
+    # Matches the exact check that CI performs in run-local-tests.sh
+    no-console-log = {
+      enable = true;
+      name = "no-console-log";
+      description = "Check for console.log statements in source code";
+      entry = "${pkgs.writeShellScript "no-console-log" ''
+        set -e
+        FOUND_LOGS=0
+
+        for site in fellspiral videobrowser audiobrowser print; do
+          if [ -d "$site/site/src" ]; then
+            if grep -r "console\.log" "$site/site/src/" 2>/dev/null; then
+              FOUND_LOGS=1
+            fi
+          fi
+        done
+
+        if [ $FOUND_LOGS -eq 1 ]; then
+          echo ""
+          echo "❌ Found console.log statements in source code"
+          echo "Please remove all console.log statements before pushing"
+          echo ""
+          exit 1
+        fi
+
+        echo "✅ No console.log statements found"
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
     # Validate all TypeScript/JavaScript/JSON/Markdown files are formatted before push
     # This catches pre-existing formatting violations that nix flake check would find
     # Note: Checks ALL tracked files (not just changed) to prevent CI failures from

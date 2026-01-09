@@ -481,13 +481,6 @@ export async function createCard(cardData) {
       throw new Error('User must be authenticated to create cards');
     }
 
-    console.log('[Firebase] createCard: Starting Firestore write', {
-      title: cardData.title,
-      type: cardData.type,
-      collection: getCardsCollectionName(),
-      uid: user.uid,
-    });
-
     // Timeout for create operations - helps surface issues in emulator tests
     // Increased to 15s to handle slower emulator performance, especially in Firefox
     const FIRESTORE_CREATE_TIMEOUT_MS = 15000;
