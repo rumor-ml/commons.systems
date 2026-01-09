@@ -26,41 +26,53 @@ export function Legend({
   granularity = 'month',
   selectedWeek = null,
 }: LegendProps) {
-  // Calculate category summaries from transactions
-  const categorySummaries = useMemo(() => {
-    // Guard clause: validate transactions prop
-    if (!transactions || !Array.isArray(transactions)) {
-      return [];
-    }
+  // Derived state: whether we have a valid budget plan with categories
+  const hasBudgetPlan = Boolean(budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0);
 
-    // In weekly mode with budget plan, show budget comparison for selected week. Otherwise, show all-time totals for each category.
-    if (
-      granularity === 'week' &&
-      budgetPlan &&
-      Object.keys(budgetPlan.categoryBudgets).length > 0
-    ) {
-      const hiddenSet = new Set(hiddenCategories);
-      const weeklyData = aggregateTransactionsByWeek(transactions, {
-        hiddenCategories: hiddenSet,
-        showVacation,
-      });
-      const activeWeek = selectedWeek || getCurrentWeek();
-      const weekData = weeklyData.filter((d) => d.week === activeWeek);
-      const comparisons = calculateWeeklyComparison(weeklyData, budgetPlan, activeWeek);
+  // Helper to determine budget status: over, under, or null
+  function getBudgetStatus(
+    target: number | undefined,
+    variance: number | undefined
+  ): 'over' | 'under' | null {
+    if (target === undefined || variance === undefined) return null;
+    const varianceIsPositive = variance > 0;
+    const isIncomeCategory = target > 0;
+    // Budget status convention: 'under' = good (within/below target), 'over' = bad (exceeded target)
+    // Positive variance = actual > target
+    // For income: earning more than target (positive variance) → 'under' status (good)
+    // For expenses: spending less than budget (positive variance when target is negative) → 'under' status (good)
+    return varianceIsPositive === isIncomeCategory ? 'under' : 'over';
+  }
 
-      // Map comparisons to summary format
-      return comparisons.map((c) => ({
-        category: c.category,
-        total: c.actual,
-        count: weekData.find((d) => d.category === c.category)?.qualifiers.transactionCount || 0,
-        target: c.target,
-        variance: c.variance,
-        rolloverAccumulated: c.rolloverAccumulated,
-        hasRollover: budgetPlan.categoryBudgets[c.category]?.rolloverEnabled || false,
-      }));
-    }
+  // Helper to calculate weekly budget summaries with comparisons
+  function calculateWeeklySummaries(
+    transactions: Transaction[],
+    plan: BudgetPlan,
+    activeWeek: WeekId,
+    hiddenSet: Set<string>,
+    showVacation: boolean
+  ) {
+    const weeklyData = aggregateTransactionsByWeek(transactions, {
+      hiddenCategories: hiddenSet,
+      showVacation,
+    });
+    const weekData = weeklyData.filter((d) => d.week === activeWeek);
+    const comparisons = calculateWeeklyComparison(weeklyData, plan, activeWeek);
 
-    // Monthly mode or no budget: show all-time totals
+    // Map comparisons to summary format
+    return comparisons.map((c) => ({
+      category: c.category,
+      total: c.actual,
+      count: weekData.find((d) => d.category === c.category)?.qualifiers.transactionCount || 0,
+      target: c.target,
+      variance: c.variance,
+      rolloverAccumulated: c.rolloverAccumulated,
+      hasRollover: plan.categoryBudgets[c.category]?.rolloverEnabled || false,
+    }));
+  }
+
+  // Helper to calculate monthly/all-time summaries without budget comparison
+  function calculateMonthlySummaries(transactions: Transaction[], showVacation: boolean) {
     const summaries = new Map<Category, { total: number; count: number }>();
 
     transactions
@@ -83,6 +95,25 @@ export function Legend({
       rolloverAccumulated: undefined,
       hasRollover: false,
     }));
+  }
+
+  // Calculate category summaries from transactions
+  const categorySummaries = useMemo(() => {
+    // Guard clause: validate transactions prop
+    if (!transactions || !Array.isArray(transactions)) {
+      return [];
+    }
+
+    // Show budget comparison in weekly mode when budget plan is configured. Otherwise (monthly mode or no budget plan), show all-time totals.
+    if (granularity === 'week' && hasBudgetPlan) {
+      // TypeScript: budgetPlan is guaranteed non-null here due to hasBudgetPlan check
+      const plan = budgetPlan!;
+      const hiddenSet = new Set(hiddenCategories);
+      const activeWeek = selectedWeek || getCurrentWeek();
+      return calculateWeeklySummaries(transactions, plan, activeWeek, hiddenSet, showVacation);
+    }
+
+    return calculateMonthlySummaries(transactions, showVacation);
   }, [transactions, showVacation, granularity, budgetPlan, selectedWeek, hiddenCategories]);
 
   const handleVacationToggle = () => {
@@ -119,11 +150,10 @@ export function Legend({
           categorySummaries.map(
             ({ category, total, count, target, variance, rolloverAccumulated, hasRollover }) => {
               const isHidden = hiddenCategories.includes(category);
-              const hasBudget = target !== undefined;
-              const isOverBudget =
-                hasBudget && variance !== undefined && (target > 0 ? variance < 0 : variance > 0);
-              const isUnderBudget =
-                hasBudget && variance !== undefined && (target > 0 ? variance > 0 : variance < 0);
+              const budgetStatus = getBudgetStatus(target, variance);
+              const isOverBudget = budgetStatus === 'over';
+              const isUnderBudget = budgetStatus === 'under';
+              const hasBudget = budgetStatus !== null;
 
               return (
                 <div
@@ -184,9 +214,7 @@ export function Legend({
           Indicators
         </h4>
         <div className="space-y-3">
-          {granularity === 'week' &&
-          budgetPlan &&
-          Object.keys(budgetPlan.categoryBudgets).length > 0 ? (
+          {granularity === 'week' && hasBudgetPlan ? (
             <>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-text-secondary">✓ Under budget</span>

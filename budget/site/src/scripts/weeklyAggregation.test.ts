@@ -11,65 +11,58 @@ import {
   getNextWeek,
   getPreviousWeek,
 } from './weeklyAggregation';
-import {
-  Transaction,
-  WeeklyData,
-  WeekId,
-  Category,
-  BudgetPlan,
-  QualifierBreakdown,
-} from '../islands/types';
+import { Transaction, WeeklyData, WeekId, Category, BudgetPlan, weekId } from '../islands/types';
 
 describe('weeklyAggregation', () => {
   describe('getISOWeek', () => {
     it('should calculate ISO week for year boundary transitions', () => {
       // 2024-12-30 is Monday of 2025-W01
-      expect(getISOWeek('2024-12-30')).toBe('2025-W01');
-      expect(getISOWeek('2024-12-31')).toBe('2025-W01');
-      expect(getISOWeek('2025-01-01')).toBe('2025-W01');
+      expect(getISOWeek('2024-12-30')).toBe(weekId('2025-W01'));
+      expect(getISOWeek('2024-12-31')).toBe(weekId('2025-W01'));
+      expect(getISOWeek('2025-01-01')).toBe(weekId('2025-W01'));
       expect(getISOWeek('2025-01-05')).toBe('2025-W01'); // Sunday
     });
 
     it('should calculate ISO week for last week of year', () => {
       // 2024-12-23 is Monday of 2024-W52
-      expect(getISOWeek('2024-12-23')).toBe('2024-W52');
+      expect(getISOWeek('2024-12-23')).toBe(weekId('2024-W52'));
       expect(getISOWeek('2024-12-29')).toBe('2024-W52'); // Sunday
     });
 
     it('should handle week 53 years', () => {
       // 2020 had 53 ISO weeks
       // 2020-12-28 is Monday of 2020-W53
-      expect(getISOWeek('2020-12-28')).toBe('2020-W53');
-      expect(getISOWeek('2020-12-31')).toBe('2020-W53');
+      expect(getISOWeek('2020-12-28')).toBe(weekId('2020-W53'));
+      expect(getISOWeek('2020-12-31')).toBe(weekId('2020-W53'));
     });
 
     it('should calculate week 1 correctly', () => {
       // 2025-01-06 is Monday of 2025-W02
-      expect(getISOWeek('2025-01-06')).toBe('2025-W02');
+      expect(getISOWeek('2025-01-06')).toBe(weekId('2025-W02'));
       // 2025-W01 starts on 2024-12-30
-      expect(getISOWeek('2024-12-30')).toBe('2025-W01');
+      expect(getISOWeek('2024-12-30')).toBe(weekId('2025-W01'));
     });
 
     it('should handle mid-year dates', () => {
-      expect(getISOWeek('2025-06-15')).toBe('2025-W24');
+      expect(getISOWeek('2025-06-15')).toBe(weekId('2025-W24'));
     });
   });
 
   describe('getWeekBoundaries', () => {
     it('should return correct boundaries for year boundary week', () => {
-      const boundaries = getWeekBoundaries('2025-W01');
+      const boundaries = getWeekBoundaries(weekId(weekId('2025-W01')));
       expect(boundaries.start).toBe('2024-12-30'); // Monday
       expect(boundaries.end).toBe('2025-01-05'); // Sunday
     });
 
     it('should return correct boundaries for week 52', () => {
-      const boundaries = getWeekBoundaries('2024-W52');
+      const boundaries = getWeekBoundaries(weekId(weekId('2024-W52')));
       expect(boundaries.start).toBe('2024-12-23'); // Monday
       expect(boundaries.end).toBe('2024-12-29'); // Sunday
     });
 
     it('should return correct boundaries for week 53', () => {
-      const boundaries = getWeekBoundaries('2020-W53');
+      const boundaries = getWeekBoundaries(weekId(weekId('2020-W53')));
       expect(boundaries.start).toBe('2020-12-28'); // Monday
       expect(boundaries.end).toBe('2021-01-03'); // Sunday
     });
@@ -99,13 +92,14 @@ describe('weeklyAggregation', () => {
     const createTransaction = (overrides: Partial<Transaction>): Transaction => ({
       id: 'txn-1',
       date: '2025-01-06',
-      category: 'Groceries' as Category,
+      category: 'groceries' as Category,
       amount: -100,
       description: 'Test',
       transfer: false,
       vacation: false,
       redeemable: false,
       redemptionRate: 0,
+      statementIds: [],
       ...overrides,
     });
 
@@ -137,15 +131,15 @@ describe('weeklyAggregation', () => {
 
     it('should filter hidden categories', () => {
       const transactions = [
-        createTransaction({ id: 'txn-1', category: 'Groceries' as Category, amount: -100 }),
-        createTransaction({ id: 'txn-2', category: 'Entertainment' as Category, amount: -50 }),
+        createTransaction({ id: 'txn-1', category: 'groceries' as Category, amount: -100 }),
+        createTransaction({ id: 'txn-2', category: 'entertainment' as Category, amount: -50 }),
       ];
       const result = aggregateTransactionsByWeek(transactions, {
-        hiddenCategories: new Set(['Entertainment']),
+        hiddenCategories: new Set(['entertainment']),
         showVacation: true,
       });
       expect(result.length).toBe(1);
-      expect(result[0].category).toBe('Groceries');
+      expect(result[0].category).toBe('groceries');
     });
 
     it('should apply redemption rate to redeemable transactions', () => {
@@ -213,8 +207,8 @@ describe('weeklyAggregation', () => {
         showVacation: true,
       });
       expect(result.length).toBe(2);
-      expect(result[0].week).toBe('2025-W02');
-      expect(result[1].week).toBe('2025-W03');
+      expect(result[0].week).toBe(weekId('2025-W02'));
+      expect(result[1].week).toBe(weekId('2025-W03'));
     });
 
     it('should return empty array for empty transactions', () => {
@@ -227,8 +221,8 @@ describe('weeklyAggregation', () => {
 
     it('should set isIncome correctly', () => {
       const transactions = [
-        createTransaction({ id: 'txn-1', category: 'Salary' as Category, amount: 1000 }), // income
-        createTransaction({ id: 'txn-2', category: 'Groceries' as Category, amount: -100 }), // expense
+        createTransaction({ id: 'txn-1', category: 'income' as Category, amount: 1000 }), // income
+        createTransaction({ id: 'txn-2', category: 'groceries' as Category, amount: -100 }), // expense
       ];
       const result = aggregateTransactionsByWeek(transactions, {
         hiddenCategories: new Set(),
@@ -252,8 +246,8 @@ describe('weeklyAggregation', () => {
 
   describe('calculateRolloverAccumulation', () => {
     const createWeeklyData = (overrides: Partial<WeeklyData>): WeeklyData => ({
-      week: '2025-W02' as WeekId,
-      category: 'Groceries' as Category,
+      week: weekId(weekId('2025-W02')) as WeekId,
+      category: 'groceries' as Category,
       amount: -100,
       isIncome: false,
       qualifiers: {
@@ -270,69 +264,70 @@ describe('weeklyAggregation', () => {
 
     const createBudgetPlan = (): BudgetPlan => ({
       categoryBudgets: {
-        Groceries: {
+        groceries: {
           weeklyTarget: -500,
           rolloverEnabled: true,
         },
-        Income: {
+        income: {
           weeklyTarget: 2000,
           rolloverEnabled: true,
         },
       },
+      lastModified: new Date().toISOString(),
     });
 
     it('should calculate rollover for expense category with surplus', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2025-W02', amount: -400 }), // spent $400 with $500 budget
+        createWeeklyData({ week: weekId('2025-W02'), amount: -400 }), // spent $400 with $500 budget
       ];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2025-W02',
-        '2025-W03'
+        weekId('2025-W02'),
+        weekId('2025-W03')
       );
       // variance = actual - target = -400 - (-500) = 100 (surplus)
-      expect(rollover.get('Groceries')).toBe(100);
+      expect(rollover.get('groceries')).toBe(100);
     });
 
     it('should calculate rollover for expense category with deficit', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2025-W02', amount: -600 }), // spent $600 with $500 budget
+        createWeeklyData({ week: weekId('2025-W02'), amount: -600 }), // spent $600 with $500 budget
       ];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2025-W02',
-        '2025-W03'
+        weekId('2025-W02'),
+        weekId('2025-W03')
       );
       // variance = actual - target = -600 - (-500) = -100 (deficit)
-      expect(rollover.get('Groceries')).toBe(-100);
+      expect(rollover.get('groceries')).toBe(-100);
     });
 
     it('should accumulate rollover across multiple weeks', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2025-W02', amount: -400 }), // +100 surplus
-        createWeeklyData({ week: '2025-W03', amount: -600 }), // -100 deficit
-        createWeeklyData({ week: '2025-W04', amount: -450 }), // +50 surplus
+        createWeeklyData({ week: weekId('2025-W02'), amount: -400 }), // +100 surplus
+        createWeeklyData({ week: weekId('2025-W03'), amount: -600 }), // -100 deficit
+        createWeeklyData({ week: weekId('2025-W04'), amount: -450 }), // +50 surplus
       ];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2025-W02',
-        '2025-W05'
+        weekId('2025-W02'),
+        weekId('2025-W05')
       );
       // cumulative: 100 + (-100) + 50 = 50
-      expect(rollover.get('Groceries')).toBe(50);
+      expect(rollover.get('groceries')).toBe(50);
     });
 
     it('should handle income category rollover', () => {
       const weeklyData = [
         createWeeklyData({
-          week: '2025-W02',
-          category: 'Income' as Category,
+          week: weekId(weekId('2025-W02')),
+          category: 'income' as Category,
           amount: 2500, // earned $2500 with $2000 target
           isIncome: true,
         }),
@@ -341,119 +336,338 @@ describe('weeklyAggregation', () => {
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2025-W02',
-        '2025-W03'
+        weekId('2025-W02'),
+        weekId('2025-W03')
       );
       // variance = 2500 - 2000 = 500 (surplus)
-      expect(rollover.get('Income')).toBe(500);
+      expect(rollover.get('income')).toBe(500);
     });
 
     it('should handle missing week data', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2025-W02', amount: -400 }), // week 3 missing
-        createWeeklyData({ week: '2025-W04', amount: -450 }),
+        createWeeklyData({ week: weekId('2025-W02'), amount: -400 }), // week 3 missing
+        createWeeklyData({ week: weekId(weekId('2025-W04')), amount: -450 }),
       ];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2025-W02',
-        '2025-W05'
+        weekId('2025-W02'),
+        weekId('2025-W05')
       );
       // W02: -400 - (-500) = 100
       // W03: no data, so not processed (missing weeks are skipped)
       // W04: -450 - (-500) = 50
       // total: 100 + 50 = 150
-      expect(rollover.get('Groceries')).toBe(150);
+      expect(rollover.get('groceries')).toBe(150);
     });
 
     it('should skip categories with rollover disabled', () => {
-      const weeklyData = [createWeeklyData({ week: '2025-W02', amount: -400 })];
+      const weeklyData = [createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -400 })];
       const budgetPlan: BudgetPlan = {
         categoryBudgets: {
-          Groceries: {
+          groceries: {
             weeklyTarget: -500,
             rolloverEnabled: false, // disabled
           },
         },
+        lastModified: new Date().toISOString(),
       };
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2025-W02',
-        '2025-W03'
+        weekId('2025-W02'),
+        weekId('2025-W03')
       );
-      expect(rollover.has('Groceries')).toBe(false);
+      expect(rollover.has('groceries')).toBe(false);
     });
 
     it('should return zero when fromWeek equals toWeek', () => {
-      const weeklyData = [createWeeklyData({ week: '2025-W02', amount: -400 })];
+      const weeklyData = [createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -400 })];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2025-W02',
-        '2025-W02'
+        weekId('2025-W02'),
+        weekId('2025-W02')
       );
-      expect(rollover.get('Groceries')).toBe(0);
+      expect(rollover.get('groceries')).toBe(0);
     });
 
     it('should accumulate rollover across year boundary (2024-W52 to 2025-W02)', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2024-W52', amount: -400 }), // +100 surplus in last week of 2024
-        createWeeklyData({ week: '2025-W01', amount: -450 }), // +50 surplus in first week of 2025
-        createWeeklyData({ week: '2025-W02', amount: -550 }), // -50 deficit
+        createWeeklyData({ week: weekId('2024-W52'), amount: -400 }), // +100 surplus in last week of 2024
+        createWeeklyData({ week: weekId('2025-W01'), amount: -450 }), // +50 surplus in first week of 2025
+        createWeeklyData({ week: weekId('2025-W02'), amount: -550 }), // -50 deficit
       ];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2024-W52',
-        '2025-W03'
+        weekId('2024-W52'),
+        weekId('2025-W03')
       );
       // cumulative: 100 + 50 + (-50) = 100
-      expect(rollover.get('Groceries')).toBe(100);
+      expect(rollover.get('groceries')).toBe(100);
     });
 
     it('should accumulate rollover across week 53 year boundary (2020-W53 to 2021-W01)', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2020-W53', amount: -300 }), // +200 surplus in week 53
-        createWeeklyData({ week: '2021-W01', amount: -450 }), // +50 surplus in first week of 2021
+        createWeeklyData({ week: weekId('2020-W53'), amount: -300 }), // +200 surplus in week 53
+        createWeeklyData({ week: weekId('2021-W01'), amount: -450 }), // +50 surplus in first week of 2021
       ];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2020-W53',
-        '2021-W02'
+        weekId('2020-W53'),
+        weekId('2021-W02')
       );
       // cumulative: 200 + 50 = 250
-      expect(rollover.get('Groceries')).toBe(250);
+      expect(rollover.get('groceries')).toBe(250);
     });
 
     it('should handle rollover spanning multiple year boundaries', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2023-W52', amount: -400 }), // +100 surplus
-        createWeeklyData({ week: '2024-W01', amount: -450 }), // +50 surplus
-        createWeeklyData({ week: '2024-W52', amount: -550 }), // -50 deficit
-        createWeeklyData({ week: '2025-W01', amount: -500 }), // 0 variance
+        createWeeklyData({ week: weekId('2023-W52'), amount: -400 }), // +100 surplus
+        createWeeklyData({ week: weekId('2024-W01'), amount: -450 }), // +50 surplus
+        createWeeklyData({ week: weekId('2024-W52'), amount: -550 }), // -50 deficit
+        createWeeklyData({ week: weekId('2025-W01'), amount: -500 }), // 0 variance
       ];
       const budgetPlan = createBudgetPlan();
       const rollover = calculateRolloverAccumulation(
         weeklyData,
         budgetPlan,
-        '2023-W52',
-        '2025-W02'
+        weekId('2023-W52'),
+        weekId('2025-W02')
       );
       // cumulative: 100 + 50 + (-50) + 0 = 100
-      expect(rollover.get('Groceries')).toBe(100);
+      expect(rollover.get('groceries')).toBe(100);
+    });
+
+    it('should calculate rollover for multiple categories without interference', () => {
+      const weeklyData = [
+        // Category A (groceries): rollover enabled, surplus
+        createWeeklyData({
+          week: weekId(weekId('2025-W02')),
+          category: 'groceries' as Category,
+          amount: -400,
+        }),
+        // Category B (dining): rollover enabled, deficit
+        createWeeklyData({
+          week: weekId(weekId('2025-W02')),
+          category: 'dining' as Category,
+          amount: -300,
+        }),
+        // Category C (entertainment): rollover disabled, surplus
+        createWeeklyData({
+          week: weekId(weekId('2025-W02')),
+          category: 'entertainment' as Category,
+          amount: -50,
+        }),
+      ];
+
+      const budgetPlan: BudgetPlan = {
+        categoryBudgets: {
+          groceries: {
+            weeklyTarget: -500,
+            rolloverEnabled: true,
+          },
+          dining: {
+            weeklyTarget: -200,
+            rolloverEnabled: true,
+          },
+          entertainment: {
+            weeklyTarget: -100,
+            rolloverEnabled: false,
+          },
+        },
+        lastModified: new Date().toISOString(),
+      };
+
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W02'),
+        weekId('2025-W03')
+      );
+
+      // groceries: -400 - (-500) = +100 surplus
+      expect(rollover.get('groceries')).toBe(100);
+
+      // Dining: -300 - (-200) = -100 deficit
+      expect(rollover.get('dining')).toBe(-100);
+
+      // Entertainment: rollover disabled, should not be in map
+      expect(rollover.has('entertainment')).toBe(false);
+
+      // Verify map size - only 2 categories with rollover enabled
+      expect(rollover.size).toBe(2);
+    });
+
+    it('should handle duplicate weeks for same category gracefully', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2025-W02'), amount: -400 }), // +100 surplus
+        createWeeklyData({ week: weekId('2025-W02'), amount: -100 }), // duplicate week, different amount
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W02'),
+        weekId('2025-W03')
+      );
+      // Week is processed once. The find() on line 223 of implementation will match
+      // the first entry with amount -400
+      // variance = -400 - (-500) = 100
+      expect(rollover.get('groceries')).toBe(100);
+    });
+
+    it('should handle NaN amounts gracefully', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId(weekId('2025-W02')), amount: NaN }),
+        createWeeklyData({ week: weekId('2025-W03'), amount: -400 }), // +100 surplus
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W02'),
+        weekId('2025-W04')
+      );
+      // NaN is falsy, so `NaN || 0` = 0
+      // W02: actual = 0 (NaN || 0), variance = 0 - (-500) = 500
+      // W03: actual = -400, variance = -400 - (-500) = 100
+      // Total: 500 + 100 = 600
+      expect(rollover.get('groceries')).toBe(600);
+    });
+
+    it('should handle Infinity amounts gracefully', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -Infinity }),
+        createWeeklyData({ week: weekId('2025-W03'), amount: -400 }), // +100 surplus
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W02'),
+        weekId('2025-W04')
+      );
+      // -Infinity - (-500) = -Infinity
+      // Then -Infinity + 100 = -Infinity
+      expect(rollover.get('groceries')).toBe(-Infinity);
+    });
+
+    it('should handle NaN weekly targets gracefully', () => {
+      const weeklyData = [createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -400 })];
+      const budgetPlan: BudgetPlan = {
+        categoryBudgets: {
+          groceries: {
+            weeklyTarget: NaN,
+            rolloverEnabled: true,
+          },
+        },
+        lastModified: new Date().toISOString(),
+      };
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W02'),
+        weekId('2025-W03')
+      );
+      // -400 - NaN = NaN
+      expect(rollover.get('groceries')).toBeNaN();
+    });
+
+    it('should handle reversed week range (fromWeek > toWeek)', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -400 }),
+        createWeeklyData({ week: weekId(weekId('2025-W03')), amount: -450 }),
+        createWeeklyData({ week: weekId(weekId('2025-W04')), amount: -500 }),
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W05'), // fromWeek is after toWeek
+        weekId('2025-W02')
+      );
+      // No weeks should be processed when range is reversed
+      expect(rollover.get('groceries')).toBe(0);
+    });
+
+    it('should handle categories not in budget plan', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -400 }),
+        createWeeklyData({
+          week: weekId(weekId('2025-W02')),
+          category: 'travel' as Category,
+          amount: -200,
+        }),
+      ];
+      const budgetPlan = createBudgetPlan(); // only has Groceries and Income
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W02'),
+        weekId('2025-W03')
+      );
+      // Groceries should be calculated normally
+      expect(rollover.get('groceries')).toBe(100);
+      // Travel category not in budget plan, should not appear
+      expect(rollover.has('travel')).toBe(false);
+    });
+
+    it('should handle very long time ranges efficiently', () => {
+      // Create 100+ weeks of data spanning multiple years
+      const weeklyData: WeeklyData[] = [];
+
+      // 2023: W01-W52 (52 weeks)
+      for (let i = 1; i <= 52; i++) {
+        const weekNum = String(i).padStart(2, '0');
+        weeklyData.push(
+          createWeeklyData({
+            week: `2023-W${weekNum}` as WeekId,
+            amount: -450, // +50 surplus each week
+          })
+        );
+      }
+
+      // 2024: W01-W52 (52 weeks, total: 104 weeks)
+      for (let i = 1; i <= 52; i++) {
+        const weekNum = String(i).padStart(2, '0');
+        weeklyData.push(
+          createWeeklyData({
+            week: `2024-W${weekNum}` as WeekId,
+            amount: -450, // +50 surplus each week
+          })
+        );
+      }
+
+      const budgetPlan = createBudgetPlan();
+      const startTime = performance.now();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2023-W01'),
+        weekId('2025-W01') // All of 2023 and 2024 = 104 weeks
+      );
+      const endTime = performance.now();
+
+      // Should accumulate: 50 * 104 = 5200
+      expect(rollover.get('groceries')).toBe(5200);
+
+      // Performance check: should complete in reasonable time (< 100ms)
+      const duration = endTime - startTime;
+      expect(duration).toBeLessThan(100);
     });
   });
 
   describe('calculateWeeklyComparison', () => {
     const createWeeklyData = (overrides: Partial<WeeklyData>): WeeklyData => ({
-      week: '2025-W02' as WeekId,
-      category: 'Groceries' as Category,
+      week: weekId(weekId('2025-W02')) as WeekId,
+      category: 'groceries' as Category,
       amount: -100,
       isIncome: false,
       qualifiers: {
@@ -470,23 +684,28 @@ describe('weeklyAggregation', () => {
 
     const createBudgetPlan = (): BudgetPlan => ({
       categoryBudgets: {
-        Groceries: {
+        groceries: {
           weeklyTarget: -500,
           rolloverEnabled: true,
         },
-        Income: {
+        income: {
           weeklyTarget: 2000,
           rolloverEnabled: false,
         },
       },
+      lastModified: new Date().toISOString(),
     });
 
     it('should calculate comparison with budget but no transactions', () => {
       const weeklyData: WeeklyData[] = [];
       const budgetPlan = createBudgetPlan();
-      const comparison = calculateWeeklyComparison(weeklyData, budgetPlan, '2025-W02');
+      const comparison = calculateWeeklyComparison(
+        weeklyData,
+        budgetPlan,
+        weekId(weekId('2025-W02'))
+      );
 
-      const groceries = comparison.find((c) => c.category === 'Groceries');
+      const groceries = comparison.find((c) => c.category === 'groceries');
       expect(groceries).toBeDefined();
       expect(groceries!.actual).toBe(0);
       expect(groceries!.target).toBe(-500);
@@ -495,52 +714,68 @@ describe('weeklyAggregation', () => {
 
     it('should calculate comparison with transactions but no budget', () => {
       const weeklyData = [
-        createWeeklyData({ category: 'Entertainment' as Category, amount: -100 }),
+        createWeeklyData({ category: 'entertainment' as Category, amount: -100 }),
       ];
       const budgetPlan = createBudgetPlan();
-      const comparison = calculateWeeklyComparison(weeklyData, budgetPlan, '2025-W02');
+      const comparison = calculateWeeklyComparison(
+        weeklyData,
+        budgetPlan,
+        weekId(weekId('2025-W02'))
+      );
 
       // Entertainment has no budget, should not appear in comparison
-      expect(comparison.find((c) => c.category === 'Entertainment')).toBeUndefined();
+      expect(comparison.find((c) => c.category === 'entertainment')).toBeUndefined();
     });
 
     it('should calculate variance correctly', () => {
-      const weeklyData = [createWeeklyData({ week: '2025-W02', amount: -400 })];
+      const weeklyData = [createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -400 })];
       const budgetPlan = createBudgetPlan();
-      const comparison = calculateWeeklyComparison(weeklyData, budgetPlan, '2025-W02');
+      const comparison = calculateWeeklyComparison(
+        weeklyData,
+        budgetPlan,
+        weekId(weekId('2025-W02'))
+      );
 
-      const groceries = comparison.find((c) => c.category === 'Groceries');
+      const groceries = comparison.find((c) => c.category === 'groceries');
       expect(groceries!.variance).toBe(100); // -400 - (-500) = 100
     });
 
     it('should include rollover in effectiveTarget', () => {
       const weeklyData = [
-        createWeeklyData({ week: '2025-W02', amount: -400 }), // creates 100 rollover
-        createWeeklyData({ week: '2025-W03', amount: -0 }),
+        createWeeklyData({ week: weekId('2025-W02'), amount: -400 }), // creates 100 rollover
+        createWeeklyData({ week: weekId(weekId('2025-W03')), amount: -0 }),
       ];
       const budgetPlan = createBudgetPlan();
-      const comparison = calculateWeeklyComparison(weeklyData, budgetPlan, '2025-W03');
+      const comparison = calculateWeeklyComparison(
+        weeklyData,
+        budgetPlan,
+        weekId(weekId('2025-W03'))
+      );
 
-      const groceries = comparison.find((c) => c.category === 'Groceries');
+      const groceries = comparison.find((c) => c.category === 'groceries');
       expect(groceries!.rolloverAccumulated).toBe(100);
       expect(groceries!.effectiveTarget).toBe(-400); // -500 + 100 = -400
     });
 
     it('should return comparison for all categories in budget plan', () => {
-      const weeklyData = [createWeeklyData({ week: '2025-W02', amount: -400 })];
+      const weeklyData = [createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -400 })];
       const budgetPlan = createBudgetPlan();
-      const comparison = calculateWeeklyComparison(weeklyData, budgetPlan, '2025-W02');
+      const comparison = calculateWeeklyComparison(
+        weeklyData,
+        budgetPlan,
+        weekId(weekId('2025-W02'))
+      );
 
       expect(comparison.length).toBe(2); // Groceries and Income
-      expect(comparison.find((c) => c.category === 'Groceries')).toBeDefined();
-      expect(comparison.find((c) => c.category === 'Income')).toBeDefined();
+      expect(comparison.find((c) => c.category === 'groceries')).toBeDefined();
+      expect(comparison.find((c) => c.category === 'income')).toBeDefined();
     });
   });
 
   describe('predictCashFlow', () => {
     const createWeeklyData = (overrides: Partial<WeeklyData>): WeeklyData => ({
-      week: '2025-W02' as WeekId,
-      category: 'Groceries' as Category,
+      week: weekId(weekId('2025-W02')) as WeekId,
+      category: 'groceries' as Category,
       amount: -100,
       isIncome: false,
       qualifiers: {
@@ -557,15 +792,16 @@ describe('weeklyAggregation', () => {
 
     const createBudgetPlan = (): BudgetPlan => ({
       categoryBudgets: {
-        Groceries: {
+        groceries: {
           weeklyTarget: -500,
           rolloverEnabled: true,
         },
-        Salary: {
+        income: {
           weeklyTarget: 2000,
           rolloverEnabled: false,
         },
       },
+      lastModified: new Date().toISOString(),
     });
 
     it('should calculate predicted net income from budget plan', () => {
@@ -589,26 +825,26 @@ describe('weeklyAggregation', () => {
     it('should calculate historic averages from last N weeks', () => {
       const historicData = [
         createWeeklyData({
-          week: '2025-W01',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W01')),
+          category: 'income' as Category,
           amount: 2000,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W01', amount: -400 }),
+        createWeeklyData({ week: weekId(weekId('2025-W01')), amount: -400 }),
         createWeeklyData({
-          week: '2025-W02',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W02')),
+          category: 'income' as Category,
           amount: 2200,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W02', amount: -600 }),
+        createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -600 }),
         createWeeklyData({
-          week: '2025-W03',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W03')),
+          category: 'income' as Category,
           amount: 1800,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W03', amount: -500 }),
+        createWeeklyData({ week: weekId(weekId('2025-W03')), amount: -500 }),
       ];
       const budgetPlan = createBudgetPlan();
       const prediction = predictCashFlow(budgetPlan, historicData, 12);
@@ -623,20 +859,20 @@ describe('weeklyAggregation', () => {
     it('should use only last N weeks when data exceeds weeksToAverage', () => {
       const historicData = [
         createWeeklyData({
-          week: '2025-W01',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W01')),
+          category: 'income' as Category,
           amount: 1000,
           isIncome: true,
         }),
         createWeeklyData({
-          week: '2025-W02',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W02')),
+          category: 'income' as Category,
           amount: 2000,
           isIncome: true,
         }),
         createWeeklyData({
-          week: '2025-W03',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W03')),
+          category: 'income' as Category,
           amount: 3000,
           isIncome: true,
         }),
@@ -651,12 +887,12 @@ describe('weeklyAggregation', () => {
     it('should calculate variance correctly', () => {
       const historicData = [
         createWeeklyData({
-          week: '2025-W01',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W01')),
+          category: 'income' as Category,
           amount: 1500,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W01', amount: -400 }),
+        createWeeklyData({ week: weekId(weekId('2025-W01')), amount: -400 }),
       ];
       const budgetPlan = createBudgetPlan();
       const prediction = predictCashFlow(budgetPlan, historicData, 12);
@@ -670,12 +906,12 @@ describe('weeklyAggregation', () => {
     it('should handle fewer weeks than weeksToAverage', () => {
       const historicData = [
         createWeeklyData({
-          week: '2025-W01',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W01')),
+          category: 'income' as Category,
           amount: 2000,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W01', amount: -500 }),
+        createWeeklyData({ week: weekId(weekId('2025-W01')), amount: -500 }),
       ];
       const budgetPlan = createBudgetPlan();
       const prediction = predictCashFlow(budgetPlan, historicData, 12);
@@ -688,6 +924,7 @@ describe('weeklyAggregation', () => {
     it('should handle empty budget plan gracefully', () => {
       const emptyBudgetPlan: BudgetPlan = {
         categoryBudgets: {},
+        lastModified: new Date().toISOString(),
       };
       const prediction = predictCashFlow(emptyBudgetPlan, [], 12);
 
@@ -701,9 +938,9 @@ describe('weeklyAggregation', () => {
 
     it('should handle historic data with only expenses (no income)', () => {
       const historicData = [
-        createWeeklyData({ week: '2025-W01', amount: -400 }),
-        createWeeklyData({ week: '2025-W02', amount: -600 }),
-        createWeeklyData({ week: '2025-W03', amount: -500 }),
+        createWeeklyData({ week: weekId(weekId('2025-W01')), amount: -400 }),
+        createWeeklyData({ week: weekId(weekId('2025-W02')), amount: -600 }),
+        createWeeklyData({ week: weekId(weekId('2025-W03')), amount: -500 }),
       ];
       const budgetPlan = createBudgetPlan();
       const prediction = predictCashFlow(budgetPlan, historicData, 12);
@@ -718,20 +955,20 @@ describe('weeklyAggregation', () => {
     it('should handle historic data with only income (no expenses)', () => {
       const historicData = [
         createWeeklyData({
-          week: '2025-W01',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W01')),
+          category: 'income' as Category,
           amount: 2000,
           isIncome: true,
         }),
         createWeeklyData({
-          week: '2025-W02',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W02')),
+          category: 'income' as Category,
           amount: 2200,
           isIncome: true,
         }),
         createWeeklyData({
-          week: '2025-W03',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W03')),
+          category: 'income' as Category,
           amount: 1800,
           isIncome: true,
         }),
@@ -749,28 +986,28 @@ describe('weeklyAggregation', () => {
     it('should handle sparse historic data with missing weeks', () => {
       const historicData = [
         createWeeklyData({
-          week: '2025-W01',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W01')),
+          category: 'income' as Category,
           amount: 2000,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W01', amount: -500 }),
+        createWeeklyData({ week: weekId(weekId('2025-W01')), amount: -500 }),
         // W02 missing
         createWeeklyData({
-          week: '2025-W03',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W03')),
+          category: 'income' as Category,
           amount: 2200,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W03', amount: -400 }),
+        createWeeklyData({ week: weekId(weekId('2025-W03')), amount: -400 }),
         // W04 missing
         createWeeklyData({
-          week: '2025-W05',
-          category: 'Salary' as Category,
+          week: weekId(weekId('2025-W05')),
+          category: 'income' as Category,
           amount: 1800,
           isIncome: true,
         }),
-        createWeeklyData({ week: '2025-W05', amount: -600 }),
+        createWeeklyData({ week: weekId(weekId('2025-W05')), amount: -600 }),
       ];
       const budgetPlan = createBudgetPlan();
       const prediction = predictCashFlow(budgetPlan, historicData, 12);
@@ -784,15 +1021,16 @@ describe('weeklyAggregation', () => {
     it('should handle zero values in budget targets', () => {
       const budgetPlanWithZeros: BudgetPlan = {
         categoryBudgets: {
-          Groceries: {
+          groceries: {
             weeklyTarget: 0,
             rolloverEnabled: true,
           },
-          Salary: {
+          income: {
             weeklyTarget: 0,
             rolloverEnabled: false,
           },
         },
+        lastModified: new Date().toISOString(),
       };
       const prediction = predictCashFlow(budgetPlanWithZeros, [], 12);
 
@@ -806,13 +1044,14 @@ describe('weeklyAggregation', () => {
     const createTransaction = (overrides: Partial<Transaction>): Transaction => ({
       id: 'txn-1',
       date: '2025-01-06',
-      category: 'Groceries' as Category,
+      category: 'groceries' as Category,
       amount: -100,
       description: 'Test',
       transfer: false,
       vacation: false,
       redeemable: false,
       redemptionRate: 0,
+      statementIds: [],
       ...overrides,
     });
 
@@ -823,7 +1062,7 @@ describe('weeklyAggregation', () => {
         createTransaction({ date: '2025-01-07' }), // W02
       ];
       const weeks = getAvailableWeeks(transactions);
-      expect(weeks).toEqual(['2025-W02', '2025-W03']);
+      expect(weeks).toEqual([weekId('2025-W02'), weekId('2025-W03')]);
     });
 
     it('should return empty array for no transactions', () => {
@@ -834,28 +1073,28 @@ describe('weeklyAggregation', () => {
 
   describe('getNextWeek and getPreviousWeek', () => {
     it('should navigate to next week', () => {
-      expect(getNextWeek('2025-W02')).toBe('2025-W03');
+      expect(getNextWeek(weekId(weekId('2025-W02')))).toBe(weekId('2025-W03'));
     });
 
     it('should navigate across year boundary (forward)', () => {
-      expect(getNextWeek('2024-W52')).toBe('2025-W01');
+      expect(getNextWeek(weekId(weekId('2024-W52')))).toBe(weekId('2025-W01'));
     });
 
     it('should navigate to previous week', () => {
-      expect(getPreviousWeek('2025-W03')).toBe('2025-W02');
+      expect(getPreviousWeek(weekId(weekId('2025-W03')))).toBe(weekId('2025-W02'));
     });
 
     it('should navigate across year boundary (backward)', () => {
-      expect(getPreviousWeek('2025-W01')).toBe('2024-W52');
+      expect(getPreviousWeek(weekId(weekId('2025-W01')))).toBe(weekId('2024-W52'));
     });
 
     it('should handle week 53 navigation', () => {
-      expect(getNextWeek('2020-W53')).toBe('2021-W01');
-      expect(getPreviousWeek('2021-W01')).toBe('2020-W53');
+      expect(getNextWeek(weekId(weekId('2020-W53')))).toBe(weekId('2021-W01'));
+      expect(getPreviousWeek(weekId(weekId('2021-W01')))).toBe(weekId('2020-W53'));
     });
 
     it('should support roundtrip navigation', () => {
-      const week = '2025-W15' as WeekId;
+      const week = weekId('2025-W15') as WeekId;
       expect(getPreviousWeek(getNextWeek(week))).toBe(week);
       expect(getNextWeek(getPreviousWeek(week))).toBe(week);
     });

@@ -10,9 +10,9 @@ const currencyFormatter = new Intl.NumberFormat(undefined, {
 
 /**
  * Format a number as currency with 2 decimal places.
- * @param amount - The amount to format. Always displays as positive (uses absolute value)
- *                 since sign context is provided by surrounding labels/UI (e.g., "Income: $X" vs "Expenses: $X").
- * @returns Formatted string (e.g., "1,234.56")
+ * @param amount - The amount to format (positive or negative)
+ * @returns Formatted string with absolute value (e.g., "1,234.56" - no sign).
+ *   Sign context is provided by surrounding UI labels ("Income: $X" vs "Expenses: $X").
  */
 export function formatCurrency(amount: number): string {
   return currencyFormatter.format(Math.abs(amount));

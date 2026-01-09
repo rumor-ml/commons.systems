@@ -2,7 +2,7 @@ import '../styles/main.css';
 import { StateManager } from './state';
 import { renderSummaryCards } from './renderer';
 import { hydrateIsland } from '../islands/index';
-import { Transaction } from '../islands/types';
+import { Transaction, BudgetPlan, WeekId, Category } from '../islands/types';
 import transactionsData from '../data/transactions.json';
 import { aggregateTransactionsByWeek, getAvailableWeeks } from './weeklyAggregation';
 
@@ -10,43 +10,43 @@ function loadTransactions(): Transaction[] {
   return transactionsData.transactions as Transaction[];
 }
 
+/**
+ * Updates a React island with new props and re-hydrates it.
+ * @param elementId - The DOM element ID of the island container
+ * @param componentName - The React component name to hydrate
+ * @param props - The props object to pass to the component
+ */
+function updateIsland(elementId: string, componentName: string, props: object): void {
+  const el = document.getElementById(elementId) as HTMLElement;
+  if (el) {
+    el.setAttribute('data-island-props', JSON.stringify(props));
+    hydrateIsland(el, componentName);
+  }
+}
+
 function updateIslands(): void {
   const state = StateManager.load();
   const transactions = loadTransactions();
 
   // Update chart island
-  const chartEl = document.getElementById('chart-island') as HTMLElement;
-  if (chartEl) {
-    chartEl.setAttribute(
-      'data-island-props',
-      JSON.stringify({
-        transactions,
-        hiddenCategories: state.hiddenCategories,
-        showVacation: state.showVacation,
-        granularity: state.viewGranularity,
-        selectedWeek: state.selectedWeek,
-        budgetPlan: state.budgetPlan,
-      })
-    );
-    hydrateIsland(chartEl, 'BudgetChart');
-  }
+  updateIsland('chart-island', 'BudgetChart', {
+    transactions,
+    hiddenCategories: state.hiddenCategories,
+    showVacation: state.showVacation,
+    granularity: state.viewGranularity,
+    selectedWeek: state.selectedWeek,
+    budgetPlan: state.budgetPlan,
+  });
 
   // Update legend island
-  const legendEl = document.getElementById('legend-island') as HTMLElement;
-  if (legendEl) {
-    legendEl.setAttribute(
-      'data-island-props',
-      JSON.stringify({
-        transactions,
-        hiddenCategories: state.hiddenCategories,
-        showVacation: state.showVacation,
-        budgetPlan: state.budgetPlan,
-        granularity: state.viewGranularity,
-        selectedWeek: state.selectedWeek,
-      })
-    );
-    hydrateIsland(legendEl, 'Legend');
-  }
+  updateIsland('legend-island', 'Legend', {
+    transactions,
+    hiddenCategories: state.hiddenCategories,
+    showVacation: state.showVacation,
+    budgetPlan: state.budgetPlan,
+    granularity: state.viewGranularity,
+    selectedWeek: state.selectedWeek,
+  });
 
   // Update time selector island (only in weekly mode)
   const timeSelectorEl = document.getElementById('time-selector-island') as HTMLElement;
@@ -54,15 +54,11 @@ function updateIslands(): void {
     if (state.viewGranularity === 'week') {
       timeSelectorEl.style.display = 'block';
       const availableWeeks = getAvailableWeeks(transactions);
-      timeSelectorEl.setAttribute(
-        'data-island-props',
-        JSON.stringify({
-          granularity: state.viewGranularity,
-          selectedWeek: state.selectedWeek,
-          availableWeeks,
-        })
-      );
-      hydrateIsland(timeSelectorEl, 'TimeSelector');
+      updateIsland('time-selector-island', 'TimeSelector', {
+        granularity: state.viewGranularity,
+        selectedWeek: state.selectedWeek,
+        availableWeeks,
+      });
     } else {
       timeSelectorEl.style.display = 'none';
     }
@@ -78,19 +74,15 @@ function updateIslands(): void {
         hiddenCategories: hiddenSet,
         showVacation: state.showVacation,
       });
-      planEditorEl.setAttribute(
-        'data-island-props',
-        JSON.stringify({
-          budgetPlan: state.budgetPlan || {
-            categoryBudgets: {},
-            lastModified: new Date().toISOString(),
-          },
-          historicData: weeklyData,
-          onSave: () => {},
-          onCancel: () => {},
-        })
-      );
-      hydrateIsland(planEditorEl, 'BudgetPlanEditor');
+      updateIsland('plan-editor-island', 'BudgetPlanEditor', {
+        budgetPlan: state.budgetPlan || {
+          categoryBudgets: {},
+          lastModified: new Date().toISOString(),
+        },
+        historicData: weeklyData,
+        onSave: () => {},
+        onCancel: () => {},
+      });
     } else {
       planEditorEl.style.display = 'none';
     }
@@ -100,107 +92,237 @@ function updateIslands(): void {
   renderSummaryCards(transactions, state);
 }
 
+/**
+ * Wraps an event handler with error handling, validation, and user-friendly error messages.
+ * @param handler - The core event logic to execute
+ * @param config - Configuration for error handling
+ */
+function wrapEventHandler<T>(
+  handler: (detail: T) => void,
+  config: {
+    eventName: string;
+    validate?: (detail: T) => { valid: boolean; error?: string };
+    errorContext?: (detail: T) => Record<string, any>;
+  }
+): (e: CustomEvent<T>) => void {
+  return (e: CustomEvent<T>) => {
+    const detail = e.detail;
+
+    // Validate event data if validator provided
+    if (config.validate) {
+      const validation = config.validate(detail);
+      if (!validation.valid) {
+        console.error(`Invalid ${config.eventName} event:`, {
+          error: validation.error,
+          receivedDetail: detail,
+        });
+        StateManager.showErrorBanner(
+          validation.error || `Unable to ${config.eventName}: invalid event data`
+        );
+        return;
+      }
+    }
+
+    try {
+      handler(detail);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const context = config.errorContext ? config.errorContext(detail) : {};
+
+      console.error(`Failed to ${config.eventName}:`, {
+        error,
+        errorMessage,
+        ...context,
+      });
+
+      StateManager.showErrorBanner(
+        `Failed to ${config.eventName}. ${errorMessage.includes('storage') || errorMessage.includes('quota') ? 'Your browser storage may be full. Try closing other tabs.' : 'Please try again.'}`
+      );
+    }
+  };
+}
+
 // TODO(#1365): Missing integration tests for main.ts event handling
 function initCategoryToggle(): void {
-  document.addEventListener('budget:category-toggle', ((e: CustomEvent) => {
-    try {
-      const category = e.detail.category;
-      const state = StateManager.load();
-      const hiddenSet = new Set(state.hiddenCategories);
+  document.addEventListener(
+    'budget:category-toggle',
+    wrapEventHandler<{ category: Category }>(
+      (detail) => {
+        const category = detail.category;
+        const state = StateManager.load();
+        const hiddenSet = new Set(state.hiddenCategories);
 
-      // Toggle category visibility
-      if (hiddenSet.has(category)) {
-        hiddenSet.delete(category);
-      } else {
-        hiddenSet.add(category);
+        // Toggle category visibility
+        if (hiddenSet.has(category)) {
+          hiddenSet.delete(category);
+        } else {
+          hiddenSet.add(category);
+        }
+
+        StateManager.save({ hiddenCategories: Array.from(hiddenSet) });
+        updateIslands();
+      },
+      {
+        eventName: 'toggle category visibility',
+        validate: (detail) => {
+          if (!detail?.category) {
+            return { valid: false, error: 'Unable to toggle category: missing category name' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ category: detail.category }),
       }
-
-      StateManager.save({ hiddenCategories: Array.from(hiddenSet) });
-      updateIslands();
-    } catch (error) {
-      console.error('Failed to toggle category:', error);
-      StateManager.showErrorBanner('Failed to toggle category filter. Please try again.');
-    }
-  }) as EventListener);
+    ) as EventListener
+  );
 }
 
 function initVacationToggle(): void {
-  // The vacation toggle will be in the Legend island
-  // We need to listen for custom events from the island
-  document.addEventListener('budget:vacation-toggle', ((e: CustomEvent) => {
-    try {
-      const showVacation = e.detail.showVacation;
-      StateManager.save({ showVacation });
-      updateIslands();
-    } catch (error) {
-      console.error('Failed to toggle vacation:', error);
-      StateManager.showErrorBanner('Failed to toggle vacation filter. Please try again.');
-    }
-  }) as EventListener);
+  // Vacation toggle is in the Legend island - listen for its custom events
+  document.addEventListener(
+    'budget:vacation-toggle',
+    wrapEventHandler<{ showVacation: boolean }>(
+      (detail) => {
+        const showVacation = detail.showVacation;
+        StateManager.save({ showVacation });
+        updateIslands();
+      },
+      {
+        eventName: 'toggle vacation visibility',
+        validate: (detail) => {
+          if (detail?.showVacation === undefined) {
+            return { valid: false, error: 'Unable to toggle vacation: missing showVacation value' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ showVacation: detail.showVacation }),
+      }
+    ) as EventListener
+  );
 }
 
 function initBudgetPlanEvents(): void {
   // Budget plan save event
-  document.addEventListener('budget:plan-save', ((e: CustomEvent) => {
-    try {
-      const budgetPlan = e.detail.budgetPlan;
-      const saved = StateManager.save({
-        budgetPlan,
-        planningMode: false,
-        viewGranularity: 'week', // Switch to weekly view after saving budget
-      });
+  document.addEventListener(
+    'budget:plan-save',
+    wrapEventHandler<{ budgetPlan: BudgetPlan }>(
+      (detail) => {
+        const budgetPlan = detail.budgetPlan;
+        const saved = StateManager.save({
+          budgetPlan,
+          planningMode: false,
+          viewGranularity: 'week', // Switch to weekly view after saving budget
+        });
 
-      // If save failed for budgetPlan, stay in planning mode to prevent data loss
-      if (!saved.budgetPlan || JSON.stringify(saved.budgetPlan) !== JSON.stringify(budgetPlan)) {
-        console.error('Budget plan save failed - staying in planning mode');
-        StateManager.save({ planningMode: true });
-        // User already saw error banner from StateManager.save()
-        return;
+        // If save failed, keep planning mode editor open to preserve user's unsaved budget edits.
+        // Prevents data loss by maintaining form state until user can retry or copy values.
+        if (!saved.budgetPlan || JSON.stringify(saved.budgetPlan) !== JSON.stringify(budgetPlan)) {
+          console.error('Budget plan save verification failed:', {
+            attemptedSave: budgetPlan,
+            actualSaved: saved.budgetPlan,
+          });
+
+          // Diagnose the specific storage issue
+          let reason = 'Unknown storage error';
+          try {
+            const testKey = '__storage_test__';
+            localStorage.setItem(testKey, 'test');
+            localStorage.removeItem(testKey);
+            // Storage works, so this is a data mismatch
+            reason = 'Data verification failed after save. Possible serialization issue.';
+          } catch (e) {
+            if (e instanceof Error) {
+              if (e.name === 'QuotaExceededError') {
+                reason =
+                  'Storage quota exceeded. Try clearing browser cache or reducing data size.';
+              } else {
+                reason = `Storage unavailable: ${e.message}`;
+              }
+            }
+          }
+
+          StateManager.save({ planningMode: true });
+          StateManager.showErrorBanner(
+            `Failed to save budget plan: ${reason} Keeping editor open to prevent data loss.`
+          );
+          return;
+        }
+
+        updateIslands();
+      },
+      {
+        eventName: 'save budget plan',
+        validate: (detail) => {
+          if (!detail?.budgetPlan || typeof detail.budgetPlan !== 'object') {
+            return { valid: false, error: 'Unable to save budget: invalid plan data' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({
+          budgetCategoryCount: Object.keys(detail.budgetPlan?.categoryBudgets || {}).length,
+        }),
       }
-
-      updateIslands();
-    } catch (error) {
-      console.error('Failed to save budget plan:', error);
-      StateManager.showErrorBanner('Failed to save budget plan. Please try again.');
-    }
-  }) as EventListener);
+    ) as EventListener
+  );
 
   // Budget plan cancel event
-  document.addEventListener('budget:plan-cancel', (() => {
-    try {
-      StateManager.save({ planningMode: false });
-      updateIslands();
-    } catch (error) {
-      console.error('Failed to cancel budget plan:', error);
-      StateManager.showErrorBanner('Failed to close budget planner. Please try again.');
-    }
-  }) as EventListener);
+  document.addEventListener(
+    'budget:plan-cancel',
+    wrapEventHandler(
+      () => {
+        StateManager.save({ planningMode: false });
+        updateIslands();
+      },
+      {
+        eventName: 'cancel budget planning',
+      }
+    ) as EventListener
+  );
 }
 
 function initTimeNavigationEvents(): void {
   // Week change event
-  document.addEventListener('budget:week-change', ((e: CustomEvent) => {
-    try {
-      const week = e.detail.week;
-      StateManager.save({ selectedWeek: week });
-      updateIslands();
-    } catch (error) {
-      console.error('Failed to change week:', error);
-      StateManager.showErrorBanner('Failed to change week. Please try again.');
-    }
-  }) as EventListener);
+  document.addEventListener(
+    'budget:week-change',
+    wrapEventHandler<{ week: WeekId }>(
+      (detail) => {
+        const week = detail.week;
+        StateManager.save({ selectedWeek: week });
+        updateIslands();
+      },
+      {
+        eventName: 'change week',
+        validate: (detail) => {
+          if (!detail?.week) {
+            return { valid: false, error: 'Unable to change week: missing week identifier' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ week: detail.week }),
+      }
+    ) as EventListener
+  );
 
   // Granularity toggle event
-  document.addEventListener('budget:granularity-toggle', ((e: CustomEvent) => {
-    try {
-      const granularity = e.detail.granularity;
-      StateManager.save({ viewGranularity: granularity });
-      updateIslands();
-    } catch (error) {
-      console.error('Failed to change view granularity:', error);
-      StateManager.showErrorBanner('Failed to change view mode. Please try again.');
-    }
-  }) as EventListener);
+  document.addEventListener(
+    'budget:granularity-toggle',
+    wrapEventHandler<{ granularity: 'week' | 'month' }>(
+      (detail) => {
+        const granularity = detail.granularity;
+        StateManager.save({ viewGranularity: granularity });
+        updateIslands();
+      },
+      {
+        eventName: 'change view mode',
+        validate: (detail) => {
+          if (!detail?.granularity) {
+            return { valid: false, error: 'Unable to change view: missing granularity value' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ granularity: detail.granularity }),
+      }
+    ) as EventListener
+  );
 }
 
 function initPlanButton(): void {
@@ -211,8 +333,14 @@ function initPlanButton(): void {
         StateManager.save({ planningMode: true });
         updateIslands();
       } catch (error) {
-        console.error('Failed to enter planning mode:', error);
-        StateManager.showErrorBanner('Failed to open budget planner. Please try again.');
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Failed to enter planning mode:', {
+          error,
+          errorMessage,
+        });
+        StateManager.showErrorBanner(
+          `Failed to open budget planner. ${errorMessage.includes('storage') || errorMessage.includes('quota') ? 'Your browser storage may be full.' : 'Please try again.'}`
+        );
       }
     });
   }

@@ -10,6 +10,7 @@ import {
   TimeGranularity,
   WeekId,
   BudgetPlan,
+  createQualifierBreakdown,
 } from './types';
 import { CATEGORY_COLORS } from './constants';
 import { SegmentTooltip } from './SegmentTooltip';
@@ -39,6 +40,28 @@ function partitionByIncome<T extends { isIncome: boolean }>(
   return {
     income: data.filter((d) => d.isIncome),
     expense: data.filter((d) => !d.isIncome),
+  };
+}
+
+/**
+ * Get user-friendly error messages based on error type.
+ */
+function getErrorMessages(error: string): { userMessage: string; guidance: string } {
+  if (error.includes('Invalid or missing transaction data')) {
+    return {
+      userMessage: 'Transaction data could not be loaded.',
+      guidance: 'Check that your transaction data file is valid and properly formatted.',
+    };
+  }
+  if (error.toLowerCase().includes('parse')) {
+    return {
+      userMessage: 'Data format error detected.',
+      guidance: 'Your saved preferences may be corrupted. Try clearing your browser cache.',
+    };
+  }
+  return {
+    userMessage: 'An unexpected error occurred while loading the chart.',
+    guidance: 'Try refreshing the page. If the problem persists, contact support.',
   };
 }
 
@@ -79,59 +102,78 @@ export function BudgetChart({
       return;
     }
 
-    try {
-      setLoading(true);
+    setLoading(true);
 
-      const hiddenSet = new Set(hiddenCategories);
+    const hiddenSet = new Set(hiddenCategories);
 
-      // WEEKLY MODE: Single-week bar chart view with budget comparison overlays
-      if (granularity === 'week') {
-        // Aggregate transactions by week
-        const weeklyData = aggregateTransactionsByWeek(transactions, {
+    // Chart rendering strategy depends on granularity:
+    // - WEEKLY MODE: Category comparison for a single week with budget targets, rollover indicators, and variance tracking (for detailed budget planning)
+    // - MONTHLY MODE: Time-series view across multiple months with trend lines (for long-term analysis)
+
+    // WEEKLY MODE
+    if (granularity === 'week') {
+      // Aggregate transactions by week
+      let weeklyData;
+      try {
+        weeklyData = aggregateTransactionsByWeek(transactions, {
           hiddenCategories: hiddenSet,
           showVacation,
         });
+      } catch (err) {
+        console.error('Failed to aggregate transactions by week:', err, {
+          transactionCount: transactions.length,
+          hiddenCategories: Array.from(hiddenSet),
+        });
+        setError('Failed to process transaction data. Check console for details.');
+        setLoading(false);
+        return;
+      }
 
-        if (weeklyData.length === 0) {
-          const hasAnyTransactions = transactions.length > 0;
-          const allCategoriesHidden = hiddenCategories.length > 0;
-          const nonTransferCount = transactions.filter((t) => !t.transfer).length;
+      if (weeklyData.length === 0) {
+        const hasAnyTransactions = transactions.length > 0;
+        const allCategoriesHidden = hiddenCategories.length > 0;
+        const nonTransferCount = transactions.filter((t) => !t.transfer).length;
 
-          let message = 'No transaction data available for weekly view';
+        const getMessage = (): string => {
           if (!hasAnyTransactions) {
-            message = 'No transactions loaded. Import transaction data to begin.';
-          } else if (nonTransferCount === 0) {
-            message = 'Only transfers found (transfers are excluded from budget view)';
-          } else if (allCategoriesHidden) {
-            message = `${hiddenCategories.length} categories are hidden. Click categories in the legend to show them.`;
-          } else if (!showVacation) {
-            message =
-              'No non-vacation transactions available. Enable "Show Vacation" to see vacation spending.';
+            return 'No transactions loaded. Import transaction data to begin.';
           }
+          if (nonTransferCount === 0) {
+            return 'Only transfers found (transfers are excluded from budget view)';
+          }
+          if (allCategoriesHidden) {
+            return `${hiddenCategories.length} categories are hidden. Click categories in the legend to show them.`;
+          }
+          if (!showVacation) {
+            return 'No non-vacation transactions available. Enable "Show Vacation" to see vacation spending.';
+          }
+          return 'No transaction data available for weekly view';
+        };
 
-          renderEmptyState(containerRef.current, message);
-          setLoading(false);
-          return;
-        }
+        renderEmptyState(containerRef.current, getMessage());
+        setLoading(false);
+        return;
+      }
 
-        // Determine which week to display
-        const activeWeek = selectedWeek || getCurrentWeek();
+      // Determine which week to display
+      const activeWeek = selectedWeek || getCurrentWeek();
 
-        // Filter data for the selected week only
-        const weekData = weeklyData.filter((d) => d.week === activeWeek);
+      // Filter data for the selected week only
+      const weekData = weeklyData.filter((d) => d.week === activeWeek);
 
-        if (weekData.length === 0) {
-          renderEmptyState(
-            containerRef.current,
-            `No transaction data for week ${activeWeek}. Try navigating to a different week.`
-          );
-          setLoading(false);
-          return;
-        }
+      if (weekData.length === 0) {
+        renderEmptyState(
+          containerRef.current,
+          `No transaction data for week ${activeWeek}. Try navigating to a different week.`
+        );
+        setLoading(false);
+        return;
+      }
 
-        // Calculate budget comparisons if budget plan exists
-        let comparisons: Map<Category, { target: number; rolloverAccumulated: number }> = new Map();
-        if (budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0) {
+      // Calculate budget comparisons if budget plan exists
+      let comparisons: Map<Category, { target: number; rolloverAccumulated: number }> = new Map();
+      if (budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0) {
+        try {
           const comparisonData = calculateWeeklyComparison(weeklyData, budgetPlan, activeWeek);
           comparisonData.forEach((c) => {
             comparisons.set(c.category, {
@@ -139,8 +181,21 @@ export function BudgetChart({
               rolloverAccumulated: c.rolloverAccumulated,
             });
           });
+        } catch (err) {
+          console.error('Failed to calculate budget comparisons:', err, {
+            activeWeek,
+            budgetCategories: Object.keys(budgetPlan.categoryBudgets),
+          });
+          // Show error in UI - budget comparison failed
+          setError(
+            'Budget comparison calculation failed. Chart shows actual spending only. Check your budget plan for invalid data.'
+          );
+          console.warn('Rendering chart without budget comparison overlays');
         }
+      }
 
+      // Chart rendering
+      try {
         // Clear container
         containerRef.current.replaceChildren();
 
@@ -241,11 +296,28 @@ export function BudgetChart({
         });
 
         containerRef.current.appendChild(plot);
+      } catch (err) {
+        console.error('Failed to render weekly chart:', err, {
+          activeWeek,
+          dataPoints: weekData.length,
+          budgetOverlays: comparisons.size,
+        });
+        setError('Failed to render chart visualization. Try switching to monthly view.');
         setLoading(false);
         return;
       }
 
-      // MONTHLY MODE: Time-series view showing stacked category bars with net income trend lines
+      setLoading(false);
+      return;
+    }
+
+    // MONTHLY MODE
+    // Data transformation
+    let monthlyData: MonthlyData[];
+    let netIncomeData: { month: Date; netIncome: number }[];
+    let trailingAvgData: { month: Date; trailingAvg: number }[];
+
+    try {
       // Filter out transfers and apply filters
       const filteredTransactions = transactions.filter((txn) => {
         if (txn.transfer) return false;
@@ -271,13 +343,7 @@ export function BudgetChart({
         const categoryMap = monthlyMap.get(month)!;
         const current = categoryMap.get(txn.category) || {
           amount: 0,
-          qualifiers: {
-            redeemable: 0,
-            nonRedeemable: 0,
-            vacation: 0,
-            nonVacation: 0,
-            transactionCount: 0,
-          },
+          qualifiers: createQualifierBreakdown(),
         };
 
         // Update amount
@@ -302,8 +368,8 @@ export function BudgetChart({
       });
 
       // Convert to array format for Plot
-      const monthlyData: MonthlyData[] = [];
-      const netIncomeData: { month: Date; netIncome: number }[] = [];
+      monthlyData = [];
+      netIncomeData = [];
 
       monthlyMap.forEach((categoryMap, month) => {
         let monthIncome = 0;
@@ -342,11 +408,8 @@ export function BudgetChart({
       });
       netIncomeData.sort((a, b) => a.month.getTime() - b.month.getTime());
 
-      // Store monthlyData in ref for tooltip access
-      monthlyDataRef.current = monthlyData;
-
       // Calculate 3-month trailing average
-      const trailingAvgData = netIncomeData.map((item, idx) => {
+      trailingAvgData = netIncomeData.map((item, idx) => {
         const start = Math.max(0, idx - 2);
         const slice = netIncomeData.slice(start, idx + 1);
         const avg = d3.mean(slice, (d) => d.netIncome) || 0;
@@ -355,12 +418,27 @@ export function BudgetChart({
           trailingAvg: avg,
         };
       });
+    } catch (err) {
+      console.error('Failed to transform monthly data:', err);
+      setError('Failed to process transaction data for monthly view.');
+      setLoading(false);
+      return;
+    }
 
+    // Store monthlyData in ref for tooltip access
+    monthlyDataRef.current = monthlyData;
+
+    // Chart rendering
+    let plot: Element;
+    try {
       // Clear container
       containerRef.current.replaceChildren();
 
+      // Partition data once for both plot rendering and event listeners
+      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
+
       // Create the plot
-      const plot = Plot.plot({
+      plot = Plot.plot({
         width: containerRef.current.clientWidth || 800,
         height: 500,
         marginTop: 20,
@@ -392,7 +470,7 @@ export function BudgetChart({
 
           // Stacked bars for expenses (negative values)
           Plot.barY(
-            partitionByIncome(monthlyData).expense,
+            expenseData,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -402,7 +480,7 @@ export function BudgetChart({
 
           // Stacked bars for income (positive values)
           Plot.barY(
-            partitionByIncome(monthlyData).income,
+            incomeData,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -431,14 +509,25 @@ export function BudgetChart({
       });
 
       containerRef.current.appendChild(plot);
+    } catch (err) {
+      console.error('Failed to render monthly chart:', err);
+      setError('Failed to render chart visualization. Try switching to weekly view.');
+      setLoading(false);
+      return;
+    }
 
+    // Event listener attachment
+    try {
       // Attach event listeners to bar segments for tooltips
       // We need to match bars to data - Plot renders bars in two groups (expenses and income)
       // The bars are in g[aria-label="bar"] elements - expenses first, then income
+      // TODO(#1385): Comment claims bars may not be found but doesn't explain impact on user experience
       // Use fallback empty arrays if bar groups not found (prevents tooltip attachment errors)
       const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
       const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
       const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
+
+      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
 
       // Helper function to attach event listeners to bar segments
       const attachBarEventListeners = (bars: NodeListOf<Element>, data: MonthlyData[]) => {
@@ -499,16 +588,16 @@ export function BudgetChart({
         });
       };
 
-      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
       attachBarEventListeners(expenseBars, expenseData);
       attachBarEventListeners(incomeBars, incomeData);
-
-      setLoading(false);
     } catch (err) {
-      console.error('Error rendering chart:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      setLoading(false);
+      console.error('Failed to attach event listeners:', err);
+      // Show warning in UI - tooltips unavailable
+      setError('Chart tooltips unavailable. View detailed data in the legend below.');
+      console.warn('Chart rendered but tooltips may not work');
     }
+
+    setLoading(false);
   }, [transactions, hiddenCategories, showVacation, granularity, selectedWeek, budgetPlan]);
 
   // Handle document clicks to unpin tooltip
@@ -547,17 +636,7 @@ export function BudgetChart({
     console.error('BudgetChart error:', error);
 
     // Determine user-friendly message based on error type
-    let userMessage = 'An unexpected error occurred while loading the chart.';
-    let actionableGuidance = 'Try refreshing the page. If the problem persists, contact support.';
-
-    if (error.includes('Invalid or missing transaction data')) {
-      userMessage = 'Transaction data could not be loaded.';
-      actionableGuidance = 'Check that your transaction data file is valid and properly formatted.';
-    } else if (error.includes('parse') || error.includes('Parse')) {
-      userMessage = 'Data format error detected.';
-      actionableGuidance =
-        'Your saved preferences may be corrupted. Try clearing your browser cache.';
-    }
+    const { userMessage, guidance: actionableGuidance } = getErrorMessages(error);
 
     return (
       <div className="p-8 bg-error-muted rounded-lg border border-error">

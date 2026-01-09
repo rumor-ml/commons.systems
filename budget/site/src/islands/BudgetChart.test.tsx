@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { BudgetChart } from './BudgetChart';
-import { Transaction, Category, BudgetPlan, TimeGranularity, WeekId } from './types';
+import { Transaction, Category, BudgetPlan, weekId } from './types';
 
 // Mock Observable Plot
 vi.mock('@observablehq/plot', () => {
@@ -137,7 +137,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -174,7 +174,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
           budgetPlan={budgetPlan}
         />
       );
@@ -215,7 +215,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
           budgetPlan={budgetPlan}
         />
       );
@@ -249,7 +249,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
           budgetPlan={budgetPlan}
         />
       );
@@ -263,7 +263,7 @@ describe('BudgetChart', () => {
         // Find the text marks (rollover badges)
         const textMarks = config.marks.filter((m: any) => m.type === 'text');
 
-        // Should not have any rollover badges since this is the first week
+        // Should not have any rollover badges since there's no prior week history to accumulate from
         expect(textMarks.length).toBe(0);
       });
     });
@@ -279,7 +279,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W03" // Different week
+          selectedWeek={weekId('2025-W03')} // Different week
         />
       );
 
@@ -297,7 +297,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -319,7 +319,7 @@ describe('BudgetChart', () => {
           hiddenCategories={['groceries']}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -344,7 +344,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
           budgetPlan={budgetPlan}
         />
       );
@@ -403,7 +403,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -432,7 +432,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -469,7 +469,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -502,7 +502,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={false}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -540,7 +540,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
         />
       );
 
@@ -705,7 +705,7 @@ describe('BudgetChart', () => {
           hiddenCategories={[]}
           showVacation={true}
           granularity="week"
-          selectedWeek="2025-W02"
+          selectedWeek={weekId('2025-W02')}
           budgetPlan={null}
         />
       );

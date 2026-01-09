@@ -1,5 +1,48 @@
 import { CATEGORIES } from '../islands/constants';
-import { Category, BudgetPlan, TimeGranularity, WeekId } from '../islands/types';
+import { Category, BudgetPlan, TimeGranularity, WeekId, parseWeekId } from '../islands/types';
+
+/**
+ * Validate budgetPlan structure from localStorage.
+ * @param parsed - Raw parsed object from localStorage
+ * @returns Validated BudgetPlan or null if invalid
+ */
+function validateBudgetPlan(parsed: any): BudgetPlan | null {
+  if (!parsed.budgetPlan || typeof parsed.budgetPlan !== 'object') {
+    return null;
+  }
+
+  const categoryBudgets = parsed.budgetPlan.categoryBudgets;
+  if (!categoryBudgets || typeof categoryBudgets !== 'object') {
+    return null;
+  }
+
+  // Validate each category budget entry
+  const validatedBudgets: Partial<
+    Record<Category, { weeklyTarget: number; rolloverEnabled: boolean }>
+  > = {};
+
+  for (const [category, budget] of Object.entries(categoryBudgets)) {
+    if (
+      CATEGORIES.includes(category as Category) &&
+      budget &&
+      typeof budget === 'object' &&
+      'weeklyTarget' in budget &&
+      'rolloverEnabled' in budget &&
+      typeof (budget as any).weeklyTarget === 'number' &&
+      typeof (budget as any).rolloverEnabled === 'boolean'
+    ) {
+      validatedBudgets[category as Category] = {
+        weeklyTarget: (budget as any).weeklyTarget,
+        rolloverEnabled: (budget as any).rolloverEnabled,
+      };
+    }
+  }
+
+  return {
+    categoryBudgets: validatedBudgets,
+    lastModified: parsed.budgetPlan.lastModified || new Date().toISOString(),
+  };
+}
 
 /**
  * Budget application state (persisted to localStorage)
@@ -7,8 +50,8 @@ import { Category, BudgetPlan, TimeGranularity, WeekId } from '../islands/types'
  * @property showVacation - Whether to include vacation spending
  * @property budgetPlan - User's budget configuration (null = no budget set)
  * @property viewGranularity - Time aggregation level for historic view
- * @property selectedWeek - Specific week for week view (null = current week).
- *   Should be null when viewGranularity is 'month'.
+ * @property selectedWeek - Specific week for week view. When null, defaults to current week (calculated dynamically).
+ *   Should be null when viewGranularity is 'month' (ignored in monthly view).
  * @property planningMode - Whether budget plan editor is visible
  */
 export interface BudgetState {
@@ -23,6 +66,12 @@ export interface BudgetState {
 export class StateManager {
   private static STORAGE_KEY = 'budget-state';
 
+  /**
+   * Create and display a banner notification
+   * @param message - Text to display
+   * @param type - Banner style ('warning' or 'error')
+   * @param autoDismiss - If true, banner auto-dismisses after 10s. If false, remains until manually closed.
+   */
   private static createBanner(
     message: string,
     type: 'warning' | 'error',
@@ -65,7 +114,6 @@ export class StateManager {
   }
 
   public static showErrorBanner(message: string): void {
-    // Error banners remain until manually dismissed (unlike warning banners which auto-dismiss after 10s)
     this.createBanner(message, 'error', false);
   }
 
@@ -88,7 +136,10 @@ export class StateManager {
 
       const parsed = JSON.parse(stored);
 
-      // Migration (added 2026-01): Convert old selectedCategory format to hiddenCategories. Can be removed after 2026-06 when all users have migrated.
+      // TODO(2026-06): Remove selectedCategory migration after 6 months grace period.
+      //   Migration added 2026-01. Remove if localStorage analytics show <1% users with old format,
+      //   or if 6 months elapsed (assume users cleared cache or migrated).
+      // Migration: Convert old selectedCategory format to hiddenCategories.
       if ('selectedCategory' in parsed && parsed.selectedCategory !== null) {
         const hiddenCategories = CATEGORIES.filter((cat) => cat !== parsed.selectedCategory);
         return {
@@ -107,36 +158,7 @@ export class StateManager {
       }
 
       // Validate budgetPlan structure
-      let budgetPlan: BudgetPlan | null = null;
-      if (parsed.budgetPlan && typeof parsed.budgetPlan === 'object') {
-        const categoryBudgets = parsed.budgetPlan.categoryBudgets;
-        if (categoryBudgets && typeof categoryBudgets === 'object') {
-          // Validate each category budget entry
-          const validatedBudgets: Partial<
-            Record<Category, { weeklyTarget: number; rolloverEnabled: boolean }>
-          > = {};
-          for (const [category, budget] of Object.entries(categoryBudgets)) {
-            if (
-              CATEGORIES.includes(category as Category) &&
-              budget &&
-              typeof budget === 'object' &&
-              'weeklyTarget' in budget &&
-              'rolloverEnabled' in budget &&
-              typeof (budget as any).weeklyTarget === 'number' &&
-              typeof (budget as any).rolloverEnabled === 'boolean'
-            ) {
-              validatedBudgets[category as Category] = {
-                weeklyTarget: (budget as any).weeklyTarget,
-                rolloverEnabled: (budget as any).rolloverEnabled,
-              };
-            }
-          }
-          budgetPlan = {
-            categoryBudgets: validatedBudgets,
-            lastModified: parsed.budgetPlan.lastModified || new Date().toISOString(),
-          };
-        }
-      }
+      const budgetPlan = validateBudgetPlan(parsed);
 
       // Validate viewGranularity
       const viewGranularity: TimeGranularity =
@@ -144,10 +166,10 @@ export class StateManager {
           ? parsed.viewGranularity
           : 'month';
 
-      // Validate selectedWeek (basic ISO week format check)
+      // Validate selectedWeek
       let selectedWeek: WeekId | null = null;
-      if (typeof parsed.selectedWeek === 'string' && /^\d{4}-W\d{2}$/.test(parsed.selectedWeek)) {
-        selectedWeek = parsed.selectedWeek;
+      if (typeof parsed.selectedWeek === 'string') {
+        selectedWeek = parseWeekId(parsed.selectedWeek);
       }
 
       return {

@@ -55,6 +55,20 @@ export interface QualifierBreakdown {
   transactionCount: number;
 }
 
+/**
+ * Factory function to create a new QualifierBreakdown with all fields initialized to zero.
+ * Ensures consistent initialization across the codebase.
+ */
+export function createQualifierBreakdown(): QualifierBreakdown {
+  return {
+    redeemable: 0,
+    nonRedeemable: 0,
+    vacation: 0,
+    nonVacation: 0,
+    transactionCount: 0,
+  };
+}
+
 // TODO: See issue #386 - Use branded YearMonth type, remove redundant isIncome, validate qualifier sums
 export interface MonthlyData {
   month: string; // YYYY-MM format
@@ -122,10 +136,10 @@ export function weekId(value: string): WeekId {
 
 /**
  * Budget configuration for a category
- * @property weeklyTarget - Target spending/earning per week
+ * @property weeklyTarget - Target spending/earning per week (must be non-zero)
  *   - Positive values for income categories (e.g., 5000 for $5k/week income)
  *   - Negative values for expense categories (e.g., -500 for $500/week spending)
- *   - Zero is not a valid target (use absence of budget instead)
+ *   - To indicate no budget for a category, omit it from categoryBudgets object (don't use zero or null)
  * @property rolloverEnabled - Whether unspent budget carries to next week
  */
 export interface CategoryBudget {
@@ -151,6 +165,27 @@ export function isValidCategoryBudget(budget: CategoryBudget, category: Category
 }
 
 /**
+ * Factory function to create a validated CategoryBudget.
+ * @param category - The category this budget applies to
+ * @param weeklyTarget - Target spending/earning per week
+ * @param rolloverEnabled - Whether unspent budget carries to next week
+ * @returns CategoryBudget if valid, null otherwise
+ */
+export function createCategoryBudget(
+  category: Category,
+  weeklyTarget: number,
+  rolloverEnabled: boolean
+): CategoryBudget | null {
+  const budget: CategoryBudget = { weeklyTarget, rolloverEnabled };
+
+  if (!isValidCategoryBudget(budget, category)) {
+    return null;
+  }
+
+  return budget;
+}
+
+/**
  * Complete budget plan configuration
  * @property categoryBudgets - Budget targets per category.
  *   Missing categories indicate no budget has been set for that category.
@@ -163,13 +198,21 @@ export interface BudgetPlan {
 }
 
 /**
- * Creates a new BudgetPlan with validated timestamp.
+ * Creates a new BudgetPlan with validated timestamp and category budgets.
  * @param categoryBudgets - Initial category budgets (defaults to empty)
- * @returns A new BudgetPlan instance
+ * @returns A new BudgetPlan instance, or null if validation fails
  */
 export function createBudgetPlan(
   categoryBudgets: Partial<Record<Category, CategoryBudget>> = {}
-): BudgetPlan {
+): BudgetPlan | null {
+  // Validate all category budgets
+  for (const [category, budget] of Object.entries(categoryBudgets)) {
+    if (!isValidCategoryBudget(budget, category as Category)) {
+      console.error(`Invalid budget for ${category}:`, budget);
+      return null;
+    }
+  }
+
   return {
     categoryBudgets,
     lastModified: new Date().toISOString(),
@@ -196,37 +239,37 @@ export function isValidISOTimestamp(value: string): boolean {
  * @property weekStartDate - Derived from week (Monday). Must match getWeekBoundaries(week).start
  * @property weekEndDate - Derived from week (Sunday). Must match getWeekBoundaries(week).end
  *
- * WARNING: Construct via aggregateTransactionsByWeek() or similar factory function that calls
- * getWeekBoundaries() to ensure consistency between week and date boundaries.
- * Do not manually construct WeeklyData instances.
+ * CRITICAL: Always construct via aggregateTransactionsByWeek() or call getWeekBoundaries() to populate dates.
+ * Manually constructing WeeklyData with inconsistent week/date values will cause incorrect budget calculations
+ * and chart rendering without throwing errors (silent data corruption).
  */
 export interface WeeklyData {
-  week: WeekId;
-  category: Category;
-  amount: number;
-  isIncome: boolean;
-  qualifiers: QualifierBreakdown;
-  weekStartDate: string;
-  weekEndDate: string;
+  readonly week: WeekId;
+  readonly category: Category;
+  readonly amount: number;
+  readonly isIncome: boolean;
+  readonly qualifiers: Readonly<QualifierBreakdown>;
+  readonly weekStartDate: string;
+  readonly weekEndDate: string;
 }
 
 // Budget vs actual comparison
 export interface WeeklyBudgetComparison {
-  week: WeekId;
-  category: Category;
-  actual: number;
-  target: number;
-  variance: number; // actual - target
-  rolloverAccumulated: number; // Cumulative from previous weeks
-  effectiveTarget: number; // target + rolloverAccumulated
+  readonly week: WeekId;
+  readonly category: Category;
+  readonly actual: number;
+  readonly target: number;
+  readonly variance: number; // actual - target
+  readonly rolloverAccumulated: number; // Cumulative from previous weeks
+  readonly effectiveTarget: number; // target + rolloverAccumulated
 }
 
 // Predicted cash flow
 export interface CashFlowPrediction {
-  totalIncomeTarget: number;
-  totalExpenseTarget: number;
-  predictedNetIncome: number;
-  historicAvgIncome: number;
-  historicAvgExpense: number;
-  variance: number; // predicted - historic
+  readonly totalIncomeTarget: number;
+  readonly totalExpenseTarget: number;
+  readonly predictedNetIncome: number;
+  readonly historicAvgIncome: number;
+  readonly historicAvgExpense: number;
+  readonly variance: number; // predicted - historic
 }

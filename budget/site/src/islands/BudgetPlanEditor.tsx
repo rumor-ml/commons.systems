@@ -23,6 +23,9 @@ export function BudgetPlanEditor({
     budgetPlan.categoryBudgets || {}
   );
 
+  // Validation errors for user feedback
+  const [validationErrors, setValidationErrors] = useState<Partial<Record<Category, string>>>({});
+
   // Debounced prediction calculation
   const [debouncedBudgets, setDebouncedBudgets] = useState(categoryBudgets);
 
@@ -45,15 +48,73 @@ export function BudgetPlanEditor({
   }, [debouncedBudgets, historicData]);
 
   const handleTargetChange = (category: Category, value: string) => {
-    const numValue = parseFloat(value);
-    if (isNaN(numValue)) {
-      // Remove budget entirely when value is cleared to allow users to exclude categories
-      // from budget planning. Rollover state is preserved if the budget is re-added later.
+    // Allow empty string to clear budget
+    if (value.trim() === '') {
+      // Remove budget when value is cleared (allows excluding categories from budget)
       const updated = { ...categoryBudgets };
       delete updated[category];
       setCategoryBudgets(updated);
+      // Clear validation error for this category
+      setValidationErrors((prev) => {
+        const next = { ...prev };
+        delete next[category];
+        return next;
+      });
       return;
     }
+
+    const numValue = parseFloat(value);
+
+    // Validate numeric input
+    if (isNaN(numValue)) {
+      console.warn(`Invalid budget value for ${category}: "${value}"`);
+      setValidationErrors((prev) => ({
+        ...prev,
+        [category]: 'Please enter a valid number (e.g., -500 for expenses)',
+      }));
+      return;
+    }
+
+    // Validate range
+    const absValue = Math.abs(numValue);
+    if (absValue > 1000000) {
+      console.warn(`Unusually large budget value for ${category}: ${numValue}`);
+      setValidationErrors((prev) => ({
+        ...prev,
+        [category]: 'Budget value is unusually large (max $1,000,000)',
+      }));
+      return;
+    }
+
+    // Validate whole string was parsed (detect "123abc" scenarios)
+    if (value.trim() !== numValue.toString() && !value.includes('.')) {
+      console.warn(`Partial numeric parsing for ${category}: "${value}" → ${numValue}`);
+      setValidationErrors((prev) => ({
+        ...prev,
+        [category]: 'Invalid characters in number',
+      }));
+      return;
+    }
+
+    // Validate sign for expense categories
+    const isExpenseCategory = category !== 'income';
+    if (isExpenseCategory && numValue > 0) {
+      console.warn(
+        `Budget for expense category ${category} should be negative, got ${numValue}. Consider using -${numValue} instead.`
+      );
+      setValidationErrors((prev) => ({
+        ...prev,
+        [category]: 'Expense budgets should be negative (e.g., -500)',
+      }));
+      return;
+    }
+
+    // Clear validation error for this category
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      delete next[category];
+      return next;
+    });
 
     setCategoryBudgets({
       ...categoryBudgets,
@@ -92,6 +153,26 @@ export function BudgetPlanEditor({
     dispatchBudgetEvent('budget:plan-cancel');
 
     onCancel();
+  };
+
+  // Handle Escape key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleCancel();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleCancel]);
+
+  // Handle Enter key in input fields to save
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    }
   };
 
   // Determine variance color
@@ -154,8 +235,12 @@ export function BudgetPlanEditor({
                       placeholder={isIncome ? '2000' : '-500'}
                       value={budget?.weeklyTarget ?? ''}
                       onChange={(e) => handleTargetChange(category, e.target.value)}
-                      className="input w-full"
+                      onKeyDown={handleInputKeyDown}
+                      className={`input w-full ${validationErrors[category] ? 'input-error' : ''}`}
                     />
+                    {validationErrors[category] && (
+                      <div className="text-xs text-error mt-1">{validationErrors[category]}</div>
+                    )}
                   </div>
                   <div className="flex items-center justify-center">
                     <input

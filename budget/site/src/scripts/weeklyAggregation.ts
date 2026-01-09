@@ -7,7 +7,9 @@ import {
   WeeklyBudgetComparison,
   CashFlowPrediction,
   QualifierBreakdown,
+  createQualifierBreakdown,
 } from '../islands/types';
+import { StateManager } from './state';
 
 /**
  * Determine the ISO week identifier for a given date.
@@ -98,13 +100,7 @@ export function aggregateTransactionsByWeek(
     const categoryMap = weeklyMap.get(week)!;
     const current = categoryMap.get(txn.category) || {
       amount: 0,
-      qualifiers: {
-        redeemable: 0,
-        nonRedeemable: 0,
-        vacation: 0,
-        nonVacation: 0,
-        transactionCount: 0,
-      },
+      qualifiers: createQualifierBreakdown(),
     };
 
     // Update amount
@@ -139,7 +135,7 @@ export function aggregateTransactionsByWeek(
     } catch (error) {
       console.error(`Failed to get boundaries for week ${week}:`, error);
       skippedWeeks.add(week);
-      // Skip this week's data - it's corrupted
+      // Skip this week - invalid week ID format or date calculation error. Transactions will not appear in any view (both weekly and monthly).
       return;
     }
 
@@ -158,9 +154,17 @@ export function aggregateTransactionsByWeek(
 
   // Notify user if any weeks were skipped
   if (skippedWeeks.size > 0) {
-    const message = `Warning: ${skippedWeeks.size} week(s) with invalid dates were excluded from the view: ${Array.from(skippedWeeks).join(', ')}. Check your transaction data for date errors.`;
-    console.warn(message);
-    console.warn('TO FIX: Import transactions with valid date formats (YYYY-MM-DD)');
+    const weekList = Array.from(skippedWeeks).join(', ');
+    const message = `Data quality issue: ${skippedWeeks.size} week(s) excluded due to invalid dates: ${weekList}. Some transactions may not be visible. Check your imported transaction data for date formatting errors (expected: YYYY-MM-DD).`;
+
+    console.error(message);
+    console.error('Affected weeks:', Array.from(skippedWeeks));
+    console.error('TO FIX: Re-import transactions with valid date formats');
+
+    // Show user-facing warning banner
+    StateManager.showWarningBanner(
+      `⚠️ ${skippedWeeks.size} week(s) of transaction data excluded due to date errors. Your charts may be incomplete. Check browser console for details.`
+    );
   }
 
   // Sort by week and category
@@ -180,7 +184,8 @@ export function aggregateTransactionsByWeek(
  * @param weeklyData - All weekly transaction data
  * @param budgetPlan - Budget plan with category targets and rollover settings
  * @param fromWeek - Start week (inclusive) - typically first week of data
- * @param toWeek - End week (exclusive) - calculates rollover accumulated BEFORE this week begins. Use this pattern to get the starting rollover balance for a week.
+ * @param toWeek - End week (exclusive). Calculates rollover accumulated up to but not including toWeek.
+ *   Example: pass '2025-W05' to get rollover balance at the START of W05 (i.e., accumulated through end of W04).
  * @returns Map of category to accumulated rollover amount at the start of toWeek
  */
 export function calculateRolloverAccumulation(
@@ -215,9 +220,7 @@ export function calculateRolloverAccumulation(
       const target = budget.weeklyTarget;
       const variance = actual - target;
 
-      // Variance = actual - target
-      // Positive variance means better than planned (spent less than budget OR earned more than target)
-      // Negative variance means worse than planned (spent more than budget OR earned less than target)
+      // See calculateWeeklyComparison JSDoc for variance calculation convention
       const currentRollover = rolloverMap.get(cat) || 0;
       rolloverMap.set(cat, currentRollover + variance);
     });
@@ -367,9 +370,15 @@ export function getNextWeek(currentWeek: WeekId): WeekId {
     nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
     return getISOWeek(nextMonday.toISOString().substring(0, 10));
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`Failed to calculate next week from ${currentWeek}:`, error);
-    // Throw instead of falling back - let caller handle this
-    throw new Error(`Invalid week ID "${currentWeek}": cannot calculate next week`);
+
+    // Preserve original error as cause
+    const enhancedError = new Error(
+      `Invalid week ID "${currentWeek}": cannot calculate next week. ${errorMessage}. Expected format: YYYY-WNN (e.g., "2025-W01")`,
+      { cause: error }
+    );
+    throw enhancedError;
   }
 }
 
@@ -386,8 +395,14 @@ export function getPreviousWeek(currentWeek: WeekId): WeekId {
     prevMonday.setUTCDate(prevMonday.getUTCDate() - 7);
     return getISOWeek(prevMonday.toISOString().substring(0, 10));
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`Failed to calculate previous week from ${currentWeek}:`, error);
-    // Throw instead of falling back - let caller handle this
-    throw new Error(`Invalid week ID "${currentWeek}": cannot calculate previous week`);
+
+    // Preserve original error as cause
+    const enhancedError = new Error(
+      `Invalid week ID "${currentWeek}": cannot calculate previous week. ${errorMessage}. Expected format: YYYY-WNN (e.g., "2025-W01")`,
+      { cause: error }
+    );
+    throw enhancedError;
   }
 }
