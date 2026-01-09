@@ -816,7 +816,11 @@ test.describe('Add Card - Integration Tests', () => {
     });
   });
 
-  test('should be able to filter newly created card by type', async ({ page, authEmulator }) => {
+  // TODO(#244): Firestore emulator timeout during card creation
+  test.skip('should be able to filter newly created card by type', async ({
+    page,
+    authEmulator,
+  }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
