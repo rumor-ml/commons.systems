@@ -100,21 +100,27 @@ function updateIslands(): void {
   renderSummaryCards(transactions, state);
 }
 
+// TODO(#1365): Missing integration tests for main.ts event handling
 function initCategoryToggle(): void {
   document.addEventListener('budget:category-toggle', ((e: CustomEvent) => {
-    const category = e.detail.category;
-    const state = StateManager.load();
-    const hiddenSet = new Set(state.hiddenCategories);
+    try {
+      const category = e.detail.category;
+      const state = StateManager.load();
+      const hiddenSet = new Set(state.hiddenCategories);
 
-    // Toggle category visibility
-    if (hiddenSet.has(category)) {
-      hiddenSet.delete(category);
-    } else {
-      hiddenSet.add(category);
+      // Toggle category visibility
+      if (hiddenSet.has(category)) {
+        hiddenSet.delete(category);
+      } else {
+        hiddenSet.add(category);
+      }
+
+      StateManager.save({ hiddenCategories: Array.from(hiddenSet) });
+      updateIslands();
+    } catch (error) {
+      console.error('Failed to toggle category:', error);
+      StateManager.showErrorBanner('Failed to toggle category filter. Please try again.');
     }
-
-    StateManager.save({ hiddenCategories: Array.from(hiddenSet) });
-    updateIslands();
   }) as EventListener);
 }
 
@@ -122,44 +128,78 @@ function initVacationToggle(): void {
   // The vacation toggle will be in the Legend island
   // We need to listen for custom events from the island
   document.addEventListener('budget:vacation-toggle', ((e: CustomEvent) => {
-    const showVacation = e.detail.showVacation;
-    StateManager.save({ showVacation });
-    updateIslands();
+    try {
+      const showVacation = e.detail.showVacation;
+      StateManager.save({ showVacation });
+      updateIslands();
+    } catch (error) {
+      console.error('Failed to toggle vacation:', error);
+      StateManager.showErrorBanner('Failed to toggle vacation filter. Please try again.');
+    }
   }) as EventListener);
 }
 
 function initBudgetPlanEvents(): void {
   // Budget plan save event
   document.addEventListener('budget:plan-save', ((e: CustomEvent) => {
-    const budgetPlan = e.detail.budgetPlan;
-    StateManager.save({
-      budgetPlan,
-      planningMode: false,
-      viewGranularity: 'week', // Switch to weekly view after saving budget
-    });
-    updateIslands();
+    try {
+      const budgetPlan = e.detail.budgetPlan;
+      const saved = StateManager.save({
+        budgetPlan,
+        planningMode: false,
+        viewGranularity: 'week', // Switch to weekly view after saving budget
+      });
+
+      // If save failed for budgetPlan, stay in planning mode to prevent data loss
+      if (!saved.budgetPlan || JSON.stringify(saved.budgetPlan) !== JSON.stringify(budgetPlan)) {
+        console.error('Budget plan save failed - staying in planning mode');
+        StateManager.save({ planningMode: true });
+        // User already saw error banner from StateManager.save()
+        return;
+      }
+
+      updateIslands();
+    } catch (error) {
+      console.error('Failed to save budget plan:', error);
+      StateManager.showErrorBanner('Failed to save budget plan. Please try again.');
+    }
   }) as EventListener);
 
   // Budget plan cancel event
   document.addEventListener('budget:plan-cancel', (() => {
-    StateManager.save({ planningMode: false });
-    updateIslands();
+    try {
+      StateManager.save({ planningMode: false });
+      updateIslands();
+    } catch (error) {
+      console.error('Failed to cancel budget plan:', error);
+      StateManager.showErrorBanner('Failed to close budget planner. Please try again.');
+    }
   }) as EventListener);
 }
 
 function initTimeNavigationEvents(): void {
   // Week change event
   document.addEventListener('budget:week-change', ((e: CustomEvent) => {
-    const week = e.detail.week;
-    StateManager.save({ selectedWeek: week });
-    updateIslands();
+    try {
+      const week = e.detail.week;
+      StateManager.save({ selectedWeek: week });
+      updateIslands();
+    } catch (error) {
+      console.error('Failed to change week:', error);
+      StateManager.showErrorBanner('Failed to change week. Please try again.');
+    }
   }) as EventListener);
 
   // Granularity toggle event
   document.addEventListener('budget:granularity-toggle', ((e: CustomEvent) => {
-    const granularity = e.detail.granularity;
-    StateManager.save({ viewGranularity: granularity });
-    updateIslands();
+    try {
+      const granularity = e.detail.granularity;
+      StateManager.save({ viewGranularity: granularity });
+      updateIslands();
+    } catch (error) {
+      console.error('Failed to change view granularity:', error);
+      StateManager.showErrorBanner('Failed to change view mode. Please try again.');
+    }
   }) as EventListener);
 }
 
@@ -167,8 +207,13 @@ function initPlanButton(): void {
   const planButton = document.getElementById('plan-budget-btn');
   if (planButton) {
     planButton.addEventListener('click', () => {
-      StateManager.save({ planningMode: true });
-      updateIslands();
+      try {
+        StateManager.save({ planningMode: true });
+        updateIslands();
+      } catch (error) {
+        console.error('Failed to enter planning mode:', error);
+        StateManager.showErrorBanner('Failed to open budget planner. Please try again.');
+      }
     });
   }
 }

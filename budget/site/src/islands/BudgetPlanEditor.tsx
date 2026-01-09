@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { BudgetPlan, CategoryBudget, WeeklyData, Category } from './types';
 import { CATEGORIES, CATEGORY_LABELS } from './constants';
 import { predictCashFlow } from '../scripts/weeklyAggregation';
+import { dispatchBudgetEvent } from '../utils/events';
+import { formatCurrency } from '../utils/currency';
 
 interface BudgetPlanEditorProps {
   budgetPlan: BudgetPlan;
@@ -16,7 +18,7 @@ export function BudgetPlanEditor({
   onSave,
   onCancel,
 }: BudgetPlanEditorProps) {
-  // Initialize form state from existing budget plan
+  // Initialize form state from existing budget plan (defaults to empty object if null/undefined)
   const [categoryBudgets, setCategoryBudgets] = useState<Partial<Record<Category, CategoryBudget>>>(
     budgetPlan.categoryBudgets || {}
   );
@@ -45,7 +47,8 @@ export function BudgetPlanEditor({
   const handleTargetChange = (category: Category, value: string) => {
     const numValue = parseFloat(value);
     if (isNaN(numValue)) {
-      // Remove budget if value is cleared
+      // Remove budget entirely when value is cleared to allow users to exclude categories
+      // from budget planning. Rollover state is preserved if the budget is re-added later.
       const updated = { ...categoryBudgets };
       delete updated[category];
       setCategoryBudgets(updated);
@@ -80,22 +83,13 @@ export function BudgetPlanEditor({
       lastModified: new Date().toISOString(),
     };
 
-    // Dispatch custom event
-    const event = new CustomEvent('budget:plan-save', {
-      detail: { budgetPlan: plan },
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:plan-save', { budgetPlan: plan });
 
     onSave(plan);
   };
 
   const handleCancel = () => {
-    // Dispatch custom event
-    const event = new CustomEvent('budget:plan-cancel', {
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:plan-cancel');
 
     onCancel();
   };
@@ -114,22 +108,22 @@ export function BudgetPlanEditor({
           <div className="mb-6 p-4 bg-bg-surface rounded-lg">
             <div className="text-sm text-text-secondary mb-1">Predicted Net Income (per week)</div>
             <div className="text-3xl font-bold text-text-primary">
-              ${prediction.predictedNetIncome.toFixed(2)}
+              ${formatCurrency(prediction.predictedNetIncome)}
             </div>
             {prediction.historicAvgIncome > 0 && (
               <div className={`text-sm ${varianceClass}`}>
-                {varianceSymbol}${Math.abs(prediction.variance).toFixed(2)} vs historic ($
-                {(prediction.historicAvgIncome - prediction.historicAvgExpense).toFixed(2)})
+                {varianceSymbol}${formatCurrency(prediction.variance)} vs historic ($
+                {formatCurrency(prediction.historicAvgIncome - prediction.historicAvgExpense)})
               </div>
             )}
             <div className="mt-2 text-xs text-text-tertiary">
-              Income: ${prediction.totalIncomeTarget.toFixed(2)} | Expenses: $
-              {prediction.totalExpenseTarget.toFixed(2)}
+              Income: ${formatCurrency(prediction.totalIncomeTarget)} | Expenses: $
+              {formatCurrency(prediction.totalExpenseTarget)}
             </div>
             {prediction.historicAvgIncome > 0 && (
               <div className="text-xs text-text-tertiary">
-                Historic avg: ${prediction.historicAvgIncome.toFixed(2)} income, $
-                {prediction.historicAvgExpense.toFixed(2)} expenses
+                Historic avg: ${formatCurrency(prediction.historicAvgIncome)} income, $
+                {formatCurrency(prediction.historicAvgExpense)} expenses
               </div>
             )}
             {prediction.historicAvgIncome === 0 && (

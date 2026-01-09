@@ -1,8 +1,18 @@
 import { CATEGORIES } from '../islands/constants';
 import { Category, BudgetPlan, TimeGranularity, WeekId } from '../islands/types';
 
+/**
+ * Budget application state (persisted to localStorage)
+ * @property hiddenCategories - Categories hidden in visualization
+ * @property showVacation - Whether to include vacation spending
+ * @property budgetPlan - User's budget configuration (null = no budget set)
+ * @property viewGranularity - Time aggregation level for historic view
+ * @property selectedWeek - Specific week for week view (null = current week).
+ *   Should be null when viewGranularity is 'month'.
+ * @property planningMode - Whether budget plan editor is visible
+ */
 export interface BudgetState {
-  hiddenCategories: string[];
+  hiddenCategories: Category[];
   showVacation: boolean;
   budgetPlan: BudgetPlan | null;
   viewGranularity: TimeGranularity;
@@ -10,9 +20,54 @@ export interface BudgetState {
   planningMode: boolean;
 }
 
-// TODO: See issue #445 - Add unit tests for migration, validation, and error recovery logic
 export class StateManager {
   private static STORAGE_KEY = 'budget-state';
+
+  private static createBanner(
+    message: string,
+    type: 'warning' | 'error',
+    autoDismiss: boolean
+  ): void {
+    const banner = document.createElement('div');
+    banner.className = `fixed top-4 left-1/2 -translate-x-1/2 z-50 ${
+      type === 'error' ? 'bg-error' : 'bg-warning'
+    } text-white px-6 py-3 rounded-lg shadow-lg max-w-2xl`;
+
+    const container = document.createElement('div');
+    container.className = 'flex items-center gap-3';
+
+    const icon = document.createElement('span');
+    icon.className = 'text-xl';
+    icon.textContent = type === 'error' ? '❌' : '⚠️';
+
+    const text = document.createElement('p');
+    text.className = type === 'error' ? 'text-sm font-semibold' : 'text-sm';
+    text.textContent = message;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ml-4 text-white hover:text-gray-200';
+    closeBtn.textContent = '✕';
+    closeBtn.onclick = () => banner.remove();
+
+    container.appendChild(icon);
+    container.appendChild(text);
+    container.appendChild(closeBtn);
+    banner.appendChild(container);
+    document.body.appendChild(banner);
+
+    if (autoDismiss) {
+      setTimeout(() => banner.remove(), 10000);
+    }
+  }
+
+  public static showWarningBanner(message: string): void {
+    this.createBanner(message, 'warning', true);
+  }
+
+  public static showErrorBanner(message: string): void {
+    // Error banners remain until manually dismissed (unlike warning banners which auto-dismiss after 10s)
+    this.createBanner(message, 'error', false);
+  }
 
   static load(): BudgetState {
     try {
@@ -33,7 +88,7 @@ export class StateManager {
 
       const parsed = JSON.parse(stored);
 
-      // Migration: Convert old selectedCategory to hiddenCategories
+      // Migration (added 2026-01): Convert old selectedCategory format to hiddenCategories. Can be removed after 2026-06 when all users have migrated.
       if ('selectedCategory' in parsed && parsed.selectedCategory !== null) {
         const hiddenCategories = CATEGORIES.filter((cat) => cat !== parsed.selectedCategory);
         return {
@@ -44,11 +99,11 @@ export class StateManager {
       }
 
       // Validate and filter hiddenCategories
-      let hiddenCategories: string[] = [];
+      let hiddenCategories: Category[] = [];
       if (Array.isArray(parsed.hiddenCategories)) {
         hiddenCategories = parsed.hiddenCategories.filter((cat: string) =>
           CATEGORIES.includes(cat as Category)
-        );
+        ) as Category[];
       }
 
       // Validate budgetPlan structure
@@ -104,8 +159,13 @@ export class StateManager {
         planningMode: parsed.planningMode === true,
       };
     } catch (error) {
-      // TODO: See issue #384 - Add user-facing warnings and detailed error context for localStorage failures
       console.error('Failed to load state from localStorage:', error);
+
+      // Show user-facing warning
+      this.showWarningBanner(
+        'Failed to load your saved preferences. Using defaults. If you are in private browsing mode, your changes will not be saved.'
+      );
+
       return {
         hiddenCategories: [],
         showVacation: true,
@@ -124,8 +184,19 @@ export class StateManager {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updated));
       return updated;
     } catch (error) {
-      // TODO: See issue #384 - Add user-facing warnings for save failures (preferences won't persist)
       console.error('Failed to save state to localStorage:', error);
+
+      // Critical: Budget plan data is being lost
+      if (state.budgetPlan) {
+        this.showErrorBanner(
+          'Failed to save your budget plan! Your changes will be lost on refresh. You may be in private browsing mode or your browser storage may be full.'
+        );
+      } else {
+        this.showWarningBanner(
+          'Failed to save your preferences. Changes may not persist on refresh.'
+        );
+      }
+
       return { ...this.load(), ...state };
     }
   }

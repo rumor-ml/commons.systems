@@ -19,6 +19,29 @@ import {
   getCurrentWeek,
 } from '../scripts/weeklyAggregation';
 
+/**
+ * Render an empty state message in the chart container.
+ */
+function renderEmptyState(container: HTMLElement, message: string): void {
+  container.replaceChildren();
+  const emptyDiv = document.createElement('div');
+  emptyDiv.className = 'p-8 text-center text-text-secondary';
+  emptyDiv.textContent = message;
+  container.appendChild(emptyDiv);
+}
+
+/**
+ * Partition data by income/expense status.
+ */
+function partitionByIncome<T extends { isIncome: boolean }>(
+  data: T[]
+): { income: T[]; expense: T[] } {
+  return {
+    income: data.filter((d) => d.isIncome),
+    expense: data.filter((d) => !d.isIncome),
+  };
+}
+
 interface BudgetChartProps {
   transactions: Transaction[];
   hiddenCategories: string[];
@@ -56,13 +79,12 @@ export function BudgetChart({
       return;
     }
 
-    // TODO: See issue #384 - Split this broad try-catch into separate blocks for transformation, rendering, and event listeners
     try {
       setLoading(true);
 
       const hiddenSet = new Set(hiddenCategories);
 
-      // WEEKLY MODE: Different rendering logic
+      // WEEKLY MODE: Single-week bar chart view with budget comparison overlays
       if (granularity === 'week') {
         // Aggregate transactions by week
         const weeklyData = aggregateTransactionsByWeek(transactions, {
@@ -71,11 +93,23 @@ export function BudgetChart({
         });
 
         if (weeklyData.length === 0) {
-          containerRef.current.replaceChildren();
-          const emptyDiv = document.createElement('div');
-          emptyDiv.className = 'p-8 text-center text-text-secondary';
-          emptyDiv.textContent = 'No transaction data available for weekly view';
-          containerRef.current.appendChild(emptyDiv);
+          const hasAnyTransactions = transactions.length > 0;
+          const allCategoriesHidden = hiddenCategories.length > 0;
+          const nonTransferCount = transactions.filter((t) => !t.transfer).length;
+
+          let message = 'No transaction data available for weekly view';
+          if (!hasAnyTransactions) {
+            message = 'No transactions loaded. Import transaction data to begin.';
+          } else if (nonTransferCount === 0) {
+            message = 'Only transfers found (transfers are excluded from budget view)';
+          } else if (allCategoriesHidden) {
+            message = `${hiddenCategories.length} categories are hidden. Click categories in the legend to show them.`;
+          } else if (!showVacation) {
+            message =
+              'No non-vacation transactions available. Enable "Show Vacation" to see vacation spending.';
+          }
+
+          renderEmptyState(containerRef.current, message);
           setLoading(false);
           return;
         }
@@ -87,11 +121,10 @@ export function BudgetChart({
         const weekData = weeklyData.filter((d) => d.week === activeWeek);
 
         if (weekData.length === 0) {
-          containerRef.current.replaceChildren();
-          const emptyDiv = document.createElement('div');
-          emptyDiv.className = 'p-8 text-center text-text-secondary';
-          emptyDiv.textContent = `No transaction data for week ${activeWeek}`;
-          containerRef.current.appendChild(emptyDiv);
+          renderEmptyState(
+            containerRef.current,
+            `No transaction data for week ${activeWeek}. Try navigating to a different week.`
+          );
           setLoading(false);
           return;
         }
@@ -117,8 +150,8 @@ export function BudgetChart({
           Plot.ruleY([0], { stroke: '#666', strokeWidth: 1.5 }),
         ];
 
-        // Add expense bars
-        const expenseData = weekData.filter((d) => !d.isIncome);
+        const { expense: expenseData, income: incomeData } = partitionByIncome(weekData);
+
         if (expenseData.length > 0) {
           marks.push(
             Plot.barY(expenseData, {
@@ -129,8 +162,6 @@ export function BudgetChart({
           );
         }
 
-        // Add income bars
-        const incomeData = weekData.filter((d) => d.isIncome);
         if (incomeData.length > 0) {
           marks.push(
             Plot.barY(incomeData, {
@@ -214,7 +245,7 @@ export function BudgetChart({
         return;
       }
 
-      // MONTHLY MODE: Original logic
+      // MONTHLY MODE: Time-series view showing stacked category bars with net income trend lines
       // Filter out transfers and apply filters
       const filteredTransactions = transactions.filter((txn) => {
         if (txn.transfer) return false;
@@ -223,7 +254,6 @@ export function BudgetChart({
         return true;
       });
 
-      // TODO: See issue #445 - Extract data transformation to pure function for unit testing
       // Transform to monthly aggregates with qualifier tracking
       const monthlyMap = new Map<
         string,
@@ -362,7 +392,7 @@ export function BudgetChart({
 
           // Stacked bars for expenses (negative values)
           Plot.barY(
-            monthlyData.filter((d) => !d.isIncome),
+            partitionByIncome(monthlyData).expense,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -372,7 +402,7 @@ export function BudgetChart({
 
           // Stacked bars for income (positive values)
           Plot.barY(
-            monthlyData.filter((d) => d.isIncome),
+            partitionByIncome(monthlyData).income,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -405,7 +435,7 @@ export function BudgetChart({
       // Attach event listeners to bar segments for tooltips
       // We need to match bars to data - Plot renders bars in two groups (expenses and income)
       // The bars are in g[aria-label="bar"] elements - expenses first, then income
-      // TODO: See issue #384 - Log warnings when bar groups/elements not found for tooltip attachment
+      // Use fallback empty arrays if bar groups not found (prevents tooltip attachment errors)
       const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
       const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
       const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
@@ -419,7 +449,7 @@ export function BudgetChart({
           const element = rect as SVGRectElement;
           element.style.cursor = 'pointer';
 
-          // Add data attributes for testing (only for expense bars)
+          // Add data attributes for E2E testing expense bars
           if (!barData.isIncome) {
             element.setAttribute('data-month', barData.month);
             element.setAttribute('data-category', barData.category);
@@ -469,12 +499,8 @@ export function BudgetChart({
         });
       };
 
-      // Match expense bars to expense data
-      const expenseData = monthlyData.filter((d) => !d.isIncome);
+      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
       attachBarEventListeners(expenseBars, expenseData);
-
-      // Match income bars to income data
-      const incomeData = monthlyData.filter((d) => d.isIncome);
       attachBarEventListeners(incomeBars, incomeData);
 
       setLoading(false);
@@ -517,9 +543,35 @@ export function BudgetChart({
   }
 
   if (error) {
+    // Log technical details to console for debugging
+    console.error('BudgetChart error:', error);
+
+    // Determine user-friendly message based on error type
+    let userMessage = 'An unexpected error occurred while loading the chart.';
+    let actionableGuidance = 'Try refreshing the page. If the problem persists, contact support.';
+
+    if (error.includes('Invalid or missing transaction data')) {
+      userMessage = 'Transaction data could not be loaded.';
+      actionableGuidance = 'Check that your transaction data file is valid and properly formatted.';
+    } else if (error.includes('parse') || error.includes('Parse')) {
+      userMessage = 'Data format error detected.';
+      actionableGuidance =
+        'Your saved preferences may be corrupted. Try clearing your browser cache.';
+    }
+
     return (
-      <div className="p-8 bg-error-muted text-error rounded-lg border border-error">
-        Error loading chart: {error}
+      <div className="p-8 bg-error-muted rounded-lg border border-error">
+        <div className="flex items-start gap-3">
+          <span className="text-error text-2xl">⚠️</span>
+          <div>
+            <h3 className="text-error font-semibold mb-1">{userMessage}</h3>
+            <p className="text-error text-sm mb-2">{actionableGuidance}</p>
+            <details className="text-xs text-error opacity-75">
+              <summary className="cursor-pointer">Technical details</summary>
+              <pre className="mt-2 p-2 bg-bg-base rounded overflow-x-auto">{error}</pre>
+            </details>
+          </div>
+        </div>
       </div>
     );
   }

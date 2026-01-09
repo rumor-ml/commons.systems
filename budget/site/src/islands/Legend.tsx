@@ -6,6 +6,8 @@ import {
   calculateWeeklyComparison,
   getCurrentWeek,
 } from '../scripts/weeklyAggregation';
+import { dispatchBudgetEvent } from '../utils/events';
+import { formatCurrency } from '../utils/currency';
 
 interface LegendProps {
   transactions: Transaction[];
@@ -31,7 +33,7 @@ export function Legend({
       return [];
     }
 
-    // In weekly mode with budget plan, show budget comparison
+    // In weekly mode with budget plan, show budget comparison for selected week. Otherwise, show all-time totals for each category.
     if (
       granularity === 'week' &&
       budgetPlan &&
@@ -84,21 +86,11 @@ export function Legend({
   }, [transactions, showVacation, granularity, budgetPlan, selectedWeek, hiddenCategories]);
 
   const handleVacationToggle = () => {
-    // Dispatch custom event for vacation toggle
-    const event = new CustomEvent('budget:vacation-toggle', {
-      detail: { showVacation: !showVacation },
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:vacation-toggle', { showVacation: !showVacation });
   };
 
   const handleCategoryToggle = (category: Category) => {
-    // Dispatch custom event for category toggle
-    const event = new CustomEvent('budget:category-toggle', {
-      detail: { category },
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:category-toggle', { category });
   };
 
   return (
@@ -158,16 +150,8 @@ export function Legend({
                     {hasBudget && target !== undefined ? (
                       <>
                         <div className="text-sm text-white font-semibold">
-                          $
-                          {Math.abs(total).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                          {' / '}$
-                          {Math.abs(target).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          ${formatCurrency(total)}
+                          {' / '}${formatCurrency(target)}
                         </div>
                         {rolloverAccumulated !== undefined && rolloverAccumulated !== 0 && (
                           <div className="text-xs text-white opacity-90">
@@ -179,11 +163,7 @@ export function Legend({
                     ) : (
                       <>
                         <div className="text-sm text-white font-semibold">
-                          $
-                          {Math.abs(total).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          ${formatCurrency(total)}
                         </div>
                         <div className="text-xs text-white opacity-90">{count} txns</div>
                       </>

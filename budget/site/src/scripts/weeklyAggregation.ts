@@ -10,8 +10,10 @@ import {
 } from '../islands/types';
 
 /**
- * Convert ISO date to ISO week identifier ("2025-W01")
- * Uses ISO 8601 week date system (Monday = week start)
+ * Determine the ISO week identifier for a given date.
+ * Uses ISO 8601 week date system (Monday = week start).
+ * @param date - ISO date string (YYYY-MM-DD)
+ * @returns ISO week identifier in format YYYY-WNN (e.g., "2025-W01")
  */
 export function getISOWeek(date: string): WeekId {
   const d = new Date(date);
@@ -22,7 +24,7 @@ export function getISOWeek(date: string): WeekId {
   // Calculate full weeks to nearest Thursday
   const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   // Return ISO week identifier
-  return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
+  return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}` as WeekId;
 }
 
 /**
@@ -128,9 +130,18 @@ export function aggregateTransactionsByWeek(
 
   // Convert to array format
   const weeklyData: WeeklyData[] = [];
+  const skippedWeeks = new Set<WeekId>();
 
   weeklyMap.forEach((categoryMap, week) => {
-    const boundaries = getWeekBoundaries(week);
+    let boundaries;
+    try {
+      boundaries = getWeekBoundaries(week);
+    } catch (error) {
+      console.error(`Failed to get boundaries for week ${week}:`, error);
+      skippedWeeks.add(week);
+      // Skip this week's data - it's corrupted
+      return;
+    }
 
     categoryMap.forEach((data, category) => {
       weeklyData.push({
@@ -145,6 +156,13 @@ export function aggregateTransactionsByWeek(
     });
   });
 
+  // Notify user if any weeks were skipped
+  if (skippedWeeks.size > 0) {
+    const message = `Warning: ${skippedWeeks.size} week(s) with invalid dates were excluded from the view: ${Array.from(skippedWeeks).join(', ')}. Check your transaction data for date errors.`;
+    console.warn(message);
+    console.warn('TO FIX: Import transactions with valid date formats (YYYY-MM-DD)');
+  }
+
   // Sort by week and category
   weeklyData.sort((a, b) => {
     const weekCompare = a.week.localeCompare(b.week);
@@ -156,8 +174,14 @@ export function aggregateTransactionsByWeek(
 }
 
 /**
- * Calculate cumulative rollover (allows debt accumulation)
- * Returns a map of category -> rollover amount for the target week
+ * Calculate cumulative rollover for categories with rollover enabled.
+ * Accumulates budget variance from fromWeek (inclusive) to toWeek (exclusive).
+ * Negative rollover indicates accumulated debt, positive indicates accumulated surplus.
+ * @param weeklyData - All weekly transaction data
+ * @param budgetPlan - Budget plan with category targets and rollover settings
+ * @param fromWeek - Start week (inclusive) - typically first week of data
+ * @param toWeek - End week (exclusive) - calculates rollover accumulated BEFORE this week begins. Use this pattern to get the starting rollover balance for a week.
+ * @returns Map of category to accumulated rollover amount at the start of toWeek
  */
 export function calculateRolloverAccumulation(
   weeklyData: WeeklyData[],
@@ -191,9 +215,9 @@ export function calculateRolloverAccumulation(
       const target = budget.weeklyTarget;
       const variance = actual - target;
 
-      // For expenses (negative target): if actual is less negative than target, that's good (surplus)
-      // For income (positive target): if actual is more positive than target, that's good (surplus)
-      // In both cases, variance = actual - target represents the surplus/deficit
+      // Variance = actual - target
+      // Positive variance means better than planned (spent less than budget OR earned more than target)
+      // Negative variance means worse than planned (spent more than budget OR earned less than target)
       const currentRollover = rolloverMap.get(cat) || 0;
       rolloverMap.set(cat, currentRollover + variance);
     });
@@ -203,7 +227,12 @@ export function calculateRolloverAccumulation(
 }
 
 /**
- * Calculate budget vs actual for a specific week
+ * Calculate budget vs actual for a specific week.
+ *
+ * Variance calculation convention:
+ * - Positive variance: Spending less than budget (good for expenses) OR earning more than target (good for income)
+ * - Negative variance: Spending more than budget (bad for expenses) OR earning less than target (bad for income)
+ * - Formula: variance = actual - target (works consistently for both income and expenses)
  */
 export function calculateWeeklyComparison(
   weeklyData: WeeklyData[],
@@ -326,21 +355,39 @@ export function getAvailableWeeks(transactions: Transaction[]): WeekId[] {
 }
 
 /**
- * Navigate to the next week
+ * Navigate to the next week (ISO 8601 week system).
+ * Correctly handles year boundaries and weeks with 53 weeks.
+ * @param currentWeek - Current ISO week identifier (e.g., "2024-W52")
+ * @returns Next week identifier (e.g., "2025-W01")
  */
 export function getNextWeek(currentWeek: WeekId): WeekId {
-  const boundaries = getWeekBoundaries(currentWeek);
-  const nextMonday = new Date(boundaries.start);
-  nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
-  return getISOWeek(nextMonday.toISOString().substring(0, 10));
+  try {
+    const boundaries = getWeekBoundaries(currentWeek);
+    const nextMonday = new Date(boundaries.start);
+    nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
+    return getISOWeek(nextMonday.toISOString().substring(0, 10));
+  } catch (error) {
+    console.error(`Failed to calculate next week from ${currentWeek}:`, error);
+    // Throw instead of falling back - let caller handle this
+    throw new Error(`Invalid week ID "${currentWeek}": cannot calculate next week`);
+  }
 }
 
 /**
- * Navigate to the previous week
+ * Navigate to the previous week (ISO 8601 week system).
+ * Correctly handles year boundaries and weeks with 53 weeks.
+ * @param currentWeek - Current ISO week identifier (e.g., "2025-W01")
+ * @returns Previous week identifier (e.g., "2024-W52")
  */
 export function getPreviousWeek(currentWeek: WeekId): WeekId {
-  const boundaries = getWeekBoundaries(currentWeek);
-  const prevMonday = new Date(boundaries.start);
-  prevMonday.setUTCDate(prevMonday.getUTCDate() - 7);
-  return getISOWeek(prevMonday.toISOString().substring(0, 10));
+  try {
+    const boundaries = getWeekBoundaries(currentWeek);
+    const prevMonday = new Date(boundaries.start);
+    prevMonday.setUTCDate(prevMonday.getUTCDate() - 7);
+    return getISOWeek(prevMonday.toISOString().substring(0, 10));
+  } catch (error) {
+    console.error(`Failed to calculate previous week from ${currentWeek}:`, error);
+    // Throw instead of falling back - let caller handle this
+    throw new Error(`Invalid week ID "${currentWeek}": cannot calculate previous week`);
+  }
 }
