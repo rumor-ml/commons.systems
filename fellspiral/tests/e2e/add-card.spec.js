@@ -1422,6 +1422,41 @@ test.describe('Add Card - Double Submit Prevention', () => {
     const saveBtn = page.locator('#saveCardBtn');
     await expect(saveBtn).toBeEnabled();
 
+    // Wait for auth.currentUser to be populated (critical for Firestore writes)
+    // IMPORTANT: Use != null (not !==) to check for both null AND undefined
+    await page
+      .waitForFunction(
+        () => {
+          const auth = window.__testAuth;
+          return auth != null && auth.currentUser != null;
+        },
+        { timeout: 5000 }
+      )
+      .catch(async (originalError) => {
+        // Enhance error with auth state snapshot for debugging
+        const authState = await page.evaluate(() => ({
+          authExists: !!window.__testAuth,
+          currentUser: !!window.__testAuth?.currentUser,
+          currentUserUid: window.__testAuth?.currentUser?.uid,
+        }));
+
+        // Create new error with enhanced message, preserving original as cause
+        const enhancedError = new Error(
+          `Auth not ready after 5s. Auth state: ${JSON.stringify(authState)}`
+        );
+
+        // Preserve original error properties
+        enhancedError.name = originalError.name || 'TimeoutError';
+        enhancedError.cause = originalError; // Standard Error.cause property (ES2022)
+
+        // Copy stack trace from original error
+        if (originalError.stack) {
+          enhancedError.stack = originalError.stack;
+        }
+
+        throw enhancedError;
+      });
+
     // Click save button
     await saveBtn.click();
 
