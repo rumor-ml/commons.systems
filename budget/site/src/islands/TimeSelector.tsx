@@ -5,6 +5,7 @@ import {
   getNextWeek,
   getPreviousWeek,
 } from '../scripts/weeklyAggregation';
+import { dispatchBudgetEvent } from '../utils/events';
 
 interface TimeSelectorProps {
   granularity: TimeGranularity;
@@ -16,7 +17,6 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
   const currentWeek = getCurrentWeek();
   const activeWeek = selectedWeek || currentWeek;
 
-  // Determine if we can navigate
   const canGoPrevious = availableWeeks.length > 0 && activeWeek > availableWeeks[0];
   const canGoNext = activeWeek < currentWeek;
 
@@ -24,55 +24,43 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
     if (!canGoPrevious) return;
 
     const prevWeek = getPreviousWeek(activeWeek);
-    const event = new CustomEvent('budget:week-change', {
-      detail: { week: prevWeek },
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:week-change', { week: prevWeek });
   };
 
   const handleNext = () => {
     if (!canGoNext) return;
 
     const nextWeek = getNextWeek(activeWeek);
-    const event = new CustomEvent('budget:week-change', {
-      detail: { week: nextWeek },
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:week-change', { week: nextWeek });
   };
 
   const handleCurrentWeek = () => {
-    const event = new CustomEvent('budget:week-change', {
-      detail: { week: null }, // null = current week
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:week-change', { week: null });
   };
 
   const handleGranularityToggle = () => {
     const newGranularity: TimeGranularity = granularity === 'week' ? 'month' : 'week';
-    const event = new CustomEvent('budget:granularity-toggle', {
-      detail: { granularity: newGranularity },
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
+    dispatchBudgetEvent('budget:granularity-toggle', { granularity: newGranularity });
   };
 
-  // Format week for display
   const formatWeek = (week: WeekId): string => {
-    const boundaries = getWeekBoundaries(week);
-    const start = new Date(boundaries.start);
-    const end = new Date(boundaries.end);
+    try {
+      const boundaries = getWeekBoundaries(week);
+      const start = new Date(boundaries.start);
+      const end = new Date(boundaries.end);
 
-    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const endStr = end.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+      const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const endStr = end.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
 
-    return `${startStr} - ${endStr}`;
+      return `${startStr} - ${endStr}`;
+    } catch (error) {
+      console.error(`Failed to format week ${week}:`, error);
+      return `Invalid week: ${week}`;
+    }
   };
 
   const isCurrentWeek = activeWeek === currentWeek;
@@ -80,7 +68,6 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
   return (
     <div className="time-selector">
       <div className="flex items-center gap-3">
-        {/* Granularity Toggle */}
         <button
           onClick={handleGranularityToggle}
           className="btn btn-secondary btn-sm"
@@ -89,7 +76,6 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
           {granularity === 'week' ? 'Weekly View' : 'Monthly View'}
         </button>
 
-        {/* Week Navigation (only in weekly mode) */}
         {granularity === 'week' && (
           <>
             <div className="h-6 w-px bg-bg-hover"></div>
@@ -138,7 +124,6 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
         )}
       </div>
 
-      {/* Help text for weekly mode */}
       {granularity === 'week' && (
         <div className="text-xs text-text-tertiary mt-2">
           Navigate through weeks to see budget vs actual spending

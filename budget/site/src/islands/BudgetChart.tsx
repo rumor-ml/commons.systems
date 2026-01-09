@@ -19,6 +19,29 @@ import {
   getCurrentWeek,
 } from '../scripts/weeklyAggregation';
 
+/**
+ * Render an empty state message in the chart container.
+ */
+function renderEmptyState(container: HTMLElement, message: string): void {
+  container.replaceChildren();
+  const emptyDiv = document.createElement('div');
+  emptyDiv.className = 'p-8 text-center text-text-secondary';
+  emptyDiv.textContent = message;
+  container.appendChild(emptyDiv);
+}
+
+/**
+ * Partition data by income/expense status.
+ */
+function partitionByIncome<T extends { isIncome: boolean }>(
+  data: T[]
+): { income: T[]; expense: T[] } {
+  return {
+    income: data.filter((d) => d.isIncome),
+    expense: data.filter((d) => !d.isIncome),
+  };
+}
+
 interface BudgetChartProps {
   transactions: Transaction[];
   hiddenCategories: string[];
@@ -56,13 +79,13 @@ export function BudgetChart({
       return;
     }
 
-    // TODO: See issue #384 - Split this broad try-catch into separate blocks for transformation, rendering, and event listeners
+    // TODO: Consider splitting error handling between data transformation and rendering for more granular error reporting
     try {
       setLoading(true);
 
       const hiddenSet = new Set(hiddenCategories);
 
-      // WEEKLY MODE: Different rendering logic
+      // WEEKLY MODE: Single-week bar chart view with budget comparison overlays
       if (granularity === 'week') {
         // Aggregate transactions by week
         const weeklyData = aggregateTransactionsByWeek(transactions, {
@@ -74,7 +97,24 @@ export function BudgetChart({
           containerRef.current.replaceChildren();
           const emptyDiv = document.createElement('div');
           emptyDiv.className = 'p-8 text-center text-text-secondary';
-          emptyDiv.textContent = 'No transaction data available for weekly view';
+
+          const hasAnyTransactions = transactions.length > 0;
+          const allCategoriesHidden = hiddenCategories.length > 0;
+          const nonTransferCount = transactions.filter((t) => !t.transfer).length;
+
+          let message = 'No transaction data available for weekly view';
+          if (!hasAnyTransactions) {
+            message = 'No transactions loaded. Import transaction data to begin.';
+          } else if (nonTransferCount === 0) {
+            message = 'Only transfers found (transfers are excluded from budget view)';
+          } else if (allCategoriesHidden) {
+            message = `${hiddenCategories.length} categories are hidden. Click categories in the legend to show them.`;
+          } else if (!showVacation) {
+            message =
+              'No non-vacation transactions available. Enable "Show Vacation" to see vacation spending.';
+          }
+
+          emptyDiv.textContent = message;
           containerRef.current.appendChild(emptyDiv);
           setLoading(false);
           return;
@@ -87,11 +127,10 @@ export function BudgetChart({
         const weekData = weeklyData.filter((d) => d.week === activeWeek);
 
         if (weekData.length === 0) {
-          containerRef.current.replaceChildren();
-          const emptyDiv = document.createElement('div');
-          emptyDiv.className = 'p-8 text-center text-text-secondary';
-          emptyDiv.textContent = `No transaction data for week ${activeWeek}`;
-          containerRef.current.appendChild(emptyDiv);
+          renderEmptyState(
+            containerRef.current,
+            `No transaction data for week ${activeWeek}. Try navigating to a different week.`
+          );
           setLoading(false);
           return;
         }
@@ -117,8 +156,8 @@ export function BudgetChart({
           Plot.ruleY([0], { stroke: '#666', strokeWidth: 1.5 }),
         ];
 
-        // Add expense bars
-        const expenseData = weekData.filter((d) => !d.isIncome);
+        const { expense: expenseData, income: incomeData } = partitionByIncome(weekData);
+
         if (expenseData.length > 0) {
           marks.push(
             Plot.barY(expenseData, {
@@ -129,8 +168,6 @@ export function BudgetChart({
           );
         }
 
-        // Add income bars
-        const incomeData = weekData.filter((d) => d.isIncome);
         if (incomeData.length > 0) {
           marks.push(
             Plot.barY(incomeData, {
@@ -214,7 +251,7 @@ export function BudgetChart({
         return;
       }
 
-      // MONTHLY MODE: Original logic
+      // MONTHLY MODE: Time-series view showing stacked category bars with net income trend lines
       // Filter out transfers and apply filters
       const filteredTransactions = transactions.filter((txn) => {
         if (txn.transfer) return false;
@@ -223,7 +260,7 @@ export function BudgetChart({
         return true;
       });
 
-      // TODO: See issue #445 - Extract data transformation to pure function for unit testing
+      // TODO: Extract monthly mode data transformation to pure function for consistency with weekly mode's aggregateTransactionsByWeek()
       // Transform to monthly aggregates with qualifier tracking
       const monthlyMap = new Map<
         string,
@@ -362,7 +399,7 @@ export function BudgetChart({
 
           // Stacked bars for expenses (negative values)
           Plot.barY(
-            monthlyData.filter((d) => !d.isIncome),
+            partitionByIncome(monthlyData).expense,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -372,7 +409,7 @@ export function BudgetChart({
 
           // Stacked bars for income (positive values)
           Plot.barY(
-            monthlyData.filter((d) => d.isIncome),
+            partitionByIncome(monthlyData).income,
             Plot.stackY({
               x: 'month',
               y: 'amount',
@@ -419,7 +456,7 @@ export function BudgetChart({
           const element = rect as SVGRectElement;
           element.style.cursor = 'pointer';
 
-          // Add data attributes for testing (only for expense bars)
+          // Add data attributes for E2E testing expense bars
           if (!barData.isIncome) {
             element.setAttribute('data-month', barData.month);
             element.setAttribute('data-category', barData.category);
@@ -469,12 +506,8 @@ export function BudgetChart({
         });
       };
 
-      // Match expense bars to expense data
-      const expenseData = monthlyData.filter((d) => !d.isIncome);
+      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
       attachBarEventListeners(expenseBars, expenseData);
-
-      // Match income bars to income data
-      const incomeData = monthlyData.filter((d) => d.isIncome);
       attachBarEventListeners(incomeBars, incomeData);
 
       setLoading(false);

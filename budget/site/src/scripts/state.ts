@@ -10,9 +10,69 @@ export interface BudgetState {
   planningMode: boolean;
 }
 
-// TODO: See issue #445 - Add unit tests for migration, validation, and error recovery logic
 export class StateManager {
   private static STORAGE_KEY = 'budget-state';
+
+  private static showWarningBanner(message: string): void {
+    const banner = document.createElement('div');
+    banner.className =
+      'fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-warning text-white px-6 py-3 rounded-lg shadow-lg max-w-2xl';
+
+    const container = document.createElement('div');
+    container.className = 'flex items-center gap-3';
+
+    const icon = document.createElement('span');
+    icon.className = 'text-xl';
+    icon.textContent = '⚠️';
+
+    const text = document.createElement('p');
+    text.className = 'text-sm';
+    text.textContent = message;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ml-4 text-white hover:text-gray-200';
+    closeBtn.textContent = '✕';
+    closeBtn.onclick = () => banner.remove();
+
+    container.appendChild(icon);
+    container.appendChild(text);
+    container.appendChild(closeBtn);
+    banner.appendChild(container);
+    document.body.appendChild(banner);
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => banner.remove(), 10000);
+  }
+
+  private static showErrorBanner(message: string): void {
+    const banner = document.createElement('div');
+    banner.className =
+      'fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-error text-white px-6 py-3 rounded-lg shadow-lg max-w-2xl';
+
+    const container = document.createElement('div');
+    container.className = 'flex items-center gap-3';
+
+    const icon = document.createElement('span');
+    icon.className = 'text-xl';
+    icon.textContent = '❌';
+
+    const text = document.createElement('p');
+    text.className = 'text-sm font-semibold';
+    text.textContent = message;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ml-4 text-white hover:text-gray-200';
+    closeBtn.textContent = '✕';
+    closeBtn.onclick = () => banner.remove();
+
+    container.appendChild(icon);
+    container.appendChild(text);
+    container.appendChild(closeBtn);
+    banner.appendChild(container);
+    document.body.appendChild(banner);
+
+    // Don't auto-dismiss errors - user must manually close
+  }
 
   static load(): BudgetState {
     try {
@@ -104,8 +164,13 @@ export class StateManager {
         planningMode: parsed.planningMode === true,
       };
     } catch (error) {
-      // TODO: See issue #384 - Add user-facing warnings and detailed error context for localStorage failures
       console.error('Failed to load state from localStorage:', error);
+
+      // Show user-facing warning
+      this.showWarningBanner(
+        'Failed to load your saved preferences. Using defaults. If you are in private browsing mode, your changes will not be saved.'
+      );
+
       return {
         hiddenCategories: [],
         showVacation: true,
@@ -124,8 +189,19 @@ export class StateManager {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updated));
       return updated;
     } catch (error) {
-      // TODO: See issue #384 - Add user-facing warnings for save failures (preferences won't persist)
       console.error('Failed to save state to localStorage:', error);
+
+      // Critical: Budget plan data is being lost
+      if (state.budgetPlan) {
+        this.showErrorBanner(
+          'Failed to save your budget plan! Your changes will be lost on refresh. You may be in private browsing mode or your browser storage may be full.'
+        );
+      } else {
+        this.showWarningBanner(
+          'Failed to save your preferences. Changes may not persist on refresh.'
+        );
+      }
+
       return { ...this.load(), ...state };
     }
   }

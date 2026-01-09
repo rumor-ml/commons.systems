@@ -100,6 +100,7 @@ function updateIslands(): void {
   renderSummaryCards(transactions, state);
 }
 
+// TODO(#1348): Add error handling to event listeners to prevent silent failures
 function initCategoryToggle(): void {
   document.addEventListener('budget:category-toggle', ((e: CustomEvent) => {
     const category = e.detail.category;
