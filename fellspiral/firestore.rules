@@ -69,7 +69,7 @@ service cloud.firestore {
                         || request.resource.data.description.size() <= 500);
 
       // ⚠️  SECURITY: Any authenticated user can edit ANY card (wiki-style)
-      // Allow update for any authenticated user who sets lastModifiedBy to their own UID
+      // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
       // (creator check is informational only - does not restrict access)
       // INTENTIONAL DESIGN: Wiki-style collaborative editing where any authenticated user can edit.
       // This implements the "Card creator or collaborator" requirement with universal collaboration

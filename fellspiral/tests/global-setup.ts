@@ -272,7 +272,7 @@ async function globalSetup() {
       } catch (error) {
         // User doesn't exist, create it
         await auth.createUser({
-          uid: 'qa-test-user-id',
+          uid: 'qatestuser0000000000000000', // 28 chars to match Firebase UID format
           email: 'qa@test.com',
           password: 'testpassword123',
           displayName: 'QA Test User',
