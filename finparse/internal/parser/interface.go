@@ -30,6 +30,7 @@ type Parser interface {
 // that are bypassed by direct slice access.
 //
 // RawStatement represents parsed data before normalization
+// TODO(#1307): Consider hiding Transactions behind accessor methods to prevent external mutation
 type RawStatement struct {
 	Account      RawAccount
 	Period       Period
@@ -58,6 +59,10 @@ func (r *RawAccount) AccountType() string { return r.accountType }
 
 // SetInstitutionName updates the institution name from metadata after construction.
 // Empty names are allowed when metadata is unavailable.
+// TODO(#1308): Consider alternative patterns that avoid post-construction mutation
+// Options: (1) Builder pattern for two-phase initialization, (2) Pass metadata to constructor,
+// (3) Accept that post-construction mutation is acceptable for the parser phase since
+// usage is controlled and limited to parser→normalization flow.
 func (r *RawAccount) SetInstitutionName(name string) {
 	r.institutionName = name
 }
@@ -73,7 +78,7 @@ func NewRawAccount(institutionID, institutionName, accountID, accountType string
 	// Note: InstitutionName is optional at construction. Parser implementations should leave
 	// this empty - it will be populated during normalization from Metadata.Institution().
 	// TODO: Add normalization validation to ensure InstitutionName is populated from metadata
-	// TODO: Validate AccountType during normalization against domain.AccountType enum
+	// TODO(#1313): Validate AccountType during normalization against domain.AccountType enum
 
 	return &RawAccount{
 		institutionID:   institutionID,
@@ -159,6 +164,10 @@ func (r *RawTransaction) Memo() string { return r.memo }
 // Example values from OFX/QFX: "DEBIT", "CREDIT", "ATM", "CHECK", "TRANSFER", "FEE", "POS", "PAYMENT".
 // CSV formats may use different values depending on the institution.
 // Type is free-form and not validated - normalization will handle type mapping.
+// TODO(#1309): Consider single-phase construction or builder pattern to avoid mutation
+// Current two-phase pattern (construct required fields, then set optional fields) is
+// acceptable for parser phase. Type validation should happen in normalization, not here.
+// Revisit if this becomes a source of bugs or if we need immutability guarantees.
 func (r *RawTransaction) SetType(txnType string) {
 	r.txnType = txnType
 }
@@ -177,6 +186,10 @@ func NewRawTransaction(id string, date, postedDate time.Time, description string
 		return nil, fmt.Errorf("transaction date cannot be zero")
 	}
 	// TODO: Consider making the fallback explicit via validation mode, warning, or logging
+	// TODO(#1318): Consider logging when fallback is used or making it explicit in return value
+	// This is intentionally deferred until logging infrastructure exists to avoid stderr spam.
+	// The fallback (posted = transaction date) is reasonable for most OFX files but users
+	// should eventually have visibility into when it occurs.
 	if postedDate.IsZero() {
 		postedDate = date // If postedDate is zero, use transaction date as fallback
 	}

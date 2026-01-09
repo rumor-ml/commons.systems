@@ -7,32 +7,48 @@ import (
 	"sync"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
+	"github.com/rumor-ml/commons.systems/finparse/internal/parsers/ofx"
 )
 
-// Registry holds all registered parsers with thread-safe access via RWMutex.
+// Registry holds all registered parsers with thread-safe access for concurrent file parsing.
+// TODO(#1322): Add concurrent tests to verify thread safety of FindParser calls
 type Registry struct {
 	mu      sync.RWMutex
 	parsers []parser.Parser
 }
 
-// New creates a registry with all built-in parsers.
-// Built-in parser registration errors are programmer errors and should panic.
-// Example: if err := r.Register(ofx.NewParser()); err != nil { panic(err) }
-func New() *Registry {
-	return &Registry{
-		parsers: []parser.Parser{
-			// TODO(Phase 2-3): Add built-in parsers here
-			// ofx.NewParser(),
-			// csv.NewPNCParser(),
-		},
+// New creates a registry with built-in parsers and optional custom parsers.
+// Returns an error if parser registration fails (duplicate names or nil parsers).
+func New(customParsers ...parser.Parser) (*Registry, error) {
+	r := &Registry{parsers: []parser.Parser{}}
+
+	// Register built-in parsers
+	if err := r.register(ofx.NewParser()); err != nil {
+		return nil, fmt.Errorf("failed to register ofx parser: %w", err)
 	}
+
+	// Register custom parsers
+	for _, p := range customParsers {
+		if err := r.register(p); err != nil {
+			return nil, fmt.Errorf("failed to register custom parser: %w", err)
+		}
+	}
+
+	return r, nil
 }
 
-// Register adds a custom parser (for extensibility)
-func (r *Registry) Register(p parser.Parser) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// MustNew creates a registry with built-in parsers and optional custom parsers.
+// Panics if parser registration fails (programmer error).
+func MustNew(customParsers ...parser.Parser) *Registry {
+	r, err := New(customParsers...)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create registry: %v", err))
+	}
+	return r
+}
 
+// register adds a parser during registry construction (private).
+func (r *Registry) register(p parser.Parser) error {
 	if p == nil {
 		return fmt.Errorf("cannot register nil parser")
 	}
@@ -48,13 +64,14 @@ func (r *Registry) Register(p parser.Parser) error {
 	return nil
 }
 
-// FindParser returns the best parser for this file.
-// Reads up to 512 bytes for format detection via header inspection.
-// 512 bytes is sufficient for all known financial format headers:
-// - OFX/QFX: XML declaration + <OFX> tag typically within first 200 bytes
-// - CSV: Column headers typically < 200 bytes
-// This size also matches common filesystem block sizes for efficient reading.
-// Files smaller than 512 bytes are handled correctly (parsers receive actual file size).
+// FindParser returns the best parser for this file by reading up to 512 bytes
+// for format detection. This size is sufficient for OFX headers (~100 bytes),
+// CSV headers, and other text-based financial formats. Future parsers requiring
+// larger headers should document this constraint.
+//
+// Each parser's CanParse method receives the header and must validate it contains
+// sufficient data for reliable format detection.
+// TODO(#1320): Simplify comment to avoid duplicating implementation details from code
 func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	// Read file header for format detection
 	header, err := r.readHeader(path)
@@ -75,24 +92,30 @@ func (r *Registry) FindParser(path string) (parser.Parser, error) {
 	return nil, fmt.Errorf("no parser found for file: %s", path)
 }
 
-// readHeader reads the first 512 bytes of a file for format detection.
-// The file is opened and closed within this method to avoid holding file handles
-// during parser iteration, preventing resource exhaustion when processing many files.
+// readHeader reads up to 512 bytes for format detection.
+// TODO(#1302): Consider making this a standalone function since it doesn't use receiver state
 func (r *Registry) readHeader(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			// Log close error for debugging (rare for read-only files, but can occur on network filesystems)
+			// TODO(#1304): Add structured logging when project has logger infrastructure
+			fmt.Fprintf(os.Stderr, "Warning: Failed to close file %s: %v\n", path, err)
+		}
+	}()
 
+	// TODO(#1293): Consider more specific error messages for directory vs file vs permission issues
 	header := make([]byte, 512)
 	n, err := f.Read(header)
 	if err != nil && err != io.EOF {
 		return nil, fmt.Errorf("failed to read header from %s: %w", path, err)
 	}
-	// EOF is OK - some statement files (especially CSV or minimal test files) may be < 512 bytes.
-	// Parsers MUST handle headers from 0 to 512 bytes in length. Parser implementations that
-	// assume a minimum header size will fail on small files.
+	// Return the header bytes read (may be less than 512 for small files).
+	// Each parser's CanParse method must validate that the header contains
+	// sufficient data for format detection, returning false if header is too small.
 	return header[:n], nil
 }
 
