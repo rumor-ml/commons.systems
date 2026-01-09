@@ -4,6 +4,7 @@ import { renderSummaryCards } from './renderer';
 import { hydrateIsland } from '../islands/index';
 import { Transaction } from '../islands/types';
 import transactionsData from '../data/transactions.json';
+import { aggregateTransactionsByWeek, getAvailableWeeks } from './weeklyAggregation';
 
 function loadTransactions(): Transaction[] {
   return transactionsData.transactions as Transaction[];
@@ -22,6 +23,9 @@ function updateIslands(): void {
         transactions,
         hiddenCategories: state.hiddenCategories,
         showVacation: state.showVacation,
+        granularity: state.viewGranularity,
+        selectedWeek: state.selectedWeek,
+        budgetPlan: state.budgetPlan,
       })
     );
     hydrateIsland(chartEl, 'BudgetChart');
@@ -36,9 +40,60 @@ function updateIslands(): void {
         transactions,
         hiddenCategories: state.hiddenCategories,
         showVacation: state.showVacation,
+        budgetPlan: state.budgetPlan,
+        granularity: state.viewGranularity,
+        selectedWeek: state.selectedWeek,
       })
     );
     hydrateIsland(legendEl, 'Legend');
+  }
+
+  // Update time selector island (only in weekly mode)
+  const timeSelectorEl = document.getElementById('time-selector-island') as HTMLElement;
+  if (timeSelectorEl) {
+    if (state.viewGranularity === 'week') {
+      timeSelectorEl.style.display = 'block';
+      const availableWeeks = getAvailableWeeks(transactions);
+      timeSelectorEl.setAttribute(
+        'data-island-props',
+        JSON.stringify({
+          granularity: state.viewGranularity,
+          selectedWeek: state.selectedWeek,
+          availableWeeks,
+        })
+      );
+      hydrateIsland(timeSelectorEl, 'TimeSelector');
+    } else {
+      timeSelectorEl.style.display = 'none';
+    }
+  }
+
+  // Update budget plan editor island (only in planning mode)
+  const planEditorEl = document.getElementById('plan-editor-island') as HTMLElement;
+  if (planEditorEl) {
+    if (state.planningMode) {
+      planEditorEl.style.display = 'block';
+      const hiddenSet = new Set(state.hiddenCategories);
+      const weeklyData = aggregateTransactionsByWeek(transactions, {
+        hiddenCategories: hiddenSet,
+        showVacation: state.showVacation,
+      });
+      planEditorEl.setAttribute(
+        'data-island-props',
+        JSON.stringify({
+          budgetPlan: state.budgetPlan || {
+            categoryBudgets: {},
+            lastModified: new Date().toISOString(),
+          },
+          historicData: weeklyData,
+          onSave: () => {},
+          onCancel: () => {},
+        })
+      );
+      hydrateIsland(planEditorEl, 'BudgetPlanEditor');
+    } else {
+      planEditorEl.style.display = 'none';
+    }
   }
 
   // Update summary cards (vanilla JS)
@@ -73,6 +128,51 @@ function initVacationToggle(): void {
   }) as EventListener);
 }
 
+function initBudgetPlanEvents(): void {
+  // Budget plan save event
+  document.addEventListener('budget:plan-save', ((e: CustomEvent) => {
+    const budgetPlan = e.detail.budgetPlan;
+    StateManager.save({
+      budgetPlan,
+      planningMode: false,
+      viewGranularity: 'week', // Switch to weekly view after saving budget
+    });
+    updateIslands();
+  }) as EventListener);
+
+  // Budget plan cancel event
+  document.addEventListener('budget:plan-cancel', (() => {
+    StateManager.save({ planningMode: false });
+    updateIslands();
+  }) as EventListener);
+}
+
+function initTimeNavigationEvents(): void {
+  // Week change event
+  document.addEventListener('budget:week-change', ((e: CustomEvent) => {
+    const week = e.detail.week;
+    StateManager.save({ selectedWeek: week });
+    updateIslands();
+  }) as EventListener);
+
+  // Granularity toggle event
+  document.addEventListener('budget:granularity-toggle', ((e: CustomEvent) => {
+    const granularity = e.detail.granularity;
+    StateManager.save({ viewGranularity: granularity });
+    updateIslands();
+  }) as EventListener);
+}
+
+function initPlanButton(): void {
+  const planButton = document.getElementById('plan-budget-btn');
+  if (planButton) {
+    planButton.addEventListener('click', () => {
+      StateManager.save({ planningMode: true });
+      updateIslands();
+    });
+  }
+}
+
 function init(): void {
   console.log('[Budget] Initializing application');
 
@@ -89,6 +189,9 @@ function init(): void {
   // Initialize event listeners
   initCategoryToggle();
   initVacationToggle();
+  initBudgetPlanEvents();
+  initTimeNavigationEvents();
+  initPlanButton();
 
   // HTMX event handlers (future-proofing)
   document.body.addEventListener('htmx:afterSwap', ((event: CustomEvent) => {

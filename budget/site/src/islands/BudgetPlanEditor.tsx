@@ -1,0 +1,203 @@
+import { useState, useEffect, useMemo } from 'react';
+import { BudgetPlan, CategoryBudget, WeeklyData, Category } from './types';
+import { CATEGORIES, CATEGORY_LABELS } from './constants';
+import { predictCashFlow } from '../scripts/weeklyAggregation';
+
+interface BudgetPlanEditorProps {
+  budgetPlan: BudgetPlan;
+  historicData: WeeklyData[];
+  onSave: (plan: BudgetPlan) => void;
+  onCancel: () => void;
+}
+
+export function BudgetPlanEditor({
+  budgetPlan,
+  historicData,
+  onSave,
+  onCancel,
+}: BudgetPlanEditorProps) {
+  // Initialize form state from existing budget plan
+  const [categoryBudgets, setCategoryBudgets] = useState<Partial<Record<Category, CategoryBudget>>>(
+    budgetPlan.categoryBudgets || {}
+  );
+
+  // Debounced prediction calculation
+  const [debouncedBudgets, setDebouncedBudgets] = useState(categoryBudgets);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedBudgets(categoryBudgets);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [categoryBudgets]);
+
+  // Calculate cash flow prediction
+  const prediction = useMemo(() => {
+    const plan: BudgetPlan = {
+      categoryBudgets: debouncedBudgets,
+      lastModified: new Date().toISOString(),
+    };
+
+    return predictCashFlow(plan, historicData);
+  }, [debouncedBudgets, historicData]);
+
+  const handleTargetChange = (category: Category, value: string) => {
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+      // Remove budget if value is cleared
+      const updated = { ...categoryBudgets };
+      delete updated[category];
+      setCategoryBudgets(updated);
+      return;
+    }
+
+    setCategoryBudgets({
+      ...categoryBudgets,
+      [category]: {
+        weeklyTarget: numValue,
+        rolloverEnabled: categoryBudgets[category]?.rolloverEnabled ?? true,
+      },
+    });
+  };
+
+  const handleRolloverToggle = (category: Category) => {
+    const current = categoryBudgets[category];
+    if (!current) return;
+
+    setCategoryBudgets({
+      ...categoryBudgets,
+      [category]: {
+        ...current,
+        rolloverEnabled: !current.rolloverEnabled,
+      },
+    });
+  };
+
+  const handleSave = () => {
+    const plan: BudgetPlan = {
+      categoryBudgets,
+      lastModified: new Date().toISOString(),
+    };
+
+    // Dispatch custom event
+    const event = new CustomEvent('budget:plan-save', {
+      detail: { budgetPlan: plan },
+      bubbles: true,
+    });
+    document.dispatchEvent(event);
+
+    onSave(plan);
+  };
+
+  const handleCancel = () => {
+    // Dispatch custom event
+    const event = new CustomEvent('budget:plan-cancel', {
+      bubbles: true,
+    });
+    document.dispatchEvent(event);
+
+    onCancel();
+  };
+
+  // Determine variance color
+  const varianceClass = prediction.variance >= 0 ? 'variance-positive' : 'variance-negative';
+  const varianceSymbol = prediction.variance >= 0 ? '+' : '';
+
+  return (
+    <div className="plan-editor-modal" onClick={handleCancel}>
+      <div className="plan-editor-content card" onClick={(e) => e.stopPropagation()}>
+        <div className="p-6">
+          <h2 className="text-2xl font-semibold mb-2 text-text-primary">Budget Planning</h2>
+
+          {/* Cash Flow Prediction */}
+          <div className="mb-6 p-4 bg-bg-surface rounded-lg">
+            <div className="text-sm text-text-secondary mb-1">Predicted Net Income (per week)</div>
+            <div className="text-3xl font-bold text-text-primary">
+              ${prediction.predictedNetIncome.toFixed(2)}
+            </div>
+            {prediction.historicAvgIncome > 0 && (
+              <div className={`text-sm ${varianceClass}`}>
+                {varianceSymbol}${Math.abs(prediction.variance).toFixed(2)} vs historic ($
+                {(prediction.historicAvgIncome - prediction.historicAvgExpense).toFixed(2)})
+              </div>
+            )}
+            <div className="mt-2 text-xs text-text-tertiary">
+              Income: ${prediction.totalIncomeTarget.toFixed(2)} | Expenses: $
+              {prediction.totalExpenseTarget.toFixed(2)}
+            </div>
+            {prediction.historicAvgIncome > 0 && (
+              <div className="text-xs text-text-tertiary">
+                Historic avg: ${prediction.historicAvgIncome.toFixed(2)} income, $
+                {prediction.historicAvgExpense.toFixed(2)} expenses
+              </div>
+            )}
+            {prediction.historicAvgIncome === 0 && (
+              <div className="text-xs text-text-tertiary">
+                No historic data available for comparison
+              </div>
+            )}
+          </div>
+
+          {/* Category Budget Inputs */}
+          <div className="space-y-2 mb-6 max-h-96 overflow-y-auto">
+            <div className="grid grid-cols-[2fr_1fr_auto] gap-4 px-3 pb-2 border-b border-bg-hover text-sm font-semibold text-text-secondary">
+              <div>Category</div>
+              <div>Weekly Target ($)</div>
+              <div>Rollover</div>
+            </div>
+            {CATEGORIES.map((category) => {
+              const budget = categoryBudgets[category];
+              const isIncome = category === 'income';
+
+              return (
+                <div key={category} className="budget-input-row">
+                  <div className="text-text-primary font-medium">{CATEGORY_LABELS[category]}</div>
+                  <div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={isIncome ? '2000' : '-500'}
+                      value={budget?.weeklyTarget ?? ''}
+                      onChange={(e) => handleTargetChange(category, e.target.value)}
+                      className="input w-full"
+                    />
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <input
+                      type="checkbox"
+                      checked={budget?.rolloverEnabled ?? false}
+                      onChange={() => handleRolloverToggle(category)}
+                      disabled={!budget}
+                      className="w-5 h-5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Help Text */}
+          <div className="mb-6 p-3 bg-bg-surface rounded text-xs text-text-tertiary">
+            <strong>Tips:</strong>
+            <ul className="list-disc ml-4 mt-1">
+              <li>Income should be positive (e.g., 2000), expenses negative (e.g., -500)</li>
+              <li>Rollover allows unspent budget to carry forward week-to-week</li>
+              <li>Leave a category empty to exclude it from budget planning</li>
+            </ul>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 justify-end">
+            <button onClick={handleCancel} className="btn btn-ghost">
+              Cancel
+            </button>
+            <button onClick={handleSave} className="btn btn-primary">
+              Save Budget Plan
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

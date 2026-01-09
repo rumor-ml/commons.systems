@@ -4,10 +4,14 @@ import React from 'react';
 // Component registry
 import { BudgetChart } from './BudgetChart';
 import { Legend } from './Legend';
+import { BudgetPlanEditor } from './BudgetPlanEditor';
+import { TimeSelector } from './TimeSelector';
 
 const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetChart,
   Legend,
+  BudgetPlanEditor,
+  TimeSelector,
 };
 
 // Store React roots for re-rendering

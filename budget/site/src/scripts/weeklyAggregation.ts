@@ -1,0 +1,346 @@
+import {
+  Transaction,
+  WeeklyData,
+  WeekId,
+  Category,
+  BudgetPlan,
+  WeeklyBudgetComparison,
+  CashFlowPrediction,
+  QualifierBreakdown,
+} from '../islands/types';
+
+/**
+ * Convert ISO date to ISO week identifier ("2025-W01")
+ * Uses ISO 8601 week date system (Monday = week start)
+ */
+export function getISOWeek(date: string): WeekId {
+  const d = new Date(date);
+  // Set to nearest Thursday (ISO week date system)
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  // Get first day of year
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  // Calculate full weeks to nearest Thursday
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  // Return ISO week identifier
+  return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Get week boundaries (Monday-Sunday) for an ISO week identifier
+ */
+export function getWeekBoundaries(weekId: WeekId): { start: string; end: string } {
+  const match = weekId.match(/^(\d{4})-W(\d{2})$/);
+  if (!match) {
+    throw new Error(`Invalid week ID: ${weekId}`);
+  }
+
+  const year = parseInt(match[1], 10);
+  const week = parseInt(match[2], 10);
+
+  // ISO 8601: Week 1 is the week with the first Thursday of the year
+  // Calculate the first day of week 1
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const firstMonday = new Date(jan4);
+  firstMonday.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7));
+
+  // Calculate the Monday of the target week
+  const weekStart = new Date(firstMonday);
+  weekStart.setUTCDate(firstMonday.getUTCDate() + (week - 1) * 7);
+
+  // Calculate the Sunday of the target week
+  const weekEnd = new Date(weekStart);
+  weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
+
+  return {
+    start: weekStart.toISOString().substring(0, 10),
+    end: weekEnd.toISOString().substring(0, 10),
+  };
+}
+
+/**
+ * Get the current week ID
+ */
+export function getCurrentWeek(): WeekId {
+  return getISOWeek(new Date().toISOString().substring(0, 10));
+}
+
+/**
+ * Transform transactions to weekly aggregates
+ */
+export function aggregateTransactionsByWeek(
+  transactions: Transaction[],
+  filters: { hiddenCategories: Set<string>; showVacation: boolean }
+): WeeklyData[] {
+  // Filter out transfers and apply category/vacation filters
+  const filteredTransactions = transactions.filter((txn) => {
+    if (txn.transfer) return false;
+    if (!filters.showVacation && txn.vacation) return false;
+    if (filters.hiddenCategories.has(txn.category)) return false;
+    return true;
+  });
+
+  // Group by week and category
+  const weeklyMap = new Map<
+    WeekId,
+    Map<Category, { amount: number; qualifiers: QualifierBreakdown }>
+  >();
+
+  filteredTransactions.forEach((txn) => {
+    const week = getISOWeek(txn.date);
+    const displayAmount = txn.redeemable ? txn.amount * txn.redemptionRate : txn.amount;
+
+    if (!weeklyMap.has(week)) {
+      weeklyMap.set(week, new Map());
+    }
+
+    const categoryMap = weeklyMap.get(week)!;
+    const current = categoryMap.get(txn.category) || {
+      amount: 0,
+      qualifiers: {
+        redeemable: 0,
+        nonRedeemable: 0,
+        vacation: 0,
+        nonVacation: 0,
+        transactionCount: 0,
+      },
+    };
+
+    // Update amount
+    current.amount += displayAmount;
+
+    // Track qualifier breakdowns
+    if (txn.redeemable) {
+      current.qualifiers.redeemable += displayAmount;
+    } else {
+      current.qualifiers.nonRedeemable += displayAmount;
+    }
+
+    if (txn.vacation) {
+      current.qualifiers.vacation += displayAmount;
+    } else {
+      current.qualifiers.nonVacation += displayAmount;
+    }
+
+    current.qualifiers.transactionCount++;
+
+    categoryMap.set(txn.category, current);
+  });
+
+  // Convert to array format
+  const weeklyData: WeeklyData[] = [];
+
+  weeklyMap.forEach((categoryMap, week) => {
+    const boundaries = getWeekBoundaries(week);
+
+    categoryMap.forEach((data, category) => {
+      weeklyData.push({
+        week,
+        category,
+        amount: data.amount,
+        isIncome: data.amount > 0,
+        qualifiers: data.qualifiers,
+        weekStartDate: boundaries.start,
+        weekEndDate: boundaries.end,
+      });
+    });
+  });
+
+  // Sort by week and category
+  weeklyData.sort((a, b) => {
+    const weekCompare = a.week.localeCompare(b.week);
+    if (weekCompare !== 0) return weekCompare;
+    return a.category.localeCompare(b.category);
+  });
+
+  return weeklyData;
+}
+
+/**
+ * Calculate cumulative rollover (allows debt accumulation)
+ * Returns a map of category -> rollover amount for the target week
+ */
+export function calculateRolloverAccumulation(
+  weeklyData: WeeklyData[],
+  budgetPlan: BudgetPlan,
+  fromWeek: WeekId,
+  toWeek: WeekId
+): Map<Category, number> {
+  const rolloverMap = new Map<Category, number>();
+
+  // Get all weeks between fromWeek and toWeek (inclusive of fromWeek, exclusive of toWeek)
+  const weeks = Array.from(new Set(weeklyData.map((d) => d.week)))
+    .filter((w) => w >= fromWeek && w < toWeek)
+    .sort();
+
+  // Initialize rollover for each category with budget
+  Object.entries(budgetPlan.categoryBudgets).forEach(([category, budget]) => {
+    if (budget.rolloverEnabled) {
+      rolloverMap.set(category as Category, 0);
+    }
+  });
+
+  // Calculate cumulative rollover week by week
+  weeks.forEach((week) => {
+    const weekData = weeklyData.filter((d) => d.week === week);
+
+    Object.entries(budgetPlan.categoryBudgets).forEach(([category, budget]) => {
+      if (!budget.rolloverEnabled) return;
+
+      const cat = category as Category;
+      const actual = weekData.find((d) => d.category === cat)?.amount || 0;
+      const target = budget.weeklyTarget;
+      const variance = actual - target;
+
+      // For expenses (negative target): if actual is less negative than target, that's good (surplus)
+      // For income (positive target): if actual is more positive than target, that's good (surplus)
+      // In both cases, variance = actual - target represents the surplus/deficit
+      const currentRollover = rolloverMap.get(cat) || 0;
+      rolloverMap.set(cat, currentRollover + variance);
+    });
+  });
+
+  return rolloverMap;
+}
+
+/**
+ * Calculate budget vs actual for a specific week
+ */
+export function calculateWeeklyComparison(
+  weeklyData: WeeklyData[],
+  budgetPlan: BudgetPlan,
+  week: WeekId
+): WeeklyBudgetComparison[] {
+  const comparisons: WeeklyBudgetComparison[] = [];
+
+  // Get the first week in the data to use as the rollover start point
+  const allWeeks = Array.from(new Set(weeklyData.map((d) => d.week))).sort();
+  const firstWeek = allWeeks[0] || week;
+
+  // Calculate rollover up to the target week
+  const rolloverMap = calculateRolloverAccumulation(weeklyData, budgetPlan, firstWeek, week);
+
+  // Get data for the target week
+  const weekData = weeklyData.filter((d) => d.week === week);
+
+  // Create comparison for each category with a budget
+  Object.entries(budgetPlan.categoryBudgets).forEach(([category, budget]) => {
+    const cat = category as Category;
+    const actual = weekData.find((d) => d.category === cat)?.amount || 0;
+    const target = budget.weeklyTarget;
+    const rolloverAccumulated = rolloverMap.get(cat) || 0;
+    const effectiveTarget = target + rolloverAccumulated;
+    const variance = actual - target;
+
+    comparisons.push({
+      week,
+      category: cat,
+      actual,
+      target,
+      variance,
+      rolloverAccumulated,
+      effectiveTarget,
+    });
+  });
+
+  return comparisons;
+}
+
+/**
+ * Predict cash flow from budget plan + historic averages
+ * Uses the last N weeks of data to calculate historic averages (default: 12 weeks)
+ */
+export function predictCashFlow(
+  budgetPlan: BudgetPlan,
+  historicData: WeeklyData[],
+  weeksToAverage: number = 12
+): CashFlowPrediction {
+  // Calculate budget plan totals
+  let totalIncomeTarget = 0;
+  let totalExpenseTarget = 0;
+
+  Object.values(budgetPlan.categoryBudgets).forEach((budget) => {
+    if (budget.weeklyTarget > 0) {
+      totalIncomeTarget += budget.weeklyTarget;
+    } else {
+      totalExpenseTarget += Math.abs(budget.weeklyTarget);
+    }
+  });
+
+  const predictedNetIncome = totalIncomeTarget - totalExpenseTarget;
+
+  // Calculate historic averages from last N weeks
+  const allWeeks = Array.from(new Set(historicData.map((d) => d.week))).sort();
+  const recentWeeks = allWeeks.slice(-weeksToAverage);
+
+  if (recentWeeks.length === 0) {
+    // No historic data
+    return {
+      totalIncomeTarget,
+      totalExpenseTarget,
+      predictedNetIncome,
+      historicAvgIncome: 0,
+      historicAvgExpense: 0,
+      variance: predictedNetIncome,
+    };
+  }
+
+  // Calculate average weekly income and expenses
+  let totalHistoricIncome = 0;
+  let totalHistoricExpense = 0;
+
+  recentWeeks.forEach((week) => {
+    const weekData = historicData.filter((d) => d.week === week);
+    weekData.forEach((d) => {
+      if (d.isIncome) {
+        totalHistoricIncome += d.amount;
+      } else {
+        totalHistoricExpense += Math.abs(d.amount);
+      }
+    });
+  });
+
+  const historicAvgIncome = totalHistoricIncome / recentWeeks.length;
+  const historicAvgExpense = totalHistoricExpense / recentWeeks.length;
+  const historicNetIncome = historicAvgIncome - historicAvgExpense;
+  const variance = predictedNetIncome - historicNetIncome;
+
+  return {
+    totalIncomeTarget,
+    totalExpenseTarget,
+    predictedNetIncome,
+    historicAvgIncome,
+    historicAvgExpense,
+    variance,
+  };
+}
+
+/**
+ * Get list of available weeks from transaction data
+ */
+export function getAvailableWeeks(transactions: Transaction[]): WeekId[] {
+  const weeks = new Set<WeekId>();
+  transactions.forEach((txn) => {
+    weeks.add(getISOWeek(txn.date));
+  });
+  return Array.from(weeks).sort();
+}
+
+/**
+ * Navigate to the next week
+ */
+export function getNextWeek(currentWeek: WeekId): WeekId {
+  const boundaries = getWeekBoundaries(currentWeek);
+  const nextMonday = new Date(boundaries.start);
+  nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
+  return getISOWeek(nextMonday.toISOString().substring(0, 10));
+}
+
+/**
+ * Navigate to the previous week
+ */
+export function getPreviousWeek(currentWeek: WeekId): WeekId {
+  const boundaries = getWeekBoundaries(currentWeek);
+  const prevMonday = new Date(boundaries.start);
+  prevMonday.setUTCDate(prevMonday.getUTCDate() - 7);
+  return getISOWeek(prevMonday.toISOString().substring(0, 10));
+}

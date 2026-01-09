@@ -1,17 +1,41 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Plot from '@observablehq/plot';
 import * as d3 from 'd3';
-import { Transaction, MonthlyData, Category, TooltipData, QualifierBreakdown } from './types';
+import {
+  Transaction,
+  MonthlyData,
+  Category,
+  TooltipData,
+  QualifierBreakdown,
+  TimeGranularity,
+  WeekId,
+  BudgetPlan,
+} from './types';
 import { CATEGORY_COLORS } from './constants';
 import { SegmentTooltip } from './SegmentTooltip';
+import {
+  aggregateTransactionsByWeek,
+  calculateWeeklyComparison,
+  getCurrentWeek,
+} from '../scripts/weeklyAggregation';
 
 interface BudgetChartProps {
   transactions: Transaction[];
   hiddenCategories: string[];
   showVacation: boolean;
+  granularity?: TimeGranularity;
+  selectedWeek?: WeekId | null;
+  budgetPlan?: BudgetPlan | null;
 }
 
-export function BudgetChart({ transactions, hiddenCategories, showVacation }: BudgetChartProps) {
+export function BudgetChart({
+  transactions,
+  hiddenCategories,
+  showVacation,
+  granularity = 'month',
+  selectedWeek = null,
+  budgetPlan = null,
+}: BudgetChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pinnedSegmentRef = useRef<TooltipData | null>(null);
   const monthlyDataRef = useRef<MonthlyData[]>([]);
@@ -36,8 +60,162 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
     try {
       setLoading(true);
 
-      // Filter out transfers and apply filters
       const hiddenSet = new Set(hiddenCategories);
+
+      // WEEKLY MODE: Different rendering logic
+      if (granularity === 'week') {
+        // Aggregate transactions by week
+        const weeklyData = aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: hiddenSet,
+          showVacation,
+        });
+
+        if (weeklyData.length === 0) {
+          containerRef.current.replaceChildren();
+          const emptyDiv = document.createElement('div');
+          emptyDiv.className = 'p-8 text-center text-text-secondary';
+          emptyDiv.textContent = 'No transaction data available for weekly view';
+          containerRef.current.appendChild(emptyDiv);
+          setLoading(false);
+          return;
+        }
+
+        // Determine which week to display
+        const activeWeek = selectedWeek || getCurrentWeek();
+
+        // Filter data for the selected week only
+        const weekData = weeklyData.filter((d) => d.week === activeWeek);
+
+        if (weekData.length === 0) {
+          containerRef.current.replaceChildren();
+          const emptyDiv = document.createElement('div');
+          emptyDiv.className = 'p-8 text-center text-text-secondary';
+          emptyDiv.textContent = `No transaction data for week ${activeWeek}`;
+          containerRef.current.appendChild(emptyDiv);
+          setLoading(false);
+          return;
+        }
+
+        // Calculate budget comparisons if budget plan exists
+        let comparisons: Map<Category, { target: number; rolloverAccumulated: number }> = new Map();
+        if (budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0) {
+          const comparisonData = calculateWeeklyComparison(weeklyData, budgetPlan, activeWeek);
+          comparisonData.forEach((c) => {
+            comparisons.set(c.category, {
+              target: c.target,
+              rolloverAccumulated: c.rolloverAccumulated,
+            });
+          });
+        }
+
+        // Clear container
+        containerRef.current.replaceChildren();
+
+        // Create the weekly chart
+        const marks: any[] = [
+          // Zero line
+          Plot.ruleY([0], { stroke: '#666', strokeWidth: 1.5 }),
+        ];
+
+        // Add expense bars
+        const expenseData = weekData.filter((d) => !d.isIncome);
+        if (expenseData.length > 0) {
+          marks.push(
+            Plot.barY(expenseData, {
+              x: 'category',
+              y: 'amount',
+              fill: 'category',
+            })
+          );
+        }
+
+        // Add income bars
+        const incomeData = weekData.filter((d) => d.isIncome);
+        if (incomeData.length > 0) {
+          marks.push(
+            Plot.barY(incomeData, {
+              x: 'category',
+              y: 'amount',
+              fill: 'category',
+            })
+          );
+        }
+
+        // Add budget target overlays if budget plan exists
+        if (budgetPlan && comparisons.size > 0) {
+          const targetData: { category: Category; target: number; hasRollover: boolean }[] = [];
+          comparisons.forEach((data, category) => {
+            if (data.target !== 0) {
+              targetData.push({
+                category,
+                target: data.target,
+                hasRollover: data.rolloverAccumulated !== 0,
+              });
+            }
+          });
+
+          if (targetData.length > 0) {
+            // Target bars with lower opacity
+            marks.push(
+              Plot.barY(targetData, {
+                x: 'category',
+                y: 'target',
+                fill: 'category',
+                opacity: 0.3,
+                stroke: 'category',
+                strokeWidth: 2,
+                strokeDasharray: '4,4',
+              })
+            );
+
+            // Rollover badges
+            const rolloverData = targetData.filter((d) => d.hasRollover);
+            if (rolloverData.length > 0) {
+              marks.push(
+                Plot.text(rolloverData, {
+                  x: 'category',
+                  y: () => 0,
+                  text: () => '🔄',
+                  dy: -10,
+                  fontSize: 12,
+                })
+              );
+            }
+          }
+        }
+
+        const plot = Plot.plot({
+          width: containerRef.current.clientWidth || 800,
+          height: 500,
+          marginTop: 20,
+          marginRight: 20,
+          marginBottom: 80,
+          marginLeft: 60,
+          x: {
+            label: 'Category',
+            tickRotate: -45,
+          },
+          y: {
+            label: 'Amount ($)',
+            grid: true,
+            tickFormat: (d: number) => `$${Math.abs(d).toLocaleString()}`,
+          },
+          color: {
+            type: 'categorical',
+            domain: Object.keys(CATEGORY_COLORS),
+            range: Object.values(CATEGORY_COLORS),
+            legend: false,
+          },
+          marks,
+        });
+
+        containerRef.current.appendChild(plot);
+        setLoading(false);
+        return;
+      }
+
+      // MONTHLY MODE: Original logic
+      // Filter out transfers and apply filters
       const filteredTransactions = transactions.filter((txn) => {
         if (txn.transfer) return false;
         if (!showVacation && txn.vacation) return false;
@@ -305,7 +483,7 @@ export function BudgetChart({ transactions, hiddenCategories, showVacation }: Bu
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }
-  }, [transactions, hiddenCategories, showVacation]);
+  }, [transactions, hiddenCategories, showVacation, granularity, selectedWeek, budgetPlan]);
 
   // Handle document clicks to unpin tooltip
   useEffect(() => {
