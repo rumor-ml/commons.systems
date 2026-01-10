@@ -142,7 +142,6 @@ function wrapEventHandler<T>(
   };
 }
 
-// TODO(#1365): Missing integration tests for main.ts event handling
 function initCategoryToggle(): void {
   document.addEventListener(
     'budget:category-toggle',
@@ -215,6 +214,7 @@ function initBudgetPlanEvents(): void {
 
         // If save failed, keep planning mode editor open to preserve user's unsaved budget edits.
         // Prevents data loss by maintaining form state until user can retry or copy values.
+        // WARNING: Changes will be lost on page refresh - users should copy values manually.
         if (!saved.budgetPlan || JSON.stringify(saved.budgetPlan) !== JSON.stringify(budgetPlan)) {
           console.error('Budget plan save verification failed:', {
             attemptedSave: budgetPlan,
@@ -223,26 +223,41 @@ function initBudgetPlanEvents(): void {
 
           // Diagnose the specific storage issue
           let reason = 'Unknown storage error';
+          let recoveryAction = 'Try refreshing the page.';
+
           try {
             const testKey = '__storage_test__';
             localStorage.setItem(testKey, 'test');
             localStorage.removeItem(testKey);
             // Storage works, so this is a data mismatch
-            reason = 'Data verification failed after save. Possible serialization issue.';
+            reason = 'Data verification failed after save';
+            recoveryAction = 'Your browser storage may be corrupted. Try clearing cache.';
           } catch (e) {
             if (e instanceof Error) {
               if (e.name === 'QuotaExceededError') {
-                reason =
-                  'Storage quota exceeded. Try clearing browser cache or reducing data size.';
+                reason = 'Storage quota exceeded';
+                recoveryAction =
+                  'Clear browser cache or reduce data size. Copy your budget values before refreshing.';
               } else {
                 reason = `Storage unavailable: ${e.message}`;
+                recoveryAction =
+                  'You may be in private browsing mode. Copy your budget values before refreshing.';
               }
+            } else {
+              // Unexpected error type
+              reason = 'Storage error occurred';
+              recoveryAction = 'Copy your budget values before refreshing.';
             }
           }
 
           StateManager.save({ planningMode: true });
           StateManager.showErrorBanner(
-            `Failed to save budget plan: ${reason} Keeping editor open to prevent data loss.`
+            `Failed to save budget plan: ${reason}. ${recoveryAction} WARNING: Your changes will be lost on page refresh.`
+          );
+
+          console.error(
+            'CRITICAL: Budget save failed - user should copy values manually:',
+            budgetPlan
           );
           return;
         }

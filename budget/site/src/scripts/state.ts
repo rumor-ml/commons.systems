@@ -50,17 +50,17 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
  * @property showVacation - Whether to include vacation spending
  * @property budgetPlan - User's budget configuration (null = no budget set)
  * @property viewGranularity - Time aggregation level for historic view
- * @property selectedWeek - Specific week for week view. When null, defaults to current week (calculated dynamically).
+ * @property selectedWeek - Specific week for week view. When null, components default to getCurrentWeek() dynamically (not persisted).
  *   Should be null when viewGranularity is 'month' (ignored in monthly view).
  * @property planningMode - Whether budget plan editor is visible
  */
 export interface BudgetState {
-  hiddenCategories: Category[];
-  showVacation: boolean;
-  budgetPlan: BudgetPlan | null;
-  viewGranularity: TimeGranularity;
-  selectedWeek: WeekId | null; // null = current week
-  planningMode: boolean;
+  readonly hiddenCategories: readonly Category[];
+  readonly showVacation: boolean;
+  readonly budgetPlan: BudgetPlan | null;
+  readonly viewGranularity: TimeGranularity;
+  readonly selectedWeek: WeekId | null; // null = current week
+  readonly planningMode: boolean;
 }
 
 export class StateManager {
@@ -136,9 +136,10 @@ export class StateManager {
 
       const parsed = JSON.parse(stored);
 
-      // TODO(2026-06): Remove selectedCategory migration after 6 months grace period.
-      //   Migration added 2026-01. Remove if localStorage analytics show <1% users with old format,
-      //   or if 6 months elapsed (assume users cleared cache or migrated).
+      // TODO(2026-06): Remove selectedCategory migration after 6 months grace period (added 2026-01).
+      //   Safe to remove if: (a) 6 months elapsed AND (b) no user error reports about lost preferences.
+      //   No analytics available - relying on time elapsed and absence of errors.
+      //   Before removal: Test clean install + upgrade path to verify new users work correctly.
       // Migration: Convert old selectedCategory format to hiddenCategories.
       if ('selectedCategory' in parsed && parsed.selectedCategory !== null) {
         const hiddenCategories = CATEGORIES.filter((cat) => cat !== parsed.selectedCategory);
@@ -181,6 +182,7 @@ export class StateManager {
         planningMode: parsed.planningMode === true,
       };
     } catch (error) {
+      // TODO(#1387): Distinguish between error types (JSON parse, localStorage access, validation) and provide specific user guidance
       console.error('Failed to load state from localStorage:', error);
 
       // Show user-facing warning

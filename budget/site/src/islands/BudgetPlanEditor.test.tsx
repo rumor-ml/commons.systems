@@ -935,4 +935,168 @@ describe('BudgetPlanEditor', () => {
       expect((incomeInput as HTMLInputElement).value).toBe('3000');
     });
   });
+
+  describe('Validation Error Persistence', () => {
+    it('shows validation error for invalid characters in number', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const incomeInput = inputs[0] as HTMLInputElement;
+
+      // Enter number with invalid characters (123abc parses to 123 but has extra chars)
+      fireEvent.change(incomeInput, { target: { value: '123abc' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      });
+    });
+
+    it('displays multiple validation errors simultaneously', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+      const diningInput = inputs[4] as HTMLInputElement;
+
+      // Enter invalid characters in groceries
+      fireEvent.change(groceriesInput, { target: { value: '123abc' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      });
+
+      // Enter positive value in dining (should be negative for expense)
+      fireEvent.change(diningInput, { target: { value: '200' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Expense budgets should be negative/)).toBeDefined();
+      });
+
+      // Both errors should be visible
+      expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      expect(screen.getByText(/Expense budgets should be negative/)).toBeDefined();
+    });
+
+    it('persists error in one field when entering valid data in another field', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+      const diningInput = inputs[4] as HTMLInputElement;
+
+      // Enter invalid characters in groceries
+      fireEvent.change(groceriesInput, { target: { value: '123abc' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      });
+
+      // Enter valid value in dining
+      fireEvent.change(diningInput, { target: { value: '-200' } });
+
+      // Groceries error should still be visible
+      await waitFor(() => {
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      });
+    });
+
+    it('clears error when invalid field is corrected', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+
+      // Enter invalid characters
+      fireEvent.change(groceriesInput, { target: { value: '123abc' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      });
+
+      // Correct the value
+      fireEvent.change(groceriesInput, { target: { value: '-500' } });
+
+      // Error should be cleared
+      await waitFor(() => {
+        expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+      });
+    });
+
+    it('shows error for unusually large values', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const incomeInput = inputs[0] as HTMLInputElement;
+
+      // Enter value over $1,000,000
+      fireEvent.change(incomeInput, { target: { value: '2000000' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Budget value is unusually large/)).toBeDefined();
+      });
+    });
+
+    it('shows error for positive expense category values', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+
+      // Enter positive value for expense category
+      fireEvent.change(groceriesInput, { target: { value: '500' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Expense budgets should be negative/)).toBeDefined();
+      });
+
+      // Fix it with negative value
+      fireEvent.change(groceriesInput, { target: { value: '-500' } });
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Expense budgets should be negative/)).toBeNull();
+      });
+    });
+  });
 });

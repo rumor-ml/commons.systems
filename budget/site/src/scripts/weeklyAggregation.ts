@@ -8,6 +8,8 @@ import {
   CashFlowPrediction,
   QualifierBreakdown,
   createQualifierBreakdown,
+  validateWeeklyData,
+  createWeeklyBudgetComparison,
 } from '../islands/types';
 import { StateManager } from './state';
 
@@ -127,6 +129,7 @@ export function aggregateTransactionsByWeek(
   // Convert to array format
   const weeklyData: WeeklyData[] = [];
   const skippedWeeks = new Set<WeekId>();
+  const skippedTransactionsByWeek = new Map<WeekId, Transaction[]>();
 
   weeklyMap.forEach((categoryMap, week) => {
     let boundaries;
@@ -134,13 +137,19 @@ export function aggregateTransactionsByWeek(
       boundaries = getWeekBoundaries(week);
     } catch (error) {
       console.error(`Failed to get boundaries for week ${week}:`, error);
+
+      // Track transactions that will be excluded
+      const affectedTransactions = filteredTransactions.filter((t) => getISOWeek(t.date) === week);
+      skippedTransactionsByWeek.set(week, affectedTransactions);
+
       skippedWeeks.add(week);
       // Skip this week - invalid week ID format or date calculation error. Transactions will not appear in any view (both weekly and monthly).
+      // User is notified via error banner below (lines 165-167).
       return;
     }
 
     categoryMap.forEach((data, category) => {
-      weeklyData.push({
+      const weeklyDataItem: WeeklyData = {
         week,
         category,
         amount: data.amount,
@@ -148,22 +157,45 @@ export function aggregateTransactionsByWeek(
         qualifiers: data.qualifiers,
         weekStartDate: boundaries.start,
         weekEndDate: boundaries.end,
-      });
+      };
+
+      // Validate consistency to catch silent corruption
+      if (!validateWeeklyData(weeklyDataItem, getWeekBoundaries)) {
+        console.error(`Skipping invalid WeeklyData for ${category} in ${week}`);
+        return;
+      }
+
+      weeklyData.push(weeklyDataItem);
     });
   });
 
   // Notify user if any weeks were skipped
   if (skippedWeeks.size > 0) {
+    // Log detailed transaction information for each skipped week
+    skippedTransactionsByWeek.forEach((transactions, week) => {
+      const totalAmount = transactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      console.error(`Excluding ${transactions.length} transactions from week ${week}:`, {
+        transactions: transactions.map((t) => ({
+          date: t.date,
+          amount: t.amount,
+          category: t.category,
+          description: t.description,
+        })),
+        totalAmount,
+      });
+    });
+
     const weekList = Array.from(skippedWeeks).join(', ');
-    const message = `Data quality issue: ${skippedWeeks.size} week(s) excluded due to invalid dates: ${weekList}. Some transactions may not be visible. Check your imported transaction data for date formatting errors (expected: YYYY-MM-DD).`;
+    const message = `Data quality issue: ${skippedWeeks.size} week(s) excluded due to invalid dates: ${weekList}. Transactions from these weeks are PERMANENTLY excluded from all views. Check browser console for affected transaction details.`;
 
     console.error(message);
-    console.error('Affected weeks:', Array.from(skippedWeeks));
-    console.error('TO FIX: Re-import transactions with valid date formats');
+    console.error(
+      'TO FIX: Review the transaction dates shown above and re-import with valid YYYY-MM-DD format'
+    );
 
-    // Show user-facing warning banner
-    StateManager.showWarningBanner(
-      `⚠️ ${skippedWeeks.size} week(s) of transaction data excluded due to date errors. Your charts may be incomplete. Check browser console for details.`
+    // Critical data loss - use error banner
+    StateManager.showErrorBanner(
+      `⚠️ ${skippedWeeks.size} week(s) of data excluded due to date errors. Your charts are incomplete. See console for details on affected transactions.`
     );
   }
 
@@ -185,7 +217,8 @@ export function aggregateTransactionsByWeek(
  * @param budgetPlan - Budget plan with category targets and rollover settings
  * @param fromWeek - Start week (inclusive) - typically first week of data
  * @param toWeek - End week (exclusive). Calculates rollover accumulated up to but not including toWeek.
- *   Example: pass '2025-W05' to get rollover balance at the START of W05 (i.e., accumulated through end of W04).
+ *   Example: pass '2025-W05' to get rollover available for W05 budget adjustment (accumulated through end of W04).
+ *   The returned rollover adjusts toWeek's effective budget target.
  * @returns Map of category to accumulated rollover amount at the start of toWeek
  */
 export function calculateRolloverAccumulation(
@@ -260,18 +293,8 @@ export function calculateWeeklyComparison(
     const actual = weekData.find((d) => d.category === cat)?.amount || 0;
     const target = budget.weeklyTarget;
     const rolloverAccumulated = rolloverMap.get(cat) || 0;
-    const effectiveTarget = target + rolloverAccumulated;
-    const variance = actual - target;
 
-    comparisons.push({
-      week,
-      category: cat,
-      actual,
-      target,
-      variance,
-      rolloverAccumulated,
-      effectiveTarget,
-    });
+    comparisons.push(createWeeklyBudgetComparison(week, cat, actual, target, rolloverAccumulated));
   });
 
   return comparisons;

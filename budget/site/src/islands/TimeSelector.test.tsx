@@ -4,6 +4,7 @@ import { TimeSelector } from './TimeSelector';
 import { WeekId, weekId } from './types';
 import * as weeklyAggregation from '../scripts/weeklyAggregation';
 import * as events from '../utils/events';
+import { StateManager } from '../scripts/state';
 
 // Mock the modules
 vi.mock('../scripts/weeklyAggregation', async () => {
@@ -21,12 +22,20 @@ vi.mock('../utils/events', () => ({
   dispatchBudgetEvent: vi.fn(),
 }));
 
+vi.mock('../scripts/state', () => ({
+  StateManager: {
+    showErrorBanner: vi.fn(),
+    showWarningBanner: vi.fn(),
+  },
+}));
+
 describe('TimeSelector', () => {
   const mockGetCurrentWeek = vi.mocked(weeklyAggregation.getCurrentWeek);
   const mockGetNextWeek = vi.mocked(weeklyAggregation.getNextWeek);
   const mockGetPreviousWeek = vi.mocked(weeklyAggregation.getPreviousWeek);
   const mockGetWeekBoundaries = vi.mocked(weeklyAggregation.getWeekBoundaries);
   const mockDispatchBudgetEvent = vi.mocked(events.dispatchBudgetEvent);
+  const mockShowErrorBanner = vi.mocked(StateManager.showErrorBanner);
 
   const currentWeek: WeekId = '2025-W10' as WeekId;
   const availableWeeks: WeekId[] = [
@@ -395,11 +404,19 @@ describe('TimeSelector', () => {
     });
 
     it('should handle formatWeek error gracefully', () => {
-      mockGetWeekBoundaries.mockImplementation(() => {
-        throw new Error('Invalid week');
-      });
-
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Mock getWeekBoundaries to throw for invalid-week, but return valid for currentWeek
+      mockGetWeekBoundaries.mockImplementation((week: WeekId) => {
+        if (week === 'invalid-week') {
+          throw new Error('Invalid week');
+        }
+        // Return valid boundaries for currentWeek (fallback)
+        return {
+          start: '2025-03-01',
+          end: '2025-03-07',
+        };
+      });
 
       render(
         <TimeSelector
@@ -409,13 +426,132 @@ describe('TimeSelector', () => {
         />
       );
 
-      expect(screen.getByText(/Invalid: invalid-week/)).toBeInTheDocument();
+      // Should show error banner
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        'Invalid week data detected. Resetting to current week.'
+      );
+
+      // Should dispatch reset event
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: null,
+      });
+
+      // Should log error
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining('Failed to format week'),
         expect.any(Error)
       );
 
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('Navigation Error Recovery', () => {
+    it('should auto-reset to current week when getNextWeek throws error', () => {
+      const selectedWeek = availableWeeks[5]; // 2025-W06
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockGetNextWeek.mockImplementation(() => {
+        throw new Error('Week calculation failed');
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={selectedWeek}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const nextButton = screen.getByText('Next →');
+      fireEvent.click(nextButton);
+
+      // Should show error banner
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        'Cannot navigate to next week. Resetting to current week.'
+      );
+
+      // Should dispatch reset event
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: null,
+      });
+
+      // Should log error
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to navigate to next week:',
+        expect.any(Error)
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should auto-reset to current week when getPreviousWeek throws error', () => {
+      const selectedWeek = availableWeeks[5]; // 2025-W06
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockGetPreviousWeek.mockImplementation(() => {
+        throw new Error('Week calculation failed');
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={selectedWeek}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const previousButton = screen.getByText('← Previous');
+      fireEvent.click(previousButton);
+
+      // Should show error banner
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        'Cannot navigate to previous week. Resetting to current week.'
+      );
+
+      // Should dispatch reset event
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: null,
+      });
+
+      // Should log error
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to navigate to previous week:',
+        expect.any(Error)
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should preserve enabled state of navigation buttons after error', () => {
+      const selectedWeek = availableWeeks[5]; // 2025-W06
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockGetNextWeek.mockImplementation(() => {
+        throw new Error('Week calculation failed');
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={selectedWeek}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const nextButton = screen.getByText('Next →');
+      const previousButton = screen.getByText('← Previous');
+
+      // Both buttons should be enabled before error
+      expect(nextButton).not.toBeDisabled();
+      expect(previousButton).not.toBeDisabled();
+
+      fireEvent.click(nextButton);
+
+      // Navigation buttons should still be enabled after error
+      // (they'll be in error state but not disabled)
+      expect(nextButton).not.toBeDisabled();
+      expect(previousButton).not.toBeDisabled();
     });
   });
 

@@ -28,9 +28,10 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
     } catch (error) {
       console.error(`Failed to navigate to ${direction} week:`, error);
       StateManager.showErrorBanner(
-        `Cannot navigate to ${direction} week: ${error instanceof Error ? error.message : 'Unknown error'}. You may reset to current week using the button above.`
+        `Cannot navigate to ${direction} week. Resetting to current week.`
       );
-      // Don't auto-reset - preserve user's current position
+      // Auto-recover by resetting to current week
+      dispatchBudgetEvent('budget:week-change', { week: null });
     }
   };
 
@@ -70,17 +71,18 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
     } catch (error) {
       console.error(`Failed to format week ${week}:`, error);
 
-      // Check format first - most likely cause of formatting failures
-      if (!week.match(/^\d{4}-W\d{2}$/)) {
-        StateManager.showErrorBanner(`Invalid week format: ${week} (expected YYYY-WNN)`);
-        return `Invalid: ${week}`;
-      }
+      // Single user-facing error with recovery action
+      StateManager.showErrorBanner(`Invalid week data detected. Resetting to current week.`);
 
-      // Date calculation failed - show error but don't reset
-      StateManager.showErrorBanner(
-        `Cannot display week ${week}: ${error instanceof Error ? error.message : 'Date error'}`
-      );
-      return `Error: ${week}`;
+      // Trigger auto-recovery
+      dispatchBudgetEvent('budget:week-change', { week: null });
+
+      // Return fallback display value
+      try {
+        return formatWeek(currentWeek);
+      } catch {
+        return 'Current Week';
+      }
     }
   };
 

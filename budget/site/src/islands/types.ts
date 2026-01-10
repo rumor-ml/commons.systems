@@ -143,8 +143,8 @@ export function weekId(value: string): WeekId {
  * @property rolloverEnabled - Whether unspent budget carries to next week
  */
 export interface CategoryBudget {
-  weeklyTarget: number;
-  rolloverEnabled: boolean;
+  readonly weeklyTarget: number;
+  readonly rolloverEnabled: boolean;
 }
 
 /**
@@ -200,10 +200,12 @@ export interface BudgetPlan {
 /**
  * Creates a new BudgetPlan with validated timestamp and category budgets.
  * @param categoryBudgets - Initial category budgets (defaults to empty)
+ * @param lastModified - Optional ISO timestamp (defaults to current time)
  * @returns A new BudgetPlan instance, or null if validation fails
  */
 export function createBudgetPlan(
-  categoryBudgets: Partial<Record<Category, CategoryBudget>> = {}
+  categoryBudgets: Partial<Record<Category, CategoryBudget>> = {},
+  lastModified?: string
 ): BudgetPlan | null {
   // Validate all category budgets
   for (const [category, budget] of Object.entries(categoryBudgets)) {
@@ -213,9 +215,15 @@ export function createBudgetPlan(
     }
   }
 
+  const timestamp = lastModified || new Date().toISOString();
+  if (!isValidISOTimestamp(timestamp)) {
+    console.error(`Invalid timestamp: ${timestamp}`);
+    return null;
+  }
+
   return {
     categoryBudgets,
-    lastModified: new Date().toISOString(),
+    lastModified: timestamp,
   };
 }
 
@@ -253,6 +261,46 @@ export interface WeeklyData {
   readonly weekEndDate: string;
 }
 
+/**
+ * Validates that a WeeklyData object has consistent week and date fields.
+ * CRITICAL: Checks that weekStartDate and weekEndDate match the week identifier.
+ * This function requires getWeekBoundaries from weeklyAggregation.ts to be available.
+ * @param data - WeeklyData to validate
+ * @param getWeekBoundaries - Function to get week boundaries (must be provided to avoid circular dependency)
+ * @returns true if valid, false if week/date mismatch detected
+ */
+export function validateWeeklyData(
+  data: WeeklyData,
+  getWeekBoundaries: (weekId: WeekId) => { start: string; end: string }
+): boolean {
+  try {
+    const boundaries = getWeekBoundaries(data.week);
+    const datesMatch =
+      data.weekStartDate === boundaries.start && data.weekEndDate === boundaries.end;
+
+    const amountSignMatch = data.amount > 0 === data.isIncome;
+
+    if (!datesMatch) {
+      console.error(`WeeklyData validation failed: week ${data.week} has inconsistent dates`, {
+        expected: boundaries,
+        actual: { start: data.weekStartDate, end: data.weekEndDate },
+      });
+    }
+
+    if (!amountSignMatch) {
+      console.error(`WeeklyData validation failed: amount sign mismatch`, {
+        amount: data.amount,
+        isIncome: data.isIncome,
+      });
+    }
+
+    return datesMatch && amountSignMatch;
+  } catch (error) {
+    console.error(`WeeklyData validation failed: invalid week ID ${data.week}`, error);
+    return false;
+  }
+}
+
 // Budget vs actual comparison
 export interface WeeklyBudgetComparison {
   readonly week: WeekId;
@@ -262,6 +310,34 @@ export interface WeeklyBudgetComparison {
   readonly variance: number; // actual - target
   readonly rolloverAccumulated: number; // Cumulative from previous weeks
   readonly effectiveTarget: number; // target + rolloverAccumulated
+}
+
+/**
+ * Creates a WeeklyBudgetComparison with validated derived fields.
+ * Ensures variance and effectiveTarget are calculated correctly.
+ * @param week - Week identifier
+ * @param category - Category
+ * @param actual - Actual spending/income
+ * @param target - Budget target
+ * @param rolloverAccumulated - Cumulative rollover
+ * @returns WeeklyBudgetComparison with correct derived fields
+ */
+export function createWeeklyBudgetComparison(
+  week: WeekId,
+  category: Category,
+  actual: number,
+  target: number,
+  rolloverAccumulated: number
+): WeeklyBudgetComparison {
+  return {
+    week,
+    category,
+    actual,
+    target,
+    variance: actual - target,
+    rolloverAccumulated,
+    effectiveTarget: target + rolloverAccumulated,
+  };
 }
 
 // Predicted cash flow

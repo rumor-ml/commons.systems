@@ -18,6 +18,16 @@ interface LegendProps {
   selectedWeek?: WeekId | null;
 }
 
+interface CategorySummary {
+  category: Category;
+  total: number;
+  count: number;
+  target?: number;
+  variance?: number;
+  rolloverAccumulated?: number;
+  hasRollover: boolean;
+}
+
 export function Legend({
   transactions,
   hiddenCategories,
@@ -37,10 +47,10 @@ export function Legend({
     if (target === undefined || variance === undefined) return null;
     const varianceIsPositive = variance > 0;
     const isIncomeCategory = target > 0;
-    // Budget status convention: 'under' = good (within/below target), 'over' = bad (exceeded target)
-    // Positive variance = actual > target
-    // For income: earning more than target (positive variance) → 'under' status (good)
-    // For expenses: spending less than budget (positive variance when target is negative) → 'under' status (good)
+    // Budget status convention: 'under' = performing well, 'over' = performing poorly
+    // - For expenses (negative targets): spending less than budget (positive variance) → 'under' (good)
+    // - For income (positive targets): earning more than target (positive variance) → 'under' (good)
+    // Logic: When variance sign matches target sign, we're doing well → 'under'
     return varianceIsPositive === isIncomeCategory ? 'under' : 'over';
   }
 
@@ -51,7 +61,7 @@ export function Legend({
     activeWeek: WeekId,
     hiddenSet: Set<string>,
     showVacation: boolean
-  ) {
+  ): CategorySummary[] {
     const weeklyData = aggregateTransactionsByWeek(transactions, {
       hiddenCategories: hiddenSet,
       showVacation,
@@ -72,7 +82,10 @@ export function Legend({
   }
 
   // Helper to calculate monthly/all-time summaries without budget comparison
-  function calculateMonthlySummaries(transactions: Transaction[], showVacation: boolean) {
+  function calculateMonthlySummaries(
+    transactions: Transaction[],
+    showVacation: boolean
+  ): CategorySummary[] {
     const summaries = new Map<Category, { total: number; count: number }>();
 
     transactions

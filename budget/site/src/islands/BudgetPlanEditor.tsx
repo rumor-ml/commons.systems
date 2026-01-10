@@ -26,6 +26,26 @@ export function BudgetPlanEditor({
   // Validation errors for user feedback
   const [validationErrors, setValidationErrors] = useState<Partial<Record<Category, string>>>({});
 
+  // Helper to clear validation error for a category
+  const clearValidationError = (category: Category) => {
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      delete next[category];
+      return next;
+    });
+  };
+
+  // Helper to show validation error with optional console warning
+  const showValidationError = (category: Category, message: string, warnMessage?: string) => {
+    if (warnMessage) {
+      console.warn(warnMessage);
+    }
+    setValidationErrors((prev) => ({
+      ...prev,
+      [category]: message,
+    }));
+  };
+
   // Debounced prediction calculation
   const [debouncedBudgets, setDebouncedBudgets] = useState(categoryBudgets);
 
@@ -48,18 +68,16 @@ export function BudgetPlanEditor({
   }, [debouncedBudgets, historicData]);
 
   const handleTargetChange = (category: Category, value: string) => {
+    // TODO(#1390): Remove console.warn calls for expected user validation failures
     // Allow empty string to clear budget
     if (value.trim() === '') {
-      // Remove budget when value is cleared (allows excluding categories from budget)
+      // Remove category from budget object entirely (not just set to 0).
+      // This excludes the category from budget planning calculations.
       const updated = { ...categoryBudgets };
       delete updated[category];
       setCategoryBudgets(updated);
       // Clear validation error for this category
-      setValidationErrors((prev) => {
-        const next = { ...prev };
-        delete next[category];
-        return next;
-      });
+      clearValidationError(category);
       return;
     }
 
@@ -67,54 +85,48 @@ export function BudgetPlanEditor({
 
     // Validate numeric input
     if (isNaN(numValue)) {
-      console.warn(`Invalid budget value for ${category}: "${value}"`);
-      setValidationErrors((prev) => ({
-        ...prev,
-        [category]: 'Please enter a valid number (e.g., -500 for expenses)',
-      }));
+      showValidationError(
+        category,
+        'Please enter a valid number (e.g., -500 for expenses)',
+        `Invalid budget value for ${category}: "${value}"`
+      );
       return;
     }
 
     // Validate range
     const absValue = Math.abs(numValue);
     if (absValue > 1000000) {
-      console.warn(`Unusually large budget value for ${category}: ${numValue}`);
-      setValidationErrors((prev) => ({
-        ...prev,
-        [category]: 'Budget value is unusually large (max $1,000,000)',
-      }));
+      showValidationError(
+        category,
+        'Budget value is unusually large (max $1,000,000)',
+        `Unusually large budget value for ${category}: ${numValue}`
+      );
       return;
     }
 
     // Validate whole string was parsed (detect "123abc" scenarios)
     if (value.trim() !== numValue.toString() && !value.includes('.')) {
-      console.warn(`Partial numeric parsing for ${category}: "${value}" → ${numValue}`);
-      setValidationErrors((prev) => ({
-        ...prev,
-        [category]: 'Invalid characters in number',
-      }));
+      showValidationError(
+        category,
+        'Invalid characters in number',
+        `Partial numeric parsing for ${category}: "${value}" → ${numValue}`
+      );
       return;
     }
 
     // Validate sign for expense categories
     const isExpenseCategory = category !== 'income';
     if (isExpenseCategory && numValue > 0) {
-      console.warn(
+      showValidationError(
+        category,
+        'Expense budgets should be negative (e.g., -500)',
         `Budget for expense category ${category} should be negative, got ${numValue}. Consider using -${numValue} instead.`
       );
-      setValidationErrors((prev) => ({
-        ...prev,
-        [category]: 'Expense budgets should be negative (e.g., -500)',
-      }));
       return;
     }
 
     // Clear validation error for this category
-    setValidationErrors((prev) => {
-      const next = { ...prev };
-      delete next[category];
-      return next;
-    });
+    clearValidationError(category);
 
     setCategoryBudgets({
       ...categoryBudgets,
@@ -156,6 +168,7 @@ export function BudgetPlanEditor({
   };
 
   // Handle Escape key to close modal
+  // TODO(#1386): Add accessibility tests for keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {

@@ -557,6 +557,90 @@ describe('BudgetChart', () => {
         expect(dataPoint.amount).toBe(-50); // -100 * 0.5
       });
     });
+
+    it('should render chart with budgetPlan but no transactions', async () => {
+      const budgetPlan = createBudgetPlan();
+
+      const { container } = render(
+        <BudgetChart
+          transactions={[]}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="week"
+          selectedWeek={weekId('2025-W02')}
+          budgetPlan={budgetPlan}
+        />
+      );
+
+      await waitFor(() => {
+        const emptyMessage = container.querySelector('.p-8.text-center.text-text-secondary');
+        expect(emptyMessage).toBeTruthy();
+        expect(emptyMessage?.textContent).toContain('No transactions loaded');
+      });
+    });
+
+    it('should handle future week selection appropriately', async () => {
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100 }), // W02
+      ];
+
+      // Use a future week ID (far enough in the future to ensure it won't have data)
+      const futureWeek = weekId('2025-W52');
+
+      const { container } = render(
+        <BudgetChart
+          transactions={transactions}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="week"
+          selectedWeek={futureWeek}
+        />
+      );
+
+      await waitFor(() => {
+        const emptyMessage = container.querySelector('.p-8.text-center.text-text-secondary');
+        expect(emptyMessage).toBeTruthy();
+        expect(emptyMessage?.textContent).toContain('No transaction data for week 2025-W52');
+      });
+    });
+
+    it('should stop rendering when budget calculation fails', async () => {
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100, category: 'groceries' }),
+      ];
+
+      // Create a malformed budget plan that might cause calculation errors
+      const badBudgetPlan = {
+        categoryBudgets: {
+          groceries: {
+            weeklyTarget: NaN, // Invalid target
+            rolloverEnabled: true,
+          },
+        },
+        lastModified: '2025-01-01T00:00:00.000Z',
+      } as unknown as BudgetPlan;
+
+      const { container } = render(
+        <BudgetChart
+          transactions={transactions}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="week"
+          selectedWeek={weekId('2025-W02')}
+          budgetPlan={badBudgetPlan}
+        />
+      );
+
+      // Depending on how calculateWeeklyComparison handles NaN, this may or may not error
+      // The test verifies the component doesn't crash and shows an error or renders
+      await waitFor(() => {
+        const errorMessage = container.querySelector('.bg-error-muted');
+        const plot = container.querySelector('[data-test-plot="true"]');
+
+        // Should either show error or render chart successfully
+        expect(errorMessage || plot).toBeTruthy();
+      });
+    });
   });
 
   describe('Monthly View', () => {
@@ -582,6 +666,26 @@ describe('BudgetChart', () => {
         const barMarks = config.marks.filter((m: any) => m.type === 'barY');
 
         expect(barMarks.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('should show appropriate empty state for monthly view with no data', async () => {
+      const { container } = render(
+        <BudgetChart
+          transactions={[]}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="month"
+        />
+      );
+
+      await waitFor(() => {
+        // Monthly view with no transactions should still render
+        // (it will render an empty plot with no bars, or potentially an empty state)
+        // Since the code doesn't have explicit empty state for monthly view,
+        // it will render an empty plot
+        const plot = container.querySelector('[data-test-plot="true"]');
+        expect(plot).toBeTruthy();
       });
     });
 

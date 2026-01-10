@@ -186,11 +186,12 @@ export function BudgetChart({
             activeWeek,
             budgetCategories: Object.keys(budgetPlan.categoryBudgets),
           });
-          // Show error in UI - budget comparison failed
+          // Don't render degraded chart - show clear error instead
           setError(
-            'Budget comparison calculation failed. Chart shows actual spending only. Check your budget plan for invalid data.'
+            'Budget comparison calculation failed. Your budget plan may contain invalid data. Please review your budget settings or contact support.'
           );
-          console.warn('Rendering chart without budget comparison overlays');
+          setLoading(false);
+          return; // CRITICAL: Don't continue with degraded rendering
         }
       }
 
@@ -521,8 +522,9 @@ export function BudgetChart({
       // Attach event listeners to bar segments for tooltips
       // We need to match bars to data - Plot renders bars in two groups (expenses and income)
       // The bars are in g[aria-label="bar"] elements - expenses first, then income
-      // TODO(#1385): Comment claims bars may not be found but doesn't explain impact on user experience
-      // Use fallback empty arrays if bar groups not found (prevents tooltip attachment errors)
+      // Observable Plot may render bar groups in different structures depending on data shape.
+      // Use fallback empty arrays if bar groups not found to prevent tooltip attachment errors.
+      // User impact: Chart renders normally but tooltips won't work on hover/click.
       const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
       const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
       const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
@@ -588,13 +590,20 @@ export function BudgetChart({
         });
       };
 
+      // Validate bar groups were found before attaching listeners
+      if (barGroups.length === 0) {
+        throw new Error('Chart bars not found - tooltip interactivity unavailable');
+      }
+
       attachBarEventListeners(expenseBars, expenseData);
       attachBarEventListeners(incomeBars, incomeData);
     } catch (err) {
       console.error('Failed to attach event listeners:', err);
-      // Show warning in UI - tooltips unavailable
-      setError('Chart tooltips unavailable. View detailed data in the legend below.');
-      console.warn('Chart rendered but tooltips may not work');
+      // Show prominent warning with clear guidance
+      setError(
+        'Chart tooltips are unavailable. Click categories in the legend below to see detailed transaction data.'
+      );
+      console.warn('Chart rendered in static mode - no tooltip interactivity');
     }
 
     setLoading(false);
