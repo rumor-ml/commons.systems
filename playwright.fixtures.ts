@@ -3,6 +3,72 @@ import { test as base, expect } from '@playwright/test';
 import admin from 'firebase-admin';
 
 /**
+ * Transient errors that should trigger retries
+ */
+const TRANSIENT_ERROR_PATTERNS = [
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'socket hang up',
+  'network timeout',
+  'ETIMEDOUT',
+];
+
+/**
+ * Check if an error is transient and should be retried
+ */
+function isTransientError(error: Error | string): boolean {
+  const message = typeof error === 'string' ? error : error.message;
+  return TRANSIENT_ERROR_PATTERNS.some((pattern) =>
+    message.toLowerCase().includes(pattern.toLowerCase())
+  );
+}
+
+/**
+ * Execute an async operation with exponential backoff retry
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: {
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    operationName?: string;
+  } = {}
+): Promise<T> {
+  const {
+    maxAttempts = 3,
+    baseDelayMs = 500,
+    maxDelayMs = 5000,
+    operationName = 'operation',
+  } = options;
+
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+
+      if (!isTransientError(lastError) || attempt === maxAttempts) {
+        throw lastError;
+      }
+
+      const delay = Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+      console.warn(
+        `[Auth Emulator] ${operationName} failed (attempt ${attempt}/${maxAttempts}): ${lastError.message}. ` +
+          `Retrying in ${delay}ms...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * Branded type for User ID to provide semantic meaning and prevent mixing with plain strings.
  * @example
  * const userId: UserId = await createTestUser('test@example.com');
@@ -151,33 +217,52 @@ export const test = base.extend<AuthFixtures>({
       password: string = 'testpassword123'
     ): Promise<UserId> => {
       // Use Firebase Auth emulator API to create test user
-      const response = await page.request.post(
-        `http://${AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
-        {
-          data: {
-            email,
-            password,
-            returnSecureToken: true,
-          },
-        }
+      const response = await withRetry(
+        () =>
+          page.request.post(
+            `http://${AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
+            {
+              data: {
+                email,
+                password,
+                returnSecureToken: true,
+              },
+            }
+          ),
+        { operationName: 'createTestUser', maxAttempts: 3, baseDelayMs: 500 }
       );
+
+      if (!response.ok()) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to create test user: ${response.status()} - ${errorBody}`);
+      }
+
       const data = await response.json();
       return createUserId(data.localId);
     };
 
     const signInTestUser = async (email: string, password: string = 'testpassword123') => {
-      // Get the user's UID (user should already be created by createTestUser)
-      // Sign in via emulator API to get the UID
-      const response = await page.request.post(
-        `http://${AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
-        {
-          data: {
-            email,
-            password,
-            returnSecureToken: true,
-          },
-        }
+      // Step 1: Call Auth emulator API (with retry)
+      const response = await withRetry(
+        () =>
+          page.request.post(
+            `http://${AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
+            {
+              data: {
+                email,
+                password,
+                returnSecureToken: true,
+              },
+            }
+          ),
+        { operationName: 'signInTestUser (emulator API)', maxAttempts: 3, baseDelayMs: 500 }
       );
+
+      if (!response.ok()) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to sign in test user: ${response.status()} - ${errorBody}`);
+      }
+
       const data = await response.json();
 
       try {
@@ -190,8 +275,12 @@ export const test = base.extend<AuthFixtures>({
         );
       }
 
-      // Generate custom token using Firebase Admin SDK
-      const customToken = await admin.auth(adminApp).createCustomToken(uid);
+      // Step 2: Generate custom token (with retry)
+      const customToken = await withRetry(() => admin.auth(adminApp).createCustomToken(uid), {
+        operationName: 'createCustomToken',
+        maxAttempts: 3,
+        baseDelayMs: 500,
+      });
 
       // Navigate to page first so Firebase SDK is loaded
       await page.waitForLoadState('domcontentloaded');
@@ -208,57 +297,62 @@ export const test = base.extend<AuthFixtures>({
         appId: '1:190604485916:web:abc123def456',
       };
 
-      // Sign in using custom token (NearForm approach)
-      await page.evaluate(
-        async ({ token }) => {
-          // Import Firebase SDK
-          const { signInWithCustomToken } = await import(
-            'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
-          );
-
-          // Wait for auth to be initialized (event-driven with timeout)
-          const waitForAuth = async (timeout = 10000) => {
-            return new Promise((resolve, reject) => {
-              // Already ready?
-              if (window.auth) {
-                resolve(window.auth);
-                return;
-              }
-
-              // Set timeout
-              const timer = setTimeout(() => {
-                reject(new Error('Firebase init timeout after ' + timeout + 'ms'));
-              }, timeout);
-
-              // Wait for firebase:ready event
-              window.addEventListener(
-                'firebase:ready',
-                () => {
-                  clearTimeout(timer);
-                  resolve(window.auth);
-                },
-                { once: true }
+      // Step 3: Exchange token in browser (with retry via page.evaluate)
+      await withRetry(
+        async () => {
+          await page.evaluate(
+            async ({ token }) => {
+              // Import Firebase SDK
+              const { signInWithCustomToken } = await import(
+                'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
               );
-            });
-          };
 
-          // Use the page's existing auth instance (from firebase.js)
-          // The page already connects to the emulator, so we just need to sign in
-          const auth = await waitForAuth();
+              // Wait for auth to be initialized (event-driven with timeout)
+              const waitForAuth = async (timeout = 10000) => {
+                return new Promise((resolve, reject) => {
+                  // Already ready?
+                  if (window.auth) {
+                    resolve(window.auth);
+                    return;
+                  }
 
-          // Sign in with custom token
-          // The auth instance is already connected to the emulator by firebase.js
-          await signInWithCustomToken(auth, token);
+                  // Set timeout
+                  const timer = setTimeout(() => {
+                    reject(new Error('Firebase init timeout after ' + timeout + 'ms'));
+                  }, timeout);
 
-          // Set window.__testAuth for test helpers
-          window.__testAuth = auth;
+                  // Wait for firebase:ready event
+                  window.addEventListener(
+                    'firebase:ready',
+                    () => {
+                      clearTimeout(timer);
+                      resolve(window.auth);
+                    },
+                    { once: true }
+                  );
+                });
+              };
 
-          // IMPORTANT: Manually add 'authenticated' class to body
-          // The onAuthStateChanged listener doesn't fire when signing in from page.evaluate()
-          // due to module scope isolation. This is expected in E2E tests.
-          document.body.classList.add('authenticated');
+              // Use the page's existing auth instance (from firebase.js)
+              // The page already connects to the emulator, so we just need to sign in
+              const auth = await waitForAuth();
+
+              // Sign in with custom token
+              // The auth instance is already connected to the emulator by firebase.js
+              await signInWithCustomToken(auth, token);
+
+              // Set window.__testAuth for test helpers
+              window.__testAuth = auth;
+
+              // IMPORTANT: Manually add 'authenticated' class to body
+              // The onAuthStateChanged listener doesn't fire when signing in from page.evaluate()
+              // due to module scope isolation. This is expected in E2E tests.
+              document.body.classList.add('authenticated');
+            },
+            { token: customToken }
+          );
         },
-        { token: customToken }
+        { operationName: 'signInWithCustomToken', maxAttempts: 3, baseDelayMs: 1000 }
       );
 
       // Wait for auth state to propagate and UI to update
