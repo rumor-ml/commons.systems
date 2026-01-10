@@ -80,8 +80,8 @@ export function BudgetPlanEditor({
         `Cash flow prediction unavailable: ${errorMessage}. Your budget plan may contain invalid values.`
       );
 
-      // Return null to indicate prediction failure
-      // This allows the UI to show "unavailable" instead of misleading zeros
+      // Return null to indicate prediction failure (error banner already shown to user)
+      // UI will display "Prediction Unavailable" instead of misleading zeros
       return null;
     }
   }, [debouncedBudgets, historicData]);

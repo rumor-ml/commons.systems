@@ -8,6 +8,8 @@ import { WeekId, weekId } from '../islands/types';
  *   - start: Monday of the week
  *   - end: Sunday of the week
  * @throws Error if weekId format is invalid or week number is out of range
+ * @remarks Uses UTC timezone to ensure consistent week calculations across timezones.
+ *   All date boundaries are calculated in UTC.
  */
 export function getWeekBoundaries(weekIdValue: WeekId): { start: string; end: string } {
   const match = weekIdValue.match(/^(\d{4})-W(\d{2})$/);
@@ -44,6 +46,8 @@ export function getWeekBoundaries(weekIdValue: WeekId): { start: string; end: st
  * @param date - ISO date string (YYYY-MM-DD)
  * @returns ISO week identifier in format YYYY-WNN (e.g., "2025-W01")
  * @throws Error if date format is invalid or date is not parseable
+ * @remarks Uses UTC timezone to ensure consistent week calculations across timezones.
+ *   All date boundaries are calculated in UTC.
  */
 export function getISOWeek(date: string): WeekId {
   // Validate input format
@@ -87,6 +91,8 @@ export function getISOWeek(date: string): WeekId {
  * Get the current week ID based on today's date.
  * Uses ISO 8601 week date system (weeks start Monday).
  * @returns Current ISO week identifier in format "YYYY-WNN" (e.g., "2025-W01")
+ * @remarks Uses UTC timezone to ensure consistent week calculations across timezones.
+ *   All date boundaries are calculated in UTC.
  */
 export function getCurrentWeek(): WeekId {
   return getISOWeek(new Date().toISOString().substring(0, 10));
@@ -113,6 +119,8 @@ function createWeekNavigationError(
  * Correctly handles year boundaries and weeks with 53 weeks.
  * @param currentWeek - Current ISO week identifier (e.g., "2024-W52")
  * @returns Next week identifier (e.g., "2025-W01")
+ * @remarks Uses UTC timezone to ensure consistent week calculations across timezones.
+ *   All date boundaries are calculated in UTC.
  */
 export function getNextWeek(currentWeek: WeekId): WeekId {
   try {
@@ -131,6 +139,8 @@ export function getNextWeek(currentWeek: WeekId): WeekId {
  * Correctly handles year boundaries and weeks with 53 weeks.
  * @param currentWeek - Current ISO week identifier (e.g., "2025-W01")
  * @returns Previous week identifier (e.g., "2024-W52")
+ * @remarks Uses UTC timezone to ensure consistent week calculations across timezones.
+ *   All date boundaries are calculated in UTC.
  */
 export function getPreviousWeek(currentWeek: WeekId): WeekId {
   try {

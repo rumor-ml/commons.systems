@@ -87,8 +87,9 @@ export function aggregateTransactionsByWeek(
       skippedWeeks.add(week);
       // Skip this week - invalid week ID format or date calculation error.
       // Transactions from this week are excluded from weekly aggregation.
-      // They WILL appear in monthly view, which uses different date parsing
-      // that doesn't depend on ISO week calculations.
+      // Monthly view uses LESS STRICT parsing (YYYY-MM substring extraction)
+      // that doesn't validate ISO week format, so transactions may appear there.
+      // However, invalid dates like "2025-02-31" would still be problematic.
       // User is notified via error banner below (search for 'showErrorBanner').
       return;
     }
@@ -242,6 +243,8 @@ export function calculateRolloverAccumulation(
       // Variance = actual - target (see calculateWeeklyComparison JSDoc)
       // For expenses: Positive variance = under budget (good), negative = over budget (bad)
       // For income: Positive variance = exceeding target (good), negative = below target (bad)
+      // Positive variance (unspent budget) accumulates in rollover, becoming available for future weeks.
+      // Negative variance (overspending) reduces future rollover availability.
       const currentRollover = rolloverMap.get(cat) || 0;
 
       // Validate rollover accumulation stays finite
