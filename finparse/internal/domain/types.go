@@ -1,3 +1,23 @@
+// Package domain defines the core financial data structures and their validation rules.
+//
+// # Transaction Amount Sign Convention
+//
+// ALL parsers MUST follow this sign convention for transaction amounts:
+//   - Positive amounts = income/inflow (credit card payments, bank deposits, paychecks)
+//   - Negative amounts = expense/outflow (credit card charges, bank withdrawals, purchases)
+//
+// This convention applies regardless of how the source file represents amounts.
+// Parsers are responsible for normalizing to this standard during import.
+//
+// Examples:
+//   - Bank account deposit of $1000 -> +1000.00
+//   - Credit card charge of $50 -> -50.00
+//   - Credit card payment of $200 -> +200.00 (inflow to credit account)
+//   - Bank withdrawal of $100 -> -100.00
+//
+// Rationale: This convention aligns with accounting principles where credits
+// (inflows) are positive and debits (outflows) are negative, making the data
+// easier to analyze and aggregate across different account types.
 package domain
 
 import (
@@ -73,12 +93,15 @@ type Transaction struct {
 	statementIDs        []string
 }
 
-// Statement matches TypeScript Statement interface
+// Statement matches TypeScript Statement interface.
+// After construction, Statement should be treated as immutable.
+// Modifying StartDate or EndDate fields directly may violate invariants.
+// Use Validate() method to re-check invariants if needed.
 type Statement struct {
 	ID             string `json:"id"`
 	AccountID      string `json:"accountId"`
-	StartDate      string `json:"startDate"` // YYYY-MM-DD
-	EndDate        string `json:"endDate"`   // YYYY-MM-DD
+	StartDate      string `json:"startDate"` // YYYY-MM-DD (immutable)
+	EndDate        string `json:"endDate"`   // YYYY-MM-DD (immutable)
 	transactionIDs []string
 }
 
@@ -249,6 +272,36 @@ func (b *Budget) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
+
+	// Validate referential integrity
+	instIDs := make(map[string]bool)
+	for _, inst := range aux.Institutions {
+		if inst.ID == "" || inst.Name == "" {
+			return fmt.Errorf("invalid institution: ID and Name are required")
+		}
+		instIDs[inst.ID] = true
+	}
+
+	accIDs := make(map[string]bool)
+	for _, acc := range aux.Accounts {
+		if acc.ID == "" || acc.InstitutionID == "" || acc.Name == "" {
+			return fmt.Errorf("invalid account: ID, InstitutionID, and Name are required")
+		}
+		if !instIDs[acc.InstitutionID] {
+			return fmt.Errorf("account %s references non-existent institution %s", acc.ID, acc.InstitutionID)
+		}
+		accIDs[acc.ID] = true
+	}
+
+	for _, stmt := range aux.Statements {
+		if stmt.ID == "" || stmt.AccountID == "" {
+			return fmt.Errorf("invalid statement: ID and AccountID are required")
+		}
+		if !accIDs[stmt.AccountID] {
+			return fmt.Errorf("statement %s references non-existent account %s", stmt.ID, stmt.AccountID)
+		}
+	}
+
 	b.institutions = aux.Institutions
 	b.accounts = aux.Accounts
 	b.statements = aux.Statements
@@ -271,22 +324,37 @@ func NewTransaction(id, date, description string, amount float64, category Categ
 		return nil, fmt.Errorf("invalid category: %s", category)
 	}
 
-	return &Transaction{
-		ID:             id,
-		Date:           date,
-		Description:    description,
-		Amount:         amount,
-		Category:       category,
-		statementIDs:   []string{}, // Empty slice for JSON serialization
-		RedemptionRate: 0.0,
-	}, nil
+	txn := &Transaction{
+		ID:           id,
+		Date:         date,
+		Description:  description,
+		Amount:       amount,
+		Category:     category,
+		statementIDs: []string{}, // Empty slice for JSON serialization
+	}
+
+	// Set default: not redeemable with 0 rate
+	if err := txn.SetRedeemable(false, 0.0); err != nil {
+		return nil, err // Should never happen with these defaults
+	}
+
+	return txn, nil
 }
 
-// SetRedemptionRate validates and sets the redemption rate
-func (t *Transaction) SetRedemptionRate(rate float64) error {
+// SetRedeemable sets both the Redeemable flag and RedemptionRate together
+// to maintain consistency. If redeemable is true, rate must be > 0.
+// If redeemable is false, rate must be 0.
+func (t *Transaction) SetRedeemable(redeemable bool, rate float64) error {
 	if rate < 0 || rate > 1 {
 		return fmt.Errorf("redemption rate must be in [0,1], got %f", rate)
 	}
+	if redeemable && rate == 0 {
+		return fmt.Errorf("redeemable transaction must have non-zero redemption rate")
+	}
+	if !redeemable && rate != 0 {
+		return fmt.Errorf("non-redeemable transaction must have zero redemption rate")
+	}
+	t.Redeemable = redeemable
 	t.RedemptionRate = rate
 	return nil
 }
@@ -308,17 +376,6 @@ func (t *Transaction) GetStatementIDs() []string {
 	result := make([]string, len(t.statementIDs))
 	copy(result, t.statementIDs)
 	return result
-}
-
-// ValidateFlags checks consistency between Redeemable flag and RedemptionRate
-func (t *Transaction) ValidateFlags() error {
-	if t.Redeemable && t.RedemptionRate == 0.0 {
-		return fmt.Errorf("redeemable transaction should have non-zero redemption rate")
-	}
-	if !t.Redeemable && t.RedemptionRate > 0.0 {
-		return fmt.Errorf("transaction with redemption rate should be marked redeemable")
-	}
-	return nil
 }
 
 // MarshalJSON implements custom JSON marshaling for Transaction
@@ -354,6 +411,13 @@ func (t *Transaction) UnmarshalJSON(data []byte) error {
 	if t.RedemptionRate < 0 || t.RedemptionRate > 1 {
 		return fmt.Errorf("redemption rate must be in [0,1], got %f", t.RedemptionRate)
 	}
+	// Validate consistency between Redeemable and RedemptionRate
+	if t.Redeemable && t.RedemptionRate == 0 {
+		return fmt.Errorf("redeemable transaction must have non-zero redemption rate")
+	}
+	if !t.Redeemable && t.RedemptionRate != 0 {
+		return fmt.Errorf("non-redeemable transaction must have zero redemption rate")
+	}
 	return nil
 }
 
@@ -387,6 +451,32 @@ func NewStatement(id, accountID, startDate, endDate string) (*Statement, error) 
 		EndDate:        endDate,
 		transactionIDs: []string{}, // Empty slice for JSON serialization
 	}, nil
+}
+
+// Validate checks that the statement's invariants hold
+func (s *Statement) Validate() error {
+	if s.ID == "" {
+		return fmt.Errorf("statement ID cannot be empty")
+	}
+	if s.AccountID == "" {
+		return fmt.Errorf("account ID cannot be empty")
+	}
+
+	start, err := time.Parse("2006-01-02", s.StartDate)
+	if err != nil {
+		return fmt.Errorf("invalid start date: %w", err)
+	}
+
+	end, err := time.Parse("2006-01-02", s.EndDate)
+	if err != nil {
+		return fmt.Errorf("invalid end date: %w", err)
+	}
+
+	if end.Before(start) {
+		return fmt.Errorf("end date %s cannot be before start date %s", s.EndDate, s.StartDate)
+	}
+
+	return nil
 }
 
 // AddTransactionID adds a transaction ID with validation

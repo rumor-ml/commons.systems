@@ -12,21 +12,28 @@ import (
 )
 
 // WriteOptions configures how the budget is written
-// TODO(#1342): Consider whether inline struct field comments add sufficient value
 type WriteOptions struct {
 	MergeMode bool   // If true, load existing file and merge
 	FilePath  string // Output path (empty = stdout)
 }
 
+// Validate checks that WriteOptions are valid
+func (o WriteOptions) Validate() error {
+	if o.MergeMode && o.FilePath == "" {
+		return fmt.Errorf("merge mode requires a file path (cannot merge with stdout)")
+	}
+	return nil
+}
+
 // WriteBudget serializes Budget to JSON with 2-space indentation
+// TODO(#1389): Consider validating writer completeness for custom io.Writer implementations
 func WriteBudget(budget *domain.Budget, w io.Writer) error {
 	if budget == nil {
 		return fmt.Errorf("budget cannot be nil")
 	}
 
 	encoder := json.NewEncoder(w)
-	// TODO(#1345): Comment restates obvious code without adding value
-	encoder.SetIndent("", "  ") // 2-space indentation
+	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(budget); err != nil {
 		return fmt.Errorf("failed to encode budget as JSON: %w", err)
 	}
@@ -38,6 +45,11 @@ func WriteBudget(budget *domain.Budget, w io.Writer) error {
 func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 	if budget == nil {
 		return fmt.Errorf("budget cannot be nil")
+	}
+
+	// Validate options
+	if err := opts.Validate(); err != nil {
+		return fmt.Errorf("invalid write options: %w", err)
 	}
 
 	// Handle merge mode
@@ -68,8 +80,12 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 			return fmt.Errorf("failed to encode budget (no output written): %w", err)
 		}
 		// Only write to stdout after successful encoding
-		if _, err := os.Stdout.Write(buf.Bytes()); err != nil {
+		n, err := os.Stdout.Write(buf.Bytes())
+		if err != nil {
 			return fmt.Errorf("failed to write to stdout: %w", err)
+		}
+		if n != buf.Len() {
+			return fmt.Errorf("incomplete write to stdout: wrote %d of %d bytes", n, buf.Len())
 		}
 		return nil
 	}
@@ -87,19 +103,25 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 
 	// Handle write error first
 	if writeErr != nil {
-		os.Remove(tmpFile) // Clean up on write failure
+		if removeErr := os.Remove(tmpFile); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v\n", tmpFile, removeErr)
+		}
 		return fmt.Errorf("failed to write budget to temp file: %w", writeErr)
 	}
 
 	// Then handle close error
 	if closeErr != nil {
-		os.Remove(tmpFile) // Clean up on close failure
+		if removeErr := os.Remove(tmpFile); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v\n", tmpFile, removeErr)
+		}
 		return fmt.Errorf("failed to close temp file before rename: %w", closeErr)
 	}
 
-	// Atomic rename (on Unix systems, this is atomic)
+	// Atomic rename prevents corruption if process killed during write (atomic on Unix, best-effort on Windows)
 	if err = os.Rename(tmpFile, opts.FilePath); err != nil {
-		os.Remove(tmpFile) // Clean up on rename failure
+		if removeErr := os.Remove(tmpFile); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s after rename failure: %v\n", tmpFile, removeErr)
+		}
 		return fmt.Errorf("failed to rename temp file to %s: %w", opts.FilePath, err)
 	}
 

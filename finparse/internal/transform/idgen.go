@@ -26,6 +26,11 @@ func SlugifyInstitution(name string) (string, error) {
 		return "", fmt.Errorf("failed to normalize institution name %q: %w", name, err)
 	}
 
+	// Check that normalization didn't empty the string
+	if normalized == "" {
+		return "", fmt.Errorf("institution name %q contains only non-displayable unicode characters", name)
+	}
+
 	// Convert to lowercase
 	slug := strings.ToLower(normalized)
 
@@ -56,7 +61,7 @@ func ExtractLast4(accountNumber string) string {
 // GenerateAccountID creates a deterministic account ID.
 // Format: "acc-{institutionSlug}-{last4}"
 // The institutionSlug parameter should already be in slug format (e.g., from SlugifyInstitution).
-// Note: Common slugs are abbreviated internally (e.g., "bank-of-america" → "boa").
+// Note: Common institution slugs are abbreviated for brevity (e.g., "bank-of-america" → "boa"). See abbreviateSlug for the full list.
 // Example: GenerateAccountID("amex", "2011") → "acc-amex-2011"
 //
 //	GenerateAccountID("bank-of-america", "5678") → "acc-boa-5678"

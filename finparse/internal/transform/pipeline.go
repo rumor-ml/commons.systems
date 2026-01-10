@@ -21,8 +21,6 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 		return fmt.Errorf("budget cannot be nil")
 	}
 
-	// TODO(#1343): Repetitive numbered comments - consider function-level documentation instead
-	// 1. Transform and add institution
 	institution, err := transformInstitution(&raw.Account)
 	if err != nil {
 		return fmt.Errorf("failed to transform institution: %w", err)
@@ -35,7 +33,6 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 		}
 	}
 
-	// 2. Transform and add account
 	account, err := transformAccount(&raw.Account, institution.ID)
 	if err != nil {
 		return fmt.Errorf("failed to transform account: %w", err)
@@ -48,7 +45,6 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 		}
 	}
 
-	// 3. Transform and add statement
 	statement, err := transformStatement(raw, account.ID)
 	if err != nil {
 		return fmt.Errorf("failed to transform statement: %w", err)
@@ -58,7 +54,6 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 		return fmt.Errorf("failed to add statement: %w", err)
 	}
 
-	// 4. Transform and add transactions
 	// TODO(#1347): Consider adding benchmark tests for large transaction volumes
 	for i, rawTxn := range raw.Transactions {
 		txn, err := transformTransaction(&rawTxn, statement.ID)
@@ -112,7 +107,7 @@ func transformAccount(raw *parser.RawAccount, institutionID string) (*domain.Acc
 	}
 
 	// Create display name from last 4 digits (e.g., "Account 2011")
-	// TODO(Phase 6+): Support user-defined account nicknames (e.g., "Primary Checking")
+	// TODO(#1363): Support user-defined account nicknames (e.g., "Primary Checking")
 	// instead of generic names. Would require additional metadata storage.
 	accountName := fmt.Sprintf("Account %s", ExtractLast4(accountNumber))
 
@@ -167,11 +162,10 @@ func transformTransaction(raw *parser.RawTransaction, statementID string) (*doma
 	}
 
 	// Set default values
-	txn.Redeemable = false
 	txn.Vacation = false
 	txn.Transfer = false
-	if err := txn.SetRedemptionRate(0.0); err != nil {
-		return nil, fmt.Errorf("failed to set redemption rate: %w", err)
+	if err := txn.SetRedeemable(false, 0.0); err != nil {
+		return nil, fmt.Errorf("failed to set redeemable state: %w", err)
 	}
 	txn.LinkedTransactionID = nil
 

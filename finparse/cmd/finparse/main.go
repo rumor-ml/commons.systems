@@ -86,7 +86,6 @@ Examples:
 
 func run() error {
 	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling
-	// Create context for parsing operations
 	ctx := context.Background()
 
 	// Create scanner
@@ -156,7 +155,6 @@ func run() error {
 
 	for i, file := range files {
 		// TODO(#1341): Consider removing numbered step comments in favor of descriptive prefixes
-		// 1. Find parser
 		parser, err := reg.FindParser(file.Path)
 		if err != nil {
 			return fmt.Errorf("failed to find parser for %s: %w", file.Path, err)
@@ -169,7 +167,6 @@ func run() error {
 			fmt.Fprintf(os.Stderr, "  Parsing %s with %s parser\n", file.Path, parser.Name())
 		}
 
-		// 2. Open file and parse
 		f, err := os.Open(file.Path)
 		if err != nil {
 			return fmt.Errorf("failed to open %s: %w", file.Path, err)
@@ -187,10 +184,20 @@ func run() error {
 			return fmt.Errorf("failed to close %s: %w", file.Path, closeErr)
 		}
 
-		// 3. Transform to domain types
+		// Verify parser contract: if no error, rawStmt must not be nil
+		if rawStmt == nil {
+			return fmt.Errorf("parser %s returned nil statement without error for %s (parser bug)",
+				parser.Name(), file.Path)
+		}
+
 		if err := transform.TransformStatement(rawStmt, budget); err != nil {
-			return fmt.Errorf("transform failed for file %d of %d (%s): %w",
-				i+1, len(files), file.Path, err)
+			// Provide context about parsed data in error message
+			return fmt.Errorf("transform failed for file %d of %d (%s) with %d transactions from %s to %s: %w",
+				i+1, len(files), file.Path,
+				len(rawStmt.Transactions),
+				rawStmt.Period.Start().Format("2006-01-02"),
+				rawStmt.Period.End().Format("2006-01-02"),
+				err)
 		}
 	}
 
@@ -207,7 +214,6 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "  Transactions: %d\n", len(transactions))
 	}
 
-	// 4. Write output
 	opts := output.WriteOptions{
 		MergeMode: *mergeMode,
 		FilePath:  *outputFile,

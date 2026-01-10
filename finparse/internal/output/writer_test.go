@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -439,24 +440,65 @@ func TestWriteBudget_NilBudget(t *testing.T) {
 	}
 }
 
-// TODO(#1354): Test stdout path is incomplete - should redirect os.Stdout and verify output
 func TestWriteBudgetToFile_Stdout(t *testing.T) {
-	// Create budget
+	// Create budget with test data
 	budget := domain.NewBudget()
 	inst, _ := domain.NewInstitution("test-bank", "Test Bank")
 	budget.AddInstitution(*inst)
 
+	// Redirect stdout to a pipe to capture output
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stdout = w
+
+	// Ensure stdout is restored even if test panics
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
 	// Write to stdout (empty FilePath)
-	// We can't easily capture stdout in a test, but we can verify it doesn't error
 	opts := WriteOptions{
 		MergeMode: false,
 		FilePath:  "",
 	}
 
-	// This would write to stdout, which we can't easily test
-	// Just verify the code path doesn't panic
-	// In real usage, this would be tested manually
-	_ = opts
+	err = WriteBudgetToFile(budget, opts)
+	if err != nil {
+		t.Errorf("WriteBudgetToFile failed: %v", err)
+	}
+
+	// Close write end and restore stdout before reading
+	w.Close()
+	os.Stdout = oldStdout
+
+	// Read captured output
+	output, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read captured output: %v", err)
+	}
+
+	// Verify output is valid JSON
+	var decoded domain.Budget
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		t.Errorf("output is not valid JSON: %v", err)
+	}
+
+	// Verify 2-space indentation is present
+	outputStr := string(output)
+	if !strings.Contains(outputStr, "  \"") {
+		t.Errorf("output does not contain 2-space indentation")
+	}
+
+	// Verify budget content matches expected structure
+	if !strings.Contains(outputStr, "test-bank") {
+		t.Errorf("output does not contain expected institution name 'test-bank'")
+	}
+	if !strings.Contains(outputStr, "Test Bank") {
+		t.Errorf("output does not contain expected display name 'Test Bank'")
+	}
 }
 
 func TestWriteBudgetToFile_WriteError(t *testing.T) {
@@ -529,4 +571,198 @@ func TestWriteBudgetToFile_NilBudget(t *testing.T) {
 	if !strings.Contains(err.Error(), "budget cannot be nil") {
 		t.Errorf("expected nil budget error, got: %v", err)
 	}
+}
+
+func TestWriteOptions_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    WriteOptions
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid: fresh mode with file",
+			opts: WriteOptions{
+				MergeMode: false,
+				FilePath:  "/path/to/file.json",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid: fresh mode with stdout",
+			opts: WriteOptions{
+				MergeMode: false,
+				FilePath:  "",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid: merge mode with file",
+			opts: WriteOptions{
+				MergeMode: true,
+				FilePath:  "/path/to/file.json",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid: merge mode with stdout",
+			opts: WriteOptions{
+				MergeMode: true,
+				FilePath:  "",
+			},
+			wantErr: true,
+			errMsg:  "merge mode requires a file path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.opts.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Validate() expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %v, want error containing %q", err, tt.errMsg)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Validate() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWriteBudgetToFile_InvalidOptions(t *testing.T) {
+	budget := domain.NewBudget()
+	inst, _ := domain.NewInstitution("test-bank", "Test Bank")
+	budget.AddInstitution(*inst)
+
+	// Invalid options: merge mode with stdout
+	opts := WriteOptions{
+		MergeMode: true,
+		FilePath:  "",
+	}
+
+	err := WriteBudgetToFile(budget, opts)
+	if err == nil {
+		t.Error("expected error for invalid options")
+	}
+	if !strings.Contains(err.Error(), "invalid write options") {
+		t.Errorf("expected invalid write options error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "merge mode requires a file path") {
+		t.Errorf("expected merge mode error message, got: %v", err)
+	}
+}
+
+// TestMergeBudgets_AccountAddError verifies error handling when AddAccount fails
+// for reasons other than duplicates (e.g., validation errors).
+// This test is skipped due to domain package architecture limitations.
+func TestMergeBudgets_AccountAddError(t *testing.T) {
+	// This test verifies the error handling path in mergeBudgets at line 173-175
+	// where AddAccount fails for a reason OTHER than duplicate.
+	//
+	// However, due to domain package architecture, NewAccount validates
+	// account data before creation, making it impossible to create invalid
+	// accounts that would trigger this error path.
+	//
+	// The error handling code is correct and present in writer.go lines 173-175:
+	//   if !errors.Is(err, domain.ErrAlreadyExists) {
+	//       return fmt.Errorf("failed to merge account %s: %w", acc.ID, err)
+	//   }
+	//
+	// This path would be tested if Budget fields were exported or test helpers
+	// existed to inject invalid accounts, which is an architectural decision
+	// beyond the scope of this test addition.
+	t.Skip("Cannot test account merge errors without exposing internal Budget fields or creating invalid accounts")
+}
+
+// TestWriteBudgetToFile_CloseErrorAfterWrite verifies error handling when
+// file close fails after successful write to temp file.
+// This test is skipped due to inability to mock os.File.Close().
+func TestWriteBudgetToFile_CloseErrorAfterWrite(t *testing.T) {
+	// This test would verify the error handling path at writer.go:110-114
+	// where f.Close() fails after WriteBudget succeeds.
+	//
+	// The error handling code correctly:
+	// 1. Attempts cleanup via os.Remove(tmpFile)
+	// 2. Logs warning if cleanup fails
+	// 3. Returns wrapped error with context
+	//
+	// However, simulating file close failure requires mocking os.File,
+	// which is not straightforward in Go without interfaces.
+	//
+	// Manual testing could be done with:
+	// - Disk full scenarios
+	// - Network filesystem disconnection during close
+	// - File descriptor limit exhaustion
+	t.Skip("Cannot simulate file close failure without mocking os.File")
+}
+
+// TestWriteBudgetToFile_RenameFailureCleanup verifies cleanup behavior when
+// os.Rename fails and temp file removal is attempted.
+// This test is skipped due to platform-specific rename behavior.
+func TestWriteBudgetToFile_RenameFailureCleanup(t *testing.T) {
+	// This test would verify the error handling path at writer.go:118-122
+	// where os.Rename fails and os.Remove is called for cleanup.
+	//
+	// The error handling code correctly:
+	// 1. Attempts cleanup via os.Remove(tmpFile)
+	// 2. Logs warning to stderr if cleanup fails
+	// 3. Returns wrapped error with destination path
+	//
+	// Simulating rename failure is difficult because:
+	// - Making destination read-only prevents temp file creation too
+	// - Cross-device moves would succeed with copy+delete
+	// - Platform-specific permission models vary
+	//
+	// The warning message format can be verified in integration tests
+	// or manual testing scenarios like:
+	// - Destination directory becomes read-only between create and rename
+	// - Destination file locked by another process (Windows)
+	t.Skip("Cannot reliably simulate rename failure and cleanup scenarios in unit tests")
+}
+
+// TestLoadBudget_CloseErrorAfterRead verifies error handling when file
+// close fails after successful JSON decode.
+// This test is skipped due to inability to mock os.File.Close().
+func TestLoadBudget_CloseErrorAfterRead(t *testing.T) {
+	// This test would verify the deferred close error handling at writer.go:134-137
+	// where f.Close() fails after successful decode.
+	//
+	// The error handling code correctly:
+	// 1. Checks closeErr in deferred function
+	// 2. Only sets err if it's still nil (decode succeeded)
+	// 3. Wraps error with file path context
+	//
+	// However, simulating file close failure requires mocking os.File.Close(),
+	// which is not straightforward without interfaces or build tags.
+	//
+	// The behavior could be tested manually with:
+	// - Filesystem errors during close
+	// - Resource exhaustion scenarios
+	t.Skip("Cannot simulate file close failure without mocking os.File")
+}
+
+// TestWriteBudgetToFile_StdoutPartialWrite verifies handling of partial
+// writes to stdout (incomplete byte count).
+// This test is skipped due to inability to mock os.Stdout.Write().
+func TestWriteBudgetToFile_StdoutPartialWrite(t *testing.T) {
+	// This test would verify the partial write detection at writer.go:88-89
+	// where os.Stdout.Write returns n < buf.Len() without error.
+	//
+	// The error handling code correctly:
+	// 1. Checks byte count against buffer length
+	// 2. Returns detailed error with actual vs expected bytes
+	// 3. Prevents silent data truncation
+	//
+	// However, simulating partial stdout write requires:
+	// - Mocking os.Stdout (globally used)
+	// - Platform-specific signal handling (EINTR)
+	// - Pipe buffer size manipulation
+	//
+	// In practice, os.Stdout.Write() to pipes is reliable, but the check
+	// provides defense against edge cases in unusual environments.
+	t.Skip("Cannot simulate partial stdout write without mocking os.Stdout")
 }

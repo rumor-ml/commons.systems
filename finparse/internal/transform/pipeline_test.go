@@ -306,6 +306,12 @@ func TestMapAccountType(t *testing.T) {
 			expected:    "",
 			expectError: true,
 		},
+		{
+			name:        "uppercase unknown type - shows normalization in error",
+			rawType:     "INVALID TYPE",
+			expected:    "",
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -315,6 +321,19 @@ func TestMapAccountType(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error but got none")
+				}
+				// For uppercase unknown type, verify error message shows normalization
+				if tt.name == "uppercase unknown type - shows normalization in error" {
+					errMsg := err.Error()
+					if !strings.Contains(errMsg, "INVALID TYPE") {
+						t.Errorf("error should contain original value 'INVALID TYPE', got: %v", errMsg)
+					}
+					if !strings.Contains(errMsg, "invalid type") {
+						t.Errorf("error should contain normalized value 'invalid type', got: %v", errMsg)
+					}
+					if !strings.Contains(errMsg, "normalized to") {
+						t.Errorf("error should mention normalization, got: %v", errMsg)
+					}
 				}
 				return
 			}

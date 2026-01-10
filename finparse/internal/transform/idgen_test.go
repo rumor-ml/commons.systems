@@ -92,6 +92,12 @@ func TestSlugifyInstitution(t *testing.T) {
 			expected:    "",
 			expectError: true,
 		},
+		{
+			name:        "combining marks only",
+			input:       "\u0301\u0302\u0303",
+			expected:    "",
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -230,6 +236,24 @@ func TestGenerateAccountID(t *testing.T) {
 			accountNumber:   "ABC-123",
 			expected:        "acc-citi--123",
 		},
+		{
+			name:            "empty institution slug",
+			institutionSlug: "",
+			accountNumber:   "1234",
+			expected:        "acc--1234",
+		},
+		{
+			name:            "empty account number",
+			institutionSlug: "chase",
+			accountNumber:   "",
+			expected:        "acc-chase-",
+		},
+		{
+			name:            "both empty",
+			institutionSlug: "",
+			accountNumber:   "",
+			expected:        "acc--",
+		},
 	}
 
 	for _, tt := range tests {
@@ -273,6 +297,18 @@ func TestGenerateStatementID(t *testing.T) {
 			periodStart: time.Date(2025, 5, 10, 12, 30, 0, 0, time.UTC),
 			accountID:   "acc-pnc-bank-3456",
 			expected:    "stmt-2025-05-acc-pnc-bank-3456",
+		},
+		{
+			name:        "zero time",
+			periodStart: time.Time{},
+			accountID:   "acc-test-1234",
+			expected:    "stmt-0001-01-acc-test-1234",
+		},
+		{
+			name:        "year with more than 4 digits",
+			periodStart: time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC),
+			accountID:   "acc-test-1234",
+			expected:    "stmt-10000-01-acc-test-1234",
 		},
 	}
 
