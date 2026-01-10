@@ -147,6 +147,20 @@ jobs:
       - name: Run tests
         run: ./infrastructure/scripts/test-firebase-app.sh print
 
+  test-firebase-budget:
+    name: Test Firebase - budget
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'budget')
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+      - name: Run tests
+        run: ./infrastructure/scripts/test-firebase-app.sh budget
+
   # ==================== Go TUI App Tests ====================
   test-go-tui-tmux-tui:
     name: Test Go TUI - tmux-tui
@@ -771,6 +785,94 @@ jobs:
           environment_url: ${{ steps.site-url.outputs.url }}
           description: 'Deployment failed'
 
+  deploy-budget:
+    name: Deploy budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [test-firebase-budget]
+    if: needs.test-firebase-budget.result == 'success'
+    outputs:
+      url: ${{ steps.site-url.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'false'
+      - uses: ./.github/actions/setup-gcp-firebase
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Sanitize branch name for environment
+        if: github.event_name == 'pull_request'
+        id: sanitize
+        uses: ./.github/actions/sanitize-branch-name
+        with:
+          branch_name: ${{ github.head_ref }}
+      - name: Create GitHub deployment
+        id: create-deployment
+        uses: ./.github/actions/create-deployment
+        with:
+          environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-budget.web.app', steps.sanitize.outputs.sanitized) || 'https://budget.web.app' }}
+          site_name: 'budget'
+          branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
+      - name: Deploy budget to Firebase Hosting
+        id: deploy
+        continue-on-error: true
+        run: ./infrastructure/scripts/deploy-firebase-hosting.sh budget ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
+      - name: Get deployment URL
+        id: site-url
+        uses: ./.github/actions/validate-deployment-url
+      - name: Trigger retry workflow on new worker if deployment failed
+        id: retry
+        if: steps.deploy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_URL: ${{ steps.site-url.outputs.url }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "⚠️  Deployment health check failed. Triggering retry on new worker..."
+          gh workflow run retry-health-check.yml \
+            -f deployment_url="${DEPLOYMENT_URL}" \
+            -f site_name="budget" \
+            -f original_run_id="${RUN_ID}" \
+            -f original_job_name="deploy-budget"
+          sleep 5
+          RETRY_RUN_ID=$(gh run list --workflow=retry-health-check.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "Retry workflow started: Run ID ${RETRY_RUN_ID}"
+          echo "Waiting for retry workflow to complete..."
+          gh run watch "${RETRY_RUN_ID}" --exit-status
+          echo "✅ Health check passed on new worker - original deployment was successful"
+      - name: Check final deployment status
+        if: always()
+        run: |
+          if [ "${{ steps.deploy.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on first attempt"
+            exit 0
+          elif [ "${{ steps.retry.outcome }}" == "success" ]; then
+            echo "✅ Deployment succeeded on retry (new worker)"
+            exit 0
+          else
+            echo "❌ Deployment failed on both original and retry attempts"
+            exit 1
+          fi
+      - name: Update deployment status to success
+        if: success()
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'success'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment successful and verified'
+      - name: Update deployment status to failure
+        if: failure() && steps.create-deployment.outputs.deployment_id != ''
+        uses: ./.github/actions/update-deployment-status
+        with:
+          deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
+          state: 'failure'
+          environment_url: ${{ steps.site-url.outputs.url }}
+          description: 'Deployment failed'
+
   # ==================== Step 3: E2E Tests (parallel per site) ====================
   e2e-fellspiral:
     name: E2E Tests - fellspiral
@@ -871,6 +973,27 @@ jobs:
           DEPLOYED_URL: ${{ needs.deploy-print.outputs.url }}
           CI: true
 
+  e2e-budget:
+    name: E2E Tests - budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [deploy-budget]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+      - uses: ./.github/actions/setup-gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Test budget
+        run: ./infrastructure/scripts/run-playwright-tests.sh budget "${{ needs.deploy-budget.outputs.url }}"
+        env:
+          DEPLOYED_URL: ${{ needs.deploy-budget.outputs.url }}
+          CI: true
+
   # ==================== Rollback on failure (main branch only) ====================
   rollback-on-failure:
     name: Rollback on Test Failure
@@ -882,10 +1005,12 @@ jobs:
         deploy-videobrowser,
         deploy-audiobrowser,
         deploy-print,
+        deploy-budget,
         e2e-fellspiral,
         e2e-videobrowser,
         e2e-audiobrowser,
         e2e-print,
+        e2e-budget,
       ]
     if: |
       always() &&
@@ -893,7 +1018,8 @@ jobs:
       (needs.e2e-fellspiral.result == 'failure' ||
        needs.e2e-videobrowser.result == 'failure' ||
        needs.e2e-audiobrowser.result == 'failure' ||
-       needs.e2e-print.result == 'failure')
+       needs.e2e-print.result == 'failure' ||
+       needs.e2e-budget.result == 'failure')
 
     steps:
       - name: Checkout code
@@ -938,6 +1064,7 @@ jobs:
         test-firebase-videobrowser,
         test-firebase-audiobrowser,
         test-firebase-print,
+        test-firebase-budget,
         test-go-fullstack-printsync,
         test-go-tui-tmux-tui,
         test-go-packages-filesync,
@@ -946,10 +1073,12 @@ jobs:
         deploy-videobrowser,
         deploy-audiobrowser,
         deploy-print,
+        deploy-budget,
         e2e-fellspiral,
         e2e-videobrowser,
         e2e-audiobrowser,
         e2e-print,
+        e2e-budget,
       ]
     if: always()
 
@@ -961,17 +1090,20 @@ jobs:
             const testJobs = [
               'test-firebase-fellspiral', 'test-firebase-videobrowser',
               'test-firebase-audiobrowser', 'test-firebase-print',
+              'test-firebase-budget',
               'test-go-fullstack-printsync', 'test-go-tui-tmux-tui',
               'test-go-packages-filesync'
             ];
             const deployJobs = [
               'deploy-fellspiral', 'deploy-videobrowser',
               'deploy-audiobrowser', 'deploy-print',
+              'deploy-budget',
               'deploy-firestore-rules'
             ];
             const e2eJobs = [
               'e2e-fellspiral', 'e2e-videobrowser',
-              'e2e-audiobrowser', 'e2e-print'
+              'e2e-audiobrowser', 'e2e-print',
+              'e2e-budget'
             ];
 
             const needs = ${{ toJson(needs) }};
