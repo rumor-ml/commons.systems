@@ -571,15 +571,17 @@ describe('weeklyAggregation', () => {
         createWeeklyData({ week: weekId('2025-W03'), amount: -400 }), // +100 surplus
       ];
       const budgetPlan = createBudgetPlan();
-      const rollover = calculateRolloverAccumulation(
-        weeklyData,
-        budgetPlan,
-        weekId('2025-W02'),
-        weekId('2025-W04')
+      // Should throw on invalid Infinity value instead of silently skipping
+      expect(() =>
+        calculateRolloverAccumulation(
+          weeklyData,
+          budgetPlan,
+          weekId('2025-W02'),
+          weekId('2025-W04')
+        )
+      ).toThrow(
+        'Rollover calculation failed: Invalid numeric value for groceries in week 2025-W02'
       );
-      // Invalid Infinity value is skipped, only W03 is processed
-      // W03: -400 - (-500) = 100
-      expect(rollover.get('groceries')).toBe(100);
     });
 
     it('should handle NaN weekly targets gracefully', () => {
@@ -593,14 +595,17 @@ describe('weeklyAggregation', () => {
         },
         lastModified: new Date().toISOString(),
       };
-      const rollover = calculateRolloverAccumulation(
-        weeklyData,
-        budgetPlan,
-        weekId('2025-W02'),
-        weekId('2025-W03')
+      // Should throw on invalid NaN target instead of silently skipping
+      expect(() =>
+        calculateRolloverAccumulation(
+          weeklyData,
+          budgetPlan,
+          weekId('2025-W02'),
+          weekId('2025-W03')
+        )
+      ).toThrow(
+        'Rollover calculation failed: Invalid numeric value for groceries in week 2025-W02'
       );
-      // Invalid NaN target is skipped, rollover remains 0
-      expect(rollover.get('groceries')).toBe(0);
     });
 
     it('should handle reversed week range (fromWeek > toWeek)', () => {
@@ -767,6 +772,103 @@ describe('weeklyAggregation', () => {
       );
       // cumulative: -100 + (-50) = -150 (debt carried forward)
       expect(rollover.get('groceries')).toBe(-150);
+    });
+
+    it('should handle sparse data crossing year boundary with missing weeks', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2024-W50'), amount: -400 }), // +100 surplus
+        // W51 missing
+        createWeeklyData({ week: weekId('2024-W52'), amount: -450 }), // +50 surplus
+        // 2025-W01 missing (year boundary)
+        createWeeklyData({ week: weekId('2025-W02'), amount: -550 }), // -50 deficit
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2024-W50'),
+        weekId('2025-W03')
+      );
+      // Only weeks with data are processed: W50(+100) + W52(+50) + W02(-50) = 100
+      // Missing weeks (W51, W01) are skipped
+      expect(rollover.get('groceries')).toBe(100);
+    });
+
+    it('should handle weeklyData containing weeks outside the specified range', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2024-W48'), amount: -300 }), // before range, should be excluded
+        createWeeklyData({ week: weekId('2024-W52'), amount: -400 }), // +100 surplus, in range
+        createWeeklyData({ week: weekId('2025-W01'), amount: -450 }), // +50 surplus, in range
+        createWeeklyData({ week: weekId('2025-W02'), amount: -550 }), // -50 deficit, in range
+        createWeeklyData({ week: weekId('2025-W05'), amount: -200 }), // after range, should be excluded
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2024-W52'),
+        weekId('2025-W03')
+      );
+      // Only W52, W01, W02 should be processed (fromWeek inclusive, toWeek exclusive)
+      // cumulative: 100 + 50 + (-50) = 100
+      expect(rollover.get('groceries')).toBe(100);
+    });
+
+    it('should handle year boundary with week 53 and sparse data', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2020-W52'), amount: -400 }), // +100 surplus
+        // W53 missing (but exists in 2020)
+        createWeeklyData({ week: weekId('2021-W01'), amount: -450 }), // +50 surplus
+        createWeeklyData({ week: weekId('2021-W02'), amount: -500 }), // 0 variance
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2020-W52'),
+        weekId('2021-W03')
+      );
+      // W52(+100) + W01(+50) + W02(0) = 150
+      // W53 is missing but doesn't affect rollover calculation
+      expect(rollover.get('groceries')).toBe(150);
+    });
+
+    it('should correctly filter week range boundaries (inclusive fromWeek, exclusive toWeek)', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2025-W01'), amount: -400 }), // fromWeek: included
+        createWeeklyData({ week: weekId('2025-W02'), amount: -450 }), // middle: included
+        createWeeklyData({ week: weekId('2025-W03'), amount: -550 }), // toWeek: excluded
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2025-W01'),
+        weekId('2025-W03')
+      );
+      // Only W01(+100) and W02(+50) should be included, W03 is excluded
+      expect(rollover.get('groceries')).toBe(150);
+    });
+
+    it('should handle very sparse data across multiple year boundaries', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2023-W52'), amount: -400 }), // +100
+        // Many missing weeks
+        createWeeklyData({ week: weekId('2024-W26'), amount: -450 }), // +50
+        // More missing weeks
+        createWeeklyData({ week: weekId('2024-W52'), amount: -550 }), // -50
+        // Year boundary missing weeks
+        createWeeklyData({ week: weekId('2025-W10'), amount: -500 }), // 0
+      ];
+      const budgetPlan = createBudgetPlan();
+      const rollover = calculateRolloverAccumulation(
+        weeklyData,
+        budgetPlan,
+        weekId('2023-W52'),
+        weekId('2025-W11')
+      );
+      // cumulative: 100 + 50 + (-50) + 0 = 100
+      expect(rollover.get('groceries')).toBe(100);
     });
   });
 

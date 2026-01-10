@@ -225,18 +225,23 @@ export function calculateRolloverAccumulation(
           target,
         });
 
-        // Notify user that rollover is incomplete
+        // Notify user that rollover calculation has failed
         StateManager.showErrorBanner(
-          `Data quality issue: Rollover calculation incomplete for ${cat}. Week ${week} has invalid transaction data. Check console for details and reimport your transactions.`
+          `CRITICAL: Rollover calculation failed for ${cat} due to invalid data in week ${week}. ` +
+            `Your rollover balances cannot be calculated. Check console for details and reimport your transactions.`
         );
 
-        return; // Skip this week
+        // Throw to prevent returning corrupted data
+        throw new Error(
+          `Rollover calculation failed: Invalid numeric value for ${cat} in week ${week} (actual=${actual}, target=${target})`
+        );
       }
 
       const variance = actual - target;
 
       // Variance = actual - target (see calculateWeeklyComparison JSDoc)
-      // Positive variance = under budget (good), negative = over budget (bad)
+      // For expenses: Positive variance = under budget (good), negative = over budget (bad)
+      // For income: Positive variance = exceeding target (good), negative = below target (bad)
       const currentRollover = rolloverMap.get(cat) || 0;
 
       // Validate rollover accumulation stays finite
@@ -246,12 +251,16 @@ export function calculateRolloverAccumulation(
           `Rollover overflow for ${cat}: ${currentRollover} + ${variance} = ${newRollover}`
         );
 
-        // Notify user that rollover is broken
+        // Notify user that rollover calculation has failed
         StateManager.showErrorBanner(
-          `Rollover calculation failed for ${cat}: accumulated rollover has exceeded valid range. Your budget data may be corrupted. Consider resetting your budget plan.`
+          `CRITICAL: Rollover calculation failed for ${cat}: accumulated rollover has exceeded valid range. ` +
+            `Your rollover balances cannot be calculated. Consider resetting your budget plan.`
         );
 
-        return; // Skip this week
+        // Throw to prevent returning corrupted data
+        throw new Error(
+          `Rollover calculation failed: Overflow for ${cat} (${currentRollover} + ${variance} = ${newRollover})`
+        );
       }
 
       rolloverMap.set(cat, newRollover);
@@ -307,7 +316,29 @@ export function calculateWeeklyComparison(
     const target = budget.weeklyTarget;
     const rolloverAccumulated = rolloverMap.get(cat) || 0;
 
-    comparisons.push(createWeeklyBudgetComparison(week, cat, actual, target, rolloverAccumulated));
+    try {
+      comparisons.push(
+        createWeeklyBudgetComparison(week, cat, actual, target, rolloverAccumulated)
+      );
+    } catch (error) {
+      console.error(`Skipping budget comparison for ${cat}:`, error);
+
+      // Show critical error to user
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Invalid numeric value')) {
+        StateManager.showErrorBanner(
+          `CRITICAL: Budget comparison failed for ${cat} due to invalid data. ` +
+            `Your budget display may be incorrect. Check console and reimport your budget plan.`
+        );
+      } else if (errorMessage.includes('Arithmetic overflow')) {
+        StateManager.showErrorBanner(
+          `CRITICAL: Budget comparison calculation failed for ${cat} due to arithmetic overflow. ` +
+            `Your accumulated rollover may be too large. Consider resetting your budget plan.`
+        );
+      }
+
+      // Skip this category, continue with others
+    }
   });
 
   return comparisons;
