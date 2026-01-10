@@ -11,6 +11,7 @@ import {
   waitForCardInFirestore,
   isCardVisibleInUI,
   deleteTestCards,
+  getTestCollectionName,
 } from './test-helpers.js';
 
 // Only run against emulator (requires auth state changes)
@@ -244,7 +245,7 @@ test.describe('Card Visibility - Authenticated Users', () => {
 test.describe('Card Visibility - Auth State Changes (Regression for #244)', () => {
   test.skip(!isEmulatorMode, 'Auth state change tests only run against emulator');
 
-  test.skip('CRITICAL: cards should persist and remain visible after signing in (fix #244)', async ({
+  test('CRITICAL: cards should persist and remain visible after signing in (fix #244)', async ({
     page,
     authEmulator,
   }) => {
@@ -275,27 +276,13 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     await waitForCardInFirestore(publicCard2.title, 5000);
 
     // Step 1: Visit as guest and verify cards are visible
-    await page.goto('/cards.html');
+    // CRITICAL FIX for race condition: Pass collection name via URL parameter
+    // This ensures the frontend knows which collection to query BEFORE any JS runs,
+    // eliminating the race condition where getAllCards() runs before addInitScript sets window.__TEST_COLLECTION_NAME__
+    // Use getTestCollectionName() to ensure we pass the same collection that createCardInFirestore uses
+    const testCollection = await getTestCollectionName();
+    await page.goto(`/cards.html?testCollection=${testCollection}`);
     await page.waitForLoadState('load');
-
-    // CRITICAL: Verify test collection name is set before frontend queries Firestore
-    // This prevents the frontend from querying the wrong collection due to race conditions
-    // Regression test for flaky test failures where window.__TEST_COLLECTION_NAME__ was undefined
-    await page
-      .waitForFunction(() => window.__TEST_COLLECTION_NAME__ != null, { timeout: 5000 })
-      .catch(async (error) => {
-        // If timeout, enhance error with debug info
-        const debugInfo = await page.evaluate(() => ({
-          hasTestCollectionName: !!window.__TEST_COLLECTION_NAME__,
-          testCollectionName: window.__TEST_COLLECTION_NAME__,
-          windowKeys: Object.keys(window).filter((k) => k.startsWith('__')),
-        }));
-        throw new Error(
-          `window.__TEST_COLLECTION_NAME__ not set within 5s. ` +
-            `Debug info: ${JSON.stringify(debugInfo)}. ` +
-            `Original error: ${error.message}`
-        );
-      });
 
     // Wait for Firebase auth to initialize
     await page.waitForFunction(() => window.auth != null, { timeout: 10000 });

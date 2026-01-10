@@ -37,6 +37,17 @@ export async function setupDesktopViewport(page) {
 }
 
 /**
+ * Get the Firestore collection name for test cards
+ * This returns the same collection name that createCardInFirestore uses,
+ * so tests can pass it via URL parameter to the frontend for consistency.
+ * @returns {Promise<string>} Collection name (e.g., "cards-worker-0")
+ */
+export async function getTestCollectionName() {
+  const { getCardsCollectionName } = await import('../../scripts/lib/collection-names.js');
+  return getCardsCollectionName();
+}
+
+/**
  * Generate unique test card data
  * Returns a shallowly frozen object to prevent accidental mutation of top-level properties.
  * Note: nested properties (arrays, objects) are not frozen and can still be mutated.
