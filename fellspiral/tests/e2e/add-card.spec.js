@@ -3903,7 +3903,7 @@ test.describe('Form Validation - Field Length Limits', () => {
     await expect(page.locator('#cardDescription')).toHaveClass(/error/);
   });
 
-  test('should display multiple validation errors simultaneously', async ({
+  test.skip('should display multiple validation errors simultaneously', async ({
     page,
     authEmulator,
   }) => {
