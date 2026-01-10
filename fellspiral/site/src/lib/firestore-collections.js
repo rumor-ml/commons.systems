@@ -29,7 +29,14 @@ export function getCardsCollectionName() {
     return window.__TEST_COLLECTION_NAME__;
   }
 
-  // Priority 3: Vite environment variables (PR previews, production)
+  // Priority 3: Emulator default (for tests without URL parameter or window global)
+  // If running against emulator, default to 'cards-worker-0' to match test helper behavior
+  // This provides a sensible fallback when URL parameter and window global aren't available
+  if (typeof window !== 'undefined' && import.meta.env?.VITE_USE_FIREBASE_EMULATOR) {
+    return 'cards-worker-0';
+  }
+
+  // Priority 4: Vite environment variables (PR previews, production)
   return getCardsCollectionNameFromConfig({
     prNumber: import.meta.env?.VITE_PR_NUMBER,
     branchName: import.meta.env?.VITE_BRANCH_NAME,
