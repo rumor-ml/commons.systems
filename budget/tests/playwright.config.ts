@@ -1,12 +1,10 @@
 import { createPlaywrightConfig } from '../../playwright.base.config';
 
 export default createPlaywrightConfig({
-  mode: 'web-server',
+  mode: 'hosting-emulator',
   siteName: 'budget',
-  port: 5173,
-  deployedUrl: 'https://budget.commons.systems',
-  webServerCommand: {
-    local: 'cd ../site && pnpm dev',
-    ci: 'cd ../site && pnpm preview',
-  },
+  port: parseInt(process.env.HOSTING_PORT || '5003'), // Per-worktree port from allocate-test-ports.sh (fallback: 5003 for local dev)
+  deployedUrl: 'https://budget.web.app',
+  // No webServerCommand - emulators started externally by run-e2e-tests.sh
+  // Hosting emulator serves the built static files
 });
