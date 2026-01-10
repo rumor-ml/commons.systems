@@ -12,12 +12,18 @@ source "${SCRIPT_DIR}/port-utils.sh"
 # Source allocate-test-ports.sh to get PROJECT_ID
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
+# Shared directory for backend emulator state (shared across all worktrees)
+SHARED_EMULATOR_DIR="${HOME}/.firebase-emulators"
+
 # PID files for backend and hosting emulators
-BACKEND_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.pid"
+# Backend emulator is SHARED across worktrees - use shared location
+BACKEND_PID_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.pid"
+
+# Hosting emulator is PER-WORKTREE - use worktree-local location
 HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.pid"
 
 # Log files
-BACKEND_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.log"
+BACKEND_LOG_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.log"
 HOSTING_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.log"
 
 # Temp config file

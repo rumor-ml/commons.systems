@@ -1,5 +1,5 @@
 /**
- * Card Manager - App-Specific Styles
+ * Card Library - App-Specific Styles
  * Uses design system tokens with RPG-themed card type styling
  * Electric cyan accents on card interactions
  */
@@ -15,12 +15,12 @@
   margin: 0;
 }
 
-.card-manager {
+.card-library {
   min-height: 100vh;
   background: var(--color-bg-base);
 }
 
-.card-manager-layout {
+.card-library-layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -451,6 +451,7 @@ body.authenticated .auth-controls {
   height: 100%;
   background: var(--color-overlay-heavy);
   backdrop-filter: blur(4px);
+  z-index: 1; /* Below modal-content, above page content */
 }
 
 .modal-content {
@@ -467,6 +468,7 @@ body.authenticated .auth-controls {
   flex-direction: column;
   box-shadow: var(--shadow-xl), var(--color-primary-glow-subtle);
   border: 1px solid var(--color-border-default);
+  z-index: 2; /* Above backdrop for interactivity */
 }
 
 .modal-header {
@@ -637,11 +639,11 @@ textarea.form-control {
 }
 
 @media (max-width: 768px) {
-  .card-manager {
+  .card-library {
     margin-left: 0;
   }
 
-  .card-manager-layout {
+  .card-library-layout {
     flex-direction: column;
   }
 
@@ -685,4 +687,212 @@ textarea.form-control {
   .card-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ==========================================================================
+   Combobox Component
+   ========================================================================== */
+
+.combobox {
+  position: relative;
+  width: 100%;
+}
+
+.combobox-input {
+  width: 100%;
+  padding-right: 2.5rem;
+}
+
+.combobox-toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  transition: color 0.2s ease;
+}
+
+.combobox-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.combobox-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+.combobox.open .combobox-toggle svg {
+  transform: rotate(180deg);
+}
+
+.combobox-listbox {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.25rem;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  display: none;
+  list-style: none;
+  padding: 0.25rem;
+}
+
+.combobox.open .combobox-listbox {
+  display: block;
+}
+
+.combobox-option {
+  padding: 0.5rem;
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+  transition: all 0.2s ease;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.combobox-option:hover,
+.combobox-option.highlighted {
+  background: var(--color-bg-hover);
+}
+
+.combobox-option.selected {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+}
+
+.combobox-option--new {
+  font-style: italic;
+  color: var(--color-primary);
+}
+
+.combobox-option--new:hover {
+  background: var(--color-primary-muted);
+}
+
+/* ==========================================================================
+   Error/Warning Banners
+   ========================================================================== */
+
+.error-banner,
+.warning-banner {
+  padding: 1rem 1.5rem;
+  margin-bottom: 1rem;
+  border-radius: var(--border-radius-md);
+  display: flex;
+  align-items: start;
+  gap: 0.75rem;
+  border-left: 4px solid;
+  font-size: var(--font-size-sm);
+}
+
+.error-banner {
+  background: var(--color-error-muted);
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.warning-banner {
+  background: var(--color-warning-muted);
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+
+.error-content,
+.warning-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.error-content p,
+.warning-content p {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.retry-button {
+  padding: 0.375rem 0.75rem;
+  background: var(--color-error);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.retry-button:hover {
+  background: var(--color-error-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+}
+
+/* ==========================================================================
+   Form Validation States
+   ========================================================================== */
+
+.form-control.error {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 2px var(--color-error-muted);
+}
+
+.form-group .error-message {
+  display: none;
+  margin-top: 0.25rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+  font-weight: var(--font-weight-medium);
+}
+
+.form-group.has-error .error-message {
+  display: block;
+}
+
+.form-group.has-error .form-control {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 2px var(--color-error-muted);
+}
+
+/* Combobox error state */
+.combobox-listbox.combobox-error {
+  border-color: var(--color-error);
+}
+
+.combobox-error-message {
+  pointer-events: none;
+  background: var(--color-error-muted);
+  color: var(--color-error);
+  font-style: italic;
+  padding: 0.75rem !important;
+  text-align: center;
+}
+
+/* Demo data indicator */
+.demo-data-indicator {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+}
+
+/* Form error banner in modal */
+.form-error-banner {
+  margin-bottom: 1rem;
 }

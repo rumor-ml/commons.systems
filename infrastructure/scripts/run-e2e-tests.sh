@@ -33,34 +33,86 @@ APP_NAME=$(basename "$APP_PATH_ABS")
 
 echo "=== E2E Tests: $APP_NAME ($APP_TYPE) ==="
 
-# Allocate ports based on worktree
-source "$SCRIPT_DIR/allocate-test-ports.sh" || {
-  echo "FATAL: Port allocation failed" >&2
-  echo "This could be due to:" >&2
-  echo "  - Missing allocate-test-ports.sh file" >&2
-  echo "  - Port allocation failure (all ports in use)" >&2
-  echo "  - Invalid port configuration" >&2
-  echo "Check allocate-test-ports.sh output above for details" >&2
-  exit 1
-}
+# Source port utilities for sandbox detection
+source "$SCRIPT_DIR/port-utils.sh"
 
-# Validate all critical variables are set by allocate-test-ports.sh
-MISSING_VARS=""
-[ -z "${GCP_PROJECT_ID:-}" ] && MISSING_VARS="$MISSING_VARS GCP_PROJECT_ID"
-[ -z "${FIRESTORE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIRESTORE_EMULATOR_HOST"
-[ -z "${FIREBASE_AUTH_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIREBASE_AUTH_EMULATOR_HOST"
-[ -z "${STORAGE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS STORAGE_EMULATOR_HOST"
-[ -z "${HOSTING_PORT:-}" ] && MISSING_VARS="$MISSING_VARS HOSTING_PORT"
+# Check sandbox requirement BEFORE any emulator operations
+check_sandbox_requirement "Running E2E tests with Firebase emulators" || exit 1
 
-if [ -n "$MISSING_VARS" ]; then
-  echo "FATAL: Required variables not set by allocate-test-ports.sh:" >&2
-  echo "  Missing:$MISSING_VARS" >&2
-  echo "" >&2
-  echo "This indicates a bug in the port allocation script" >&2
-  exit 1
+# ============================================================================
+# EMULATOR REUSE: Check if emulators are already running before allocation
+# ============================================================================
+# If .test-env.json exists and emulators are healthy, reuse them instead of
+# starting new ones. This prevents port exhaustion when dev server is running.
+
+TEST_ENV_CONFIG="${ROOT_DIR}/.test-env.json"
+REUSE_EMULATORS=false
+
+if [ -f "$TEST_ENV_CONFIG" ]; then
+  # Extract ports from existing config
+  EXISTING_AUTH_HOST=$(jq -r '.emulators.authHost // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
+  EXISTING_FIRESTORE_HOST=$(jq -r '.emulators.firestoreHost // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
+  EXISTING_HOSTING_PORT=$(jq -r '.emulators.hostingPort // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
+  EXISTING_PROJECT_ID=$(jq -r '.emulators.projectId // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
+
+  if [ -n "$EXISTING_AUTH_HOST" ] && [ -n "$EXISTING_HOSTING_PORT" ]; then
+    # Extract port numbers from host strings
+    AUTH_PORT_CHECK="${EXISTING_AUTH_HOST##*:}"
+    HOSTING_PORT_CHECK="$EXISTING_HOSTING_PORT"
+
+    # Check if both Auth emulator and Hosting emulator are running
+    if nc -z 127.0.0.1 "$AUTH_PORT_CHECK" 2>/dev/null && \
+       nc -z 127.0.0.1 "$HOSTING_PORT_CHECK" 2>/dev/null; then
+      echo "✓ Detected running emulators - reusing existing configuration"
+      echo "  Auth: $EXISTING_AUTH_HOST"
+      echo "  Hosting: localhost:$EXISTING_HOSTING_PORT"
+      echo "  Project: $EXISTING_PROJECT_ID"
+      echo ""
+
+      # Set environment variables from existing config
+      export FIREBASE_AUTH_EMULATOR_HOST="$EXISTING_AUTH_HOST"
+      export FIRESTORE_EMULATOR_HOST="$EXISTING_FIRESTORE_HOST"
+      export STORAGE_EMULATOR_HOST=$(jq -r '.emulators.storageHost // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
+      export GCP_PROJECT_ID="$EXISTING_PROJECT_ID"
+      export HOSTING_PORT="$EXISTING_HOSTING_PORT"
+      export TEST_PORT="$HOSTING_PORT"
+      export PORT="$HOSTING_PORT"
+
+      REUSE_EMULATORS=true
+    fi
+  fi
 fi
 
-echo "Using ports: App=$TEST_PORT, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestore=${FIRESTORE_EMULATOR_HOST}, Storage=${STORAGE_EMULATOR_HOST}"
+if [ "$REUSE_EMULATORS" = "false" ]; then
+  # Allocate ports based on worktree (normal path)
+  source "$SCRIPT_DIR/allocate-test-ports.sh" || {
+    echo "FATAL: Port allocation failed" >&2
+    echo "This could be due to:" >&2
+    echo "  - Missing allocate-test-ports.sh file" >&2
+    echo "  - Port allocation failure (all ports in use)" >&2
+    echo "  - Invalid port configuration" >&2
+    echo "Check allocate-test-ports.sh output above for details" >&2
+    exit 1
+  }
+
+  # Validate all critical variables are set by allocate-test-ports.sh
+  MISSING_VARS=""
+  [ -z "${GCP_PROJECT_ID:-}" ] && MISSING_VARS="$MISSING_VARS GCP_PROJECT_ID"
+  [ -z "${FIRESTORE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIRESTORE_EMULATOR_HOST"
+  [ -z "${FIREBASE_AUTH_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS FIREBASE_AUTH_EMULATOR_HOST"
+  [ -z "${STORAGE_EMULATOR_HOST:-}" ] && MISSING_VARS="$MISSING_VARS STORAGE_EMULATOR_HOST"
+  [ -z "${HOSTING_PORT:-}" ] && MISSING_VARS="$MISSING_VARS HOSTING_PORT"
+
+  if [ -n "$MISSING_VARS" ]; then
+    echo "FATAL: Required variables not set by allocate-test-ports.sh:" >&2
+    echo "  Missing:$MISSING_VARS" >&2
+    echo "" >&2
+    echo "This indicates a bug in the port allocation script" >&2
+    exit 1
+  fi
+fi
+
+echo "Using ports: App=${TEST_PORT:-$HOSTING_PORT}, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestore=${FIRESTORE_EMULATOR_HOST}, Storage=${STORAGE_EMULATOR_HOST}"
 
 # --- Type-specific setup ---
 case "$APP_TYPE" in
@@ -71,10 +123,14 @@ case "$APP_TYPE" in
     # The hosting emulator caches 404 responses for missing files during startup.
     # Building first ensures files exist when emulator initializes, preventing cached 404s.
     echo "Building..."
-    pnpm --dir "${APP_PATH_ABS}/site" build
+    VITE_USE_FIREBASE_EMULATOR=true VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" pnpm --dir "${APP_PATH_ABS}/site" build
 
-    echo "Starting Firebase emulators..."
-    source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
+    if [ "$REUSE_EMULATORS" = "true" ]; then
+      echo "✓ Skipping emulator startup - reusing existing emulators"
+    else
+      echo "Starting Firebase emulators..."
+      source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
+    fi
 
     # Export emulator env vars
     export FIRESTORE_EMULATOR_HOST
@@ -101,20 +157,59 @@ case "$APP_TYPE" in
       echo "==========================="
     fi
 
-    # Set up cleanup trap
-    cleanup() {
-      echo "Stopping emulators..."
-      "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
-    }
-    trap cleanup EXIT
+    # Export test environment configuration to JSON for type-safe access
+    # This provides a single source of truth and eliminates env var propagation issues
+    TEST_ENV_CONFIG="${ROOT_DIR}/.test-env.json"
+    TIMEOUT_MULTIPLIER="${TIMEOUT_MULTIPLIER:-1}"
+    DEPLOYED_URL="${DEPLOYED_URL:-}"
+
+    cat > "$TEST_ENV_CONFIG" << EOF
+{
+  "mode": "${DEPLOYED_URL:+deployed}${DEPLOYED_URL:-emulator}",
+  "isCI": ${CI:-false},
+  "emulators": {
+    "projectId": "${GCP_PROJECT_ID}",
+    "firestoreHost": "${FIRESTORE_EMULATOR_HOST}",
+    "authHost": "${FIREBASE_AUTH_EMULATOR_HOST}",
+    "storageHost": "${STORAGE_EMULATOR_HOST}",
+    "hostingPort": ${HOSTING_PORT}
+  },
+  "timeouts": {
+    "test": $((60 * TIMEOUT_MULTIPLIER)),
+    "emulatorStartup": $((120 * TIMEOUT_MULTIPLIER)),
+    "multiplier": ${TIMEOUT_MULTIPLIER}
+  }$([ -n "${DEPLOYED_URL}" ] && echo ",
+  \"deployedUrl\": \"${DEPLOYED_URL}\"" || echo "")
+}
+EOF
+
+    echo "=== Test Environment Config ==="
+    echo "Config exported to: $TEST_ENV_CONFIG"
+    cat "$TEST_ENV_CONFIG"
+    echo "================================"
+
+    # Set up cleanup trap (only when we started the emulators)
+    if [ "$REUSE_EMULATORS" = "false" ]; then
+      cleanup() {
+        echo "Stopping emulators..."
+        "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
+      }
+      trap cleanup EXIT
+    else
+      echo "✓ Emulator cleanup skipped - keeping reused emulators running"
+    fi
     ;;
 
   go-fullstack)
     # Go app with Firebase backend emulators (no hosting emulator)
     # These apps serve via their own web server (started by Playwright webServer config)
     # They only need backend emulators: Auth, Firestore, Storage
-    echo "Starting Firebase backend emulators..."
-    SKIP_HOSTING=1 source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    if [ "$REUSE_EMULATORS" = "true" ]; then
+      echo "✓ Skipping emulator startup - reusing existing backend emulators"
+    else
+      echo "Starting Firebase backend emulators..."
+      SKIP_HOSTING=1 source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    fi
 
     # Export emulator env vars
     export FIRESTORE_EMULATOR_HOST
@@ -122,12 +217,14 @@ case "$APP_TYPE" in
     export FIREBASE_AUTH_EMULATOR_HOST
     export GCP_PROJECT_ID
 
-    # Set up cleanup trap
-    cleanup() {
-      echo "Stopping emulators..."
-      "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
-    }
-    trap cleanup EXIT
+    # Set up cleanup trap (only when we started the emulators)
+    if [ "$REUSE_EMULATORS" = "false" ]; then
+      cleanup() {
+        echo "Stopping emulators..."
+        "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
+      }
+      trap cleanup EXIT
+    fi
 
     echo "Building..."
     (cd "${APP_PATH_ABS}/site" && make build)
@@ -153,10 +250,11 @@ if [ "$APP_TYPE" = "firebase" ]; then
   echo "Running Playwright tests..."
   cd "${APP_PATH_ABS}/tests"
 
+  # Set START_SERVER=true to serve built files (we built above with pnpm build)
   # Let playwright.config.ts determine browser based on platform
   # No hardcoded --project chromium
   # Explicitly pass environment variables to Playwright subprocess
-  HOSTING_PORT="${HOSTING_PORT}" PORT="${PORT}" GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
+  START_SERVER=true HOSTING_PORT="${HOSTING_PORT}" PORT="${PORT}" GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
     FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST}" \
     FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST}" \
     STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST}" \

@@ -1,19 +1,21 @@
 rules_version = '2';
 
+// TODO(#283): Add tests for isPublic field validation
+// TODO(#1369): Clarify TODO comment - tests tracked separately in #283
 // Firestore security rules for cards collection
-// Ensures data integrity and user attribution
-// Related: #283 for security rules validation tests
-// Related: #305 for general documentation improvements
+// REQUIRED fields (enforced in CREATE rule): 'title', 'type', 'subtype', 'isPublic', 'createdBy'
+// Additional fields (optional): 'description', 'tags', 'stat1', 'stat2', 'cost', timestamps
+// See the 'allow create' rule below for complete validation logic
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if user is authenticated
+    // Helper: Check if user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper function to check if user owns the document
+    // Helper: Check if user owns the document
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
@@ -21,32 +23,78 @@ service cloud.firestore {
     // Cards collection (for fellspiral) - includes PR-specific collections like cards_pr_123
     // and branch preview collections like cards_preview_my-branch
     match /{cardsCollection}/{cardId} {
-      // Match any collection that starts with "cards" (cards, cards_pr_123, cards_preview_branch-name)
-      allow read: if cardsCollection.matches('cards(_pr_[0-9]+)?')
-                  || cardsCollection.matches('cards_preview_[a-z0-9-]+');
+      // Allow reading public cards OR cards you created
+      // - Anyone can view cards where isPublic == true
+      // - Authenticated users can view their own cards (where createdBy == their UID)
+      // SECURE BY DEFAULT: Documents missing isPublic field are DENIED access
+      // Using .get() with false default ensures reliable behavior in emulator and production
+      // .get('isPublic', false) returns false for missing fields, denying access
+      // Migration consideration: Existing cards without isPublic field won't be readable
+      // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
+      // DEPLOYMENT: Run migration script before deploying these rules to prevent cards becoming unreadable.
+      // For detailed deployment procedures, see the CRITICAL DEPLOYMENT ORDER section in migrate-ispublic.js
+      allow read: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
+                      || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                      || cardsCollection.matches('cards-worker-[0-9]+'))
+                  && (resource.data.get('isPublic', false) == true
+                      || (isAuthenticated() && resource.data.get('createdBy', '') == request.auth.uid));
 
       // Allow create for authenticated users (only in collections starting with "cards")
-      // Cards created will have metadata about who created them
+      // SECURITY LIMITATION: Clients can forge createdAt timestamps during CREATE operations.
+      // Root cause: Security rules evaluate BEFORE the document is written. At evaluation time,
+      // request.resource.data.createdAt contains a serverTimestamp() sentinel (not an actual timestamp).
+      // The sentinel resolves to server time during the write, but rules cannot access this resolved value.
+      // Impact: Clients could backdate or future-date document creation times. For this app,
+      // timestamp accuracy is cosmetic (display only) - not security-critical. No authorization
+      // decisions depend on createdAt values.
+      // Mitigation: (1) Client code (firebase.js createCard()) uses serverTimestamp() by convention.
+      // (2) UPDATE operations enforce lastModifiedAt == request.time for audit trail integrity.
+      // (3) Server-side queries can use _createTime metadata for accurate ordering if needed.
+      // TODO(#283): Add E2E test attempting to forge createdAt timestamp
       allow create: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
-                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                        || cardsCollection.matches('cards-worker-[0-9]+'))
                     && isAuthenticated()
-                    && request.resource.data.keys().hasAll(['name', 'type'])
+                    && request.resource.data.keys().hasAll(['title', 'type', 'subtype', 'isPublic'])
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 100
+                    && request.resource.data.type is string
+                    && request.resource.data.type.size() > 0
+                    && request.resource.data.subtype is string
+                    && request.resource.data.subtype.size() > 0
+                    && request.resource.data.isPublic is bool
                     && request.resource.data.createdBy == request.auth.uid
-                    && request.resource.data.createdAt == request.time;
+                    && (!request.resource.data.keys().hasAny(['description'])
+                        || request.resource.data.description.size() <= 500);
 
-      // Allow update only if user is the creator or if updating their own modifications
+      // ⚠️  SECURITY: Any authenticated user can edit ANY card (wiki-style)
+      // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
+      // (creator check is informational only - does not restrict access)
+      // INTENTIONAL DESIGN: Wiki-style collaborative editing where any authenticated user can edit.
+      // This implements the "Card creator or collaborator" requirement with universal collaboration
+      // (all authenticated users are implicit collaborators, similar to Wikipedia's edit model).
+      // SECURITY TRADEOFF: This allows vandalism of public cards by malicious users in exchange for
+      // frictionless collaboration (no permission requests, no ownership gatekeeping).
+      // AUDIT: lastModifiedBy field tracks who made each change, enabling rollback if needed.
+      // FUTURE: If vandalism becomes problematic, migrate to role-based permissions (editor invites)
+      // or restrict updates to createdBy only. See issue tracking for adoption metrics before changing.
+      // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow update: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
-                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                        || cardsCollection.matches('cards-worker-[0-9]+'))
                     && isAuthenticated()
-                    && (resource.data.createdBy == request.auth.uid
+                    && (resource.data.get('createdBy', '') == request.auth.uid
                         || request.resource.data.lastModifiedBy == request.auth.uid)
                     && request.resource.data.lastModifiedAt == request.time;
 
       // Allow delete only if user is the creator
+      // NOTE: Use .get() with defaults to handle documents missing createdBy field
       allow delete: if (cardsCollection.matches('cards(_pr_[0-9]+)?')
-                        || cardsCollection.matches('cards_preview_[a-z0-9-]+'))
+                        || cardsCollection.matches('cards_preview_[a-z0-9-]+')
+                        || cardsCollection.matches('cards-worker-[0-9]+'))
                     && isAuthenticated()
-                    && resource.data.createdBy == request.auth.uid;
+                    && resource.data.get('createdBy', '') == request.auth.uid;
     }
 
     // User profiles (optional - for storing user preferences)

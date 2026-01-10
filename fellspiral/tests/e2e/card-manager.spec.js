@@ -4,7 +4,7 @@ import { VIEWPORTS, setupMobileViewport, setupDesktopViewport } from './test-hel
 test.describe('Card Manager Page', () => {
   test('should load successfully', async ({ page }) => {
     await page.goto('/cards.html');
-    await expect(page).toHaveTitle(/Card Manager - Fellspiral/);
+    await expect(page).toHaveTitle(/Library - Fellspiral/);
   });
 
   test('should display sidebar navigation', async ({ page }) => {

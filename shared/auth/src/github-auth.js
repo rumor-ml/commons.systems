@@ -16,6 +16,10 @@ let app = null;
 let auth = null;
 let provider = null;
 
+// Auth ready state tracking for explicit initialization dependency management
+let authReady = false;
+let authReadyCallbacks = [];
+
 /**
  * Initialize Firebase Auth with GitHub provider
  * @param {Object} firebaseConfig - Firebase configuration object
@@ -29,9 +33,33 @@ export function initAuth(firebaseConfig) {
     // Request additional GitHub scopes if needed
     provider.addScope('user:email');
     provider.addScope('read:user');
+
+    // Mark auth as ready and trigger any queued callbacks
+    authReady = true;
+    authReadyCallbacks.forEach((cb) => cb());
+    authReadyCallbacks = [];
   }
 
   return auth;
+}
+
+/**
+ * Register a callback to be invoked when auth is ready
+ * Allows code to defer operations until auth initialization completes
+ * @param {Function} callback - Function to call when auth is ready
+ * @example
+ * onAuthReady(() => {
+ *   setupAuthStateListener(); // Only runs when safe
+ * });
+ */
+export function onAuthReady(callback) {
+  if (authReady) {
+    // Auth already initialized, invoke immediately
+    callback();
+  } else {
+    // Queue callback for when initAuth() completes
+    authReadyCallbacks.push(callback);
+  }
 }
 
 /**
@@ -93,6 +121,12 @@ export async function signOutUser() {
  * @returns {Function} Unsubscribe function
  */
 export function onAuthStateChange(callback) {
+  if (!auth) {
+    // Throw explicit error that cards.js retry logic can catch
+    const error = new Error('Auth not initialized - call initAuth() first');
+    error.code = 'auth-not-initialized';
+    throw error;
+  }
   return onAuthStateChanged(auth, (user) => {
     callback(user);
   });

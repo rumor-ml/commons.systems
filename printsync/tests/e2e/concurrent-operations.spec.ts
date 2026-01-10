@@ -196,7 +196,8 @@ test.describe('Concurrent Operations', () => {
     console.log('✓ Duplicate detection test passed');
   });
 
-  test('should handle rapid sequential file approvals', async ({ page, helpers }) => {
+  test.skip('should handle rapid sequential file approvals', async ({ page, helpers }) => {
+    // TODO(#1361): Firestore emulator GRPC error during test file creation
     // Create a session with multiple files
     const userID = generateTestUserID();
     const files = Array.from({ length: 5 }, (_, i) =>

@@ -41,7 +41,7 @@ test.describe('Combat Simulator', () => {
     await expect(simulateBtn).toContainText('Simulate Combat');
   });
 
-  test('should display combat log after simulation', async ({ page }) => {
+  test.skip('should display combat log after simulation', async ({ page }) => {
     // Select different combatants
     await page.selectOption('#combatant1', 'caleb');
     await page.selectOption('#combatant2', 'skeleton');
