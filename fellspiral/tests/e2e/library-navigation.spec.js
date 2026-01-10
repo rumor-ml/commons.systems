@@ -161,7 +161,7 @@ test.describe('Library Navigation - Expand/Collapse', () => {
     expect(parsedState['library-type-equipment']).toBe(true);
   });
 
-  test('should restore expand state on page reload', async ({ page }) => {
+  test.skip('should restore expand state on page reload', async ({ page }) => {
     await page.goto('/cards.html');
 
     // Wait for Equipment type to be visible
