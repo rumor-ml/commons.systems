@@ -99,7 +99,6 @@ export class LibraryNav {
         const expectedTypes = new Set(['Equipment', 'Skill', 'Upgrade', 'Origin']);
 
         // Check if we have most expected types (allow for some variance in test data)
-        const hasExpectedTypes = [...expectedTypes].some((type) => loadedTypes.has(type));
         const missingTypes = [...expectedTypes].filter((type) => !loadedTypes.has(type));
 
         // If we're missing more than 1 expected type, fall back to static data

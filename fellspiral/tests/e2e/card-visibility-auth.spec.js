@@ -22,7 +22,7 @@ test.describe('Card Visibility - Unauthenticated Users', () => {
   // TODO(#1283): Fix test isolation issue with 2 workers
   test.skip('should only see public cards when not authenticated', async ({ page }) => {
     // Clean up demo data seeded during test setup
-    await deleteTestCards(/^/); // Delete all cards (regex matches all titles)
+    await deleteTestCards(/^.+/); // Delete all cards (regex matches all non-empty titles)
 
     // Create test data: multiple public cards with different types and 1 private card
     // Note: Must create cards with all expected types (Equipment, Skill, Upgrade, Origin)
@@ -209,7 +209,7 @@ test.describe('Card Visibility - Authenticated Users', () => {
   }) => {
     // Clean up demo data seeded during test setup
     // The test expects an empty state, so we need to ensure Firestore is actually empty
-    await deleteTestCards(/^/); // Delete all cards (regex matches all titles)
+    await deleteTestCards(/^.+/); // Delete all cards (regex matches all non-empty titles)
 
     // Navigate to cards page first (required for auth initialization)
     await page.goto('/cards.html');

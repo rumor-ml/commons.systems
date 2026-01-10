@@ -336,5 +336,45 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       pass_filenames = false;
       always_run = true;
     };
+
+    # Validate Nix development shell loads successfully
+    # Catches Nix syntax errors and evaluation failures before CI
+    # Uses --max-jobs 0 to check evaluation without building derivations (fast <10s)
+    # This catches common Nix issues like syntax errors, missing dependencies, and evaluation failures
+    # without the overhead of full nix-build (which runs in CI)
+    nix-shell-check = {
+      enable = true;
+      name = "nix-shell-check";
+      description = "Validate Nix development shell evaluation";
+      entry = "${pkgs.writeShellScript "nix-shell-check" ''
+        set -e
+
+        echo "Validating Nix development shell..."
+
+        # Check flake evaluation without building derivations
+        # --max-jobs 0 prevents building, only evaluates the flake
+        if ! ${pkgs.nix}/bin/nix develop --max-jobs 0 --command echo 'Development shell loads successfully' 2>&1 | grep -q 'Development shell loads successfully'; then
+          echo ""
+          echo "ERROR: Nix development shell failed to load"
+          echo ""
+          echo "This check validates that the Nix flake can be evaluated successfully."
+          echo "It catches syntax errors, missing dependencies, and evaluation failures."
+          echo ""
+          echo "To fix this issue:"
+          echo "  1. Run: nix develop"
+          echo "  2. Review any error messages from Nix"
+          echo "  3. Fix the issues in your Nix configuration"
+          echo "  4. Retry your push"
+          echo ""
+          exit 1
+        fi
+
+        echo "✅ Nix development shell evaluation successful"
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
   };
 }

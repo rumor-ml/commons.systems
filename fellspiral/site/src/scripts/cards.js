@@ -24,7 +24,7 @@ import {
 } from './firebase.js';
 
 // Import auth initialization and state
-import { initializeAuth, onAuthStateChanged, onAuthReady } from './auth-init.js';
+import { onAuthStateChanged, onAuthReady } from './auth-init.js';
 
 // Import shared navigation
 import { initSidebarNav } from './sidebar-nav.js';
@@ -201,55 +201,6 @@ const CARD_CONSTRAINTS = Object.freeze({
  * @param {Partial<CardData>} cardData - Card data to validate
  * @returns {{ valid: boolean, errors: Array<{ field: string, message: string }> }}
  */
-function validateCardData(cardData) {
-  const errors = [];
-
-  if (!cardData || typeof cardData !== 'object') {
-    return {
-      valid: false,
-      errors: [{ field: 'cardData', message: 'Card data must be an object' }],
-    };
-  }
-
-  // Required field validation - use CARD_CONSTRAINTS array
-  const requiredFields = {
-    title: { value: cardData.title, message: 'Title is required' },
-    type: { value: cardData.type, message: 'Type is required' },
-    subtype: { value: cardData.subtype, message: 'Subtype is required' },
-  };
-
-  for (const [field, config] of Object.entries(requiredFields)) {
-    if (!config.value || typeof config.value !== 'string' || !config.value.trim()) {
-      errors.push({ field, message: config.message });
-    }
-  }
-
-  // Title length validation
-  if (cardData.title && cardData.title.length > CARD_CONSTRAINTS.TITLE_MAX_LENGTH) {
-    errors.push({
-      field: 'title',
-      message: `Title must be ${CARD_CONSTRAINTS.TITLE_MAX_LENGTH} characters or less`,
-    });
-  }
-
-  // Optional field validation
-  if (
-    cardData.description &&
-    cardData.description.length > CARD_CONSTRAINTS.DESCRIPTION_MAX_LENGTH
-  ) {
-    errors.push({
-      field: 'description',
-      message: `Description must be ${CARD_CONSTRAINTS.DESCRIPTION_MAX_LENGTH} characters or less`,
-    });
-  }
-
-  if (cardData.tags !== undefined && !Array.isArray(cardData.tags)) {
-    errors.push({ field: 'tags', message: 'Tags must be an array' });
-  }
-
-  return { valid: errors.length === 0, errors };
-}
-
 // ==========================================================================
 // State Management with Validation
 // ==========================================================================
@@ -323,15 +274,6 @@ function updateViewMode(mode) {
  * @param {CardData[]} cards - New cards array
  * @returns {boolean} Whether the update was valid
  */
-function updateCards(cards) {
-  if (!Array.isArray(cards)) {
-    console.error('[Cards] Invalid cards update: must be an array');
-    return false;
-  }
-  state.cards = cards;
-  return true;
-}
-
 // Reset state for fresh initialization
 function resetState() {
   isSaving = false;
@@ -1743,7 +1685,7 @@ async function handleCardSave(e) {
     });
 
     // Categorize error and determine user message
-    let errorCategory = 'unknown';
+    let errorCategory;
     let userMessage = 'Failed to save card. ';
 
     // Look up error by code

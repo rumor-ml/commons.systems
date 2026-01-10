@@ -37,7 +37,7 @@
 import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -160,10 +160,9 @@ if (isMainModule) {
   const dryRun = args.includes('--dry-run');
 
   // Initialize Firebase Admin
-  let app;
   try {
     // Try to use existing app or initialize from service account
-    app = admin.app();
+    admin.app();
   } catch (error) {
     // Initialize new app
     const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -195,7 +194,7 @@ if (isMainModule) {
     }
 
     try {
-      app = admin.initializeApp({
+      admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
     } catch (initError) {
