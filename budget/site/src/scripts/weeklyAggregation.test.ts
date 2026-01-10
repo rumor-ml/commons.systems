@@ -267,6 +267,193 @@ describe('weeklyAggregation', () => {
       expect(result[0].weekStartDate).toBe('2025-01-06');
       expect(result[0].weekEndDate).toBe('2025-01-12');
     });
+
+    describe('Invalid Date Handling', () => {
+      beforeEach(() => {
+        vi.spyOn(StateManager, 'showErrorBanner').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it('should exclude transactions with invalid dates and show partial data warning', () => {
+        const transactions = [
+          createTransaction({ id: 'txn-1', date: '2025-02-31', amount: -100 }), // Invalid - Feb 31st
+          createTransaction({ id: 'txn-2', date: '2025-01-15', amount: -200 }), // Valid
+        ];
+
+        const result = aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: new Set(),
+          showVacation: true,
+        });
+
+        // Only valid transaction should be included
+        expect(result.length).toBe(1);
+        expect(result[0].amount).toBe(-200);
+        expect(result[0].week).toBe(weekId('2025-W03'));
+
+        // Should show partial data warning
+        expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+          expect.stringContaining('transaction(s) excluded due to invalid dates')
+        );
+        expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+          expect.stringContaining('Your charts are incomplete')
+        );
+      });
+
+      it('should show CRITICAL error banner when ALL transactions have invalid dates', () => {
+        const transactions = [
+          createTransaction({ id: 'txn-1', date: '2025-02-31', amount: -100 }), // Invalid
+          createTransaction({ id: 'txn-2', date: '2025-04-31', amount: -200 }), // Invalid
+        ];
+
+        const result = aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: new Set(),
+          showVacation: true,
+        });
+
+        // No transactions should be included
+        expect(result.length).toBe(0);
+
+        // Should show CRITICAL error banner
+        expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+          expect.stringContaining('CRITICAL: All transaction data excluded')
+        );
+        expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+          expect.stringContaining('Weekly view is unavailable')
+        );
+      });
+
+      it('should exclude multiple invalid dates from different weeks', () => {
+        const transactions = [
+          createTransaction({ id: 'txn-1', date: '2025-02-31', amount: -100 }), // Invalid - Feb 31st
+          createTransaction({ id: 'txn-2', date: '2025-04-31', amount: -150 }), // Invalid - Apr 31st
+          createTransaction({ id: 'txn-3', date: '2025-01-15', amount: -200 }), // Valid
+          createTransaction({ id: 'txn-4', date: '2025-03-15', amount: -250 }), // Valid
+        ];
+
+        const result = aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: new Set(),
+          showVacation: true,
+        });
+
+        // Only 2 valid transactions should be included
+        expect(result.length).toBe(2);
+        expect(result[0].amount).toBe(-200);
+        expect(result[1].amount).toBe(-250);
+
+        // Should show partial data warning mentioning multiple transactions
+        expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+          expect.stringContaining('transaction(s) excluded due to invalid dates')
+        );
+      });
+
+      it('should handle invalid dates on non-leap years (Feb 29th)', () => {
+        const transactions = [
+          createTransaction({ id: 'txn-1', date: '2025-02-29', amount: -100 }), // Invalid - 2025 not leap year
+          createTransaction({ id: 'txn-2', date: '2025-01-15', amount: -200 }), // Valid
+        ];
+
+        const result = aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: new Set(),
+          showVacation: true,
+        });
+
+        // Only valid transaction should be included
+        expect(result.length).toBe(1);
+        expect(result[0].amount).toBe(-200);
+
+        // Should show error banner
+        expect(StateManager.showErrorBanner).toHaveBeenCalled();
+      });
+
+      it('should accept valid dates on leap years (Feb 29th)', () => {
+        const transactions = [
+          createTransaction({ id: 'txn-1', date: '2024-02-29', amount: -100 }), // Valid - 2024 is leap year
+          createTransaction({ id: 'txn-2', date: '2024-01-15', amount: -200 }), // Valid
+        ];
+
+        const result = aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: new Set(),
+          showVacation: true,
+        });
+
+        // Both transactions should be included
+        expect(result.length).toBe(2);
+
+        // Should NOT show error banner for valid dates
+        expect(StateManager.showErrorBanner).not.toHaveBeenCalled();
+      });
+
+      it('should aggregate valid transactions from same week while excluding invalid ones', () => {
+        const transactions = [
+          createTransaction({ id: 'txn-1', date: '2025-01-13', amount: -100 }), // Valid - W03
+          createTransaction({ id: 'txn-2', date: '2025-01-14', amount: -50 }), // Valid - W03
+          createTransaction({ id: 'txn-3', date: '2025-02-31', amount: -200 }), // Invalid
+        ];
+
+        const result = aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: new Set(),
+          showVacation: true,
+        });
+
+        // Two valid transactions should be aggregated
+        expect(result.length).toBe(1);
+        expect(result[0].amount).toBe(-150); // -100 + -50
+        expect(result[0].week).toBe(weekId('2025-W03'));
+        expect(result[0].qualifiers.transactionCount).toBe(2);
+
+        // Should show partial data warning
+        expect(StateManager.showErrorBanner).toHaveBeenCalled();
+      });
+
+      it('should track all affected transactions in console error', () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const transactions = [
+          createTransaction({
+            id: 'txn-1',
+            date: '2025-02-31',
+            amount: -100,
+            description: 'Invalid Feb',
+          }),
+          createTransaction({
+            id: 'txn-2',
+            date: '2025-04-31',
+            amount: -200,
+            description: 'Invalid Apr',
+          }),
+          createTransaction({
+            id: 'txn-3',
+            date: '2025-01-15',
+            amount: -300,
+            description: 'Valid',
+          }),
+        ];
+
+        aggregateTransactionsByWeek(transactions, {
+          hiddenCategories: new Set(),
+          showVacation: true,
+        });
+
+        // Should log detailed transaction information
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Excluding'),
+          expect.objectContaining({
+            transactions: expect.arrayContaining([
+              expect.objectContaining({
+                date: '2025-02-31',
+                amount: -100,
+                description: 'Invalid Feb',
+              }),
+            ]),
+          })
+        );
+
+        consoleErrorSpy.mockRestore();
+      });
+    });
   });
 
   describe('calculateRolloverAccumulation', () => {

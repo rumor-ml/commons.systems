@@ -1275,10 +1275,16 @@ describe('BudgetChart', () => {
         );
 
         await waitFor(() => {
-          // Invalid dates cause aggregation to throw, resulting in error banner (not warning)
-          const errorBanner = container.querySelector('.bg-error-muted');
-          expect(errorBanner).toBeTruthy();
-          expect(errorBanner?.textContent).toContain('Failed to process transaction data');
+          // Invalid dates cause aggregation to show error banners
+          const errorBanners = document.querySelectorAll('.bg-error');
+          expect(errorBanners.length).toBeGreaterThan(0);
+
+          // Check that at least one banner mentions invalid dates
+          const bannerTexts = Array.from(errorBanners).map((b) => b.textContent || '');
+          const hasInvalidDatesBanner = bannerTexts.some((text) =>
+            text.includes('transaction(s) excluded due to invalid dates')
+          );
+          expect(hasInvalidDatesBanner).toBe(true);
         });
       });
     });

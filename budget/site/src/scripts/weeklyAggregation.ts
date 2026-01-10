@@ -44,9 +44,18 @@ export function aggregateTransactionsByWeek(
     WeekId,
     Map<Category, { amount: number; qualifiers: QualifierBreakdown }>
   >();
+  const invalidDateTransactions: Transaction[] = [];
 
   filteredTransactions.forEach((txn) => {
-    const week = getISOWeek(txn.date);
+    let week: WeekId;
+    try {
+      week = getISOWeek(txn.date);
+    } catch (error) {
+      // Invalid date - track for error reporting
+      invalidDateTransactions.push(txn);
+      return; // Skip this transaction
+    }
+
     const displayAmount = getDisplayAmount(txn);
 
     if (!weeklyMap.has(week)) {
@@ -115,7 +124,38 @@ export function aggregateTransactionsByWeek(
     });
   });
 
-  // Notify user if any weeks were skipped
+  // Notify user if any transactions with invalid dates were skipped
+  if (invalidDateTransactions.length > 0) {
+    const totalAmount = invalidDateTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    console.error(`Excluding ${invalidDateTransactions.length} transactions with invalid dates:`, {
+      transactions: invalidDateTransactions.map((t) => ({
+        date: t.date,
+        amount: t.amount,
+        category: t.category,
+        description: t.description,
+      })),
+      totalAmount,
+    });
+
+    console.error(
+      'TO FIX: Review the transaction dates shown above and re-import with valid YYYY-MM-DD format'
+    );
+
+    // Check if we excluded ALL transactions
+    if (weeklyData.length === 0) {
+      StateManager.showErrorBanner(
+        `CRITICAL: All transaction data excluded due to date errors. Weekly view is unavailable. ` +
+          `Switch to Monthly view or reimport transactions with valid YYYY-MM-DD dates.`
+      );
+    } else {
+      // Partial data available
+      StateManager.showErrorBanner(
+        `⚠️ ${invalidDateTransactions.length} transaction(s) excluded due to invalid dates. Your charts are incomplete. See console for details on affected transactions.`
+      );
+    }
+  }
+
+  // Notify user if any weeks were skipped due to boundary calculation errors
   if (skippedWeeks.size > 0) {
     // Log detailed transaction information for each skipped week
     skippedTransactionsByWeek.forEach((transactions, week) => {
@@ -139,15 +179,8 @@ export function aggregateTransactionsByWeek(
       'TO FIX: Review the transaction dates shown above and re-import with valid YYYY-MM-DD format'
     );
 
-    // Check if we skipped ALL weeks
-    if (weeklyData.length === 0) {
-      StateManager.showErrorBanner(
-        `CRITICAL: All transaction data excluded due to date errors. Weekly view is unavailable. ` +
-          `Switch to Monthly view or reimport transactions with valid YYYY-MM-DD dates. ` +
-          `Skipped weeks: ${weekList}`
-      );
-    } else {
-      // Partial data available - use existing error message
+    // Show warning about skipped weeks (only if we didn't already show critical error for all data)
+    if (weeklyData.length > 0 && invalidDateTransactions.length === 0) {
       StateManager.showErrorBanner(
         `⚠️ ${skippedWeeks.size} week(s) of data excluded due to date errors. Your charts are incomplete. See console for details on affected transactions.`
       );
