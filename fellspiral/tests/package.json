@@ -9,7 +9,7 @@
     "test:headed": "playwright test --headed",
     "test:deployed": "DEPLOYED=true playwright test",
     "test:report": "playwright show-report",
-    "test:rules": "node --loader tsx unit/firestore-rules.test.ts"
+    "test:rules": "node --import tsx/esm unit/firestore-rules.test.ts"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",
