@@ -1005,6 +1005,215 @@ describe('StateManager', () => {
     });
   });
 
+  describe('StateManager concurrency and race conditions', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('handles concurrent save operations without data loss', async () => {
+      const plan1 = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      const plan2 = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -200, rolloverEnabled: false },
+        },
+        lastModified: '2025-01-09T12:01:00Z',
+      };
+
+      // Simulate concurrent save operations
+      const save1 = Promise.resolve().then(() => StateManager.save({ budgetPlan: plan1 }));
+      const save2 = Promise.resolve().then(() => StateManager.save({ budgetPlan: plan2 }));
+
+      await Promise.all([save1, save2]);
+
+      const final = StateManager.load();
+
+      // Verify final state matches one of the saves (last-write-wins)
+      // No data corruption (partial writes, mixed data)
+      expect(final.budgetPlan).toBeDefined();
+      expect(final.budgetPlan?.categoryBudgets.groceries).toBeDefined();
+
+      // Should be either plan1 or plan2, not a corrupted mix
+      const matchesPlan1 = JSON.stringify(final.budgetPlan) === JSON.stringify(plan1);
+      const matchesPlan2 = JSON.stringify(final.budgetPlan) === JSON.stringify(plan2);
+
+      expect(matchesPlan1 || matchesPlan2).toBe(true);
+    });
+
+    it('throws error and maintains consistency when verification fails', () => {
+      const budgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      const differentPlan = {
+        categoryBudgets: {
+          dining: { weeklyTarget: -50, rolloverEnabled: false },
+        },
+        lastModified: '2025-01-09T13:00:00Z',
+      };
+
+      // Mock getItem to return different data on verification read
+      let callCount = 0;
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // Initial load() call in save()
+          return JSON.stringify({
+            hiddenCategories: [],
+            showVacation: true,
+            budgetPlan: null,
+            viewGranularity: 'month',
+            selectedWeek: null,
+            planningMode: false,
+          });
+        } else if (callCount === 2) {
+          // Verification load() call - return different data to simulate mismatch
+          return JSON.stringify({
+            hiddenCategories: [],
+            showVacation: true,
+            budgetPlan: differentPlan,
+            viewGranularity: 'month',
+            selectedWeek: null,
+            planningMode: false,
+          });
+        }
+        return null;
+      });
+
+      expect(() => StateManager.save({ budgetPlan })).toThrow(
+        'State verification failed: persisted data does not match intended save'
+      );
+    });
+
+    it('handles localStorage quota exceeded during budget plan save', () => {
+      const budgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        const error = new Error('QuotaExceededError');
+        error.name = 'QuotaExceededError';
+        throw error;
+      });
+
+      expect(() => StateManager.save({ budgetPlan })).toThrow(
+        'State save failed: QuotaExceededError'
+      );
+
+      // Verify critical error banner shown (budget data loss warning)
+      const banner = document.querySelector('.bg-error');
+      expect(banner).toBeTruthy();
+      expect(banner?.textContent).toContain('Failed to save your budget plan!');
+    });
+
+    it('handles race between save and load during rapid state updates', () => {
+      // Simulate rapid state updates
+      const updates = [
+        { hiddenCategories: ['groceries'] },
+        { showVacation: false },
+        { planningMode: true },
+        { viewGranularity: 'week' as const, selectedWeek: weekId('2025-W01') },
+      ];
+
+      // Apply updates sequentially
+      updates.forEach((update) => {
+        StateManager.save(update);
+      });
+
+      // Load should return consistent state reflecting all updates
+      const final = StateManager.load();
+
+      expect(final.hiddenCategories).toEqual(['groceries']);
+      expect(final.showVacation).toBe(false);
+      expect(final.planningMode).toBe(true);
+      expect(final.viewGranularity).toBe('week');
+      expect(final.selectedWeek).toBe('2025-W01');
+    });
+
+    it('handles localStorage.setItem succeeding but verification failing', () => {
+      const budgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      let setItemCalled = false;
+
+      // setItem appears to succeed
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        setItemCalled = true;
+        // Don't actually write anything
+      });
+
+      // getItem returns null (verification fails)
+      vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+
+      expect(() => StateManager.save({ budgetPlan })).toThrow(
+        'State verification failed: persisted data does not match intended save'
+      );
+
+      expect(setItemCalled).toBe(true);
+    });
+
+    it('handles concurrent saves with one failing due to quota', async () => {
+      const plan1 = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
+        },
+        lastModified: '2025-01-09T12:00:00Z',
+      };
+
+      const plan2 = {
+        categoryBudgets: {
+          dining: { weeklyTarget: -50, rolloverEnabled: false },
+        },
+        lastModified: '2025-01-09T12:01:00Z',
+      };
+
+      // First save succeeds without mocking
+      const save1 = Promise.resolve().then(() => StateManager.save({ budgetPlan: plan1 }));
+      await save1;
+
+      // Now mock setItem to fail for second save
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        const error = new Error('QuotaExceededError');
+        error.name = 'QuotaExceededError';
+        throw error;
+      });
+
+      // Second save should fail
+      const save2 = Promise.resolve().then(() => StateManager.save({ budgetPlan: plan2 }));
+
+      const results = await Promise.allSettled([save2]);
+
+      // Second save should have failed
+      const failed = results.filter((r) => r.status === 'rejected');
+      expect(failed.length).toBe(1);
+
+      // Verify first save is still persisted
+      vi.restoreAllMocks();
+      const final = StateManager.load();
+      expect(final.budgetPlan).toEqual(plan1);
+    });
+  });
+
   describe('Integration - Budget Plan Persistence Across Page Reload', () => {
     it('persists simple budget plan across simulated page reload', () => {
       // Step 1: Create and save a budget plan

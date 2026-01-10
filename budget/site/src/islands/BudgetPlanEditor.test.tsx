@@ -996,6 +996,156 @@ describe('BudgetPlanEditor', () => {
     });
   });
 
+  describe('Validation Edge Cases', () => {
+    it('rejects Number.MAX_SAFE_INTEGER as exceeding max budget', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const incomeInput = screen.getByPlaceholderText('2000');
+      fireEvent.change(incomeInput, { target: { value: String(Number.MAX_SAFE_INTEGER) } });
+
+      expect(screen.getByText(/unusually large/i)).toBeInTheDocument();
+    });
+
+    it('treats -0 as zero and shows validation error', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+      fireEvent.change(groceriesInput, { target: { value: '-0' } });
+
+      expect(screen.getByText(/cannot be zero/i)).toBeInTheDocument();
+    });
+
+    it('saves without invalid budget when validation error exists', () => {
+      const onSave = vi.fn();
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={onSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // Enter invalid value (zero)
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+      fireEvent.change(groceriesInput, { target: { value: '0' } });
+
+      // Verify error is shown
+      expect(screen.getByText(/cannot be zero/i)).toBeInTheDocument();
+
+      // Try to save
+      const saveButton = screen.getByText('Save Budget Plan');
+      fireEvent.click(saveButton);
+
+      // Current behavior: invalid value is rejected, so save proceeds with empty budgets
+      // The validation error shows in UI but doesn't block save since the value wasn't added to categoryBudgets
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categoryBudgets: {}, // Invalid value was rejected, not included in save
+        })
+      );
+    });
+
+    it('clears validation error when user fixes value', () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+
+      // Enter invalid value (zero)
+      fireEvent.change(groceriesInput, { target: { value: '0' } });
+      expect(screen.getByText(/cannot be zero/i)).toBeInTheDocument();
+
+      // Fix value
+      fireEvent.change(groceriesInput, { target: { value: '-500' } });
+      expect(screen.queryByText(/cannot be zero/i)).not.toBeInTheDocument();
+    });
+
+    it('saves without invalid budget when positive expense value is entered', () => {
+      const onSave = vi.fn();
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={onSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // Enter positive value for expense category
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+      fireEvent.change(groceriesInput, { target: { value: '500' } });
+
+      // Verify error is shown
+      expect(screen.getByText(/should be negative/i)).toBeInTheDocument();
+
+      // Try to save
+      const saveButton = screen.getByText('Save Budget Plan');
+      fireEvent.click(saveButton);
+
+      // Current behavior: invalid value is rejected, so save proceeds with empty budgets
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categoryBudgets: {}, // Invalid value was rejected, not included in save
+        })
+      );
+    });
+
+    it('allows save after fixing validation errors', () => {
+      const onSave = vi.fn();
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={onSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+
+      // Enter invalid value
+      fireEvent.change(groceriesInput, { target: { value: '0' } });
+      expect(screen.getByText(/cannot be zero/i)).toBeInTheDocument();
+
+      // Fix value
+      fireEvent.change(groceriesInput, { target: { value: '-500' } });
+      expect(screen.queryByText(/cannot be zero/i)).not.toBeInTheDocument();
+
+      // Try to save (should succeed now)
+      const saveButton = screen.getByText('Save Budget Plan');
+      fireEvent.click(saveButton);
+
+      // Verify save was called
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // TODO(#1337): Implement real-time input validation for BudgetPlanEditor
   // Tests expect validation errors to be displayed when invalid input is entered (e.g., '123abc')
   // but the validation logic has not been implemented yet. Once validation is added, un-skip these tests.

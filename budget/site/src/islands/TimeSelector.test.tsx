@@ -1093,4 +1093,353 @@ describe('TimeSelector', () => {
       expect(previousButton).not.toBeDisabled();
     });
   });
+
+  describe('Integration: Error Recovery Flows', () => {
+    it('completes full flow: getCurrentWeek fails → fallback to latest week → shows error banner → user can still navigate', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockShowWarningBanner = vi.mocked(StateManager.showWarningBanner);
+
+      // Simulate system date error
+      mockGetCurrentWeek.mockImplementation(() => {
+        throw new Error('System date error');
+      });
+
+      const availableWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W02'), weekId('2025-W03')];
+
+      render(
+        <TimeSelector granularity="week" selectedWeek={null} availableWeeks={availableWeeks} />
+      );
+
+      // Verify error banner shown to user
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining('Using latest available week')
+      );
+
+      // Verify fallback week displayed (latest available = W03)
+      expect(screen.getByText(/2025-W03/)).toBeInTheDocument();
+
+      // Verify user can still navigate backward from fallback week
+      const previousButton = screen.getByText('← Previous');
+      expect(previousButton).not.toBeDisabled();
+
+      fireEvent.click(previousButton);
+
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W02'),
+      });
+
+      // Verify getCurrentWeek error was logged
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to get current week:',
+        expect.any(Error)
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('renders error state when both getCurrentWeek and fallback week validation fail', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Simulate getCurrentWeek failure
+      mockGetCurrentWeek.mockImplementation(() => {
+        throw new Error('System date error');
+      });
+
+      // Simulate fallback week validation failure - getWeekBoundaries throws for the fallback week
+      const fallbackWeek = weekId('2025-W53'); // Valid format, but boundaries calculation will fail
+      mockGetWeekBoundaries.mockImplementation(() => {
+        throw new Error('Invalid week data');
+      });
+
+      render(
+        <TimeSelector granularity="week" selectedWeek={null} availableWeeks={[fallbackWeek]} />
+      );
+
+      // Verify error state rendered
+      expect(screen.getByText(/Time selector unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(/No valid week data available/i)).toBeInTheDocument();
+
+      // Verify navigation buttons NOT rendered in error state
+      expect(screen.queryByText('← Previous')).not.toBeInTheDocument();
+      expect(screen.queryByText('Next →')).not.toBeInTheDocument();
+
+      // Verify errors logged
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to get current week:',
+        expect.any(Error)
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Fallback week is invalid:',
+        expect.any(String),
+        expect.any(Error)
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('completes auto-recovery flow: navigation error → error banner → auto-reset to current week → user continues navigating', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockGetPreviousWeek.mockImplementationOnce(() => {
+        throw new Error('Navigation failed');
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const previousButton = screen.getByText('← Previous');
+      fireEvent.click(previousButton);
+
+      // Verify error banner shown to user
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        'Cannot navigate to previous week. Resetting to current week.'
+      );
+
+      // Verify auto-recovery dispatched (week: null = current week)
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: null,
+      });
+
+      // Verify error logged
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to navigate to previous week:',
+        expect.any(Error)
+      );
+
+      // Restore normal navigation
+      mockGetPreviousWeek.mockImplementation((week: WeekId) => {
+        const match = week.match(/^(\d{4})-W(\d{2})$/);
+        if (!match) return currentWeek;
+        const year = parseInt(match[1], 10);
+        const weekNum = parseInt(match[2], 10);
+        const prevWeek = weekNum - 1;
+        if (prevWeek < 1) {
+          return weekId(`${year - 1}-W52`);
+        }
+        return weekId(`${year}-W${prevWeek.toString().padStart(2, '0')}`);
+      });
+
+      vi.clearAllMocks();
+
+      // Verify user can continue navigating after recovery
+      fireEvent.click(previousButton);
+
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W04'),
+      });
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('handles multiple sequential navigation failures without getting stuck', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      let failureCount = 0;
+      mockGetPreviousWeek.mockImplementation(() => {
+        failureCount++;
+        if (failureCount <= 2) {
+          throw new Error(`Navigation failure ${failureCount}`);
+        }
+        // Third attempt succeeds
+        return weekId('2025-W04');
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const previousButton = screen.getByText('← Previous');
+
+      // First failure
+      fireEvent.click(previousButton);
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        'Cannot navigate to previous week. Resetting to current week.'
+      );
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', { week: null });
+
+      vi.clearAllMocks();
+
+      // Second failure
+      fireEvent.click(previousButton);
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        'Cannot navigate to previous week. Resetting to current week.'
+      );
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', { week: null });
+
+      vi.clearAllMocks();
+
+      // Third attempt succeeds
+      fireEvent.click(previousButton);
+      expect(mockShowErrorBanner).not.toHaveBeenCalled();
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W04'),
+      });
+
+      // Verify button remains functional (not stuck disabled)
+      expect(previousButton).not.toBeDisabled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('handles formatWeek error with complete recovery flow: error → banner → auto-reset → fallback display', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Use a valid WeekId that will fail during formatting
+      const corruptedWeek = weekId('2025-W53'); // Valid format, but boundaries will fail
+
+      // Mock getWeekBoundaries to fail for specific week
+      mockGetWeekBoundaries.mockImplementation((week: WeekId) => {
+        if (week === corruptedWeek) {
+          throw new Error('Corrupted week data');
+        }
+        // Return valid for currentWeek (used during recovery)
+        return {
+          start: '2025-03-01',
+          end: '2025-03-07',
+        };
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={corruptedWeek}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      // Verify error banner shown
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        `Invalid week data: ${corruptedWeek}. Cannot display week information. Please refresh the page.`
+      );
+
+      // Verify auto-reset dispatched
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: null,
+      });
+
+      // Verify fallback error display shown (not misleading data)
+      expect(
+        screen.getByText(new RegExp(`Invalid Week \\(${corruptedWeek}\\)`))
+      ).toBeInTheDocument();
+
+      // Verify error logged
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to format week'),
+        expect.any(Error)
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('verifies complete flow when getNextWeek fails during rapid navigation', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockGetNextWeek.mockImplementationOnce(() => {
+        throw new Error('Navigation calculation error');
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const nextButton = screen.getByText('Next →');
+
+      // Rapid click triggering error
+      fireEvent.click(nextButton);
+
+      // Verify complete error recovery flow
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to navigate to next week:',
+        expect.any(Error)
+      );
+      expect(mockShowErrorBanner).toHaveBeenCalledWith(
+        'Cannot navigate to next week. Resetting to current week.'
+      );
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: null,
+      });
+
+      // Verify button remains enabled for retry
+      expect(nextButton).not.toBeDisabled();
+
+      // Restore normal behavior
+      mockGetNextWeek.mockImplementation((week: WeekId) => {
+        const match = week.match(/^(\d{4})-W(\d{2})$/);
+        if (!match) return currentWeek;
+        const year = parseInt(match[1], 10);
+        const weekNum = parseInt(match[2], 10);
+        const nextWeek = weekNum + 1;
+        if (nextWeek > 52) {
+          return weekId(`${year + 1}-W01`);
+        }
+        return weekId(`${year}-W${nextWeek.toString().padStart(2, '0')}`);
+      });
+
+      vi.clearAllMocks();
+
+      // Verify user can retry navigation successfully
+      fireEvent.click(nextButton);
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W06'),
+      });
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('verifies no cascading errors when recovery succeeds after initial failure', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // getCurrentWeek fails, but fallback succeeds
+      mockGetCurrentWeek.mockImplementation(() => {
+        throw new Error('System time error');
+      });
+
+      const availableWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W02'), weekId('2025-W03')];
+
+      render(
+        <TimeSelector granularity="week" selectedWeek={null} availableWeeks={availableWeeks} />
+      );
+
+      // Initial error logged
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to get current week:',
+        expect.any(Error)
+      );
+
+      // Only one error logged (no cascade)
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
+      // Verify fallback succeeded - component is functional
+      expect(screen.getByText(/2025-W03/)).toBeInTheDocument();
+      expect(screen.getByText('← Previous')).toBeInTheDocument();
+      expect(screen.getByText('Next →')).toBeInTheDocument();
+
+      vi.clearAllMocks();
+
+      // Verify navigation works despite initial error
+      const previousButton = screen.getByText('← Previous');
+      fireEvent.click(previousButton);
+
+      // No new errors during navigation
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W02'),
+      });
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
 });
