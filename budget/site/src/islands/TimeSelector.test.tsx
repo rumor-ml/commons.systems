@@ -1097,7 +1097,6 @@ describe('TimeSelector', () => {
   describe('Integration: Error Recovery Flows', () => {
     it('completes full flow: getCurrentWeek fails → fallback to latest week → shows error banner → user can still navigate', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const mockShowWarningBanner = vi.mocked(StateManager.showWarningBanner);
 
       // Simulate system date error
       mockGetCurrentWeek.mockImplementation(() => {

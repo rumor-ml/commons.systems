@@ -1264,7 +1264,7 @@ describe('BudgetChart', () => {
           createTransaction({ id: 'invalid', date: '2025-02-31', amount: -50 }), // Feb 31st doesn't exist
         ];
 
-        const { container } = render(
+        render(
           <BudgetChart
             transactions={transactions}
             hiddenCategories={[]}
@@ -1486,7 +1486,7 @@ describe('BudgetChart', () => {
         createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100, category: 'groceries' }),
       ];
 
-      const { rerender } = render(
+      render(
         <BudgetChart
           transactions={transactions}
           hiddenCategories={[]}
@@ -1583,7 +1583,6 @@ describe('BudgetChart', () => {
         />
       );
 
-      const initialAddCalls = addEventListenerSpy.mock.calls.length;
       const initialRemoveCalls = removeEventListenerSpy.mock.calls.length;
 
       // Re-render with different props (which may trigger effect cleanup and re-setup)

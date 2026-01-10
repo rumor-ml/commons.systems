@@ -235,14 +235,14 @@ describe('createCashFlowPrediction', () => {
     it('should handle negative variance when historic performance was better', () => {
       const result = createCashFlowPrediction(1500, 400, 2000, 300);
       expect(result.predictedNetIncome).toBe(1100); // 1500 - 400
-      const historicNetIncome = 1700; // 2000 - 300
+      // Historic net income: 1700 (2000 - 300)
       expect(result.variance).toBe(-600); // 1100 - 1700
     });
 
     it('should handle positive variance when predicted performance is better', () => {
       const result = createCashFlowPrediction(2500, 400, 2000, 500);
       expect(result.predictedNetIncome).toBe(2100); // 2500 - 400
-      const historicNetIncome = 1500; // 2000 - 500
+      // Historic net income: 1500 (2000 - 500)
       expect(result.variance).toBe(600); // 2100 - 1500
     });
 
