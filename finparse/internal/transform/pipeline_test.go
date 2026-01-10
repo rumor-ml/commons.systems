@@ -169,7 +169,7 @@ func TestTransformTransaction(t *testing.T) {
 
 	statementID := "stmt-2025-10-acc-amex-2011"
 
-	txn, err := transformTransaction(rawTxn, statementID)
+	txn, err := transformTransaction(rawTxn, statementID, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestTransformStatementIntegration(t *testing.T) {
 
 	// Create budget and transform
 	budget := domain.NewBudget()
-	err := TransformStatement(raw, budget)
+	err := TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -450,13 +450,13 @@ func TestTransformStatementDuplicateHandling(t *testing.T) {
 	budget := domain.NewBudget()
 
 	// First transform should succeed
-	err := TransformStatement(raw, budget)
+	err := TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Fatalf("first transform failed: %v", err)
 	}
 
 	// Second transform should fail (duplicate statement)
-	err = TransformStatement(raw, budget)
+	err = TransformStatement(raw, budget, nil, nil)
 	if err == nil {
 		t.Errorf("expected error for duplicate statement")
 	} else if !strings.Contains(err.Error(), "already exists") {
@@ -479,7 +479,7 @@ func TestTransformStatement_NilBudget(t *testing.T) {
 		Transactions: []parser.RawTransaction{},
 	}
 
-	err := TransformStatement(raw, nil)
+	err := TransformStatement(raw, nil, nil, nil)
 	if err == nil {
 		t.Error("expected error for nil budget")
 	}
@@ -490,7 +490,7 @@ func TestTransformStatement_NilBudget(t *testing.T) {
 
 func TestTransformStatement_NilRawStatement(t *testing.T) {
 	budget := domain.NewBudget()
-	err := TransformStatement(nil, budget)
+	err := TransformStatement(nil, budget, nil, nil)
 	if err == nil {
 		t.Error("expected error for nil raw statement")
 	}
@@ -529,7 +529,7 @@ func TestTransformStatement_EmptyTransactionList(t *testing.T) {
 	}
 
 	budget := domain.NewBudget()
-	err := TransformStatement(raw, budget)
+	err := TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Fatalf("expected success with empty transactions, got error: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestTransformStatement_InvalidTransaction(t *testing.T) {
 	}
 
 	budget := domain.NewBudget()
-	err = TransformStatement(raw, budget)
+	err = TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Errorf("expected success with valid transaction, got error: %v", err)
 	}

@@ -6,14 +6,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
+	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 )
 
 // TransformStatement converts RawStatement to domain types and adds to Budget.
 // Institutions and accounts are added idempotently (duplicates are silently skipped).
 // Statements and transactions will fail on duplicates (data quality issue).
-func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
+// Optional state parameter enables deduplication (nil to disable).
+// Optional engine parameter enables rule-based categorization (nil to disable).
+func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *dedup.State, engine *rules.Engine) error {
 	if raw == nil {
 		return fmt.Errorf("raw statement cannot be nil")
 	}
@@ -56,15 +60,35 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget) error {
 
 	// TODO(#1347): Consider adding benchmark tests for large transaction volumes
 	for i, rawTxn := range raw.Transactions {
-		txn, err := transformTransaction(&rawTxn, statement.ID)
+		// Transform basic transaction
+		txn, err := transformTransaction(&rawTxn, statement.ID, engine)
 		if err != nil {
 			return fmt.Errorf("failed to transform transaction %d/%d (ID: %q, date: %s): %w",
 				i+1, len(raw.Transactions), rawTxn.ID(), rawTxn.Date().Format("2006-01-02"), err)
 		}
 
+		// Generate fingerprint for deduplication
+		fingerprint := dedup.GenerateFingerprint(txn.Date, txn.Amount, txn.Description)
+
+		// Check for duplicates if state is provided
+		if state != nil {
+			if state.IsDuplicate(fingerprint) {
+				// Skip duplicate transaction
+				continue
+			}
+		}
+
+		// Add transaction to budget
 		if err := budget.AddTransaction(*txn); err != nil {
 			return fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w",
 				i+1, len(raw.Transactions), txn.ID, err)
+		}
+
+		// Record in state if provided
+		if state != nil {
+			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
+				return fmt.Errorf("failed to record transaction fingerprint: %w", err)
+			}
 		}
 	}
 
@@ -137,8 +161,9 @@ func transformStatement(raw *parser.RawStatement, accountID string) (*domain.Sta
 	return statement, nil
 }
 
-// transformTransaction creates a domain Transaction from RawTransaction
-func transformTransaction(raw *parser.RawTransaction, statementID string) (*domain.Transaction, error) {
+// transformTransaction creates a domain Transaction from RawTransaction.
+// Optional engine parameter enables rule-based categorization (nil to disable).
+func transformTransaction(raw *parser.RawTransaction, statementID string, engine *rules.Engine) (*domain.Transaction, error) {
 	// Use existing ID from RawTransaction (stable from parser)
 	txnID := raw.ID()
 	if txnID == "" {
@@ -155,18 +180,39 @@ func transformTransaction(raw *parser.RawTransaction, statementID string) (*doma
 
 	amount := raw.Amount()
 
-	// Phase 4 defaults: category="other", all flags false, redemptionRate=0.0
+	// Create transaction with default category
 	txn, err := domain.NewTransaction(txnID, date, description, amount, domain.CategoryOther)
 	if err != nil {
 		return nil, err
 	}
 
-	// Set default values
-	txn.Vacation = false
-	txn.Transfer = false
-	if err := txn.SetRedeemable(false, 0.0); err != nil {
-		return nil, fmt.Errorf("failed to set redeemable state: %w", err)
+	// Apply rules if engine provided
+	if engine != nil {
+		if result, matched := engine.Match(description); matched {
+			// Apply matched rule
+			txn.Category = result.Category
+			txn.Vacation = result.Vacation
+			txn.Transfer = result.Transfer
+			if err := txn.SetRedeemable(result.Redeemable, result.RedemptionRate); err != nil {
+				return nil, fmt.Errorf("failed to set redeemable from rule: %w", err)
+			}
+		} else {
+			// No match: use defaults
+			txn.Vacation = false
+			txn.Transfer = false
+			if err := txn.SetRedeemable(false, 0.0); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// No engine: use defaults
+		txn.Vacation = false
+		txn.Transfer = false
+		if err := txn.SetRedeemable(false, 0.0); err != nil {
+			return nil, err
+		}
 	}
+
 	txn.LinkedTransactionID = nil
 
 	// Link transaction to statement

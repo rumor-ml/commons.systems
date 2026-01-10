@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/output"
 	"github.com/rumor-ml/commons.systems/finparse/internal/registry"
+	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
 	"github.com/rumor-ml/commons.systems/finparse/internal/transform"
 )
@@ -146,7 +148,7 @@ NEWFILEUID:NONE
 			t.Fatalf("parse failed: %v", err)
 		}
 
-		if err := transform.TransformStatement(rawStmt, budget); err != nil {
+		if err := transform.TransformStatement(rawStmt, budget, nil, nil); err != nil {
 			t.Fatalf("transform failed: %v", err)
 		}
 	}
@@ -280,7 +282,7 @@ NEWFILEUID:NONE
 			t.Fatalf("parse failed (2nd pass): %v", err)
 		}
 
-		if err := transform.TransformStatement(rawStmt, budget2); err != nil {
+		if err := transform.TransformStatement(rawStmt, budget2, nil, nil); err != nil {
 			t.Fatalf("transform failed (2nd pass): %v", err)
 		}
 	}
@@ -402,7 +404,7 @@ NEWFILEUID:NONE
 			f, _ := os.Open(file.Path)
 			rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
 			f.Close()
-			transform.TransformStatement(rawStmt, budget)
+			transform.TransformStatement(rawStmt, budget, nil, nil)
 		}
 
 		transactions := budget.GetTransactions()
@@ -425,5 +427,198 @@ NEWFILEUID:NONE
 		if ids1[i] != ids2[i] {
 			t.Errorf("transaction ID mismatch at index %d: %q vs %q", i, ids1[i], ids2[i])
 		}
+	}
+}
+
+// TestEndToEnd_DedupAndRules tests the complete Phase 5 dedup and rules pipeline
+func TestEndToEnd_DedupAndRules(t *testing.T) {
+	// Create temporary directory
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create directory structure
+	instDir := filepath.Join(tmpDir, "american_express")
+	acctDir := filepath.Join(instDir, "2011")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatalf("failed to create directory structure: %v", err)
+	}
+
+	// Create OFX file with transactions that match embedded rules
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001000000
+<DTEND>20251031235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251005120000
+<TRNAMT>-50.00
+<FITID>TXN001
+<NAME>WHOLEFDS MARKET
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251015120000
+<TRNAMT>-15.00
+<FITID>TXN002
+<NAME>CHIPOTLE MEXICAN GRILL
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20251020120000
+<TRNAMT>1000.00
+<FITID>TXN003
+<NAME>JOHNS HOPKINS UNIVERSITY
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>935.00
+<DTASOF>20251031000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	ofxFile := filepath.Join(acctDir, "2025-10.qfx")
+	if err := os.WriteFile(ofxFile, []byte(ofxContent), 0644); err != nil {
+		t.Fatalf("failed to write OFX file: %v", err)
+	}
+
+	// First parse: should create state and apply rules
+	ctx := context.Background()
+	budget1 := domain.NewBudget()
+
+	s := scanner.New(tmpDir)
+	files, err := s.Scan()
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	reg, err := registry.New()
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	// Load state and rules
+	state := dedup.NewState()
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+
+	// Parse and transform
+	for _, file := range files {
+		parser, _ := reg.FindParser(file.Path)
+		f, _ := os.Open(file.Path)
+		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
+		f.Close()
+		if err := transform.TransformStatement(rawStmt, budget1, state, engine); err != nil {
+			t.Fatalf("transform failed: %v", err)
+		}
+	}
+
+	// Save state
+	if err := dedup.SaveState(state, stateFile); err != nil {
+		t.Fatalf("failed to save state: %v", err)
+	}
+
+	// Verify rules were applied
+	transactions1 := budget1.GetTransactions()
+	if len(transactions1) != 3 {
+		t.Fatalf("expected 3 transactions, got %d", len(transactions1))
+	}
+
+	// Check categories from rules
+	for _, txn := range transactions1 {
+		if strings.Contains(txn.Description, "WHOLEFDS") {
+			if txn.Category != domain.CategoryGroceries {
+				t.Errorf("WHOLEFDS should be groceries, got %s", txn.Category)
+			}
+			if !txn.Redeemable {
+				t.Error("WHOLEFDS should be redeemable")
+			}
+		} else if strings.Contains(txn.Description, "CHIPOTLE") {
+			if txn.Category != domain.CategoryDining {
+				t.Errorf("CHIPOTLE should be dining, got %s", txn.Category)
+			}
+			if !txn.Redeemable {
+				t.Error("CHIPOTLE should be redeemable")
+			}
+		} else if strings.Contains(txn.Description, "JOHNS HOPKINS") {
+			if txn.Category != domain.CategoryIncome {
+				t.Errorf("JOHNS HOPKINS should be income, got %s", txn.Category)
+			}
+			if txn.Redeemable {
+				t.Error("JOHNS HOPKINS should not be redeemable")
+			}
+		}
+	}
+
+	// Second parse: should skip all as duplicates
+	budget2 := domain.NewBudget()
+
+	// Load state
+	loadedState, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("failed to load state: %v", err)
+	}
+
+	// Parse and transform again
+	files2, _ := s.Scan()
+	for _, file := range files2 {
+		parser, _ := reg.FindParser(file.Path)
+		f, _ := os.Open(file.Path)
+		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
+		f.Close()
+		if err := transform.TransformStatement(rawStmt, budget2, loadedState, engine); err != nil {
+			t.Fatalf("transform failed: %v", err)
+		}
+	}
+
+	// Verify no transactions added (all were duplicates)
+	transactions2 := budget2.GetTransactions()
+	if len(transactions2) != 0 {
+		t.Errorf("expected 0 transactions (all duplicates), got %d", len(transactions2))
+	}
+
+	// Verify state was updated
+	if loadedState.Metadata.TotalFingerprints != 3 {
+		t.Errorf("expected 3 fingerprints in state, got %d", loadedState.Metadata.TotalFingerprints)
 	}
 }

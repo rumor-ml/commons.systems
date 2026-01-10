@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/output"
 	"github.com/rumor-ml/commons.systems/finparse/internal/registry"
+	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
 	"github.com/rumor-ml/commons.systems/finparse/internal/transform"
 )
@@ -146,6 +149,53 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "Warning: No statement files found. Check directory path and ensure files have .qfx, .ofx, or .csv extensions.\n")
 	}
 
+	// Phase 5: Load dedup state if provided
+	var state *dedup.State
+	if *stateFile != "" {
+		loadedState, err := dedup.LoadState(*stateFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// State file doesn't exist, create new
+				state = dedup.NewState()
+				if *verbose {
+					fmt.Fprintf(os.Stderr, "State file not found, creating new state\n")
+				}
+			} else {
+				return fmt.Errorf("failed to load state file: %w", err)
+			}
+		} else {
+			state = loadedState
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "Loaded state with %d fingerprints\n",
+					state.Metadata.TotalFingerprints)
+			}
+		}
+	}
+
+	// Phase 5: Load rules engine
+	var engine *rules.Engine
+	if *rulesFile != "" {
+		// Custom rules from file
+		loadedEngine, err := rules.LoadFromFile(*rulesFile)
+		if err != nil {
+			return fmt.Errorf("failed to load rules file: %w", err)
+		}
+		engine = loadedEngine
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "Loaded %d custom rules from %s\n", len(engine.GetRules()), *rulesFile)
+		}
+	} else {
+		// Use embedded rules
+		loadedEngine, err := rules.LoadEmbedded()
+		if err != nil {
+			return fmt.Errorf("failed to load embedded rules: %w", err)
+		}
+		engine = loadedEngine
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "Loaded %d embedded rules\n", len(engine.GetRules()))
+		}
+	}
+
 	// Phase 4: Transform and output
 	budget := domain.NewBudget()
 
@@ -190,7 +240,7 @@ func run() error {
 				parser.Name(), file.Path)
 		}
 
-		if err := transform.TransformStatement(rawStmt, budget); err != nil {
+		if err := transform.TransformStatement(rawStmt, budget, state, engine); err != nil {
 			// Provide context about parsed data in error message
 			return fmt.Errorf("transform failed for file %d of %d (%s) with %d transactions from %s to %s: %w",
 				i+1, len(files), file.Path,
@@ -198,6 +248,24 @@ func run() error {
 				rawStmt.Period.Start().Format("2006-01-02"),
 				rawStmt.Period.End().Format("2006-01-02"),
 				err)
+		}
+	}
+
+	// Phase 5: Save state if modified
+	if state != nil && *stateFile != "" {
+		// Ensure directory exists
+		stateDir := filepath.Dir(*stateFile)
+		if err := os.MkdirAll(stateDir, 0755); err != nil {
+			return fmt.Errorf("failed to create state directory: %w", err)
+		}
+
+		if err := dedup.SaveState(state, *stateFile); err != nil {
+			return fmt.Errorf("failed to save state file: %w", err)
+		}
+
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "Saved state with %d fingerprints to %s\n",
+				state.Metadata.TotalFingerprints, *stateFile)
 		}
 	}
 
