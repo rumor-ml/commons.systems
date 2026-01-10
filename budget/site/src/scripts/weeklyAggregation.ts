@@ -131,7 +131,7 @@ export function aggregateTransactionsByWeek(
     });
 
     const weekList = Array.from(skippedWeeks).join(', ');
-    const message = `Data quality issue: ${skippedWeeks.size} week(s) excluded due to invalid dates: ${weekList}. Transactions from these weeks are PERMANENTLY excluded from all views. Check browser console for affected transaction details.`;
+    const message = `Data quality issue: ${skippedWeeks.size} week(s) excluded due to invalid dates: ${weekList}. Transactions from these weeks are excluded from WEEKLY view but will still appear in MONTHLY view. Check browser console for affected transaction details.`;
 
     console.error(message);
     console.error(
@@ -160,7 +160,10 @@ export function aggregateTransactionsByWeek(
  * Negative rollover indicates accumulated debt, positive indicates accumulated surplus.
  * @param weeklyData - All weekly transaction data
  * @param budgetPlan - Budget plan with category targets and rollover settings
- * @param fromWeek - Start week (inclusive) - typically first week of data
+ * @param fromWeek - Start week (inclusive) for rollover calculation window.
+ *   Should be the first week where budget tracking began, or the earliest week in weeklyData.
+ *   Using a week later than budget start will exclude earlier rollover accumulation from results.
+ *   Example: If budget started '2025-W01', always pass '2025-W01' to include full rollover history.
  * @param toWeek - End week (exclusive). Calculates rollover accumulated up to but not including toWeek.
  *   Example: pass '2025-W05' to get rollover available for W05 budget adjustment (accumulated through end of W04).
  *   The returned rollover adjusts toWeek's effective budget target.
@@ -212,6 +215,12 @@ export function calculateRolloverAccumulation(
           actual,
           target,
         });
+
+        // Notify user that rollover is incomplete
+        StateManager.showErrorBanner(
+          `Data quality issue: Rollover calculation incomplete for ${cat}. Week ${week} has invalid transaction data. Check console for details and reimport your transactions.`
+        );
+
         return; // Skip this week
       }
 
@@ -227,6 +236,12 @@ export function calculateRolloverAccumulation(
         console.error(
           `Rollover overflow for ${cat}: ${currentRollover} + ${variance} = ${newRollover}`
         );
+
+        // Notify user that rollover is broken
+        StateManager.showErrorBanner(
+          `Rollover calculation failed for ${cat}: accumulated rollover has exceeded valid range. Your budget data may be corrupted. Consider resetting your budget plan.`
+        );
+
         return; // Skip this week
       }
 
@@ -262,10 +277,24 @@ export function calculateWeeklyComparison(
   // Get data for the target week
   const weekData = weeklyData.filter((d) => d.week === week);
 
+  // Track which categories have transaction data this week
+  const categoriesWithData = new Set(weekData.map((d) => d.category));
+
   // Create comparison for each category with a budget
   Object.entries(budgetPlan.categoryBudgets).forEach(([category, budget]) => {
     const cat = category as Category;
-    const actual = weekData.find((d) => d.category === cat)?.amount || 0;
+    const weekDataForCategory = weekData.find((d) => d.category === cat);
+    const actual = weekDataForCategory?.amount || 0;
+
+    // Log warning if category has budget but no transaction data
+    // This could indicate missing data or legitimate zero spending
+    if (!categoriesWithData.has(cat) && Math.abs(budget.weeklyTarget) > 0) {
+      console.warn(
+        `Category ${cat} has budget ($${budget.weeklyTarget}) but no transaction data for week ${week}. ` +
+          `This could indicate: (1) no spending/income this week (expected), or (2) data filtering error (unexpected).`
+      );
+    }
+
     const target = budget.weeklyTarget;
     const rolloverAccumulated = rolloverMap.get(cat) || 0;
 

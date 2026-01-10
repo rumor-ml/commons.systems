@@ -85,7 +85,9 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
  * @property selectedWeek - Specific week for week view, or null to show current week.
  *   null = components call getCurrentWeek() on each render (ensures "current week" stays current across days)
  *   Non-null = user has navigated to a specific historical week (persisted for session continuity)
- *   INVARIANT: Must be null when viewGranularity is 'month' (enforced at type level via discriminated union)
+ *   INVARIANT: Enforced via discriminated union type:
+ *   - viewGranularity='month' → selectedWeek MUST be null
+ *   - viewGranularity='week' → selectedWeek MAY be null (current week) or WeekId (specific week)
  * @property planningMode - Whether budget plan editor is visible
  */
 export type BudgetState = {
@@ -212,14 +214,27 @@ export class StateManager {
         selectedWeek = null;
       }
 
-      return {
+      // Return properly typed discriminated union based on viewGranularity
+      const baseState = {
         hiddenCategories,
         showVacation: parsed.showVacation ?? true,
         budgetPlan,
-        viewGranularity,
-        selectedWeek,
         planningMode: parsed.planningMode === true,
       };
+
+      if (viewGranularity === 'month') {
+        return {
+          ...baseState,
+          viewGranularity: 'month' as const,
+          selectedWeek: null,
+        };
+      } else {
+        return {
+          ...baseState,
+          viewGranularity: 'week' as const,
+          selectedWeek,
+        };
+      }
     } catch (error) {
       // TODO(#1387): Distinguish between error types (JSON parse, localStorage access, validation) and provide specific user guidance
       console.error('Failed to load state from localStorage:', error);
@@ -242,7 +257,37 @@ export class StateManager {
 
   static save(state: Partial<BudgetState>): BudgetState {
     const current = this.load();
-    const updated = { ...current, ...state };
+
+    // Build updated state with proper type narrowing for discriminated union
+    let updated: BudgetState;
+
+    // Determine the target viewGranularity (from update or current)
+    const targetGranularity = state.viewGranularity ?? current.viewGranularity;
+
+    if (targetGranularity === 'month') {
+      // Month mode: selectedWeek must be null (discriminated union constraint)
+      updated = {
+        ...current,
+        ...state,
+        viewGranularity: 'month',
+        selectedWeek: null,
+      };
+    } else {
+      // Week mode: selectedWeek can be WeekId | null
+      const selectedWeek =
+        state.selectedWeek !== undefined
+          ? state.selectedWeek
+          : current.viewGranularity === 'week'
+            ? current.selectedWeek
+            : null;
+
+      updated = {
+        ...current,
+        ...state,
+        viewGranularity: 'week',
+        selectedWeek,
+      };
+    }
 
     try {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updated));
@@ -279,7 +324,5 @@ export class StateManager {
       // Return current persisted state, NOT the failed update
       return current;
     }
-
-    return updated;
   }
 }

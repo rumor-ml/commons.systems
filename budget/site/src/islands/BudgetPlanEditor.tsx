@@ -71,9 +71,7 @@ export function BudgetPlanEditor({
     // TODO(#1390): Remove console.warn calls after 1+ month of stable validation (keep user-facing error messages)
     // Allow empty string to clear budget
     if (value.trim() === '') {
-      // Remove category from budget object entirely to indicate "no budget set" (semantically different from $0 budget).
-      // Omitting the key allows the UI to distinguish between "unconfigured" vs "explicitly set to zero".
-      // Note: isValidCategoryBudget() rejects zero targets to prevent ambiguous state.
+      // Remove category from budget (omitted key = unconfigured, not zero budget)
       const updated = { ...categoryBudgets };
       delete updated[category];
       setCategoryBudgets(updated);
@@ -90,6 +88,16 @@ export function BudgetPlanEditor({
         category,
         'Please enter a valid number (e.g., -500 for expenses)',
         `Invalid budget value for ${category}: "${value}"`
+      );
+      return;
+    }
+
+    // Validate non-zero (matches isValidCategoryBudget requirements)
+    if (numValue === 0) {
+      showValidationError(
+        category,
+        'Budget target cannot be zero. Leave empty for no budget, or enter a non-zero value.',
+        `Zero budget value for ${category} - use empty field to indicate no budget`
       );
       return;
     }

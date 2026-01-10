@@ -38,28 +38,6 @@ function renderEmptyState(container: HTMLElement, message: string): void {
 }
 
 /**
- * Get user-friendly error messages based on error type.
- */
-function getErrorMessages(error: string): { userMessage: string; guidance: string } {
-  if (error.includes('Invalid or missing transaction data')) {
-    return {
-      userMessage: 'Transaction data could not be loaded.',
-      guidance: 'Check that your transaction data file is valid and properly formatted.',
-    };
-  }
-  if (error.toLowerCase().includes('parse')) {
-    return {
-      userMessage: 'Data format error detected.',
-      guidance: 'Your saved preferences may be corrupted. Try clearing your browser cache.',
-    };
-  }
-  return {
-    userMessage: 'An unexpected error occurred while loading the chart.',
-    guidance: 'Try refreshing the page. If the problem persists, contact support.',
-  };
-}
-
-/**
  * Transform transactions to monthly aggregates with qualifier tracking.
  * Filters out transfers and applies category/vacation filters.
  * @returns Object containing monthlyData, netIncomeData, and trailingAvgData
@@ -153,7 +131,33 @@ function transformToMonthlyData(
   const trailingAvgData = netIncomeData.map((item, idx) => {
     const start = Math.max(0, idx - 2);
     const slice = netIncomeData.slice(start, idx + 1);
-    const avg = d3.mean(slice, (d) => d.netIncome) || 0;
+
+    // Validate slice has data before calculating mean
+    if (slice.length === 0) {
+      console.warn(`No data for trailing average at index ${idx}`);
+      return {
+        month: item.month,
+        trailingAvg: 0,
+      };
+    }
+
+    const avg = d3.mean(slice, (d) => d.netIncome);
+
+    // Validate mean calculation succeeded
+    // d3.mean returns undefined for empty arrays and NaN for arrays of all NaN values
+    if (avg === undefined || !Number.isFinite(avg)) {
+      console.error(`Invalid trailing average at index ${idx}:`, {
+        slice: slice.map((d) => ({ month: d.month, netIncome: d.netIncome })),
+        calculatedMean: avg,
+      });
+
+      // Return 0 for empty data - intentional fallback for display purposes
+      return {
+        month: item.month,
+        trailingAvg: 0,
+      };
+    }
+
     return {
       month: item.month,
       trailingAvg: avg,
@@ -165,14 +169,14 @@ function transformToMonthlyData(
 
 /**
  * Render monthly stacked bar chart with trend lines.
- * @returns Observable Plot element
+ * @returns Object containing plot element and partitioned data
  */
 function renderMonthlyChart(
   container: HTMLElement,
   monthlyData: MonthlyData[],
   netIncomeData: { month: Date; netIncome: number }[],
   trailingAvgData: { month: Date; trailingAvg: number }[]
-): Element {
+): { plot: Element; expenseData: MonthlyData[]; incomeData: MonthlyData[] } {
   // Partition data once for both plot rendering and event listeners
   const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
 
@@ -247,27 +251,34 @@ function renderMonthlyChart(
     ],
   });
 
-  return plot;
+  return { plot, expenseData, incomeData };
 }
 
 /**
  * Attach event listeners to bar segments for tooltip interactivity.
+ * @param expenseData Pre-partitioned expense data (negative amounts)
+ * @param incomeData Pre-partitioned income data (positive amounts)
  * @throws Error if bar groups not found (caller should handle gracefully)
  */
 function attachTooltipListeners(
   plot: Element,
-  monthlyData: MonthlyData[],
+  expenseData: MonthlyData[],
+  incomeData: MonthlyData[],
   setHoveredSegment: (data: TooltipData | null) => void,
   pinnedSegmentRef: React.MutableRefObject<TooltipData | null>,
   setPinnedSegment: (data: TooltipData | null) => void
 ): void {
   // Attach event listeners to bar segments for tooltips
-  // We need to match bars to data - Plot renders bars in two groups (expenses and income)
-  // The bars are in g[aria-label="bar"] elements - expenses first, then income
-  // Observable Plot may render bar groups in different structures depending on data shape.
-  // If bar groups not found, we throw an error to fail fast rather than rendering a broken chart.
-  // Caller (useEffect) catches this and displays user-visible warning banner.
-  // User impact: Chart renders but shows "static mode" warning; tooltips won't work on hover/click.
+  // Expected DOM structure from Observable Plot:
+  //   - Two g[aria-label="bar"] groups (one for expenses, one for income)
+  //   - barGroups[0] contains expense bars (negative values, stacked)
+  //   - barGroups[1] contains income bars (positive values, stacked)
+  //   - Each group's rect elements map 1:1 to filtered data array (after partitionByIncome)
+  // Observable Plot may render differently if:
+  //   - Only expenses or only income present (single bar group)
+  //   - Empty data (no bar groups)
+  //   - Future Plot version changes aria-label structure
+  // If structure doesn't match expectations, we fail fast with clear error rather than silently attaching listeners to wrong elements.
   const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
   const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
   const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
@@ -276,9 +287,6 @@ function attachTooltipListeners(
   if (barGroups.length === 0) {
     throw new Error('Chart bars not found - tooltip interactivity unavailable');
   }
-
-  // Partition data to match bar rendering order
-  const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
 
   // Helper function to attach event listeners to bar segments
   const attachBarEventListeners = (bars: NodeListOf<Element> | Element[], data: MonthlyData[]) => {
@@ -451,6 +459,7 @@ export function BudgetChart({
 
       // Calculate budget comparisons if budget plan exists
       let comparisons: Map<Category, { target: number; rolloverAccumulated: number }> = new Map();
+      let budgetComparisonFailed = false;
       if (budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0) {
         try {
           const comparisonData = calculateWeeklyComparison(weeklyData, budgetPlan, activeWeek);
@@ -465,12 +474,9 @@ export function BudgetChart({
             activeWeek,
             budgetCategories: Object.keys(budgetPlan.categoryBudgets),
           });
-          // Don't render degraded chart - show clear error instead
-          setError(
-            'Budget comparison calculation failed. Your budget plan may contain invalid data. Please review your budget settings or contact support.'
-          );
-          setLoading(false);
-          return; // CRITICAL: Don't continue with degraded rendering
+          // Show degraded chart without budget overlays instead of complete failure
+          budgetComparisonFailed = true;
+          // comparisons Map is already empty, so no budget overlays will be added
         }
       }
 
@@ -576,6 +582,15 @@ export function BudgetChart({
         });
 
         containerRef.current.appendChild(plot);
+
+        // Add warning indicator if budget comparison failed
+        if (budgetComparisonFailed && containerRef.current) {
+          const warningDiv = document.createElement('div');
+          warningDiv.className = 'text-xs text-warning bg-warning-muted p-2 rounded mt-2';
+          warningDiv.innerHTML =
+            '⚠️ Budget overlays unavailable - showing spending data only. Check your budget settings.';
+          containerRef.current.appendChild(warningDiv);
+        }
       } catch (err) {
         console.error('Failed to render weekly chart:', err, {
           activeWeek,
@@ -615,9 +630,19 @@ export function BudgetChart({
 
     // Chart rendering
     let plot: Element;
+    let expenseData: MonthlyData[];
+    let incomeData: MonthlyData[];
     try {
       containerRef.current.replaceChildren();
-      plot = renderMonthlyChart(containerRef.current, monthlyData, netIncomeData, trailingAvgData);
+      const result = renderMonthlyChart(
+        containerRef.current,
+        monthlyData,
+        netIncomeData,
+        trailingAvgData
+      );
+      plot = result.plot;
+      expenseData = result.expenseData;
+      incomeData = result.incomeData;
       containerRef.current.appendChild(plot);
     } catch (err) {
       console.error('Failed to render monthly chart:', err);
@@ -630,7 +655,8 @@ export function BudgetChart({
     try {
       attachTooltipListeners(
         plot,
-        monthlyData,
+        expenseData,
+        incomeData,
         setHoveredSegment,
         pinnedSegmentRef,
         setPinnedSegment
@@ -689,16 +715,13 @@ export function BudgetChart({
     // Log technical details to console for debugging
     console.error('BudgetChart error:', error);
 
-    // Determine user-friendly message based on error type
-    const { userMessage, guidance: actionableGuidance } = getErrorMessages(error);
-
     return (
       <div className="p-8 bg-error-muted rounded-lg border border-error">
         <div className="flex items-start gap-3">
           <span className="text-error text-2xl">⚠️</span>
           <div>
-            <h3 className="text-error font-semibold mb-1">{userMessage}</h3>
-            <p className="text-error text-sm mb-2">{actionableGuidance}</p>
+            <h3 className="text-error font-semibold mb-1">Chart Error</h3>
+            <p className="text-error text-sm mb-2">{error}</p>
             <details className="text-xs text-error opacity-75">
               <summary className="cursor-pointer">Technical details</summary>
               <pre className="mt-2 p-2 bg-bg-base rounded overflow-x-auto">{error}</pre>

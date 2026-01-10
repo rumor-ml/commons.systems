@@ -61,12 +61,14 @@ export function getISOWeek(date: string): WeekId {
   // Validate that the date wasn't normalized by the Date constructor.
   // JavaScript's Date constructor accepts invalid days and silently normalizes them:
   // "2025-02-31" → "2025-03-03", "2025-04-31" → "2025-05-01"
-  // This check ensures we reject such invalid dates rather than accepting them silently.
+  // This check also catches timezone-related date shifts where parsing results in normalization.
+  // Ensures we reject such invalid dates rather than accepting them silently.
   const reconstructed = d.toISOString().substring(0, 10);
   if (reconstructed !== date) {
     throw new Error(
       `Invalid date: ${date} was normalized to ${reconstructed}. ` +
-        `This indicates an invalid day-of-month (e.g., Feb 31st, Apr 31st).`
+        `This typically indicates an invalid day-of-month (e.g., Feb 31st, Apr 31st) ` +
+        `or a timezone-related date shift. Ensure dates are in YYYY-MM-DD format with valid days.`
     );
   }
 
@@ -100,9 +102,9 @@ function createWeekNavigationError(
 ): Error {
   const errorMessage =
     originalError instanceof Error ? originalError.message : String(originalError);
+  // Note: Error cause option requires ES2022, removed to maintain ES2020 compatibility
   return new Error(
-    `Invalid week ID "${currentWeek}": cannot calculate ${direction} week. ${errorMessage}. Expected format: YYYY-WNN (e.g., "2025-W01")`,
-    { cause: originalError }
+    `Invalid week ID "${currentWeek}": cannot calculate ${direction} week. ${errorMessage}. Expected format: YYYY-WNN (e.g., "2025-W01")`
   );
 }
 

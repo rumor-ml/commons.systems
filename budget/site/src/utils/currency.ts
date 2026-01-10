@@ -10,8 +10,8 @@ const currencyFormatter = new Intl.NumberFormat(undefined, {
 /**
  * Format a number as currency with 2 decimal places.
  * @param amount - The amount to format (positive or negative)
- * @returns Formatted string showing absolute value (e.g., "1,234.56"). Negative inputs become positive.
- *   Sign context must be provided by surrounding UI (e.g., "Expenses: $X").
+ * @returns Formatted string showing absolute value without sign (e.g., "1,234.56").
+ *   Sign context must be provided by surrounding UI (e.g., "Expenses: $X" or "Income: $X").
  */
 export function formatCurrency(amount: number): string {
   // Validate numeric input - handle NaN and Infinity

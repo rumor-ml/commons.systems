@@ -9,6 +9,7 @@ import {
 import { getDisplayAmount } from './qualifierUtils';
 import { dispatchBudgetEvent } from '../utils/events';
 import { formatCurrency } from '../utils/currency';
+import { StateManager } from '../scripts/state';
 
 interface LegendProps {
   transactions: Transaction[];
@@ -88,7 +89,17 @@ export function Legend({
         hasRollover: plan.categoryBudgets[c.category]?.rolloverEnabled || false,
       }));
     } catch (err) {
-      console.error('Failed to calculate weekly summaries:', err);
+      console.error('Failed to calculate weekly summaries:', err, {
+        activeWeek,
+        budgetCategoryCount: Object.keys(plan.categoryBudgets).length,
+        transactionCount: transactions.length,
+      });
+
+      // Show warning to user about fallback behavior
+      StateManager.showWarningBanner(
+        `Weekly budget comparison unavailable for week ${activeWeek}. Showing all-time totals instead. Check console for details.`
+      );
+
       // Return fallback summaries without budget comparison
       return calculateMonthlySummaries(transactions, showVacation);
     }

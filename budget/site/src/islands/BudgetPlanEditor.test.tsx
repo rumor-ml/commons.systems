@@ -895,16 +895,16 @@ describe('BudgetPlanEditor', () => {
       const incomeInput = screen.getByPlaceholderText('2000') as HTMLInputElement;
       fireEvent.change(incomeInput, { target: { value: '0' } });
 
-      expect(incomeInput.value).toBe('0');
+      // Zero values should be rejected with validation error
+      expect(screen.getByText(/Budget target cannot be zero/)).toBeInTheDocument();
 
       const saveButton = screen.getByText('Save Budget Plan');
       fireEvent.click(saveButton);
 
+      // Save should be called with empty budget (zero was rejected)
       expect(mockOnSave).toHaveBeenCalledWith(
         expect.objectContaining({
-          categoryBudgets: {
-            income: { weeklyTarget: 0, rolloverEnabled: true },
-          },
+          categoryBudgets: {},
         })
       );
     });

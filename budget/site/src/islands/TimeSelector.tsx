@@ -15,29 +15,49 @@ interface TimeSelectorProps {
 }
 
 export function TimeSelector({ granularity, selectedWeek, availableWeeks }: TimeSelectorProps) {
-  let currentWeek: WeekId;
+  let currentWeek: WeekId | null = null;
   try {
     currentWeek = getCurrentWeek();
   } catch (error) {
     console.error('Failed to get current week:', error);
-    // Fallback to first available week or a reasonable default
-    if (availableWeeks.length > 0) {
-      currentWeek = availableWeeks[availableWeeks.length - 1]; // Latest week
-    } else {
-      // Last resort: construct a valid week ID from Date
-      const now = new Date();
-      const year = now.getFullYear();
-      currentWeek = `${year}-W01` as WeekId; // Safe fallback
-    }
     StateManager.showErrorBanner(
-      'Cannot determine current week. Using fallback week. Your system clock may be incorrect.'
+      'System date error detected. Week navigation may be incorrect. Check your device clock settings.'
     );
   }
 
-  const activeWeek = selectedWeek || currentWeek;
+  // Determine active week with explicit fallback handling
+  let activeWeek: WeekId | null;
+  if (selectedWeek) {
+    activeWeek = selectedWeek;
+  } else if (currentWeek) {
+    activeWeek = currentWeek;
+  } else if (availableWeeks.length > 0) {
+    // Use latest available week as last resort
+    activeWeek = availableWeeks[availableWeeks.length - 1];
+    StateManager.showErrorBanner(
+      `Using latest available week (${activeWeek}) as fallback. Week navigation may be incorrect.`
+    );
+  } else {
+    // No valid week available - render error state
+    activeWeek = null;
+  }
+
+  // Early return if no valid week available
+  if (!activeWeek) {
+    return (
+      <div className="time-selector">
+        <div className="text-error p-4 bg-error bg-opacity-10 rounded">
+          <p className="font-semibold">Time selector unavailable</p>
+          <p className="text-sm">
+            No valid week data available. Check your system date/time settings.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const canGoPrevious = availableWeeks.length > 0 && activeWeek > availableWeeks[0];
-  const canGoNext = activeWeek < currentWeek;
+  const canGoNext = currentWeek !== null && activeWeek < currentWeek;
 
   const navigateToWeek = (getWeek: () => WeekId, direction: string) => {
     try {
@@ -102,7 +122,7 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
     }
   };
 
-  const isCurrentWeek = activeWeek === currentWeek;
+  const isCurrentWeek = currentWeek !== null && activeWeek === currentWeek;
 
   return (
     <div className="time-selector">
