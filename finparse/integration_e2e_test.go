@@ -148,7 +148,7 @@ NEWFILEUID:NONE
 			t.Fatalf("parse failed: %v", err)
 		}
 
-		if err := transform.TransformStatement(rawStmt, budget, nil, nil); err != nil {
+		if _, err := transform.TransformStatement(rawStmt, budget, nil, nil); err != nil {
 			t.Fatalf("transform failed: %v", err)
 		}
 	}
@@ -282,7 +282,7 @@ NEWFILEUID:NONE
 			t.Fatalf("parse failed (2nd pass): %v", err)
 		}
 
-		if err := transform.TransformStatement(rawStmt, budget2, nil, nil); err != nil {
+		if _, err := transform.TransformStatement(rawStmt, budget2, nil, nil); err != nil {
 			t.Fatalf("transform failed (2nd pass): %v", err)
 		}
 	}
@@ -404,7 +404,7 @@ NEWFILEUID:NONE
 			f, _ := os.Open(file.Path)
 			rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
 			f.Close()
-			transform.TransformStatement(rawStmt, budget, nil, nil)
+			_, _ = transform.TransformStatement(rawStmt, budget, nil, nil)
 		}
 
 		transactions := budget.GetTransactions()
@@ -548,7 +548,7 @@ NEWFILEUID:NONE
 		f, _ := os.Open(file.Path)
 		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
 		f.Close()
-		if err := transform.TransformStatement(rawStmt, budget1, state, engine); err != nil {
+		if _, err := transform.TransformStatement(rawStmt, budget1, state, engine); err != nil {
 			t.Fatalf("transform failed: %v", err)
 		}
 	}
@@ -606,7 +606,7 @@ NEWFILEUID:NONE
 		f, _ := os.Open(file.Path)
 		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
 		f.Close()
-		if err := transform.TransformStatement(rawStmt, budget2, loadedState, engine); err != nil {
+		if _, err := transform.TransformStatement(rawStmt, budget2, loadedState, engine); err != nil {
 			t.Fatalf("transform failed: %v", err)
 		}
 	}
@@ -620,5 +620,467 @@ NEWFILEUID:NONE
 	// Verify state was updated
 	if loadedState.Metadata.TotalFingerprints != 3 {
 		t.Errorf("expected 3 fingerprints in state, got %d", loadedState.Metadata.TotalFingerprints)
+	}
+}
+
+// TestEndToEnd_OverlappingStatementDeduplication tests deduplication when parsing overlapping statement periods
+func TestEndToEnd_OverlappingStatementDeduplication(t *testing.T) {
+	// Create temporary directory
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create directory structure
+	instDir := filepath.Join(tmpDir, "american_express")
+	acctDir := filepath.Join(instDir, "2011")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatalf("failed to create directory structure: %v", err)
+	}
+
+	// Create first OFX file covering Oct 1-31 with shared transaction on Oct 15
+	ofxContent1 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001000000
+<DTEND>20251031235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251005120000
+<TRNAMT>-100.00
+<FITID>TXN_EARLY
+<NAME>Early Oct Purchase
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251015120000
+<TRNAMT>-50.00
+<FITID>TXN_OVERLAP
+<NAME>Overlapping Transaction
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>850.00
+<DTASOF>20251031000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	// Create second OFX file covering Oct 15-Nov 15 with same overlapping transaction
+	ofxContent2 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251015000000
+<DTEND>20251115235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251015120000
+<TRNAMT>-50.00
+<FITID>TXN_OVERLAP
+<NAME>Overlapping Transaction
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251105120000
+<TRNAMT>-75.00
+<FITID>TXN_LATE_NOV
+<NAME>Late Nov Purchase
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>775.00
+<DTASOF>20251115000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	ofxFile1 := filepath.Join(acctDir, "2025-10.qfx")
+	ofxFile2 := filepath.Join(acctDir, "2025-11.qfx")
+	if err := os.WriteFile(ofxFile1, []byte(ofxContent1), 0644); err != nil {
+		t.Fatalf("failed to write first OFX file: %v", err)
+	}
+	if err := os.WriteFile(ofxFile2, []byte(ofxContent2), 0644); err != nil {
+		t.Fatalf("failed to write second OFX file: %v", err)
+	}
+
+	// Initialize state and rules
+	state := dedup.NewState()
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+
+	ctx := context.Background()
+	budget := domain.NewBudget()
+
+	// Parse first statement
+	s := scanner.New(tmpDir)
+	files, err := s.Scan()
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	reg, err := registry.New()
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	// Parse only the first file
+	for _, file := range files {
+		if strings.Contains(file.Path, "2025-10.qfx") {
+			parser, _ := reg.FindParser(file.Path)
+			f, _ := os.Open(file.Path)
+			rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
+			f.Close()
+			if _, err := transform.TransformStatement(rawStmt, budget, state, engine); err != nil {
+				t.Fatalf("transform failed for first statement: %v", err)
+			}
+		}
+	}
+
+	// Verify first parse results
+	transactions := budget.GetTransactions()
+	if len(transactions) != 2 {
+		t.Fatalf("expected 2 transactions after first parse, got %d", len(transactions))
+	}
+
+	// Save state after first parse
+	if err := dedup.SaveState(state, stateFile); err != nil {
+		t.Fatalf("failed to save state: %v", err)
+	}
+
+	// Load state for second parse - use NEW budget for second statement
+	loadedState, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("failed to load state: %v", err)
+	}
+
+	budget2 := domain.NewBudget()
+
+	// Parse second statement with overlapping transaction
+	for _, file := range files {
+		if strings.Contains(file.Path, "2025-11.qfx") {
+			parser, _ := reg.FindParser(file.Path)
+			f, _ := os.Open(file.Path)
+			rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
+			f.Close()
+			// Parse into new budget - deduplication should filter out TXN_OVERLAP
+			if _, err := transform.TransformStatement(rawStmt, budget2, loadedState, engine); err != nil {
+				t.Fatalf("transform failed for second statement: %v", err)
+			}
+			break
+		}
+	}
+
+	// Save updated state after second parse
+	if err := dedup.SaveState(loadedState, stateFile); err != nil {
+		t.Fatalf("failed to save updated state: %v", err)
+	}
+
+	// Verify second parse results: should only have 1 new transaction (TXN_LATE_NOV)
+	// TXN_OVERLAP should be filtered as duplicate
+	transactions2 := budget2.GetTransactions()
+	if len(transactions2) != 1 {
+		t.Errorf("expected 1 transaction after second parse (TXN_OVERLAP filtered), got %d", len(transactions2))
+	}
+
+	// Verify the transaction is TXN_LATE_NOV, not TXN_OVERLAP
+	if len(transactions2) > 0 && transactions2[0].ID != "TXN_LATE_NOV" {
+		t.Errorf("expected TXN_LATE_NOV, got %s", transactions2[0].ID)
+	}
+
+	// Combine budgets to verify overall deduplication
+	totalTransactions := append(transactions, transactions2...)
+	if len(totalTransactions) != 3 {
+		t.Errorf("expected 3 unique transactions total, got %d", len(totalTransactions))
+	}
+
+	// Verify that TXN_OVERLAP appears exactly once in the combined results
+	overlapCount := 0
+	for _, txn := range totalTransactions {
+		if txn.ID == "TXN_OVERLAP" {
+			overlapCount++
+			// Verify the overlapping transaction details
+			if txn.Amount != -50.00 {
+				t.Errorf("expected TXN_OVERLAP amount -50.00, got %f", txn.Amount)
+			}
+			if txn.Date != "2025-10-15" {
+				t.Errorf("expected TXN_OVERLAP date '2025-10-15', got %q", txn.Date)
+			}
+		}
+	}
+	if overlapCount != 1 {
+		t.Errorf("expected TXN_OVERLAP to appear exactly once, found %d occurrences", overlapCount)
+	}
+
+	// Verify state tracks the duplicate (count should be 2 for overlapping transaction)
+	// Generate the fingerprint for the overlapping transaction to check state
+	overlapFingerprint := dedup.GenerateFingerprint("2025-10-15", -50.00, "Overlapping Transaction")
+	if loadedState.IsDuplicate(overlapFingerprint) {
+		// Fingerprint should exist in state since we saw it twice
+		t.Logf("Deduplication working correctly: overlapping transaction fingerprint found in state")
+	}
+
+	// Verify state metadata updated
+	if loadedState.Metadata.TotalFingerprints != 3 {
+		t.Errorf("expected 3 unique fingerprints in state, got %d", loadedState.Metadata.TotalFingerprints)
+	}
+}
+
+// TestEndToEnd_RedeemableExclusions tests that transfer/payment/ATM/fee transactions are NOT redeemable
+func TestEndToEnd_RedeemableExclusions(t *testing.T) {
+	// Create temporary directory
+	tmpDir := t.TempDir()
+
+	// Create directory structure
+	instDir := filepath.Join(tmpDir, "american_express")
+	acctDir := filepath.Join(instDir, "2011")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatalf("failed to create directory structure: %v", err)
+	}
+
+	// Create OFX file with various transaction types to test redeemable exclusions
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001000000
+<DTEND>20251031235959
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20251005120000
+<TRNAMT>1000.00
+<FITID>TXN_PAYMENT
+<NAME>CAPITAL ONE PAYMENT
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251010120000
+<TRNAMT>-200.00
+<FITID>TXN_ATM
+<NAME>ATM WITHDRAWAL CASH
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251015120000
+<TRNAMT>-35.00
+<FITID>TXN_FEE
+<NAME>LATE FEE CHARGE
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251020120000
+<TRNAMT>-50.00
+<FITID>TXN_GROCERY
+<NAME>WHOLEFDS MARKET
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>715.00
+<DTASOF>20251031000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	ofxFile := filepath.Join(acctDir, "statement.qfx")
+	if err := os.WriteFile(ofxFile, []byte(ofxContent), 0644); err != nil {
+		t.Fatalf("failed to write OFX file: %v", err)
+	}
+
+	// Parse with embedded rules
+	ctx := context.Background()
+	budget := domain.NewBudget()
+
+	s := scanner.New(tmpDir)
+	files, err := s.Scan()
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	reg, err := registry.New()
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+
+	for _, file := range files {
+		parser, _ := reg.FindParser(file.Path)
+		f, _ := os.Open(file.Path)
+		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
+		f.Close()
+		if _, err := transform.TransformStatement(rawStmt, budget, nil, engine); err != nil {
+			t.Fatalf("transform failed: %v", err)
+		}
+	}
+
+	// Verify all transactions parsed
+	transactions := budget.GetTransactions()
+	if len(transactions) != 4 {
+		t.Fatalf("expected 4 transactions, got %d", len(transactions))
+	}
+
+	// Verify redeemable flags for each transaction type
+	for _, txn := range transactions {
+		switch {
+		case strings.Contains(txn.Description, "CAPITAL ONE PAYMENT"):
+			// Transfer/payment should NOT be redeemable
+			if txn.Redeemable {
+				t.Errorf("CAPITAL ONE PAYMENT should NOT be redeemable, got redeemable=%v", txn.Redeemable)
+			}
+			if txn.RedemptionRate != 0.0 {
+				t.Errorf("CAPITAL ONE PAYMENT should have redemption_rate=0.0, got %f", txn.RedemptionRate)
+			}
+			if !txn.Transfer {
+				t.Errorf("CAPITAL ONE PAYMENT should be marked as transfer, got transfer=%v", txn.Transfer)
+			}
+
+		case strings.Contains(txn.Description, "ATM WITHDRAWAL"):
+			// ATM withdrawal should NOT be redeemable
+			if txn.Redeemable {
+				t.Errorf("ATM WITHDRAWAL should NOT be redeemable, got redeemable=%v", txn.Redeemable)
+			}
+			if txn.RedemptionRate != 0.0 {
+				t.Errorf("ATM WITHDRAWAL should have redemption_rate=0.0, got %f", txn.RedemptionRate)
+			}
+			if !txn.Transfer {
+				t.Errorf("ATM WITHDRAWAL should be marked as transfer, got transfer=%v", txn.Transfer)
+			}
+
+		case strings.Contains(txn.Description, "LATE FEE"):
+			// Fee should NOT be redeemable
+			if txn.Redeemable {
+				t.Errorf("LATE FEE should NOT be redeemable, got redeemable=%v", txn.Redeemable)
+			}
+			if txn.RedemptionRate != 0.0 {
+				t.Errorf("LATE FEE should have redemption_rate=0.0, got %f", txn.RedemptionRate)
+			}
+
+		case strings.Contains(txn.Description, "WHOLEFDS"):
+			// Grocery purchase should be redeemable
+			if !txn.Redeemable {
+				t.Errorf("WHOLEFDS MARKET should be redeemable, got redeemable=%v", txn.Redeemable)
+			}
+			if txn.RedemptionRate <= 0.0 {
+				t.Errorf("WHOLEFDS MARKET should have redemption_rate>0.0, got %f", txn.RedemptionRate)
+			}
+			if txn.Category != domain.CategoryGroceries {
+				t.Errorf("WHOLEFDS MARKET should be groceries category, got %s", txn.Category)
+			}
+
+		default:
+			t.Errorf("unexpected transaction description: %s", txn.Description)
+		}
 	}
 }

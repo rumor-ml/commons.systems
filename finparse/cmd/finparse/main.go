@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
@@ -199,12 +198,17 @@ func run() error {
 	// Phase 4: Transform and output
 	budget := domain.NewBudget()
 
+	// Aggregate statistics across all statements
+	var totalDuplicatesSkipped int
+	var totalRulesMatched int
+	var totalRulesUnmatched int
+	unmatchedExamplesMap := make(map[string]bool) // Track unique unmatched descriptions
+
 	if *verbose {
 		fmt.Fprintln(os.Stderr, "\nParsing and transforming statements...")
 	}
 
 	for i, file := range files {
-		// TODO(#1341): Consider removing numbered step comments in favor of descriptive prefixes
 		parser, err := reg.FindParser(file.Path)
 		if err != nil {
 			return fmt.Errorf("failed to find parser for %s: %w", file.Path, err)
@@ -240,7 +244,8 @@ func run() error {
 				parser.Name(), file.Path)
 		}
 
-		if err := transform.TransformStatement(rawStmt, budget, state, engine); err != nil {
+		stats, err := transform.TransformStatement(rawStmt, budget, state, engine)
+		if err != nil {
 			// Provide context about parsed data in error message
 			return fmt.Errorf("transform failed for file %d of %d (%s) with %d transactions from %s to %s: %w",
 				i+1, len(files), file.Path,
@@ -249,16 +254,18 @@ func run() error {
 				rawStmt.Period.End().Format("2006-01-02"),
 				err)
 		}
+
+		// Aggregate statistics
+		totalDuplicatesSkipped += stats.DuplicatesSkipped
+		totalRulesMatched += stats.RulesMatched
+		totalRulesUnmatched += stats.RulesUnmatched
+		for _, desc := range stats.UnmatchedExamples {
+			unmatchedExamplesMap[desc] = true
+		}
 	}
 
 	// Phase 5: Save state if modified
 	if state != nil && *stateFile != "" {
-		// Ensure directory exists
-		stateDir := filepath.Dir(*stateFile)
-		if err := os.MkdirAll(stateDir, 0755); err != nil {
-			return fmt.Errorf("failed to create state directory: %w", err)
-		}
-
 		if err := dedup.SaveState(state, *stateFile); err != nil {
 			return fmt.Errorf("failed to save state file: %w", err)
 		}
@@ -280,6 +287,36 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "  Accounts: %d\n", len(accounts))
 		fmt.Fprintf(os.Stderr, "  Statements: %d\n", len(statements))
 		fmt.Fprintf(os.Stderr, "  Transactions: %d\n", len(transactions))
+
+		// Show deduplication statistics
+		if state != nil && totalDuplicatesSkipped > 0 {
+			fmt.Fprintf(os.Stderr, "\nDeduplication:\n")
+			fmt.Fprintf(os.Stderr, "  Skipped %d duplicate transactions\n", totalDuplicatesSkipped)
+		}
+
+		// Show rule matching statistics
+		if engine != nil {
+			totalProcessed := totalRulesMatched + totalRulesUnmatched
+			if totalProcessed > 0 {
+				coverage := float64(totalRulesMatched) / float64(totalProcessed) * 100
+				fmt.Fprintf(os.Stderr, "\nRule matching statistics:\n")
+				fmt.Fprintf(os.Stderr, "  Matched: %d (%.1f%%)\n", totalRulesMatched, coverage)
+				fmt.Fprintf(os.Stderr, "  Unmatched: %d\n", totalRulesUnmatched)
+
+				// Show example unmatched transactions (up to 5)
+				if len(unmatchedExamplesMap) > 0 {
+					fmt.Fprintf(os.Stderr, "  Example unmatched transactions:\n")
+					count := 0
+					for desc := range unmatchedExamplesMap {
+						if count >= 5 {
+							break
+						}
+						fmt.Fprintf(os.Stderr, "    - %s\n", desc)
+						count++
+					}
+				}
+			}
+		}
 	}
 
 	opts := output.WriteOptions{

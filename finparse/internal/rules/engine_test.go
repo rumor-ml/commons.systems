@@ -1,11 +1,13 @@
 package rules
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
+	_ "modernc.org/sqlite"
 )
 
 func TestNewEngine_ValidRules(t *testing.T) {
@@ -642,4 +644,185 @@ rules:
 	if err == nil {
 		t.Error("NewEngine() expected error for invalid YAML")
 	}
+}
+
+func TestEmbeddedRules_CoverageRequirement(t *testing.T) {
+	// Skip if database not available
+	const dbPath = "/Users/n8/carriercommons/finance/finance.db"
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Skip("Skipping coverage test: reference database not found at", dbPath)
+	}
+
+	// Load embedded rules
+	engine, err := LoadEmbedded()
+	if err != nil {
+		t.Fatalf("LoadEmbedded() error = %v", err)
+	}
+
+	// Load transactions from reference database
+	descriptions := loadTransactionDescriptions(t, dbPath)
+
+	if len(descriptions) != 1268 {
+		t.Errorf("Expected 1,268 transactions, got %d", len(descriptions))
+	}
+
+	// Apply rules to each transaction
+	matched := 0
+	unmatched := []string{}
+
+	for _, desc := range descriptions {
+		if _, ok := engine.Match(desc); ok {
+			matched++
+		} else {
+			unmatched = append(unmatched, desc)
+		}
+	}
+
+	// Calculate coverage
+	coverage := float64(matched) / float64(len(descriptions))
+	coveragePercent := coverage * 100
+
+	// Report results
+	t.Logf("Coverage: %.2f%% (%d/%d matched)", coveragePercent, matched, len(descriptions))
+
+	// Require ≥95% coverage
+	if coverage < 0.95 {
+		t.Errorf("Coverage %.2f%% below requirement (95%%)", coveragePercent)
+		t.Logf("Unmatched transactions (%d):", len(unmatched))
+		for i, desc := range unmatched {
+			if i < 20 { // Show first 20
+				t.Logf("  - %s", desc)
+			}
+		}
+		if len(unmatched) > 20 {
+			t.Logf("  ... and %d more", len(unmatched)-20)
+		}
+	}
+}
+
+// loadTransactionDescriptions loads transaction descriptions from the reference database
+func loadTransactionDescriptions(t *testing.T, dbPath string) []string {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT name FROM transactions ORDER BY id")
+	if err != nil {
+		t.Fatalf("Failed to query transactions: %v", err)
+	}
+	defer rows.Close()
+
+	descriptions := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("Failed to scan row: %v", err)
+		}
+		descriptions = append(descriptions, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("Error iterating rows: %v", err)
+	}
+
+	return descriptions
+}
+
+func TestEndToEnd_VacationDateBasedDetection(t *testing.T) {
+	// This test verifies the vacation detection requirement from issue #1261:
+	// "Vacation detection (date-based periods + pattern matching)"
+	//
+	// The test demonstrates the expected behavior:
+	// 1. Pattern-based detection: Hotel/flight patterns set vacation=true
+	// 2. Date-based detection: Transactions during vacation periods get vacation=true
+	// 3. Combined logic: Pattern OR date-based should set vacation=true
+
+	// Test pattern-based vacation detection (currently implemented)
+	rulesYAML := `
+rules:
+  - name: "Hotel Vacation"
+    pattern: "MARRIOTT"
+    match_type: "contains"
+    priority: 500
+    category: "travel"
+    flags:
+      redeemable: false
+      vacation: true
+      transfer: false
+    redemption_rate: 0.0
+  - name: "Regular Coffee"
+    pattern: "STARBUCKS"
+    match_type: "contains"
+    priority: 400
+    category: "dining"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Test pattern-based vacation detection
+	t.Run("pattern-based vacation", func(t *testing.T) {
+		result, matched := engine.Match("MARRIOTT HOTEL")
+		if !matched {
+			t.Fatal("Expected match for MARRIOTT HOTEL")
+		}
+		if !result.Vacation {
+			t.Error("MARRIOTT HOTEL should have vacation=true (pattern match)")
+		}
+
+		result, matched = engine.Match("STARBUCKS")
+		if !matched {
+			t.Fatal("Expected match for STARBUCKS")
+		}
+		if result.Vacation {
+			t.Error("STARBUCKS should have vacation=false (not a vacation pattern)")
+		}
+	})
+
+	// Date-based vacation detection is not yet implemented
+	// The spec requires: "Vacation detection (date-based periods + pattern matching)"
+	//
+	// Expected API (once implemented):
+	//
+	//   engine := NewEngineWithVacationPeriods(rulesYAML, []VacationPeriod{
+	//       {Start: "2025-12-20", End: "2025-12-30"},
+	//   })
+	//
+	//   // Starbucks during vacation period should be vacation=true
+	//   result := engine.MatchWithDate("STARBUCKS", "2025-12-25")
+	//   if !result.Vacation {
+	//       t.Error("Transaction during vacation period should have vacation=true")
+	//   }
+	//
+	//   // Starbucks outside vacation period should be vacation=false
+	//   result = engine.MatchWithDate("STARBUCKS", "2026-01-05")
+	//   if result.Vacation {
+	//       t.Error("Transaction outside vacation period should have vacation=false")
+	//   }
+	//
+	// This would enable distinguishing:
+	// - $500 hotel during Hawaii vacation → vacation=true (useful for budget tracking)
+	// - $500 hotel during work conference → vacation=false (business expense)
+	//
+	// TODO(#1261): Implement MatchWithDate() method and VacationPeriod configuration
+
+	t.Log("Pattern-based vacation detection: IMPLEMENTED ✓")
+
+	// Fail the test to highlight that date-based detection is not yet implemented
+	// This is a HARD REQUIREMENT from issue #1261 acceptance criteria
+	t.Run("date-based vacation NOT IMPLEMENTED", func(t *testing.T) {
+		t.Error("Date-based vacation detection is not yet implemented. Issue #1261 requires: 'Vacation detection (date-based periods + pattern matching)'")
+		t.Log("Expected API: MatchWithDate(description, date) or vacation period configuration")
+		t.Log("See test comments above for detailed design specification")
+	})
 }

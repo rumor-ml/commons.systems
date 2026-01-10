@@ -7,6 +7,7 @@ import (
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
+	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 )
 
 func TestTransformInstitution(t *testing.T) {
@@ -169,9 +170,14 @@ func TestTransformTransaction(t *testing.T) {
 
 	statementID := "stmt-2025-10-acc-amex-2011"
 
-	txn, err := transformTransaction(rawTxn, statementID, nil)
+	txn, matched, err := transformTransaction(rawTxn, statementID, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify no rule matched (engine is nil)
+	if matched {
+		t.Errorf("expected no match with nil engine, but matched = true")
 	}
 
 	// Verify ID is preserved
@@ -371,7 +377,7 @@ func TestTransformStatementIntegration(t *testing.T) {
 
 	// Create budget and transform
 	budget := domain.NewBudget()
-	err := TransformStatement(raw, budget, nil, nil)
+	_, err := TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -450,13 +456,13 @@ func TestTransformStatementDuplicateHandling(t *testing.T) {
 	budget := domain.NewBudget()
 
 	// First transform should succeed
-	err := TransformStatement(raw, budget, nil, nil)
+	_, err := TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Fatalf("first transform failed: %v", err)
 	}
 
 	// Second transform should fail (duplicate statement)
-	err = TransformStatement(raw, budget, nil, nil)
+	_, err = TransformStatement(raw, budget, nil, nil)
 	if err == nil {
 		t.Errorf("expected error for duplicate statement")
 	} else if !strings.Contains(err.Error(), "already exists") {
@@ -479,7 +485,7 @@ func TestTransformStatement_NilBudget(t *testing.T) {
 		Transactions: []parser.RawTransaction{},
 	}
 
-	err := TransformStatement(raw, nil, nil, nil)
+	_, err := TransformStatement(raw, nil, nil, nil)
 	if err == nil {
 		t.Error("expected error for nil budget")
 	}
@@ -490,7 +496,7 @@ func TestTransformStatement_NilBudget(t *testing.T) {
 
 func TestTransformStatement_NilRawStatement(t *testing.T) {
 	budget := domain.NewBudget()
-	err := TransformStatement(nil, budget, nil, nil)
+	_, err := TransformStatement(nil, budget, nil, nil)
 	if err == nil {
 		t.Error("expected error for nil raw statement")
 	}
@@ -529,7 +535,7 @@ func TestTransformStatement_EmptyTransactionList(t *testing.T) {
 	}
 
 	budget := domain.NewBudget()
-	err := TransformStatement(raw, budget, nil, nil)
+	_, err := TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Fatalf("expected success with empty transactions, got error: %v", err)
 	}
@@ -591,7 +597,7 @@ func TestTransformStatement_InvalidTransaction(t *testing.T) {
 	}
 
 	budget := domain.NewBudget()
-	err = TransformStatement(raw, budget, nil, nil)
+	_, err = TransformStatement(raw, budget, nil, nil)
 	if err != nil {
 		t.Errorf("expected success with valid transaction, got error: %v", err)
 	}
@@ -600,6 +606,52 @@ func TestTransformStatement_InvalidTransaction(t *testing.T) {
 	transactions := budget.GetTransactions()
 	if len(transactions) != 1 {
 		t.Errorf("expected 1 transaction, got %d", len(transactions))
+	}
+}
+
+func TestTransformTransaction_UnmatchedDefaultsToOther(t *testing.T) {
+	// Load embedded rules engine
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+
+	// Create transaction with description that matches NO rules
+	txnDate := time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC)
+	rawTxn := mustNewRawTransaction(t, "TXN999", txnDate, txnDate,
+		"UNKNOWN_MERCHANT_XYZ123_NOMATCH", -99.99)
+
+	statementID := "stmt-2025-10-acc-amex-2011"
+
+	txn, matched, err := transformTransaction(rawTxn, statementID, engine)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify no rule matched
+	if matched {
+		t.Errorf("expected no rule match, but matched = true")
+	}
+
+	// Verify defaults when no rule matches
+	if txn.Category != domain.CategoryOther {
+		t.Errorf("expected Category %q, got %q", domain.CategoryOther, txn.Category)
+	}
+
+	if txn.Redeemable != false {
+		t.Errorf("expected Redeemable false, got %v", txn.Redeemable)
+	}
+
+	if txn.Vacation != false {
+		t.Errorf("expected Vacation false, got %v", txn.Vacation)
+	}
+
+	if txn.Transfer != false {
+		t.Errorf("expected Transfer false, got %v", txn.Transfer)
+	}
+
+	if txn.RedemptionRate != 0.0 {
+		t.Errorf("expected RedemptionRate 0.0, got %f", txn.RedemptionRate)
 	}
 }
 

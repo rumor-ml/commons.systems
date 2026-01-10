@@ -12,59 +12,84 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 )
 
+// TransformStats contains statistics from transformation process
+type TransformStats struct {
+	DuplicatesSkipped int
+	RulesMatched      int
+	RulesUnmatched    int
+	UnmatchedExamples []string
+}
+
 // TransformStatement converts RawStatement to domain types and adds to Budget.
 // Institutions and accounts are added idempotently (duplicates are silently skipped).
 // Statements and transactions will fail on duplicates (data quality issue).
 // Optional state parameter enables deduplication (nil to disable).
 // Optional engine parameter enables rule-based categorization (nil to disable).
-func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *dedup.State, engine *rules.Engine) error {
+// Returns statistics about the transformation process.
+func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *dedup.State, engine *rules.Engine) (*TransformStats, error) {
 	if raw == nil {
-		return fmt.Errorf("raw statement cannot be nil")
+		return nil, fmt.Errorf("raw statement cannot be nil")
 	}
 	if budget == nil {
-		return fmt.Errorf("budget cannot be nil")
+		return nil, fmt.Errorf("budget cannot be nil")
+	}
+
+	stats := &TransformStats{
+		UnmatchedExamples: make([]string, 0, 5),
 	}
 
 	institution, err := transformInstitution(&raw.Account)
 	if err != nil {
-		return fmt.Errorf("failed to transform institution: %w", err)
+		return nil, fmt.Errorf("failed to transform institution: %w", err)
 	}
 
 	// Add institution (idempotent)
 	if err := budget.AddInstitution(*institution); err != nil {
 		if !errors.Is(err, domain.ErrAlreadyExists) {
-			return fmt.Errorf("failed to add institution: %w", err)
+			return nil, fmt.Errorf("failed to add institution: %w", err)
 		}
 	}
 
 	account, err := transformAccount(&raw.Account, institution.ID)
 	if err != nil {
-		return fmt.Errorf("failed to transform account: %w", err)
+		return nil, fmt.Errorf("failed to transform account: %w", err)
 	}
 
 	// Add account (idempotent)
 	if err := budget.AddAccount(*account); err != nil {
 		if !errors.Is(err, domain.ErrAlreadyExists) {
-			return fmt.Errorf("failed to add account: %w", err)
+			return nil, fmt.Errorf("failed to add account: %w", err)
 		}
 	}
 
 	statement, err := transformStatement(raw, account.ID)
 	if err != nil {
-		return fmt.Errorf("failed to transform statement: %w", err)
+		return nil, fmt.Errorf("failed to transform statement: %w", err)
 	}
 
 	if err := budget.AddStatement(*statement); err != nil {
-		return fmt.Errorf("failed to add statement: %w", err)
+		return nil, fmt.Errorf("failed to add statement: %w", err)
 	}
 
 	// TODO(#1347): Consider adding benchmark tests for large transaction volumes
 	for i, rawTxn := range raw.Transactions {
 		// Transform basic transaction
-		txn, err := transformTransaction(&rawTxn, statement.ID, engine)
+		txn, txnMatched, err := transformTransaction(&rawTxn, statement.ID, engine)
 		if err != nil {
-			return fmt.Errorf("failed to transform transaction %d/%d (ID: %q, date: %s): %w",
+			return nil, fmt.Errorf("failed to transform transaction %d/%d (ID: %q, date: %s): %w",
 				i+1, len(raw.Transactions), rawTxn.ID(), rawTxn.Date().Format("2006-01-02"), err)
+		}
+
+		// Track rule matching statistics
+		if engine != nil {
+			if txnMatched {
+				stats.RulesMatched++
+			} else {
+				stats.RulesUnmatched++
+				if len(stats.UnmatchedExamples) < 5 {
+					stats.UnmatchedExamples = append(stats.UnmatchedExamples, txn.Description)
+				}
+			}
 		}
 
 		// Generate fingerprint for deduplication
@@ -74,25 +99,26 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		if state != nil {
 			if state.IsDuplicate(fingerprint) {
 				// Skip duplicate transaction
+				stats.DuplicatesSkipped++
 				continue
 			}
 		}
 
 		// Add transaction to budget
 		if err := budget.AddTransaction(*txn); err != nil {
-			return fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w",
+			return nil, fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w",
 				i+1, len(raw.Transactions), txn.ID, err)
 		}
 
-		// Record in state if provided
+		// Record in state if provided (uses current time for record-keeping, not transaction date)
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
-				return fmt.Errorf("failed to record transaction fingerprint: %w", err)
+				return nil, fmt.Errorf("failed to record transaction fingerprint: %w", err)
 			}
 		}
 	}
 
-	return nil
+	return stats, nil
 }
 
 // transformInstitution creates a domain Institution from RawAccount
@@ -163,11 +189,12 @@ func transformStatement(raw *parser.RawStatement, accountID string) (*domain.Sta
 
 // transformTransaction creates a domain Transaction from RawTransaction.
 // Optional engine parameter enables rule-based categorization (nil to disable).
-func transformTransaction(raw *parser.RawTransaction, statementID string, engine *rules.Engine) (*domain.Transaction, error) {
+// Returns the transaction, whether a rule matched, and any error.
+func transformTransaction(raw *parser.RawTransaction, statementID string, engine *rules.Engine) (*domain.Transaction, bool, error) {
 	// Use existing ID from RawTransaction (stable from parser)
 	txnID := raw.ID()
 	if txnID == "" {
-		return nil, fmt.Errorf("transaction ID cannot be empty")
+		return nil, false, fmt.Errorf("transaction ID cannot be empty")
 	}
 
 	// Format date as YYYY-MM-DD
@@ -175,7 +202,7 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 
 	description := raw.Description()
 	if description == "" {
-		return nil, fmt.Errorf("transaction description cannot be empty")
+		return nil, false, fmt.Errorf("transaction description cannot be empty")
 	}
 
 	amount := raw.Amount()
@@ -183,33 +210,30 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 	// Create transaction with default category
 	txn, err := domain.NewTransaction(txnID, date, description, amount, domain.CategoryOther)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	// Apply rules if engine provided
+	// Apply rules if engine provided and match found
+	var matched bool
+	var result *rules.MatchResult
 	if engine != nil {
-		if result, matched := engine.Match(description); matched {
-			// Apply matched rule
-			txn.Category = result.Category
-			txn.Vacation = result.Vacation
-			txn.Transfer = result.Transfer
-			if err := txn.SetRedeemable(result.Redeemable, result.RedemptionRate); err != nil {
-				return nil, fmt.Errorf("failed to set redeemable from rule: %w", err)
-			}
-		} else {
-			// No match: use defaults
-			txn.Vacation = false
-			txn.Transfer = false
-			if err := txn.SetRedeemable(false, 0.0); err != nil {
-				return nil, err
-			}
+		result, matched = engine.Match(description)
+	}
+
+	if matched {
+		// Apply matched rule
+		txn.Category = result.Category
+		txn.Vacation = result.Vacation
+		txn.Transfer = result.Transfer
+		if err := txn.SetRedeemable(result.Redeemable, result.RedemptionRate); err != nil {
+			return nil, false, fmt.Errorf("failed to set redeemable from rule: %w", err)
 		}
 	} else {
-		// No engine: use defaults
+		// No match or no engine: use defaults
 		txn.Vacation = false
 		txn.Transfer = false
 		if err := txn.SetRedeemable(false, 0.0); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -217,10 +241,10 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 
 	// Link transaction to statement
 	if err := txn.AddStatementID(statementID); err != nil {
-		return nil, fmt.Errorf("failed to link transaction to statement: %w", err)
+		return nil, false, fmt.Errorf("failed to link transaction to statement: %w", err)
 	}
 
-	return txn, nil
+	return txn, matched, nil
 }
 
 // mapAccountType converts raw account type string to domain AccountType enum

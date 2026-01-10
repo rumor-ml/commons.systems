@@ -3,59 +3,54 @@ package dedup
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestGenerateFingerprint(t *testing.T) {
+	// TODO(#1396): Tests already verify determinism/uniqueness/format - hardcoded hashes removed
 	tests := []struct {
 		name        string
 		date        string
 		amount      float64
 		description string
-		want        string // Expected hash (deterministic)
 	}{
 		{
 			name:        "basic transaction",
 			date:        "2025-01-15",
 			amount:      -50.00,
 			description: "Whole Foods",
-			want:        "3f5c8c6e9a8e2d0f1b4a7c3e6d9b2f5a8c1e4d7b0a3c6e9f2b5d8a1c4e7b0a3",
 		},
 		{
 			name:        "case insensitivity",
 			date:        "2025-01-15",
 			amount:      -50.00,
 			description: "WHOLE FOODS",
-			want:        "3f5c8c6e9a8e2d0f1b4a7c3e6d9b2f5a8c1e4d7b0a3c6e9f2b5d8a1c4e7b0a3",
 		},
 		{
 			name:        "whitespace trimming",
 			date:        "2025-01-15",
 			amount:      -50.00,
 			description: "  Whole Foods  ",
-			want:        "3f5c8c6e9a8e2d0f1b4a7c3e6d9b2f5a8c1e4d7b0a3c6e9f2b5d8a1c4e7b0a3",
 		},
 		{
 			name:        "positive amount",
 			date:        "2025-01-15",
 			amount:      1000.00,
 			description: "Salary",
-			want:        "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
 		},
 		{
 			name:        "floating point precision",
 			amount:      -123.456,
 			date:        "2025-01-15",
 			description: "Test",
-			want:        "b2c3d4e5f678901234567890123456789abcdef01234567890abcdef0123456",
 		},
 		{
 			name:        "floating point rounding",
 			amount:      -123.455,
 			date:        "2025-01-15",
 			description: "Test",
-			want:        "b2c3d4e5f678901234567890123456789abcdef01234567890abcdef0123456",
 		},
 	}
 
@@ -102,12 +97,12 @@ func TestNewState(t *testing.T) {
 		t.Errorf("NewState() version = %d, want %d", state.Version, CurrentVersion)
 	}
 
-	if state.Fingerprints == nil {
+	if state.fingerprints == nil {
 		t.Error("NewState() fingerprints map is nil")
 	}
 
-	if len(state.Fingerprints) != 0 {
-		t.Errorf("NewState() fingerprints map length = %d, want 0", len(state.Fingerprints))
+	if len(state.fingerprints) != 0 {
+		t.Errorf("NewState() fingerprints map length = %d, want 0", len(state.fingerprints))
 	}
 
 	if state.Metadata.TotalFingerprints != 0 {
@@ -125,7 +120,7 @@ func TestIsDuplicate(t *testing.T) {
 	}
 
 	// Add fingerprint
-	state.Fingerprints[fp] = &FingerprintRecord{
+	state.fingerprints[fp] = &FingerprintRecord{
 		FirstSeen:     time.Now(),
 		LastSeen:      time.Now(),
 		Count:         1,
@@ -150,7 +145,7 @@ func TestRecordTransaction(t *testing.T) {
 		t.Fatalf("RecordTransaction() error = %v", err)
 	}
 
-	record := state.Fingerprints[fp]
+	record := state.fingerprints[fp]
 	if record == nil {
 		t.Fatal("RecordTransaction() did not create record")
 	}
@@ -178,7 +173,7 @@ func TestRecordTransaction(t *testing.T) {
 		t.Fatalf("RecordTransaction() error on duplicate = %v", err)
 	}
 
-	record = state.Fingerprints[fp]
+	record = state.fingerprints[fp]
 	if record.Count != 2 {
 		t.Errorf("RecordTransaction() count after duplicate = %d, want 2", record.Count)
 	}
@@ -243,6 +238,7 @@ func TestSaveAndLoadState(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "state.json")
 
 	// Create and populate state
+	// TODO(#1399): Consider testing state file size limits and performance with large fingerprint maps
 	original := NewState()
 	fp1 := "abc123"
 	fp2 := "def456"
@@ -274,12 +270,12 @@ func TestSaveAndLoadState(t *testing.T) {
 	}
 
 	// Verify fingerprints count
-	if len(loaded.Fingerprints) != len(original.Fingerprints) {
-		t.Errorf("LoadState() fingerprints count = %d, want %d", len(loaded.Fingerprints), len(original.Fingerprints))
+	if len(loaded.fingerprints) != len(original.fingerprints) {
+		t.Errorf("LoadState() fingerprints count = %d, want %d", len(loaded.fingerprints), len(original.fingerprints))
 	}
 
 	// Verify specific fingerprint
-	record := loaded.Fingerprints[fp1]
+	record := loaded.fingerprints[fp1]
 	if record == nil {
 		t.Fatal("LoadState() missing fingerprint abc123")
 	}
@@ -325,6 +321,70 @@ func TestLoadState_InvalidJSON(t *testing.T) {
 	_, err = LoadState(stateFile)
 	if err == nil {
 		t.Error("LoadState() expected error for invalid JSON")
+	}
+}
+
+func TestLoadState_PartialCorruption(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "corrupted.json")
+
+	// Write truncated JSON (simulates crash during write)
+	truncatedJSON := `{
+		"version": 1,
+		"fingerprints": {
+			"abc123": {
+				"firstSeen": "2025-01-15T10:30:00Z",
+				"lastSeen": "2025-01-15T10:30:00Z",
+				"count": 1,
+				"trans`
+	// Note: Intentionally truncated mid-field
+
+	err := os.WriteFile(stateFile, []byte(truncatedJSON), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	_, err = LoadState(stateFile)
+	if err == nil {
+		t.Error("LoadState() expected error for truncated JSON")
+	}
+
+	// Error should be meaningful JSON parse error
+	if err != nil && !strings.Contains(err.Error(), "failed to parse state file") {
+		t.Errorf("LoadState() error message = %v, should mention 'failed to parse state file'", err)
+	}
+}
+
+func TestLoadState_MissingFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "missing-fields.json")
+
+	// Write state with missing fingerprints field
+	stateWithoutFingerprints := `{
+		"version": 1,
+		"metadata": {
+			"lastUpdated": "2025-01-15T10:30:00Z",
+			"totalFingerprints": 0
+		}
+	}`
+
+	err := os.WriteFile(stateFile, []byte(stateWithoutFingerprints), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	state, err := LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("LoadState() should handle missing fingerprints field gracefully, got error: %v", err)
+	}
+
+	// Verify fingerprints map was initialized (per dedup.go lines 91-93)
+	if state.fingerprints == nil {
+		t.Error("LoadState() did not initialize nil fingerprints map")
+	}
+
+	if len(state.fingerprints) != 0 {
+		t.Errorf("LoadState() fingerprints length = %d, want 0", len(state.fingerprints))
 	}
 }
 
@@ -449,4 +509,62 @@ func TestGenerateFingerprint_EmptyDescription(t *testing.T) {
 	if fp == fp2 {
 		t.Error("GenerateFingerprint() returned same hash for empty and non-empty description")
 	}
+}
+
+func TestGenerateFingerprint_NormalizationCollisions(t *testing.T) {
+	t.Run("different amounts should produce different hashes", func(t *testing.T) {
+		// Amounts that round to different 2-decimal values
+		fp1 := GenerateFingerprint("2025-01-15", -123.454, "Whole Foods")
+		fp2 := GenerateFingerprint("2025-01-15", -123.456, "Whole Foods")
+
+		// -123.454 rounds to -123.45
+		// -123.456 rounds to -123.46
+		// These MUST produce different fingerprints
+		if fp1 == fp2 {
+			t.Error("Amounts rounding to different 2-decimal values should produce different fingerprints")
+		}
+	})
+
+	t.Run("same rounded amounts should produce same hash", func(t *testing.T) {
+		// Amounts that round to same 2-decimal value
+		fp1 := GenerateFingerprint("2025-01-15", -50.001, "Target")
+		fp2 := GenerateFingerprint("2025-01-15", -50.004, "Target")
+
+		// Both round to -50.00
+		// These MUST produce same fingerprint (intentional dedup)
+		if fp1 != fp2 {
+			t.Error("Amounts rounding to same 2-decimal value should produce same fingerprint")
+		}
+	})
+
+	t.Run("whitespace normalization creates intentional collisions", func(t *testing.T) {
+		// Test that extra whitespace is normalized away (TrimSpace behavior)
+		fp1 := GenerateFingerprint("2025-01-15", -50.00, "Target  Store") // 2 spaces
+		fp2 := GenerateFingerprint("2025-01-15", -50.00, "Target Store")  // 1 space
+
+		// Current implementation uses TrimSpace but doesn't collapse internal spaces
+		// These WILL be different because internal spaces are preserved
+		if fp1 == fp2 {
+			t.Error("Internal whitespace differences should be preserved (TrimSpace only affects edges)")
+		}
+
+		// But leading/trailing spaces should be normalized
+		fp3 := GenerateFingerprint("2025-01-15", -50.00, "  Target Store  ")
+		fp4 := GenerateFingerprint("2025-01-15", -50.00, "Target Store")
+
+		if fp3 != fp4 {
+			t.Error("Leading/trailing whitespace should be normalized away")
+		}
+	})
+
+	t.Run("case normalization prevents collisions", func(t *testing.T) {
+		// Different case should produce SAME fingerprint (intentional)
+		fp1 := GenerateFingerprint("2025-01-15", -50.00, "WHOLE FOODS")
+		fp2 := GenerateFingerprint("2025-01-15", -50.00, "whole foods")
+		fp3 := GenerateFingerprint("2025-01-15", -50.00, "Whole Foods")
+
+		if fp1 != fp2 || fp2 != fp3 {
+			t.Error("Case differences should be normalized (all lowercase)")
+		}
+	})
 }
