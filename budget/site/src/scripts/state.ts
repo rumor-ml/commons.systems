@@ -31,8 +31,37 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
       typeof (budget as any).weeklyTarget === 'number' &&
       typeof (budget as any).rolloverEnabled === 'boolean'
     ) {
+      const weeklyTarget = (budget as any).weeklyTarget;
+
+      // Skip zero targets
+      if (weeklyTarget === 0) {
+        console.warn(`Skipping zero weeklyTarget for ${category}`);
+        continue;
+      }
+
+      // Validate sign (income positive, expenses negative)
+      if (category === 'income' && weeklyTarget < 0) {
+        console.warn(
+          `Skipping invalid income budget for ${category}: ${weeklyTarget} (should be positive)`
+        );
+        continue;
+      }
+
+      if (category !== 'income' && weeklyTarget > 0) {
+        console.warn(
+          `Skipping invalid expense budget for ${category}: ${weeklyTarget} (should be negative)`
+        );
+        continue;
+      }
+
+      // Validate magnitude
+      if (Math.abs(weeklyTarget) > 1000000) {
+        console.warn(`Skipping unrealistic budget for ${category}: ${weeklyTarget}`);
+        continue;
+      }
+
       validatedBudgets[category as Category] = {
-        weeklyTarget: (budget as any).weeklyTarget,
+        weeklyTarget,
         rolloverEnabled: (budget as any).rolloverEnabled,
       };
     }
@@ -61,7 +90,7 @@ export interface BudgetState {
   readonly showVacation: boolean;
   readonly budgetPlan: BudgetPlan | null;
   readonly viewGranularity: TimeGranularity;
-  readonly selectedWeek: WeekId | null; // null = current week
+  readonly selectedWeek: WeekId | null; // null = current week (recalculated each render), non-null = specific historical week (persisted)
   readonly planningMode: boolean;
 }
 
@@ -203,11 +232,11 @@ export class StateManager {
   }
 
   static save(state: Partial<BudgetState>): BudgetState {
+    const current = this.load();
+    const updated = { ...current, ...state };
+
     try {
-      const current = this.load();
-      const updated = { ...current, ...state };
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updated));
-      return updated;
     } catch (error) {
       console.error('Failed to save state to localStorage:', error);
 
@@ -221,8 +250,8 @@ export class StateManager {
           'Failed to save your preferences. Changes may not persist on refresh.'
         );
       }
-
-      return { ...this.load(), ...state };
     }
+
+    return updated;
   }
 }

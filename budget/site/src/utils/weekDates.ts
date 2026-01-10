@@ -58,6 +58,16 @@ export function getISOWeek(date: string): WeekId {
     throw new Error(`Invalid date value: ${date}. Date is not parseable.`);
   }
 
+  // CRITICAL: Check that the date wasn't normalized by the Date constructor
+  // E.g., "2025-02-31" becomes "2025-03-03" silently
+  const reconstructed = d.toISOString().substring(0, 10);
+  if (reconstructed !== date) {
+    throw new Error(
+      `Invalid date: ${date} was normalized to ${reconstructed}. ` +
+        `This indicates an invalid day-of-month (e.g., Feb 31st, Apr 31st) or other calendar error.`
+    );
+  }
+
   // Set to nearest Thursday (ISO week date system)
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
   // Get first day of year

@@ -1185,5 +1185,103 @@ describe('BudgetPlanEditor', () => {
         expect(screen.queryByText(/Expense budgets should be negative/)).toBeNull();
       });
     });
+
+    it('shows highest priority error when multiple validations fail', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+
+      // Enter value with invalid characters
+      // '123abc' would be parsed as 123 but has 'abc' chars
+      fireEvent.change(groceriesInput, { target: { value: '123abc' } });
+
+      await waitFor(() => {
+        // Should show invalid characters error (checked before sign)
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      });
+
+      // Should only show ONE error at a time
+      expect(screen.queryByText(/Expense budgets should be negative/)).toBeNull();
+
+      // Fix invalid characters but use wrong sign (positive for expense)
+      fireEvent.change(groceriesInput, { target: { value: '500' } });
+
+      await waitFor(() => {
+        // Now should show the sign error
+        expect(screen.getByText(/Expense budgets should be negative/)).toBeDefined();
+      });
+
+      // Invalid characters error should be cleared
+      expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+
+      // Fix sign to valid value
+      fireEvent.change(groceriesInput, { target: { value: '-500' } });
+
+      await waitFor(() => {
+        // All errors should be cleared
+        expect(screen.queryByText(/Expense budgets should be negative/)).toBeNull();
+        expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+      });
+    });
+
+    it('maintains validation state during rapid typing', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement;
+
+      // Type '1' → valid
+      fireEvent.change(groceriesInput, { target: { value: '-1' } });
+
+      await waitFor(() => {
+        expect((groceriesInput as HTMLInputElement).value).toBe('-1');
+      });
+
+      // No errors should be shown
+      expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+      expect(screen.queryByText(/Budget value is unusually large/)).toBeNull();
+
+      // Type '12' → valid
+      fireEvent.change(groceriesInput, { target: { value: '-12' } });
+
+      await waitFor(() => {
+        expect((groceriesInput as HTMLInputElement).value).toBe('-12');
+      });
+
+      expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+
+      // Type '123abc' → invalid
+      fireEvent.change(groceriesInput, { target: { value: '-123abc' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+      });
+
+      // Backspace to '123' → valid again
+      fireEvent.change(groceriesInput, { target: { value: '-123' } });
+
+      await waitFor(() => {
+        // Error should be cleared synchronously
+        expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+      });
+
+      // Value should be updated
+      expect((groceriesInput as HTMLInputElement).value).toBe('-123');
+    });
   });
 });

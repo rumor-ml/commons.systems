@@ -68,15 +68,12 @@ export function BudgetPlanEditor({
   }, [debouncedBudgets, historicData]);
 
   const handleTargetChange = (category: Category, value: string) => {
-    // TODO(#1390): Remove console.warn calls for expected user validation failures
-    // These warnings were added during development to debug validation logic behavior.
-    // They can be safely removed once validation has been stable in production for 1+ month
-    // without user reports of unexpected validation errors. Keep the user-facing error messages.
+    // TODO(#1390): Remove console.warn calls after 1+ month of stable validation (keep user-facing error messages)
     // Allow empty string to clear budget
     if (value.trim() === '') {
-      // Remove category from budget object entirely (not just set to 0).
-      // Setting to 0 would be invalid per isValidCategoryBudget() which rejects zero targets,
-      // and would create misleading UI state. Omitting the key properly indicates "no budget set".
+      // Remove category from budget object entirely to indicate "no budget set" (semantically different from $0 budget).
+      // Omitting the key allows the UI to distinguish between "unconfigured" vs "explicitly set to zero".
+      // Note: isValidCategoryBudget() rejects zero targets to prevent ambiguous state.
       const updated = { ...categoryBudgets };
       delete updated[category];
       setCategoryBudgets(updated);
@@ -108,12 +105,12 @@ export function BudgetPlanEditor({
       return;
     }
 
-    // Validate whole string was parsed (detect "123abc" scenarios)
-    if (value.trim() !== numValue.toString() && !value.includes('.')) {
+    // Validate whole string was parsed correctly
+    if (!value.trim().match(/^-?\d+(\.\d+)?$/)) {
       showValidationError(
         category,
         'Invalid characters in number',
-        `Partial numeric parsing for ${category}: "${value}" → ${numValue}`
+        `Invalid numeric format for ${category}: "${value}"`
       );
       return;
     }

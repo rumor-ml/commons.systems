@@ -164,7 +164,7 @@ describe('main.ts Event Handler Integration Tests', () => {
 
       const budgetPlan: BudgetPlan = {
         categoryBudgets: {
-          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
         },
         lastModified: new Date().toISOString(),
       };
@@ -187,26 +187,18 @@ describe('main.ts Event Handler Integration Tests', () => {
 
       const budgetPlan: BudgetPlan = {
         categoryBudgets: {
-          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
         },
         lastModified: new Date().toISOString(),
       };
 
-      // Mock JSON.stringify to return different values on consecutive calls
-      // First call: save attempt returns one value
-      // Second call: verification returns different value (causing mismatch)
-      const originalStringify = JSON.stringify;
-      let stringifyCallCount = 0;
-
-      vi.spyOn(JSON, 'stringify').mockImplementation((value) => {
-        stringifyCallCount++;
-        // On the verification check (2nd stringify call for budgetPlan comparison)
-        // return different JSON to trigger verification failure
-        if (stringifyCallCount === 3) {
-          // This is the saved budgetPlan check - return something different
-          return '{"different":"data"}';
-        }
-        return originalStringify(value);
+      // Mock StateManager.save to return a state where budgetPlan is null
+      // This simulates a verification failure where the save didn't persist correctly
+      const originalSave = StateManager.save.bind(StateManager);
+      vi.spyOn(StateManager, 'save').mockImplementation((state) => {
+        const result = originalSave(state);
+        // Return state with null budgetPlan to trigger verification failure
+        return { ...result, budgetPlan: null };
       });
 
       const event = new CustomEvent('budget:plan-save', {
@@ -233,7 +225,7 @@ describe('main.ts Event Handler Integration Tests', () => {
 
       const budgetPlan: BudgetPlan = {
         categoryBudgets: {
-          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
         },
         lastModified: new Date().toISOString(),
       };
@@ -263,7 +255,7 @@ describe('main.ts Event Handler Integration Tests', () => {
 
       const budgetPlan: BudgetPlan = {
         categoryBudgets: {
-          groceries: { weeklyTarget: 100, rolloverEnabled: true },
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
         },
         lastModified: new Date().toISOString(),
       };
@@ -279,6 +271,114 @@ describe('main.ts Event Handler Integration Tests', () => {
       // StateManager.save() shows this generic message when save throws
       expect(bannerText).toContain('Failed to save your budget plan');
       expect(bannerText).toContain('private browsing mode');
+    });
+
+    it('preserves unmodified categories when updating budget plan', async () => {
+      await import('./main');
+
+      // Set up initial budget plan with multiple categories
+      const initial: BudgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: false },
+          dining: { weeklyTarget: -50, rolloverEnabled: true },
+        },
+        lastModified: new Date().toISOString(),
+      };
+      StateManager.save({ budgetPlan: initial, planningMode: true });
+
+      // Update only groceries category
+      const updated: BudgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -600, rolloverEnabled: true },
+          dining: { weeklyTarget: -50, rolloverEnabled: true },
+        },
+        lastModified: new Date().toISOString(),
+      };
+
+      const event = new CustomEvent('budget:plan-save', {
+        detail: { budgetPlan: updated },
+      });
+      document.dispatchEvent(event);
+
+      // Verify state was updated
+      const state = StateManager.load();
+      expect(state.budgetPlan?.categoryBudgets.dining).toEqual(initial.categoryBudgets.dining); // Unchanged
+      expect(state.budgetPlan?.categoryBudgets.groceries?.weeklyTarget).toBe(-600); // Changed
+      expect(state.budgetPlan?.categoryBudgets.groceries?.rolloverEnabled).toBe(true); // Changed
+
+      // Verify localStorage persistence
+      const stored = localStorage.getItem('budget-state');
+      expect(stored).toBeTruthy();
+      const parsed = JSON.parse(stored!);
+      expect(parsed.budgetPlan.categoryBudgets.dining).toEqual(initial.categoryBudgets.dining);
+      expect(parsed.budgetPlan.categoryBudgets.groceries.weeklyTarget).toBe(-600);
+    });
+
+    it('simulates page reload and verifies budget plan persistence', async () => {
+      await import('./main');
+
+      // Set up budget plan
+      const budgetPlan: BudgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
+          dining: { weeklyTarget: -50, rolloverEnabled: false },
+        },
+        lastModified: new Date().toISOString(),
+      };
+      StateManager.save({ budgetPlan, planningMode: true });
+
+      // Simulate page reload by clearing in-memory state
+      // In a real app, this would be a full page refresh
+      // We verify that localStorage.getItem still works and contains correct data
+      const stored = localStorage.getItem('budget-state');
+      expect(stored).toBeTruthy();
+
+      // Load from localStorage (simulating fresh page load)
+      const loaded = StateManager.load();
+      expect(loaded.budgetPlan).toBeTruthy();
+      expect(loaded.budgetPlan?.categoryBudgets.groceries).toEqual(
+        budgetPlan.categoryBudgets.groceries
+      );
+      expect(loaded.budgetPlan?.categoryBudgets.dining).toEqual(budgetPlan.categoryBudgets.dining);
+    });
+
+    it('migrates from null to first budget plan', async () => {
+      await import('./main');
+
+      // Start with no budget plan (fresh state)
+      StateManager.save({ budgetPlan: null, planningMode: true });
+
+      // Verify initial state
+      let state = StateManager.load();
+      expect(state.budgetPlan).toBeNull();
+
+      // Save first budget plan
+      const firstPlan: BudgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -100, rolloverEnabled: true },
+        },
+        lastModified: new Date().toISOString(),
+      };
+
+      const event = new CustomEvent('budget:plan-save', {
+        detail: { budgetPlan: firstPlan },
+      });
+      document.dispatchEvent(event);
+
+      // Verify migration from null to first plan
+      state = StateManager.load();
+      expect(state.budgetPlan).toBeTruthy();
+      expect(state.budgetPlan?.categoryBudgets.groceries).toEqual(
+        firstPlan.categoryBudgets.groceries
+      );
+
+      // Verify localStorage persistence
+      const stored = localStorage.getItem('budget-state');
+      expect(stored).toBeTruthy();
+      const parsed = JSON.parse(stored!);
+      expect(parsed.budgetPlan.categoryBudgets.groceries).toEqual(
+        firstPlan.categoryBudgets.groceries
+      );
     });
   });
 

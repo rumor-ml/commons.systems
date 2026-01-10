@@ -1,3 +1,5 @@
+import { CATEGORIES } from './constants';
+
 export type Category =
   | 'income'
   | 'housing'
@@ -207,27 +209,10 @@ export function createBudgetPlan(
   categoryBudgets: Partial<Record<Category, CategoryBudget>> = {},
   lastModified?: string
 ): BudgetPlan | null {
-  // Import CATEGORIES from constants to validate keys
-  // Note: Dynamic import would require async, so we validate inline
-  const validCategories: Category[] = [
-    'income',
-    'housing',
-    'utilities',
-    'groceries',
-    'dining',
-    'transportation',
-    'healthcare',
-    'entertainment',
-    'shopping',
-    'travel',
-    'investment',
-    'other',
-  ];
-
   // Validate all category budgets
   for (const [category, budget] of Object.entries(categoryBudgets)) {
     // Type guard: ensure key is actually a valid Category
-    if (!validCategories.includes(category as Category)) {
+    if (!CATEGORIES.includes(category as Category)) {
       console.error(`Invalid category key: ${category}`);
       return null;
     }
@@ -270,9 +255,9 @@ export function isValidISOTimestamp(value: string): boolean {
  * @property weekStartDate - Derived from week (Monday). Must match getWeekBoundaries(week).start
  * @property weekEndDate - Derived from week (Sunday). Must match getWeekBoundaries(week).end
  *
- * CRITICAL: Always construct via aggregateTransactionsByWeek() or call getWeekBoundaries() to populate dates.
- * Manually constructing WeeklyData with inconsistent week/date values will cause incorrect budget calculations
- * and chart rendering without throwing errors (silent data corruption).
+ * IMPORTANT: Always construct via aggregateTransactionsByWeek() to ensure date consistency.
+ * Manual construction requires calling getWeekBoundaries() to populate weekStartDate/weekEndDate.
+ * Use validateWeeklyData() to verify consistency if constructing manually.
  */
 export interface WeeklyData {
   readonly week: WeekId;
@@ -286,10 +271,9 @@ export interface WeeklyData {
 
 /**
  * Validates that a WeeklyData object has consistent week and date fields.
- * CRITICAL: Checks that weekStartDate and weekEndDate match the week identifier.
- * Imports getWeekBoundaries from weekDates.ts to avoid circular dependency.
+ * Checks that weekStartDate and weekEndDate match the week identifier.
  * @param data - WeeklyData to validate
- * @param getWeekBoundaries - Function to get week boundaries (provided for backward compatibility, will be removed)
+ * @param getWeekBoundaries - Function to get week boundaries (REQUIRED - caller must provide)
  * @returns true if valid, false if week/date mismatch detected
  */
 export function validateWeeklyData(
