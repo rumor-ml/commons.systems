@@ -1,3 +1,2 @@
-# OFX test data (contains sensitive financial info)
-internal/parsers/ofx/testdata/*.ofx
-internal/parsers/ofx/testdata/*.qfx
+# Compiled binaries
+finparse
