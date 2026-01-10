@@ -29,6 +29,9 @@ case "$SITE_NAME" in
   print)
     FIREBASE_SITE_ID="print-dfb47"
     ;;
+  budget)
+    FIREBASE_SITE_ID="budget-81cb7"
+    ;;
   *)
     FIREBASE_SITE_ID="$SITE_NAME"
     ;;
@@ -61,7 +64,7 @@ echo ""
 
 # Build the site
 echo "📦 Building ${SITE_NAME}..."
-npm run build --workspace="${SITE_NAME}/site"
+pnpm --dir "${SITE_NAME}/site" build
 
 # Check if build succeeded
 if [ ! -d "${SITE_NAME}/site/dist" ]; then
