@@ -414,6 +414,24 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
+    // Wait for auth state to be restored after page reload
+    await page.waitForFunction(
+      () => {
+        return (
+          window.auth?.currentUser != null && document.body.classList.contains('authenticated')
+        );
+      },
+      { timeout: 10000 }
+    );
+
+    // Verify we're still signed in as user2
+    const currentUid = await page.evaluate(() => window.auth?.currentUser?.uid);
+    if (currentUid !== user2Uid) {
+      throw new Error(
+        `Auth state mismatch after reload. Expected user2 (${user2Uid}), got ${currentUid}`
+      );
+    }
+
     // Wait for cards to load
     await page.waitForTimeout(3000);
 
@@ -435,6 +453,25 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     // Reload page to trigger card reload
     await page.reload();
     await page.waitForLoadState('load');
+
+    // Wait for auth state to be restored after page reload
+    await page.waitForFunction(
+      () => {
+        return (
+          window.auth?.currentUser != null && document.body.classList.contains('authenticated')
+        );
+      },
+      { timeout: 10000 }
+    );
+
+    // Verify we're now signed in as user1
+    const currentUid1 = await page.evaluate(() => window.auth?.currentUser?.uid);
+    if (currentUid1 !== user1Uid) {
+      throw new Error(
+        `Auth state mismatch after reload. Expected user1 (${user1Uid}), got ${currentUid1}`
+      );
+    }
+
     await page.waitForTimeout(3000);
 
     // User1 should now see: their private card + public card (NOT user2's private card)
