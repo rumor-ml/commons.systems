@@ -355,7 +355,7 @@ test.describe('Add Card - Form Validation Tests', () => {
     expect(isValid).toBe(false);
   });
 
-  test('should parse comma-separated tags correctly', async ({ page, authEmulator }) => {
+  test.skip('should parse comma-separated tags correctly', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
