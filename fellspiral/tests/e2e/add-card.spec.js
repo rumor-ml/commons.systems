@@ -20,6 +20,7 @@ import {
   waitForCardInFirestore,
   getCardFromFirestore,
   generateTestCardData,
+  getTestCollectionName,
 } from './test-helpers.js';
 
 const isEmulatorMode = process.env.VITE_USE_FIREBASE_EMULATOR === 'true';
