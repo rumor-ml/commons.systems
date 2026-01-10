@@ -196,6 +196,14 @@ EOF
       cleanup() {
         echo "Stopping emulators..."
         "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
+
+        # Kill any orphaned Playwright/test processes
+        pkill -f "npx playwright test" 2>/dev/null || true
+        pkill -f "firefox.*headless" 2>/dev/null || true
+        pkill -f "chromium.*headless" 2>/dev/null || true
+
+        # Kill zombie node processes
+        ps aux | grep -E "defunct|<defunct>" | grep -E "node|playwright|firefox|chromium" | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
       }
       trap cleanup EXIT
     else
