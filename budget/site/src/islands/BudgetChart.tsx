@@ -19,6 +19,12 @@ import {
   calculateWeeklyComparison,
   getCurrentWeek,
 } from '../scripts/weeklyAggregation';
+import {
+  updateQualifierBreakdown,
+  filterTransactions,
+  getDisplayAmount,
+  partitionByIncome,
+} from './qualifierUtils';
 
 /**
  * Render an empty state message in the chart container.
@@ -29,18 +35,6 @@ function renderEmptyState(container: HTMLElement, message: string): void {
   emptyDiv.className = 'p-8 text-center text-text-secondary';
   emptyDiv.textContent = message;
   container.appendChild(emptyDiv);
-}
-
-/**
- * Partition data by income/expense status.
- */
-function partitionByIncome<T extends { isIncome: boolean }>(
-  data: T[]
-): { income: T[]; expense: T[] } {
-  return {
-    income: data.filter((d) => d.isIncome),
-    expense: data.filter((d) => !d.isIncome),
-  };
 }
 
 /**
@@ -63,6 +57,290 @@ function getErrorMessages(error: string): { userMessage: string; guidance: strin
     userMessage: 'An unexpected error occurred while loading the chart.',
     guidance: 'Try refreshing the page. If the problem persists, contact support.',
   };
+}
+
+/**
+ * Transform transactions to monthly aggregates with qualifier tracking.
+ * Filters out transfers and applies category/vacation filters.
+ * @returns Object containing monthlyData, netIncomeData, and trailingAvgData
+ */
+function transformToMonthlyData(
+  transactions: Transaction[],
+  hiddenSet: Set<Category>,
+  showVacation: boolean
+): {
+  monthlyData: MonthlyData[];
+  netIncomeData: { month: Date; netIncome: number }[];
+  trailingAvgData: { month: Date; trailingAvg: number }[];
+} {
+  // Filter out transfers and apply filters
+  const filteredTransactions = filterTransactions(transactions, {
+    hiddenCategories: hiddenSet,
+    showVacation,
+  });
+
+  // Transform to monthly aggregates with qualifier tracking
+  const monthlyMap = new Map<
+    string,
+    Map<Category, { amount: number; qualifiers: QualifierBreakdown }>
+  >();
+
+  filteredTransactions.forEach((txn) => {
+    const month = txn.date.substring(0, 7); // YYYY-MM
+    const displayAmount = getDisplayAmount(txn);
+
+    if (!monthlyMap.has(month)) {
+      monthlyMap.set(month, new Map());
+    }
+
+    const categoryMap = monthlyMap.get(month)!;
+    const current = categoryMap.get(txn.category) || {
+      amount: 0,
+      qualifiers: createQualifierBreakdown(),
+    };
+
+    // Update amount
+    current.amount += displayAmount;
+
+    // Track qualifier breakdowns
+    updateQualifierBreakdown(current.qualifiers, txn, displayAmount);
+
+    categoryMap.set(txn.category, current);
+  });
+
+  // Convert to array format for Plot
+  const monthlyData: MonthlyData[] = [];
+  const netIncomeData: { month: Date; netIncome: number }[] = [];
+
+  monthlyMap.forEach((categoryMap, month) => {
+    let monthIncome = 0;
+    let monthExpense = 0;
+
+    categoryMap.forEach((data, category) => {
+      monthlyData.push({
+        month,
+        category,
+        amount: data.amount,
+        isIncome: data.amount > 0,
+        qualifiers: data.qualifiers,
+      });
+
+      if (data.amount > 0) {
+        monthIncome += data.amount;
+      } else {
+        monthExpense += Math.abs(data.amount);
+      }
+    });
+
+    // Calculate net income for this month
+    const netIncome = monthIncome - monthExpense;
+    netIncomeData.push({
+      month: new Date(month + '-01'),
+      netIncome,
+    });
+  });
+
+  // Sort by month AND category to match Observable Plot's rendering order
+  monthlyData.sort((a, b) => {
+    const monthCompare = a.month.localeCompare(b.month);
+    if (monthCompare !== 0) return monthCompare;
+    // If months are equal, sort by category
+    return a.category.localeCompare(b.category);
+  });
+  netIncomeData.sort((a, b) => a.month.getTime() - b.month.getTime());
+
+  // Calculate 3-month trailing average
+  const trailingAvgData = netIncomeData.map((item, idx) => {
+    const start = Math.max(0, idx - 2);
+    const slice = netIncomeData.slice(start, idx + 1);
+    const avg = d3.mean(slice, (d) => d.netIncome) || 0;
+    return {
+      month: item.month,
+      trailingAvg: avg,
+    };
+  });
+
+  return { monthlyData, netIncomeData, trailingAvgData };
+}
+
+/**
+ * Render monthly stacked bar chart with trend lines.
+ * @returns Observable Plot element
+ */
+function renderMonthlyChart(
+  container: HTMLElement,
+  monthlyData: MonthlyData[],
+  netIncomeData: { month: Date; netIncome: number }[],
+  trailingAvgData: { month: Date; trailingAvg: number }[]
+): Element {
+  // Partition data once for both plot rendering and event listeners
+  const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
+
+  // Create the plot
+  const plot = Plot.plot({
+    width: container.clientWidth || 800,
+    height: 500,
+    marginTop: 20,
+    marginRight: 20,
+    marginBottom: 40,
+    marginLeft: 60,
+    x: {
+      type: 'band',
+      label: 'Month',
+      tickFormat: (d: string) => {
+        const date = new Date(d + '-01');
+        return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      },
+    },
+    y: {
+      label: 'Amount ($)',
+      grid: true,
+      tickFormat: (d: number) => `$${Math.abs(d).toLocaleString()}`,
+    },
+    color: {
+      type: 'categorical',
+      domain: Object.keys(CATEGORY_COLORS),
+      range: Object.values(CATEGORY_COLORS),
+      legend: false,
+    },
+    marks: [
+      // Zero line
+      Plot.ruleY([0], { stroke: '#666', strokeWidth: 1.5 }),
+
+      // Stacked bars for expenses (negative values)
+      Plot.barY(
+        expenseData,
+        Plot.stackY({
+          x: 'month',
+          y: 'amount',
+          fill: 'category',
+        })
+      ),
+
+      // Stacked bars for income (positive values)
+      Plot.barY(
+        incomeData,
+        Plot.stackY({
+          x: 'month',
+          y: 'amount',
+          fill: 'category',
+        })
+      ),
+
+      // Net income line
+      Plot.line(netIncomeData, {
+        x: (d) => d.month.toISOString().substring(0, 7),
+        y: 'netIncome',
+        stroke: '#00d4ed',
+        strokeWidth: 3,
+      }),
+
+      // 3-month trailing average line
+      Plot.line(trailingAvgData, {
+        x: (d) => d.month.toISOString().substring(0, 7),
+        y: 'trailingAvg',
+        stroke: '#00d4ed',
+        strokeWidth: 2,
+        strokeDasharray: '5,5',
+        strokeOpacity: 0.7,
+      }),
+    ],
+  });
+
+  return plot;
+}
+
+/**
+ * Attach event listeners to bar segments for tooltip interactivity.
+ * @throws Error if bar groups not found (caller should handle gracefully)
+ */
+function attachTooltipListeners(
+  plot: Element,
+  monthlyData: MonthlyData[],
+  setHoveredSegment: (data: TooltipData | null) => void,
+  pinnedSegmentRef: React.MutableRefObject<TooltipData | null>,
+  setPinnedSegment: (data: TooltipData | null) => void
+): void {
+  // Attach event listeners to bar segments for tooltips
+  // We need to match bars to data - Plot renders bars in two groups (expenses and income)
+  // The bars are in g[aria-label="bar"] elements - expenses first, then income
+  // Observable Plot may render bar groups in different structures depending on data shape.
+  // If bar groups not found, we throw an error to fail fast rather than rendering a broken chart.
+  // Caller (useEffect) catches this and displays user-visible warning banner.
+  // User impact: Chart renders but shows "static mode" warning; tooltips won't work on hover/click.
+  const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
+  const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
+  const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
+
+  // Validate bar groups were found before attaching listeners
+  if (barGroups.length === 0) {
+    throw new Error('Chart bars not found - tooltip interactivity unavailable');
+  }
+
+  // Partition data to match bar rendering order
+  const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
+
+  // Helper function to attach event listeners to bar segments
+  const attachBarEventListeners = (bars: NodeListOf<Element> | Element[], data: MonthlyData[]) => {
+    bars.forEach((rect, index) => {
+      const barData = data[index];
+      if (!barData) return;
+
+      const element = rect as SVGRectElement;
+      element.style.cursor = 'pointer';
+
+      // Add data attributes for E2E testing expense bars
+      if (!barData.isIncome) {
+        element.setAttribute('data-month', barData.month);
+        element.setAttribute('data-category', barData.category);
+        element.setAttribute('data-amount', barData.amount.toString());
+      }
+
+      // Mouse enter - show tooltip on hover
+      element.addEventListener('mouseenter', (e: MouseEvent) => {
+        if (pinnedSegmentRef.current) return;
+
+        const tooltipData: TooltipData = {
+          month: barData.month,
+          category: barData.category,
+          amount: barData.amount,
+          isIncome: barData.isIncome,
+          qualifiers: barData.qualifiers,
+          x: e.clientX + 10,
+          y: e.clientY + 10,
+        };
+
+        setHoveredSegment(tooltipData);
+      });
+
+      // Mouse leave - hide hover tooltip
+      element.addEventListener('mouseleave', () => {
+        setHoveredSegment(null);
+      });
+
+      // Click - pin tooltip
+      element.addEventListener('click', (e: MouseEvent) => {
+        e.stopPropagation();
+
+        const tooltipData: TooltipData = {
+          month: barData.month,
+          category: barData.category,
+          amount: barData.amount,
+          isIncome: barData.isIncome,
+          qualifiers: barData.qualifiers,
+          x: e.clientX + 10,
+          y: e.clientY + 10,
+        };
+
+        pinnedSegmentRef.current = tooltipData;
+        setPinnedSegment(tooltipData);
+        setHoveredSegment(null);
+      });
+    });
+  };
+
+  attachBarEventListeners(expenseBars, expenseData);
+  attachBarEventListeners(incomeBars, incomeData);
 }
 
 interface BudgetChartProps {
@@ -106,12 +384,10 @@ export function BudgetChart({
 
     const hiddenSet = new Set(hiddenCategories);
 
-    // Chart rendering strategy depends on granularity (driven by user's view selection):
-    // - WEEKLY MODE: Category comparison for a single week with budget targets, rollover indicators, and variance tracking
-    //   Purpose: Detailed budget planning - "How am I doing this week against my budget?"
-    // - MONTHLY MODE: Time-series view across multiple months with trend lines
-    //   Purpose: Long-term trend analysis - "How has spending changed over time?"
-    // The different modes require different Observable Plot configurations (bar chart vs. line chart).
+    // WEEKLY vs MONTHLY modes use separate rendering paths for code clarity and maintainability.
+    // Weekly mode adds budget overlay marks and rollover badges; monthly mode adds trend lines
+    // and time-series formatting. Both use the same Plot.plot() structure with different data
+    // sources, marks arrays, and axis configurations.
 
     // WEEKLY MODE
     if (granularity === 'week') {
@@ -322,106 +598,11 @@ export function BudgetChart({
     let trailingAvgData: { month: Date; trailingAvg: number }[];
 
     try {
-      // Filter out transfers and apply filters
-      const filteredTransactions = transactions.filter((txn) => {
-        if (txn.transfer) return false;
-        if (!showVacation && txn.vacation) return false;
-        if (hiddenSet.has(txn.category)) return false;
-        return true;
-      });
-
-      // Transform to monthly aggregates with qualifier tracking
-      const monthlyMap = new Map<
-        string,
-        Map<Category, { amount: number; qualifiers: QualifierBreakdown }>
-      >();
-
-      filteredTransactions.forEach((txn) => {
-        const month = txn.date.substring(0, 7); // YYYY-MM
-        const displayAmount = txn.redeemable ? txn.amount * txn.redemptionRate : txn.amount;
-
-        if (!monthlyMap.has(month)) {
-          monthlyMap.set(month, new Map());
-        }
-
-        const categoryMap = monthlyMap.get(month)!;
-        const current = categoryMap.get(txn.category) || {
-          amount: 0,
-          qualifiers: createQualifierBreakdown(),
-        };
-
-        // Update amount
-        current.amount += displayAmount;
-
-        // Track qualifier breakdowns
-        if (txn.redeemable) {
-          current.qualifiers.redeemable += displayAmount;
-        } else {
-          current.qualifiers.nonRedeemable += displayAmount;
-        }
-
-        if (txn.vacation) {
-          current.qualifiers.vacation += displayAmount;
-        } else {
-          current.qualifiers.nonVacation += displayAmount;
-        }
-
-        current.qualifiers.transactionCount++;
-
-        categoryMap.set(txn.category, current);
-      });
-
-      // Convert to array format for Plot
-      monthlyData = [];
-      netIncomeData = [];
-
-      monthlyMap.forEach((categoryMap, month) => {
-        let monthIncome = 0;
-        let monthExpense = 0;
-
-        categoryMap.forEach((data, category) => {
-          monthlyData.push({
-            month,
-            category,
-            amount: data.amount,
-            isIncome: data.amount > 0,
-            qualifiers: data.qualifiers,
-          });
-
-          if (data.amount > 0) {
-            monthIncome += data.amount;
-          } else {
-            monthExpense += Math.abs(data.amount);
-          }
-        });
-
-        // Calculate net income for this month
-        const netIncome = monthIncome - monthExpense;
-        netIncomeData.push({
-          month: new Date(month + '-01'),
-          netIncome,
-        });
-      });
-
-      // Sort by month AND category to match Observable Plot's rendering order
-      monthlyData.sort((a, b) => {
-        const monthCompare = a.month.localeCompare(b.month);
-        if (monthCompare !== 0) return monthCompare;
-        // If months are equal, sort by category
-        return a.category.localeCompare(b.category);
-      });
-      netIncomeData.sort((a, b) => a.month.getTime() - b.month.getTime());
-
-      // Calculate 3-month trailing average
-      trailingAvgData = netIncomeData.map((item, idx) => {
-        const start = Math.max(0, idx - 2);
-        const slice = netIncomeData.slice(start, idx + 1);
-        const avg = d3.mean(slice, (d) => d.netIncome) || 0;
-        return {
-          month: item.month,
-          trailingAvg: avg,
-        };
-      });
+      ({ monthlyData, netIncomeData, trailingAvgData } = transformToMonthlyData(
+        transactions,
+        hiddenSet,
+        showVacation
+      ));
     } catch (err) {
       console.error('Failed to transform monthly data:', err);
       setError('Failed to process transaction data for monthly view.');
@@ -435,83 +616,8 @@ export function BudgetChart({
     // Chart rendering
     let plot: Element;
     try {
-      // Clear container
       containerRef.current.replaceChildren();
-
-      // Partition data once for both plot rendering and event listeners
-      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
-
-      // Create the plot
-      plot = Plot.plot({
-        width: containerRef.current.clientWidth || 800,
-        height: 500,
-        marginTop: 20,
-        marginRight: 20,
-        marginBottom: 40,
-        marginLeft: 60,
-        x: {
-          type: 'band',
-          label: 'Month',
-          tickFormat: (d: string) => {
-            const date = new Date(d + '-01');
-            return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-          },
-        },
-        y: {
-          label: 'Amount ($)',
-          grid: true,
-          tickFormat: (d: number) => `$${Math.abs(d).toLocaleString()}`,
-        },
-        color: {
-          type: 'categorical',
-          domain: Object.keys(CATEGORY_COLORS),
-          range: Object.values(CATEGORY_COLORS),
-          legend: false,
-        },
-        marks: [
-          // Zero line
-          Plot.ruleY([0], { stroke: '#666', strokeWidth: 1.5 }),
-
-          // Stacked bars for expenses (negative values)
-          Plot.barY(
-            expenseData,
-            Plot.stackY({
-              x: 'month',
-              y: 'amount',
-              fill: 'category',
-            })
-          ),
-
-          // Stacked bars for income (positive values)
-          Plot.barY(
-            incomeData,
-            Plot.stackY({
-              x: 'month',
-              y: 'amount',
-              fill: 'category',
-            })
-          ),
-
-          // Net income line
-          Plot.line(netIncomeData, {
-            x: (d) => d.month.toISOString().substring(0, 7),
-            y: 'netIncome',
-            stroke: '#00d4ed',
-            strokeWidth: 3,
-          }),
-
-          // 3-month trailing average line
-          Plot.line(trailingAvgData, {
-            x: (d) => d.month.toISOString().substring(0, 7),
-            y: 'trailingAvg',
-            stroke: '#00d4ed',
-            strokeWidth: 2,
-            strokeDasharray: '5,5',
-            strokeOpacity: 0.7,
-          }),
-        ],
-      });
-
+      plot = renderMonthlyChart(containerRef.current, monthlyData, netIncomeData, trailingAvgData);
       containerRef.current.appendChild(plot);
     } catch (err) {
       console.error('Failed to render monthly chart:', err);
@@ -522,85 +628,25 @@ export function BudgetChart({
 
     // Event listener attachment
     try {
-      // Attach event listeners to bar segments for tooltips
-      // We need to match bars to data - Plot renders bars in two groups (expenses and income)
-      // The bars are in g[aria-label="bar"] elements - expenses first, then income
-      // Observable Plot may render bar groups in different structures depending on data shape.
-      // Use fallback empty arrays if bar groups not found to prevent tooltip attachment errors.
-      // User impact: Chart renders normally but tooltips won't work on hover/click.
-      const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
-      const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
-      const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
-
-      // Helper function to attach event listeners to bar segments
-      const attachBarEventListeners = (bars: NodeListOf<Element>, data: MonthlyData[]) => {
-        bars.forEach((rect, index) => {
-          const barData = data[index];
-          if (!barData) return;
-
-          const element = rect as SVGRectElement;
-          element.style.cursor = 'pointer';
-
-          // Add data attributes for E2E testing expense bars
-          if (!barData.isIncome) {
-            element.setAttribute('data-month', barData.month);
-            element.setAttribute('data-category', barData.category);
-            element.setAttribute('data-amount', barData.amount.toString());
-          }
-
-          // Mouse enter - show tooltip on hover
-          element.addEventListener('mouseenter', (e: MouseEvent) => {
-            if (pinnedSegmentRef.current) return;
-
-            const tooltipData: TooltipData = {
-              month: barData.month,
-              category: barData.category,
-              amount: barData.amount,
-              isIncome: barData.isIncome,
-              qualifiers: barData.qualifiers,
-              x: e.clientX + 10,
-              y: e.clientY + 10,
-            };
-
-            setHoveredSegment(tooltipData);
-          });
-
-          // Mouse leave - hide hover tooltip
-          element.addEventListener('mouseleave', () => {
-            setHoveredSegment(null);
-          });
-
-          // Click - pin tooltip
-          element.addEventListener('click', (e: MouseEvent) => {
-            e.stopPropagation();
-
-            const tooltipData: TooltipData = {
-              month: barData.month,
-              category: barData.category,
-              amount: barData.amount,
-              isIncome: barData.isIncome,
-              qualifiers: barData.qualifiers,
-              x: e.clientX + 10,
-              y: e.clientY + 10,
-            };
-
-            pinnedSegmentRef.current = tooltipData;
-            setPinnedSegment(tooltipData);
-            setHoveredSegment(null);
-          });
-        });
-      };
-
-      // Validate bar groups were found before attaching listeners
-      if (barGroups.length === 0) {
-        throw new Error('Chart bars not found - tooltip interactivity unavailable');
-      }
-
-      attachBarEventListeners(expenseBars, expenseData);
-      attachBarEventListeners(incomeBars, incomeData);
+      attachTooltipListeners(
+        plot,
+        monthlyData,
+        setHoveredSegment,
+        pinnedSegmentRef,
+        setPinnedSegment
+      );
     } catch (err) {
       console.error('Failed to attach event listeners:', err);
       console.warn('Chart rendered in static mode - no tooltip interactivity');
+
+      // Add user-visible warning banner
+      const warningDiv = document.createElement('div');
+      warningDiv.className = 'text-xs text-warning bg-warning-muted p-2 rounded mt-2';
+      warningDiv.innerHTML =
+        '⚠️ Chart loaded in static mode. Hover tooltips are unavailable. Try refreshing the page.';
+      containerRef.current?.appendChild(warningDiv);
+
+      // TODO: Log to Statsig/Sentry when available to track Observable Plot structure changes
       // Don't call setError() here - the chart has already rendered successfully
       // Tooltip failures are non-fatal and should not trigger error UI
     }

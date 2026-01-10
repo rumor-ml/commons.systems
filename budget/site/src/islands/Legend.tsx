@@ -6,6 +6,7 @@ import {
   calculateWeeklyComparison,
   getCurrentWeek,
 } from '../scripts/weeklyAggregation';
+import { getDisplayAmount } from './qualifierUtils';
 import { dispatchBudgetEvent } from '../utils/events';
 import { formatCurrency } from '../utils/currency';
 
@@ -104,7 +105,7 @@ export function Legend({
       .filter((txn) => !txn.transfer && (showVacation || !txn.vacation))
       .forEach((txn) => {
         const current = summaries.get(txn.category) || { total: 0, count: 0 };
-        const displayAmount = txn.redeemable ? txn.amount * txn.redemptionRate : txn.amount;
+        const displayAmount = getDisplayAmount(txn);
         summaries.set(txn.category, {
           total: current.total + displayAmount,
           count: current.count + 1,

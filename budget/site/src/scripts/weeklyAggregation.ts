@@ -7,11 +7,16 @@ import {
   WeeklyBudgetComparison,
   CashFlowPrediction,
   QualifierBreakdown,
-  MonthlyData,
   createQualifierBreakdown,
   validateWeeklyData,
   createWeeklyBudgetComparison,
+  createCashFlowPrediction,
 } from '../islands/types';
+import {
+  updateQualifierBreakdown,
+  filterTransactions,
+  getDisplayAmount,
+} from '../islands/qualifierUtils';
 import { StateManager } from './state';
 import {
   getISOWeek,
@@ -21,8 +26,8 @@ import {
   getPreviousWeek,
 } from '../utils/weekDates';
 
-// Re-export for backward compatibility (getNextWeek and getPreviousWeek are overridden below)
-export { getISOWeek, getWeekBoundaries, getCurrentWeek };
+// Re-export week utilities from weekDates.ts
+export { getISOWeek, getWeekBoundaries, getCurrentWeek, getNextWeek, getPreviousWeek };
 
 /**
  * Transform transactions to weekly aggregates
@@ -32,12 +37,7 @@ export function aggregateTransactionsByWeek(
   filters: { hiddenCategories: Set<string>; showVacation: boolean }
 ): WeeklyData[] {
   // Filter out transfers and apply category/vacation filters
-  const filteredTransactions = transactions.filter((txn) => {
-    if (txn.transfer) return false;
-    if (!filters.showVacation && txn.vacation) return false;
-    if (filters.hiddenCategories.has(txn.category)) return false;
-    return true;
-  });
+  const filteredTransactions = filterTransactions(transactions, filters);
 
   // Group by week and category
   const weeklyMap = new Map<
@@ -47,7 +47,7 @@ export function aggregateTransactionsByWeek(
 
   filteredTransactions.forEach((txn) => {
     const week = getISOWeek(txn.date);
-    const displayAmount = txn.redeemable ? txn.amount * txn.redemptionRate : txn.amount;
+    const displayAmount = getDisplayAmount(txn);
 
     if (!weeklyMap.has(week)) {
       weeklyMap.set(week, new Map());
@@ -63,19 +63,7 @@ export function aggregateTransactionsByWeek(
     current.amount += displayAmount;
 
     // Track qualifier breakdowns
-    if (txn.redeemable) {
-      current.qualifiers.redeemable += displayAmount;
-    } else {
-      current.qualifiers.nonRedeemable += displayAmount;
-    }
-
-    if (txn.vacation) {
-      current.qualifiers.vacation += displayAmount;
-    } else {
-      current.qualifiers.nonVacation += displayAmount;
-    }
-
-    current.qualifiers.transactionCount++;
+    updateQualifierBreakdown(current.qualifiers, txn, displayAmount);
 
     categoryMap.set(txn.category, current);
   });
@@ -97,9 +85,11 @@ export function aggregateTransactionsByWeek(
       skippedTransactionsByWeek.set(week, affectedTransactions);
 
       skippedWeeks.add(week);
-      // Skip this week - invalid week ID format or date calculation error. Transactions from this week will be excluded from weekly aggregation.
-      // Note: Monthly aggregation is handled separately and may still include these transactions.
-      // User is notified via error banner below (lines 127-153).
+      // Skip this week - invalid week ID format or date calculation error.
+      // Transactions from this week are excluded from weekly aggregation.
+      // They WILL appear in monthly view, which uses different date parsing
+      // that doesn't depend on ISO week calculations.
+      // User is notified via error banner below (search for 'showErrorBanner').
       return;
     }
 
@@ -174,7 +164,7 @@ export function aggregateTransactionsByWeek(
  * @param toWeek - End week (exclusive). Calculates rollover accumulated up to but not including toWeek.
  *   Example: pass '2025-W05' to get rollover available for W05 budget adjustment (accumulated through end of W04).
  *   The returned rollover adjusts toWeek's effective budget target.
- * @returns Map of category to accumulated rollover amount at the start of toWeek
+ * @returns Map of category to accumulated rollover amount available for toWeek's budget adjustment (accumulated through end of toWeek-1, excluding toWeek's transactions)
  */
 export function calculateRolloverAccumulation(
   weeklyData: WeeklyData[],
@@ -200,17 +190,47 @@ export function calculateRolloverAccumulation(
   weeks.forEach((week) => {
     const weekData = weeklyData.filter((d) => d.week === week);
 
+    // Warn about data for non-budgeted categories
+    weekData.forEach((data) => {
+      if (!budgetPlan.categoryBudgets[data.category]) {
+        console.warn(
+          `Found transaction data for ${data.category} in week ${week} but no budget configured for this category`
+        );
+      }
+    });
+
     Object.entries(budgetPlan.categoryBudgets).forEach(([category, budget]) => {
       if (!budget.rolloverEnabled) return;
 
       const cat = category as Category;
       const actual = weekData.find((d) => d.category === cat)?.amount || 0;
       const target = budget.weeklyTarget;
+
+      // Validate numeric values before arithmetic
+      if (!Number.isFinite(actual) || !Number.isFinite(target)) {
+        console.error(`Invalid numeric value in rollover calculation for ${cat} week ${week}`, {
+          actual,
+          target,
+        });
+        return; // Skip this week
+      }
+
       const variance = actual - target;
 
-      // See calculateWeeklyComparison JSDoc for variance calculation convention
+      // Variance = actual - target (see calculateWeeklyComparison JSDoc)
+      // Positive variance = under budget (good), negative = over budget (bad)
       const currentRollover = rolloverMap.get(cat) || 0;
-      rolloverMap.set(cat, currentRollover + variance);
+
+      // Validate rollover accumulation stays finite
+      const newRollover = currentRollover + variance;
+      if (!Number.isFinite(newRollover)) {
+        console.error(
+          `Rollover overflow for ${cat}: ${currentRollover} + ${variance} = ${newRollover}`
+        );
+        return; // Skip this week
+      }
+
+      rolloverMap.set(cat, newRollover);
     });
   });
 
@@ -283,6 +303,21 @@ export function predictCashFlow(
   const recentWeeks = allWeeks.slice(-weeksToAverage);
 
   if (recentWeeks.length === 0) {
+    // Log detailed context for debugging
+    console.warn('Cash flow prediction: No historic data available', {
+      totalTransactionWeeks: allWeeks.length,
+      historicDataPoints: historicData.length,
+      weeksToAverage,
+      budgetCategoriesCount: Object.keys(budgetPlan.categoryBudgets).length,
+    });
+
+    // Check if historicData is completely empty or just filtered out
+    if (historicData.length === 0) {
+      console.warn(
+        'Historic data array is empty - possible data import failure or filtering issue'
+      );
+    }
+
     // No historic data
     return {
       totalIncomeTarget,
@@ -309,19 +344,15 @@ export function predictCashFlow(
     });
   });
 
-  const historicAvgIncome = totalHistoricIncome / recentWeeks.length;
-  const historicAvgExpense = totalHistoricExpense / recentWeeks.length;
-  const historicNetIncome = historicAvgIncome - historicAvgExpense;
-  const variance = predictedNetIncome - historicNetIncome;
+  const historicAvgIncome = recentWeeks.length > 0 ? totalHistoricIncome / recentWeeks.length : 0;
+  const historicAvgExpense = recentWeeks.length > 0 ? totalHistoricExpense / recentWeeks.length : 0;
 
-  return {
+  return createCashFlowPrediction(
     totalIncomeTarget,
     totalExpenseTarget,
-    predictedNetIncome,
     historicAvgIncome,
-    historicAvgExpense,
-    variance,
-  };
+    historicAvgExpense
+  );
 }
 
 /**
@@ -333,54 +364,4 @@ export function getAvailableWeeks(transactions: Transaction[]): WeekId[] {
     weeks.add(getISOWeek(txn.date));
   });
   return Array.from(weeks).sort();
-}
-
-/**
- * Navigate to the next week (ISO 8601 week system).
- * Correctly handles year boundaries and weeks with 53 weeks.
- * @param currentWeek - Current ISO week identifier (e.g., "2024-W52")
- * @returns Next week identifier (e.g., "2025-W01")
- */
-export function getNextWeek(currentWeek: WeekId): WeekId {
-  try {
-    const boundaries = getWeekBoundaries(currentWeek);
-    const nextMonday = new Date(boundaries.start);
-    nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
-    return getISOWeek(nextMonday.toISOString().substring(0, 10));
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to calculate next week from ${currentWeek}:`, error);
-
-    // Preserve original error as cause
-    const enhancedError = new Error(
-      `Invalid week ID "${currentWeek}": cannot calculate next week. ${errorMessage}. Expected format: YYYY-WNN (e.g., "2025-W01")`,
-      { cause: error }
-    );
-    throw enhancedError;
-  }
-}
-
-/**
- * Navigate to the previous week (ISO 8601 week system).
- * Correctly handles year boundaries and weeks with 53 weeks.
- * @param currentWeek - Current ISO week identifier (e.g., "2025-W01")
- * @returns Previous week identifier (e.g., "2024-W52")
- */
-export function getPreviousWeek(currentWeek: WeekId): WeekId {
-  try {
-    const boundaries = getWeekBoundaries(currentWeek);
-    const prevMonday = new Date(boundaries.start);
-    prevMonday.setUTCDate(prevMonday.getUTCDate() - 7);
-    return getISOWeek(prevMonday.toISOString().substring(0, 10));
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to calculate previous week from ${currentWeek}:`, error);
-
-    // Preserve original error as cause
-    const enhancedError = new Error(
-      `Invalid week ID "${currentWeek}": cannot calculate previous week. ${errorMessage}. Expected format: YYYY-WNN (e.g., "2025-W01")`,
-      { cause: error }
-    );
-    throw enhancedError;
-  }
 }

@@ -1,3 +1,5 @@
+import { CATEGORIES } from './constants';
+
 export type Category =
   | 'income'
   | 'housing'
@@ -69,6 +71,26 @@ export function createQualifierBreakdown(): QualifierBreakdown {
   };
 }
 
+/**
+ * Validate that QualifierBreakdown sums are consistent.
+ * redeemable + nonRedeemable should equal vacation + nonVacation (orthogonal categorization).
+ */
+export function validateQualifierBreakdown(q: QualifierBreakdown): boolean {
+  const redeemableTotal = q.redeemable + q.nonRedeemable;
+  const vacationTotal = q.vacation + q.nonVacation;
+  const tolerance = 0.01; // floating point tolerance
+
+  if (Math.abs(redeemableTotal - vacationTotal) > tolerance) {
+    console.error('QualifierBreakdown inconsistent:', {
+      redeemableTotal,
+      vacationTotal,
+      breakdown: q,
+    });
+    return false;
+  }
+  return true;
+}
+
 // TODO: See issue #386 - Use branded YearMonth type, remove redundant isIncome, validate qualifier sums
 export interface MonthlyData {
   month: string; // YYYY-MM format
@@ -106,14 +128,8 @@ export type WeekId = string & { readonly __brand: 'WeekId' };
  * @returns WeekId if valid, null otherwise
  */
 export function parseWeekId(value: string): WeekId | null {
-  if (!/^\d{4}-W\d{2}$/.test(value)) {
-    return null;
-  }
-
-  // Validate week number is in valid range
-  const match = value.match(/^(\d{4})-W(\d{2})$/);
-  const week = parseInt(match![2], 10);
-  if (week < 1 || week > 53) {
+  // Strengthen regex to reject week 00 upfront
+  if (!/^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$/.test(value)) {
     return null;
   }
 
@@ -207,27 +223,10 @@ export function createBudgetPlan(
   categoryBudgets: Partial<Record<Category, CategoryBudget>> = {},
   lastModified?: string
 ): BudgetPlan | null {
-  // Import CATEGORIES from constants to validate keys
-  // Note: Dynamic import would require async, so we validate inline
-  const validCategories: Category[] = [
-    'income',
-    'housing',
-    'utilities',
-    'groceries',
-    'dining',
-    'transportation',
-    'healthcare',
-    'entertainment',
-    'shopping',
-    'travel',
-    'investment',
-    'other',
-  ];
-
   // Validate all category budgets
   for (const [category, budget] of Object.entries(categoryBudgets)) {
     // Type guard: ensure key is actually a valid Category
-    if (!validCategories.includes(category as Category)) {
+    if (!CATEGORIES.includes(category as Category)) {
       console.error(`Invalid category key: ${category}`);
       return null;
     }
@@ -270,9 +269,9 @@ export function isValidISOTimestamp(value: string): boolean {
  * @property weekStartDate - Derived from week (Monday). Must match getWeekBoundaries(week).start
  * @property weekEndDate - Derived from week (Sunday). Must match getWeekBoundaries(week).end
  *
- * CRITICAL: Always construct via aggregateTransactionsByWeek() or call getWeekBoundaries() to populate dates.
- * Manually constructing WeeklyData with inconsistent week/date values will cause incorrect budget calculations
- * and chart rendering without throwing errors (silent data corruption).
+ * IMPORTANT: Always construct via aggregateTransactionsByWeek() to ensure date consistency.
+ * Manual construction requires calling getWeekBoundaries() to populate weekStartDate/weekEndDate.
+ * Use validateWeeklyData() to verify consistency if constructing manually.
  */
 export interface WeeklyData {
   readonly week: WeekId;
@@ -286,27 +285,18 @@ export interface WeeklyData {
 
 /**
  * Validates that a WeeklyData object has consistent week and date fields.
- * CRITICAL: Checks that weekStartDate and weekEndDate match the week identifier.
- * Imports getWeekBoundaries from weekDates.ts to avoid circular dependency.
+ * Checks that weekStartDate and weekEndDate match the week identifier.
  * @param data - WeeklyData to validate
- * @param getWeekBoundaries - Function to get week boundaries (provided for backward compatibility, will be removed)
+ * @param getWeekBoundaries - Function to get week boundaries
  * @returns true if valid, false if week/date mismatch detected
+ * @throws Error if week date calculation fails
  */
 export function validateWeeklyData(
   data: WeeklyData,
-  getWeekBoundaries?: (weekId: WeekId) => { start: string; end: string }
+  getWeekBoundaries: (weekId: WeekId) => { start: string; end: string }
 ): boolean {
   try {
-    // Import getWeekBoundaries from weekDates.ts if not provided
-    // This allows gradual migration from the parameter-based API
-    let boundaries: { start: string; end: string };
-    if (getWeekBoundaries) {
-      boundaries = getWeekBoundaries(data.week);
-    } else {
-      // Dynamic import would be async, so we use a require-like pattern
-      // In practice, callers should migrate to not passing this parameter
-      throw new Error('getWeekBoundaries parameter is required for now');
-    }
+    const boundaries = getWeekBoundaries(data.week);
 
     const datesMatch =
       data.weekStartDate === boundaries.start && data.weekEndDate === boundaries.end;
@@ -329,8 +319,12 @@ export function validateWeeklyData(
 
     return datesMatch && amountSignMatch;
   } catch (error) {
-    console.error(`WeeklyData validation failed: invalid week ID ${data.week}`, error);
-    return false;
+    // CRITICAL: Re-throw calculation errors instead of returning false
+    console.error(
+      `WeeklyData validation failed: week date calculation error for ${data.week}`,
+      error
+    );
+    throw error; // Don't silently convert exceptions to false
   }
 }
 
@@ -362,14 +356,60 @@ export function createWeeklyBudgetComparison(
   target: number,
   rolloverAccumulated: number
 ): WeeklyBudgetComparison {
+  // Validate all numeric inputs
+  if (
+    !Number.isFinite(actual) ||
+    !Number.isFinite(target) ||
+    !Number.isFinite(rolloverAccumulated)
+  ) {
+    console.error(`Invalid numeric value in budget comparison for ${category}`, {
+      actual,
+      target,
+      rolloverAccumulated,
+    });
+    // Return safe defaults rather than NaN
+    return {
+      week,
+      category,
+      actual: Number.isFinite(actual) ? actual : 0,
+      target: Number.isFinite(target) ? target : 0,
+      variance: 0,
+      rolloverAccumulated: 0,
+      effectiveTarget: 0,
+    };
+  }
+
+  const variance = actual - target;
+  const effectiveTarget = target + rolloverAccumulated;
+
+  // Validate derived values
+  if (!Number.isFinite(variance) || !Number.isFinite(effectiveTarget)) {
+    console.error(`Arithmetic overflow in budget comparison for ${category}`, {
+      actual,
+      target,
+      rolloverAccumulated,
+      variance,
+      effectiveTarget,
+    });
+    return {
+      week,
+      category,
+      actual,
+      target,
+      variance: 0,
+      rolloverAccumulated: 0,
+      effectiveTarget: target,
+    };
+  }
+
   return {
     week,
     category,
     actual,
     target,
-    variance: actual - target,
+    variance,
     rolloverAccumulated,
-    effectiveTarget: target + rolloverAccumulated,
+    effectiveTarget,
   };
 }
 
@@ -381,4 +421,48 @@ export interface CashFlowPrediction {
   readonly historicAvgIncome: number;
   readonly historicAvgExpense: number;
   readonly variance: number; // predicted - historic
+}
+
+/**
+ * Factory function to create CashFlowPrediction with validated derived fields.
+ */
+export function createCashFlowPrediction(
+  totalIncomeTarget: number,
+  totalExpenseTarget: number,
+  historicAvgIncome: number,
+  historicAvgExpense: number
+): CashFlowPrediction {
+  // Validate all numeric inputs
+  if (
+    !Number.isFinite(totalIncomeTarget) ||
+    !Number.isFinite(totalExpenseTarget) ||
+    !Number.isFinite(historicAvgIncome) ||
+    !Number.isFinite(historicAvgExpense)
+  ) {
+    console.error('Invalid numeric value in cash flow prediction', {
+      totalIncomeTarget,
+      totalExpenseTarget,
+      historicAvgIncome,
+      historicAvgExpense,
+    });
+    return {
+      totalIncomeTarget: 0,
+      totalExpenseTarget: 0,
+      predictedNetIncome: 0,
+      historicAvgIncome: 0,
+      historicAvgExpense: 0,
+      variance: 0,
+    };
+  }
+
+  const predictedNetIncome = totalIncomeTarget - totalExpenseTarget;
+  const historicNetIncome = historicAvgIncome - historicAvgExpense;
+  return {
+    totalIncomeTarget,
+    totalExpenseTarget,
+    predictedNetIncome,
+    historicAvgIncome,
+    historicAvgExpense,
+    variance: predictedNetIncome - historicNetIncome,
+  };
 }

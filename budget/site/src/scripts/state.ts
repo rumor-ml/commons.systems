@@ -1,5 +1,30 @@
 import { CATEGORIES } from '../islands/constants';
-import { Category, BudgetPlan, TimeGranularity, WeekId, parseWeekId } from '../islands/types';
+import {
+  Category,
+  BudgetPlan,
+  TimeGranularity,
+  WeekId,
+  parseWeekId,
+  isValidCategoryBudget,
+} from '../islands/types';
+
+/**
+ * Type guard to check if an unknown value has the shape of a CategoryBudget.
+ * @param budget - Unknown value to check
+ * @returns true if budget has weeklyTarget (number) and rolloverEnabled (boolean)
+ */
+function isCategoryBudgetLike(
+  budget: unknown
+): budget is { weeklyTarget: number; rolloverEnabled: boolean } {
+  return (
+    typeof budget === 'object' &&
+    budget !== null &&
+    'weeklyTarget' in budget &&
+    'rolloverEnabled' in budget &&
+    typeof (budget as Record<string, unknown>).weeklyTarget === 'number' &&
+    typeof (budget as Record<string, unknown>).rolloverEnabled === 'boolean'
+  );
+}
 
 /**
  * Validate budgetPlan structure from localStorage.
@@ -22,20 +47,27 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
   > = {};
 
   for (const [category, budget] of Object.entries(categoryBudgets)) {
-    if (
-      CATEGORIES.includes(category as Category) &&
-      budget &&
-      typeof budget === 'object' &&
-      'weeklyTarget' in budget &&
-      'rolloverEnabled' in budget &&
-      typeof (budget as any).weeklyTarget === 'number' &&
-      typeof (budget as any).rolloverEnabled === 'boolean'
-    ) {
-      validatedBudgets[category as Category] = {
-        weeklyTarget: (budget as any).weeklyTarget,
-        rolloverEnabled: (budget as any).rolloverEnabled,
-      };
+    if (!CATEGORIES.includes(category as Category)) {
+      console.warn(`Skipping invalid category: ${category}`);
+      continue;
     }
+
+    if (!isCategoryBudgetLike(budget)) {
+      console.warn(`Skipping invalid budget structure for ${category}:`, budget);
+      continue;
+    }
+
+    const categoryBudget = {
+      weeklyTarget: budget.weeklyTarget,
+      rolloverEnabled: budget.rolloverEnabled,
+    };
+
+    if (!isValidCategoryBudget(categoryBudget, category as Category)) {
+      console.warn(`Skipping invalid budget for ${category}:`, budget);
+      continue;
+    }
+
+    validatedBudgets[category as Category] = categoryBudget;
   }
 
   return {
@@ -53,17 +85,18 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
  * @property selectedWeek - Specific week for week view, or null to show current week.
  *   null = components call getCurrentWeek() on each render (ensures "current week" stays current across days)
  *   Non-null = user has navigated to a specific historical week (persisted for session continuity)
- *   Should be null when viewGranularity is 'month' (weekly navigation is disabled in monthly view).
+ *   INVARIANT: Must be null when viewGranularity is 'month' (enforced at type level via discriminated union)
  * @property planningMode - Whether budget plan editor is visible
  */
-export interface BudgetState {
+export type BudgetState = {
   readonly hiddenCategories: readonly Category[];
   readonly showVacation: boolean;
   readonly budgetPlan: BudgetPlan | null;
-  readonly viewGranularity: TimeGranularity;
-  readonly selectedWeek: WeekId | null; // null = current week
   readonly planningMode: boolean;
-}
+} & (
+  | { readonly viewGranularity: 'month'; readonly selectedWeek: null }
+  | { readonly viewGranularity: 'week'; readonly selectedWeek: WeekId | null }
+);
 
 export class StateManager {
   private static STORAGE_KEY = 'budget-state';
@@ -174,6 +207,11 @@ export class StateManager {
         selectedWeek = parseWeekId(parsed.selectedWeek);
       }
 
+      // Enforce invariant: selectedWeek must be null when viewGranularity is 'month'
+      if (viewGranularity === 'month' && selectedWeek !== null) {
+        selectedWeek = null;
+      }
+
       return {
         hiddenCategories,
         showVacation: parsed.showVacation ?? true,
@@ -203,11 +241,27 @@ export class StateManager {
   }
 
   static save(state: Partial<BudgetState>): BudgetState {
+    const current = this.load();
+    const updated = { ...current, ...state };
+
     try {
-      const current = this.load();
-      const updated = { ...current, ...state };
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updated));
-      return updated;
+
+      // Reload from localStorage to verify persistence
+      const persisted = this.load();
+
+      // Verify write succeeded by comparing budgetPlan if it was part of the update
+      if (state.budgetPlan !== undefined) {
+        const budgetPlanMatches =
+          JSON.stringify(persisted.budgetPlan) === JSON.stringify(updated.budgetPlan);
+
+        if (!budgetPlanMatches) {
+          throw new Error('State verification failed: persisted data does not match intended save');
+        }
+      }
+
+      // Return what was actually persisted
+      return persisted;
     } catch (error) {
       console.error('Failed to save state to localStorage:', error);
 
@@ -222,7 +276,8 @@ export class StateManager {
         );
       }
 
-      return { ...this.load(), ...state };
+      // Return current persisted state, NOT the failed update
+      return current;
     }
   }
 }

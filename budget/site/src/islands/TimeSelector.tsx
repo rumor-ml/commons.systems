@@ -15,7 +15,25 @@ interface TimeSelectorProps {
 }
 
 export function TimeSelector({ granularity, selectedWeek, availableWeeks }: TimeSelectorProps) {
-  const currentWeek = getCurrentWeek();
+  let currentWeek: WeekId;
+  try {
+    currentWeek = getCurrentWeek();
+  } catch (error) {
+    console.error('Failed to get current week:', error);
+    // Fallback to first available week or a reasonable default
+    if (availableWeeks.length > 0) {
+      currentWeek = availableWeeks[availableWeeks.length - 1]; // Latest week
+    } else {
+      // Last resort: construct a valid week ID from Date
+      const now = new Date();
+      const year = now.getFullYear();
+      currentWeek = `${year}-W01` as WeekId; // Safe fallback
+    }
+    StateManager.showErrorBanner(
+      'Cannot determine current week. Using fallback week. Your system clock may be incorrect.'
+    );
+  }
+
   const activeWeek = selectedWeek || currentWeek;
 
   const canGoPrevious = availableWeeks.length > 0 && activeWeek > availableWeeks[0];

@@ -206,10 +206,26 @@ function initVacationToggle(): void {
  * @returns true if objects are deeply equal
  */
 function deepEqual(obj1: any, obj2: any): boolean {
-  return (
-    JSON.stringify(obj1, Object.keys(obj1 || {}).sort()) ===
-    JSON.stringify(obj2, Object.keys(obj2 || {}).sort())
-  );
+  // Handle primitives and null
+  if (obj1 === obj2) return true;
+  if (obj1 == null || obj2 == null) return false;
+  if (typeof obj1 !== 'object' || typeof obj2 !== 'object') return false;
+
+  // Handle arrays
+  if (Array.isArray(obj1) && Array.isArray(obj2)) {
+    if (obj1.length !== obj2.length) return false;
+    return obj1.every((val, idx) => deepEqual(val, obj2[idx]));
+  }
+
+  // Handle objects - normalize by sorting keys at all levels
+  const keys1 = Object.keys(obj1).sort();
+  const keys2 = Object.keys(obj2).sort();
+
+  if (keys1.length !== keys2.length) return false;
+  if (!keys1.every((key, idx) => key === keys2[idx])) return false;
+
+  // Recursively compare values
+  return keys1.every((key) => deepEqual(obj1[key], obj2[key]));
 }
 
 /**

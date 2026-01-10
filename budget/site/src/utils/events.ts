@@ -6,7 +6,6 @@
  * This enables centralized state management where islands dispatch events without coupling to StateManager.
  * Setting bubbles: false would break this pattern and cause silent UI update failures.
  */
-// TODO(#1379): Add test coverage for dispatchBudgetEvent function
 export function dispatchBudgetEvent<T>(eventName: string, detail?: T): void {
   document.dispatchEvent(
     new CustomEvent(eventName, {

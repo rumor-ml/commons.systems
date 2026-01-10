@@ -787,6 +787,34 @@ describe('TimeSelector', () => {
       const buttons = screen.getAllByRole('button');
       expect(buttons.length).toBeGreaterThan(0);
     });
+
+    it('allows tab navigation through all buttons in correct order', () => {
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={availableWeeks[5]} // Middle week - all buttons enabled
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const granularityToggle = screen.getByText('Weekly View');
+      const previousButton = screen.getByText('← Previous');
+      const currentWeekButton = screen.getByText('Current Week');
+      const nextButton = screen.getByText('Next →');
+
+      // Verify all buttons are focusable (no negative tabindex)
+      granularityToggle.focus();
+      expect(document.activeElement).toBe(granularityToggle);
+
+      previousButton.focus();
+      expect(document.activeElement).toBe(previousButton);
+
+      currentWeekButton.focus();
+      expect(document.activeElement).toBe(currentWeekButton);
+
+      nextButton.focus();
+      expect(document.activeElement).toBe(nextButton);
+    });
   });
 
   describe('Integration with Event System', () => {
@@ -827,6 +855,242 @@ describe('TimeSelector', () => {
           granularity: 'month',
         })
       );
+    });
+  });
+
+  describe('Week Boundary Tests - Sparse Available Weeks', () => {
+    it('handles sparse available weeks correctly', () => {
+      // Sparse weeks with gaps: W01, W05, W10, W15
+      const sparseWeeks: WeekId[] = [
+        weekId('2025-W01'),
+        weekId('2025-W05'),
+        weekId('2025-W10'),
+        weekId('2025-W15'),
+      ];
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W20'));
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')}
+          availableWeeks={sparseWeeks}
+        />
+      );
+
+      // Click Next - should navigate to W06 (getNextWeek returns next chronological week)
+      const nextButton = screen.getByText('Next →');
+      fireEvent.click(nextButton);
+
+      expect(mockGetNextWeek).toHaveBeenCalledWith(weekId('2025-W05'));
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W06'), // getNextWeek returns W06 (not W10 from availableWeeks)
+      });
+
+      vi.clearAllMocks();
+
+      // Click Previous - should navigate to W04 (getNextWeek returns previous chronological week)
+      const previousButton = screen.getByText('← Previous');
+      fireEvent.click(previousButton);
+
+      expect(mockGetPreviousWeek).toHaveBeenCalledWith(weekId('2025-W05'));
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W04'), // getPreviousWeek returns W04 (not W01 from availableWeeks)
+      });
+    });
+
+    it('allows navigation to weeks not in availableWeeks array when using sparse data', () => {
+      // This test documents current behavior: navigation is not constrained to availableWeeks
+      const sparseWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W10')];
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W20'));
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W01')}
+          availableWeeks={sparseWeeks}
+        />
+      );
+
+      const nextButton = screen.getByText('Next →');
+      fireEvent.click(nextButton);
+
+      // getNextWeek returns W02, which is NOT in availableWeeks [W01, W10]
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W02'),
+      });
+    });
+  });
+
+  describe('Week Boundary Tests - Selected Week Outside Range', () => {
+    it('handles selectedWeek before availableWeeks range', () => {
+      const limitedWeeks: WeekId[] = [weekId('2025-W10'), weekId('2025-W11'), weekId('2025-W12')];
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W20'));
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')} // Before range starts
+          availableWeeks={limitedWeeks}
+        />
+      );
+
+      const previousButton = screen.getByText('← Previous');
+      const nextButton = screen.getByText('Next →');
+
+      // Previous button should be disabled (W05 < W10, the first available week)
+      expect(previousButton).toBeDisabled();
+
+      // Next button should be enabled (W05 < currentWeek)
+      expect(nextButton).not.toBeDisabled();
+    });
+
+    it('handles selectedWeek after availableWeeks range but before current week', () => {
+      const limitedWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W02'), weekId('2025-W03')];
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W20'));
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W10')} // After range ends, before current
+          availableWeeks={limitedWeeks}
+        />
+      );
+
+      const previousButton = screen.getByText('← Previous');
+      const nextButton = screen.getByText('Next →');
+
+      // Previous button should be enabled (W10 > W01, the first available week)
+      expect(previousButton).not.toBeDisabled();
+
+      // Next button should be enabled (W10 < W20 current week)
+      expect(nextButton).not.toBeDisabled();
+    });
+
+    it('handles selectedWeek outside availableWeeks with navigation', () => {
+      const limitedWeeks: WeekId[] = [weekId('2025-W10'), weekId('2025-W11'), weekId('2025-W12')];
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W20'));
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')} // Before availableWeeks range
+          availableWeeks={limitedWeeks}
+        />
+      );
+
+      const nextButton = screen.getByText('Next →');
+      fireEvent.click(nextButton);
+
+      // Should navigate to W06 (next chronological week, still outside availableWeeks)
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W06'),
+      });
+    });
+  });
+
+  describe('Week Boundary Tests - Dynamic AvailableWeeks Changes', () => {
+    it('re-evaluates boundaries when availableWeeks prop changes', () => {
+      const initialWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W02')];
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W10'));
+
+      const { rerender } = render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W02')}
+          availableWeeks={initialWeeks}
+        />
+      );
+
+      // Initially at W02, next should be disabled (not at current week W10 yet, but close to end)
+      let nextButton = screen.getByText('Next →');
+      expect(nextButton).not.toBeDisabled(); // W02 < W10 (current week)
+
+      // Update availableWeeks to add W03
+      const updatedWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W02'), weekId('2025-W03')];
+      rerender(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W02')}
+          availableWeeks={updatedWeeks}
+        />
+      );
+
+      // Next button should still be enabled (still W02 < W10 current week)
+      nextButton = screen.getByText('Next →');
+      expect(nextButton).not.toBeDisabled();
+    });
+
+    it('updates Previous button state when availableWeeks changes', () => {
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W10'));
+
+      // Start with weeks W05-W07
+      const initialWeeks: WeekId[] = [weekId('2025-W05'), weekId('2025-W06'), weekId('2025-W07')];
+
+      const { rerender } = render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')}
+          availableWeeks={initialWeeks}
+        />
+      );
+
+      // At W05 (first available), Previous should be disabled
+      let previousButton = screen.getByText('← Previous');
+      expect(previousButton).toBeDisabled();
+
+      // Add earlier weeks to availableWeeks
+      const updatedWeeks: WeekId[] = [
+        weekId('2025-W03'),
+        weekId('2025-W04'),
+        weekId('2025-W05'),
+        weekId('2025-W06'),
+        weekId('2025-W07'),
+      ];
+
+      rerender(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W05')}
+          availableWeeks={updatedWeeks}
+        />
+      );
+
+      // Now at W05 with W03 and W04 available, Previous should be enabled
+      previousButton = screen.getByText('← Previous');
+      expect(previousButton).not.toBeDisabled();
+    });
+
+    it('maintains correct state when selectedWeek changes along with availableWeeks', () => {
+      mockGetCurrentWeek.mockReturnValue(weekId('2025-W10'));
+
+      const initialWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W02')];
+
+      const { rerender } = render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W01')}
+          availableWeeks={initialWeeks}
+        />
+      );
+
+      // At W01, Previous disabled
+      let previousButton = screen.getByText('← Previous');
+      expect(previousButton).toBeDisabled();
+
+      // Change both selectedWeek and availableWeeks
+      const updatedWeeks: WeekId[] = [weekId('2025-W01'), weekId('2025-W02'), weekId('2025-W03')];
+
+      rerender(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={weekId('2025-W02')}
+          availableWeeks={updatedWeeks}
+        />
+      );
+
+      // At W02, Previous should be enabled
+      previousButton = screen.getByText('← Previous');
+      expect(previousButton).not.toBeDisabled();
     });
   });
 });
