@@ -181,6 +181,7 @@ get_firebase_site_id() {
   case "$app_name" in
     print) echo "print-dfb47" ;;
     videobrowser) echo "videobrowser-7696a" ;;
+    budget) echo "budget-81cb7" ;;
     *) echo "$app_name" ;;  # Default: use app name as-is
   esac
 }
