@@ -287,7 +287,7 @@ export interface WeeklyData {
  * Validates that a WeeklyData object has consistent week and date fields.
  * Checks that weekStartDate and weekEndDate match the week identifier.
  * @param data - WeeklyData to validate
- * @param getWeekBoundaries - Function to get week boundaries
+ * @param getWeekBoundaries - Function to get week boundaries (REQUIRED - caller must provide)
  * @returns true if valid, false if week/date mismatch detected
  * @throws Error if week date calculation fails
  */

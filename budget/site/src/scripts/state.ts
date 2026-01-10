@@ -279,5 +279,7 @@ export class StateManager {
       // Return current persisted state, NOT the failed update
       return current;
     }
+
+    return updated;
   }
 }
