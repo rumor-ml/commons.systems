@@ -29,6 +29,9 @@ case "$SITE_NAME" in
   print)
     FIREBASE_SITE_ID="print-dfb47"
     ;;
+  budget)
+    FIREBASE_SITE_ID="budget-81cb7"
+    ;;
   *)
     FIREBASE_SITE_ID="$SITE_NAME"
     ;;
