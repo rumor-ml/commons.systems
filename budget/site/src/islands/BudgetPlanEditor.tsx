@@ -4,6 +4,7 @@ import { CATEGORIES, CATEGORY_LABELS } from './constants';
 import { predictCashFlow } from '../scripts/weeklyAggregation';
 import { dispatchBudgetEvent } from '../utils/events';
 import { formatCurrency } from '../utils/currency';
+import { StateManager } from '../scripts/state';
 
 interface BudgetPlanEditorProps {
   budgetPlan: BudgetPlan;
@@ -73,16 +74,15 @@ export function BudgetPlanEditor({
     } catch (error) {
       console.error('Cash flow prediction failed:', error);
 
-      // Return safe defaults when prediction fails
-      // This prevents the UI from crashing while alerting developers to the issue
-      return {
-        totalIncomeTarget: 0,
-        totalExpenseTarget: 0,
-        predictedNetIncome: 0,
-        historicAvgIncome: 0,
-        historicAvgExpense: 0,
-        variance: 0,
-      };
+      // Show critical error to user
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      StateManager.showErrorBanner(
+        `Cash flow prediction unavailable: ${errorMessage}. Your budget plan may contain invalid values.`
+      );
+
+      // Return null to indicate prediction failure
+      // This allows the UI to show "unavailable" instead of misleading zeros
+      return null;
     }
   }, [debouncedBudgets, historicData]);
 
@@ -312,9 +312,10 @@ export function BudgetPlanEditor({
     }
   };
 
-  // Determine variance color
-  const varianceClass = prediction.variance >= 0 ? 'variance-positive' : 'variance-negative';
-  const varianceSymbol = prediction.variance >= 0 ? '+' : '';
+  // Determine variance color (only if prediction is available)
+  const varianceClass =
+    prediction && prediction.variance >= 0 ? 'variance-positive' : 'variance-negative';
+  const varianceSymbol = prediction && prediction.variance >= 0 ? '+' : '';
 
   return (
     <div className="plan-editor-modal" onClick={handleCancel}>
@@ -330,29 +331,40 @@ export function BudgetPlanEditor({
           {/* Cash Flow Prediction */}
           <div className="mb-6 p-4 bg-bg-surface rounded-lg">
             <div className="text-sm text-text-secondary mb-1">Predicted Net Income (per week)</div>
-            <div className="text-3xl font-bold text-text-primary">
-              ${formatCurrency(prediction.predictedNetIncome)}
-            </div>
-            {prediction.historicAvgIncome > 0 && (
-              <div className={`text-sm ${varianceClass}`}>
-                {varianceSymbol}${formatCurrency(prediction.variance)} vs historic ($
-                {formatCurrency(prediction.historicAvgIncome - prediction.historicAvgExpense)})
+            {prediction === null ? (
+              <div className="text-error">
+                <div className="text-xl font-bold mb-1">Prediction Unavailable</div>
+                <div className="text-sm">
+                  Cash flow prediction failed. Please check the error banner for details.
+                </div>
               </div>
-            )}
-            <div className="mt-2 text-xs text-text-tertiary">
-              Income: ${formatCurrency(prediction.totalIncomeTarget)} | Expenses: $
-              {formatCurrency(prediction.totalExpenseTarget)}
-            </div>
-            {prediction.historicAvgIncome > 0 && (
-              <div className="text-xs text-text-tertiary">
-                Historic avg: ${formatCurrency(prediction.historicAvgIncome)} income, $
-                {formatCurrency(prediction.historicAvgExpense)} expenses
-              </div>
-            )}
-            {prediction.historicAvgIncome === 0 && (
-              <div className="text-xs text-text-tertiary">
-                No historic data available for comparison
-              </div>
+            ) : (
+              <>
+                <div className="text-3xl font-bold text-text-primary">
+                  ${formatCurrency(prediction.predictedNetIncome)}
+                </div>
+                {prediction.historicAvgIncome > 0 && (
+                  <div className={`text-sm ${varianceClass}`}>
+                    {varianceSymbol}${formatCurrency(prediction.variance)} vs historic ($
+                    {formatCurrency(prediction.historicAvgIncome - prediction.historicAvgExpense)})
+                  </div>
+                )}
+                <div className="mt-2 text-xs text-text-tertiary">
+                  Income: ${formatCurrency(prediction.totalIncomeTarget)} | Expenses: $
+                  {formatCurrency(prediction.totalExpenseTarget)}
+                </div>
+                {prediction.historicAvgIncome > 0 && (
+                  <div className="text-xs text-text-tertiary">
+                    Historic avg: ${formatCurrency(prediction.historicAvgIncome)} income, $
+                    {formatCurrency(prediction.historicAvgExpense)} expenses
+                  </div>
+                )}
+                {prediction.historicAvgIncome === 0 && (
+                  <div className="text-xs text-text-tertiary">
+                    No historic data available for comparison
+                  </div>
+                )}
+              </>
             )}
           </div>
 
