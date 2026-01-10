@@ -116,8 +116,9 @@ echo "  Auth Domain: $AUTH_DOMAIN"
 CONFIG_FILE="${SITE_NAME}/site/src/firebase-config.js"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "❌ Configuration file not found: $CONFIG_FILE"
-  exit 1
+  echo "⚠️  Configuration file not found: $CONFIG_FILE"
+  echo "⚠️  Skipping Firebase config injection (app doesn't use Firebase SDK)"
+  exit 0
 fi
 
 # Create the new configuration
