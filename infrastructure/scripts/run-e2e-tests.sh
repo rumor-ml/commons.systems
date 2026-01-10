@@ -18,6 +18,9 @@ fi
 
 # Get absolute paths (handles any initial CWD)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source port utilities for health check function
+source "${SCRIPT_DIR}/port-utils.sh"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Handle both relative and absolute paths
@@ -241,6 +244,69 @@ EOF
     exit 1
     ;;
 esac
+
+# --- Health check emulators (firebase and go-fullstack only) ---
+if [ "$APP_TYPE" = "firebase" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
+  # Extract port numbers from emulator host strings
+  AUTH_PORT="${FIREBASE_AUTH_EMULATOR_HOST##*:}"
+  FIRESTORE_PORT="${FIRESTORE_EMULATOR_HOST##*:}"
+
+  echo ""
+  echo "=== Emulator Health Check ==="
+  if ! check_emulator_health "127.0.0.1" "${AUTH_PORT}" "127.0.0.1" "${FIRESTORE_PORT}" "${GCP_PROJECT_ID}"; then
+    echo ""
+    echo "⚠️  Emulator health check failed. Restarting emulators..."
+
+    # Stop emulators
+    "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh"
+
+    # Kill backend emulators if needed
+    if [[ -f ~/.firebase-emulators/firebase-backend-emulators.pid ]]; then
+      backend_pid=$(cat ~/.firebase-emulators/firebase-backend-emulators.pid)
+      if kill -0 "$backend_pid" 2>/dev/null; then
+        echo "Killing backend emulators (PID: $backend_pid)..."
+        kill "$backend_pid"
+        rm -f ~/.firebase-emulators/firebase-backend-emulators.pid
+      fi
+    fi
+
+    # Clear lock to allow restart
+    if [[ -d ~/.firebase-emulators/lock ]]; then
+      echo "Removing stale lock..."
+      rm -rf ~/.firebase-emulators/lock
+    fi
+
+    # Wait for ports to be released
+    sleep 2
+
+    # Restart emulators based on app type
+    echo "Restarting emulators..."
+    if [ "$APP_TYPE" = "firebase" ]; then
+      source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
+    else
+      # go-fullstack: backend only
+      SKIP_HOSTING=1 source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+    fi
+
+    # Retry health check
+    echo ""
+    echo "=== Retry Health Check After Restart ==="
+    if ! check_emulator_health "127.0.0.1" "${AUTH_PORT}" "127.0.0.1" "${FIRESTORE_PORT}" "${GCP_PROJECT_ID}"; then
+      echo ""
+      echo "ERROR: Emulators still unhealthy after restart"
+      echo "Please check emulator logs at:"
+      echo "  Backend: ~/.firebase-emulators/firebase-backend-emulators.log"
+      if [ "$APP_TYPE" = "firebase" ]; then
+        echo "  Hosting: tmp/infrastructure/firebase-hosting-${GCP_PROJECT_ID}.log"
+      fi
+      exit 1
+    fi
+
+    echo "✅ Emulators healthy after restart"
+  fi
+  echo "================================"
+  echo ""
+fi
 
 # --- Run tests ---
 cd "${APP_PATH_ABS}"

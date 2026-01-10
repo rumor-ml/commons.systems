@@ -441,3 +441,71 @@ wait_for_port() {
   echo "✓ $service_name ready on port ${port}"
   return 0
 }
+
+# Check emulator health by performing actual API operations
+# Returns: 0 if healthy, 1 if unhealthy
+# Usage: check_emulator_health "$AUTH_HOST" "$AUTH_PORT" "$FIRESTORE_HOST" "$FIRESTORE_PORT" "$PROJECT_ID"
+check_emulator_health() {
+  local auth_host="$1"
+  local auth_port="$2"
+  local firestore_host="$3"
+  local firestore_port="$4"
+  local project_id="$5"
+
+  echo "🏥 Checking emulator health..."
+
+  # Test 1: Auth emulator health (config endpoint)
+  echo "  Testing Auth emulator at ${auth_host}:${auth_port}..."
+  local auth_start=$(date +%s%3N)
+
+  local auth_response=$(curl -s -w "\n%{http_code}" \
+    --connect-timeout 5 \
+    --max-time 10 \
+    "http://${auth_host}:${auth_port}/emulator/v1/projects/${project_id}/config" \
+    2>/dev/null)
+
+  local auth_status=$(echo "$auth_response" | tail -n1)
+  local auth_end=$(date +%s%3N)
+  local auth_time=$((auth_end - auth_start))
+
+  if [[ "$auth_status" != "200" ]]; then
+    echo "  ❌ Auth emulator unhealthy: HTTP $auth_status"
+    return 1
+  fi
+
+  if [[ $auth_time -gt 3000 ]]; then
+    echo "  ⚠️  Auth emulator slow: ${auth_time}ms (threshold: 3000ms)"
+    return 1
+  fi
+
+  echo "  ✓ Auth emulator healthy (${auth_time}ms)"
+
+  # Test 2: Firestore emulator health (root endpoint returns HTML but validates connectivity)
+  echo "  Testing Firestore emulator at ${firestore_host}:${firestore_port}..."
+  local firestore_start=$(date +%s%3N)
+
+  local firestore_response=$(curl -s -w "\n%{http_code}" \
+    --connect-timeout 5 \
+    --max-time 10 \
+    "http://${firestore_host}:${firestore_port}/" \
+    2>/dev/null)
+
+  local firestore_status=$(echo "$firestore_response" | tail -n1)
+  local firestore_end=$(date +%s%3N)
+  local firestore_time=$((firestore_end - firestore_start))
+
+  if [[ "$firestore_status" != "200" ]]; then
+    echo "  ❌ Firestore emulator unhealthy: HTTP $firestore_status"
+    return 1
+  fi
+
+  if [[ $firestore_time -gt 3000 ]]; then
+    echo "  ⚠️  Firestore emulator slow: ${firestore_time}ms (threshold: 3000ms)"
+    return 1
+  fi
+
+  echo "  ✓ Firestore emulator healthy (${firestore_time}ms)"
+
+  echo "✅ All emulators healthy"
+  return 0
+}
