@@ -1637,7 +1637,8 @@ test.describe('Add Card - Card Edit Flow', () => {
     page,
     authEmulator,
   }) => {
-    await page.goto('/cards.html');
+    const testCollection = await getTestCollectionName();
+    await page.goto(`/cards.html?testCollection=${testCollection}`);
     await page.waitForLoadState('load');
     await page.waitForTimeout(3000);
 
