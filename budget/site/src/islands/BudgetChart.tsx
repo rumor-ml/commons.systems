@@ -67,7 +67,7 @@ function getErrorMessages(error: string): { userMessage: string; guidance: strin
 
 interface BudgetChartProps {
   transactions: Transaction[];
-  hiddenCategories: string[];
+  hiddenCategories: readonly Category[];
   showVacation: boolean;
   granularity?: TimeGranularity;
   selectedWeek?: WeekId | null;
@@ -106,9 +106,12 @@ export function BudgetChart({
 
     const hiddenSet = new Set(hiddenCategories);
 
-    // Chart rendering strategy depends on granularity:
-    // - WEEKLY MODE: Category comparison for a single week with budget targets, rollover indicators, and variance tracking (for detailed budget planning)
-    // - MONTHLY MODE: Time-series view across multiple months with trend lines (for long-term analysis)
+    // Chart rendering strategy depends on granularity (driven by user's view selection):
+    // - WEEKLY MODE: Category comparison for a single week with budget targets, rollover indicators, and variance tracking
+    //   Purpose: Detailed budget planning - "How am I doing this week against my budget?"
+    // - MONTHLY MODE: Time-series view across multiple months with trend lines
+    //   Purpose: Long-term trend analysis - "How has spending changed over time?"
+    // The different modes require different Observable Plot configurations (bar chart vs. line chart).
 
     // WEEKLY MODE
     if (granularity === 'week') {
@@ -529,8 +532,6 @@ export function BudgetChart({
       const expenseBars = barGroups[0]?.querySelectorAll('rect') || [];
       const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
 
-      const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
-
       // Helper function to attach event listeners to bar segments
       const attachBarEventListeners = (bars: NodeListOf<Element>, data: MonthlyData[]) => {
         bars.forEach((rect, index) => {
@@ -599,11 +600,9 @@ export function BudgetChart({
       attachBarEventListeners(incomeBars, incomeData);
     } catch (err) {
       console.error('Failed to attach event listeners:', err);
-      // Show prominent warning with clear guidance
-      setError(
-        'Chart tooltips are unavailable. Click categories in the legend below to see detailed transaction data.'
-      );
       console.warn('Chart rendered in static mode - no tooltip interactivity');
+      // Don't call setError() here - the chart has already rendered successfully
+      // Tooltip failures are non-fatal and should not trigger error UI
     }
 
     setLoading(false);

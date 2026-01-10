@@ -428,7 +428,7 @@ describe('TimeSelector', () => {
 
       // Should show error banner
       expect(mockShowErrorBanner).toHaveBeenCalledWith(
-        'Invalid week data detected. Resetting to current week.'
+        'Invalid week data: invalid-week. Cannot display week information. Please refresh the page.'
       );
 
       // Should dispatch reset event
@@ -552,6 +552,61 @@ describe('TimeSelector', () => {
       // (they'll be in error state but not disabled)
       expect(nextButton).not.toBeDisabled();
       expect(previousButton).not.toBeDisabled();
+
+      // Verify error recovery event was dispatched with week: null
+      // This triggers parent to reset to current week
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', { week: null });
+    });
+
+    it('should verify disabled state persists correctly after failed navigation', () => {
+      const selectedWeek = availableWeeks[5]; // 2025-W06 (middle week)
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      let callCount = 0;
+      mockGetNextWeek.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          throw new Error('First call fails');
+        }
+        // Second call succeeds
+        return weekId('2025-W07');
+      });
+
+      render(
+        <TimeSelector
+          granularity="week"
+          selectedWeek={selectedWeek}
+          availableWeeks={availableWeeks}
+        />
+      );
+
+      const nextButton = screen.getByText('Next →');
+      const previousButton = screen.getByText('← Previous');
+
+      // Verify initial state
+      expect(nextButton).not.toBeDisabled();
+      expect(previousButton).not.toBeDisabled();
+
+      // First click triggers error
+      fireEvent.click(nextButton);
+
+      // Verify error recovery event was dispatched
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', { week: null });
+
+      // Buttons should still be functional (not stuck disabled)
+      expect(nextButton).not.toBeDisabled();
+      expect(previousButton).not.toBeDisabled();
+
+      // Clear mocks to test subsequent navigation
+      vi.clearAllMocks();
+
+      // Second click should work correctly
+      fireEvent.click(nextButton);
+
+      // Verify successful navigation
+      expect(mockDispatchBudgetEvent).toHaveBeenCalledWith('budget:week-change', {
+        week: weekId('2025-W07'),
+      });
     });
   });
 

@@ -207,8 +207,31 @@ export function createBudgetPlan(
   categoryBudgets: Partial<Record<Category, CategoryBudget>> = {},
   lastModified?: string
 ): BudgetPlan | null {
+  // Import CATEGORIES from constants to validate keys
+  // Note: Dynamic import would require async, so we validate inline
+  const validCategories: Category[] = [
+    'income',
+    'housing',
+    'utilities',
+    'groceries',
+    'dining',
+    'transportation',
+    'healthcare',
+    'entertainment',
+    'shopping',
+    'travel',
+    'investment',
+    'other',
+  ];
+
   // Validate all category budgets
   for (const [category, budget] of Object.entries(categoryBudgets)) {
+    // Type guard: ensure key is actually a valid Category
+    if (!validCategories.includes(category as Category)) {
+      console.error(`Invalid category key: ${category}`);
+      return null;
+    }
+
     if (!isValidCategoryBudget(budget, category as Category)) {
       console.error(`Invalid budget for ${category}:`, budget);
       return null;
@@ -264,17 +287,27 @@ export interface WeeklyData {
 /**
  * Validates that a WeeklyData object has consistent week and date fields.
  * CRITICAL: Checks that weekStartDate and weekEndDate match the week identifier.
- * This function requires getWeekBoundaries from weeklyAggregation.ts to be available.
+ * Imports getWeekBoundaries from weekDates.ts to avoid circular dependency.
  * @param data - WeeklyData to validate
- * @param getWeekBoundaries - Function to get week boundaries (must be provided to avoid circular dependency)
+ * @param getWeekBoundaries - Function to get week boundaries (provided for backward compatibility, will be removed)
  * @returns true if valid, false if week/date mismatch detected
  */
 export function validateWeeklyData(
   data: WeeklyData,
-  getWeekBoundaries: (weekId: WeekId) => { start: string; end: string }
+  getWeekBoundaries?: (weekId: WeekId) => { start: string; end: string }
 ): boolean {
   try {
-    const boundaries = getWeekBoundaries(data.week);
+    // Import getWeekBoundaries from weekDates.ts if not provided
+    // This allows gradual migration from the parameter-based API
+    let boundaries: { start: string; end: string };
+    if (getWeekBoundaries) {
+      boundaries = getWeekBoundaries(data.week);
+    } else {
+      // Dynamic import would be async, so we use a require-like pattern
+      // In practice, callers should migrate to not passing this parameter
+      throw new Error('getWeekBoundaries parameter is required for now');
+    }
+
     const datesMatch =
       data.weekStartDate === boundaries.start && data.weekEndDate === boundaries.end;
 

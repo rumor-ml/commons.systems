@@ -199,6 +199,56 @@ function initVacationToggle(): void {
   );
 }
 
+/**
+ * Deep equality comparison that normalizes property order.
+ * @param obj1 - First object
+ * @param obj2 - Second object
+ * @returns true if objects are deeply equal
+ */
+function deepEqual(obj1: any, obj2: any): boolean {
+  return (
+    JSON.stringify(obj1, Object.keys(obj1 || {}).sort()) ===
+    JSON.stringify(obj2, Object.keys(obj2 || {}).sort())
+  );
+}
+
+/**
+ * Diagnoses storage errors and provides recovery suggestions.
+ * @returns Object with reason and recovery action
+ */
+function diagnoseStorageError(): { reason: string; recoveryAction: string } {
+  try {
+    const testKey = '__storage_test__';
+    localStorage.setItem(testKey, 'test');
+    localStorage.removeItem(testKey);
+    // Storage works, so this is a data mismatch
+    return {
+      reason: 'Data verification failed after save',
+      recoveryAction: 'Your browser storage may be corrupted. Try clearing cache.',
+    };
+  } catch (e) {
+    if (e instanceof Error) {
+      if (e.name === 'QuotaExceededError') {
+        return {
+          reason: 'Storage quota exceeded',
+          recoveryAction:
+            'Clear browser cache or reduce data size. Copy your budget values before refreshing.',
+        };
+      } else {
+        return {
+          reason: `Storage unavailable: ${e.message}`,
+          recoveryAction:
+            'You may be in private browsing mode. Copy your budget values before refreshing.',
+        };
+      }
+    }
+    return {
+      reason: 'Storage error occurred',
+      recoveryAction: 'Copy your budget values before refreshing.',
+    };
+  }
+}
+
 function initBudgetPlanEvents(): void {
   // Budget plan save event
   document.addEventListener(
@@ -215,40 +265,13 @@ function initBudgetPlanEvents(): void {
         // If save failed, keep planning mode editor open to preserve user's unsaved budget edits.
         // Prevents data loss by maintaining form state until user can retry or copy values.
         // WARNING: Changes will be lost on page refresh - users should copy values manually.
-        if (!saved.budgetPlan || JSON.stringify(saved.budgetPlan) !== JSON.stringify(budgetPlan)) {
+        if (!saved.budgetPlan || !deepEqual(saved.budgetPlan, budgetPlan)) {
           console.error('Budget plan save verification failed:', {
             attemptedSave: budgetPlan,
             actualSaved: saved.budgetPlan,
           });
 
-          // Diagnose the specific storage issue
-          let reason = 'Unknown storage error';
-          let recoveryAction = 'Try refreshing the page.';
-
-          try {
-            const testKey = '__storage_test__';
-            localStorage.setItem(testKey, 'test');
-            localStorage.removeItem(testKey);
-            // Storage works, so this is a data mismatch
-            reason = 'Data verification failed after save';
-            recoveryAction = 'Your browser storage may be corrupted. Try clearing cache.';
-          } catch (e) {
-            if (e instanceof Error) {
-              if (e.name === 'QuotaExceededError') {
-                reason = 'Storage quota exceeded';
-                recoveryAction =
-                  'Clear browser cache or reduce data size. Copy your budget values before refreshing.';
-              } else {
-                reason = `Storage unavailable: ${e.message}`;
-                recoveryAction =
-                  'You may be in private browsing mode. Copy your budget values before refreshing.';
-              }
-            } else {
-              // Unexpected error type
-              reason = 'Storage error occurred';
-              recoveryAction = 'Copy your budget values before refreshing.';
-            }
-          }
+          const { reason, recoveryAction } = diagnoseStorageError();
 
           StateManager.save({ planningMode: true });
           StateManager.showErrorBanner(
@@ -307,9 +330,11 @@ function initTimeNavigationEvents(): void {
       {
         eventName: 'change week',
         validate: (detail) => {
-          if (!detail?.week) {
-            return { valid: false, error: 'Unable to change week: missing week identifier' };
+          // null is valid - means reset to current week
+          if (detail === undefined || detail === null) {
+            return { valid: false, error: 'Unable to change week: missing event data' };
           }
+          // detail.week can be null (reset to current) or a valid WeekId
           return { valid: true };
         },
         errorContext: (detail) => ({ week: detail.week }),

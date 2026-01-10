@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { BudgetPlan, CategoryBudget, WeeklyData, Category } from './types';
 import { CATEGORIES, CATEGORY_LABELS } from './constants';
 import { predictCashFlow } from '../scripts/weeklyAggregation';
@@ -69,10 +69,14 @@ export function BudgetPlanEditor({
 
   const handleTargetChange = (category: Category, value: string) => {
     // TODO(#1390): Remove console.warn calls for expected user validation failures
+    // These warnings were added during development to debug validation logic behavior.
+    // They can be safely removed once validation has been stable in production for 1+ month
+    // without user reports of unexpected validation errors. Keep the user-facing error messages.
     // Allow empty string to clear budget
     if (value.trim() === '') {
       // Remove category from budget object entirely (not just set to 0).
-      // This excludes the category from budget planning calculations.
+      // Setting to 0 would be invalid per isValidCategoryBudget() which rejects zero targets,
+      // and would create misleading UI state. Omitting the key properly indicates "no budget set".
       const updated = { ...categoryBudgets };
       delete updated[category];
       setCategoryBudgets(updated);
@@ -161,11 +165,11 @@ export function BudgetPlanEditor({
     onSave(plan);
   };
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     dispatchBudgetEvent('budget:plan-cancel');
 
     onCancel();
-  };
+  }, [onCancel]);
 
   // Handle Escape key to close modal
   // TODO(#1386): Add accessibility tests for keyboard navigation

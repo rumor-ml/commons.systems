@@ -50,8 +50,10 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
  * @property showVacation - Whether to include vacation spending
  * @property budgetPlan - User's budget configuration (null = no budget set)
  * @property viewGranularity - Time aggregation level for historic view
- * @property selectedWeek - Specific week for week view. When null, components default to getCurrentWeek() dynamically (not persisted).
- *   Should be null when viewGranularity is 'month' (ignored in monthly view).
+ * @property selectedWeek - Specific week for week view, or null to show current week.
+ *   null = components call getCurrentWeek() on each render (ensures "current week" stays current across days)
+ *   Non-null = user has navigated to a specific historical week (persisted for session continuity)
+ *   Should be null when viewGranularity is 'month' (weekly navigation is disabled in monthly view).
  * @property planningMode - Whether budget plan editor is visible
  */
 export interface BudgetState {
@@ -136,10 +138,9 @@ export class StateManager {
 
       const parsed = JSON.parse(stored);
 
-      // TODO(2026-06): Remove selectedCategory migration after 6 months grace period (added 2026-01).
-      //   Safe to remove if: (a) 6 months elapsed AND (b) no user error reports about lost preferences.
-      //   No analytics available - relying on time elapsed and absence of errors.
-      //   Before removal: Test clean install + upgrade path to verify new users work correctly.
+      // TODO(2026-06): Remove selectedCategory migration (added 2026-01).
+      //   Safe to remove after 6mo if no user error reports about lost preferences.
+      //   Before removal: Test clean install + upgrade path.
       // Migration: Convert old selectedCategory format to hiddenCategories.
       if ('selectedCategory' in parsed && parsed.selectedCategory !== null) {
         const hiddenCategories = CATEGORIES.filter((cat) => cat !== parsed.selectedCategory);

@@ -7,68 +7,22 @@ import {
   WeeklyBudgetComparison,
   CashFlowPrediction,
   QualifierBreakdown,
+  MonthlyData,
   createQualifierBreakdown,
   validateWeeklyData,
   createWeeklyBudgetComparison,
 } from '../islands/types';
 import { StateManager } from './state';
+import {
+  getISOWeek,
+  getWeekBoundaries,
+  getCurrentWeek,
+  getNextWeek,
+  getPreviousWeek,
+} from '../utils/weekDates';
 
-/**
- * Determine the ISO week identifier for a given date.
- * Uses ISO 8601 week date system (Monday = week start).
- * @param date - ISO date string (YYYY-MM-DD)
- * @returns ISO week identifier in format YYYY-WNN (e.g., "2025-W01")
- */
-export function getISOWeek(date: string): WeekId {
-  const d = new Date(date);
-  // Set to nearest Thursday (ISO week date system)
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  // Get first day of year
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  // Calculate full weeks to nearest Thursday
-  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  // Return ISO week identifier
-  return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}` as WeekId;
-}
-
-/**
- * Get week boundaries (Monday-Sunday) for an ISO week identifier
- */
-export function getWeekBoundaries(weekId: WeekId): { start: string; end: string } {
-  const match = weekId.match(/^(\d{4})-W(\d{2})$/);
-  if (!match) {
-    throw new Error(`Invalid week ID: ${weekId}`);
-  }
-
-  const year = parseInt(match[1], 10);
-  const week = parseInt(match[2], 10);
-
-  // ISO 8601: Week 1 is the week with the first Thursday of the year
-  // Calculate the first day of week 1
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const firstMonday = new Date(jan4);
-  firstMonday.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7));
-
-  // Calculate the Monday of the target week
-  const weekStart = new Date(firstMonday);
-  weekStart.setUTCDate(firstMonday.getUTCDate() + (week - 1) * 7);
-
-  // Calculate the Sunday of the target week
-  const weekEnd = new Date(weekStart);
-  weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
-
-  return {
-    start: weekStart.toISOString().substring(0, 10),
-    end: weekEnd.toISOString().substring(0, 10),
-  };
-}
-
-/**
- * Get the current week ID
- */
-export function getCurrentWeek(): WeekId {
-  return getISOWeek(new Date().toISOString().substring(0, 10));
-}
+// Re-export for backward compatibility (getNextWeek and getPreviousWeek are overridden below)
+export { getISOWeek, getWeekBoundaries, getCurrentWeek };
 
 /**
  * Transform transactions to weekly aggregates
@@ -143,8 +97,9 @@ export function aggregateTransactionsByWeek(
       skippedTransactionsByWeek.set(week, affectedTransactions);
 
       skippedWeeks.add(week);
-      // Skip this week - invalid week ID format or date calculation error. Transactions will not appear in any view (both weekly and monthly).
-      // User is notified via error banner below (lines 165-167).
+      // Skip this week - invalid week ID format or date calculation error. Transactions from this week will be excluded from weekly aggregation.
+      // Note: Monthly aggregation is handled separately and may still include these transactions.
+      // User is notified via error banner below (lines 127-153).
       return;
     }
 

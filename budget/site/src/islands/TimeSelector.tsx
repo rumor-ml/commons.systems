@@ -72,17 +72,15 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
       console.error(`Failed to format week ${week}:`, error);
 
       // Single user-facing error with recovery action
-      StateManager.showErrorBanner(`Invalid week data detected. Resetting to current week.`);
+      StateManager.showErrorBanner(
+        `Invalid week data: ${week}. Cannot display week information. Please refresh the page.`
+      );
 
-      // Trigger auto-recovery
+      // Trigger auto-recovery to current week
       dispatchBudgetEvent('budget:week-change', { week: null });
 
-      // Return fallback display value
-      try {
-        return formatWeek(currentWeek);
-      } catch {
-        return 'Current Week';
-      }
+      // Return error indicator, not misleading fallback
+      return `Invalid Week (${week})`;
     }
   };
 

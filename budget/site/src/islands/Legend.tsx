@@ -47,10 +47,16 @@ export function Legend({
     if (target === undefined || variance === undefined) return null;
     const varianceIsPositive = variance > 0;
     const isIncomeCategory = target > 0;
-    // Budget status convention: 'under' = performing well, 'over' = performing poorly
-    // - For expenses (negative targets): spending less than budget (positive variance) → 'under' (good)
-    // - For income (positive targets): earning more than target (positive variance) → 'under' (good)
-    // Logic: When variance sign matches target sign, we're doing well → 'under'
+    // Budget status determines visual indicator color:
+    // 'under' = performing well (green), 'over' = performing poorly (red)
+    //
+    // Examples:
+    // - Expense category (target=-500): actual=-400, variance=+100 → status='under' (spent less, good)
+    // - Expense category (target=-500): actual=-600, variance=-100 → status='over' (overspent, bad)
+    // - Income category (target=2000): actual=2200, variance=+200 → status='under' (earned more, good)
+    // - Income category (target=2000): actual=1800, variance=-200 → status='over' (earned less, bad)
+    //
+    // Implementation: variance and target have same sign → 'under', different signs → 'over'
     return varianceIsPositive === isIncomeCategory ? 'under' : 'over';
   }
 
@@ -62,23 +68,29 @@ export function Legend({
     hiddenSet: Set<string>,
     showVacation: boolean
   ): CategorySummary[] {
-    const weeklyData = aggregateTransactionsByWeek(transactions, {
-      hiddenCategories: hiddenSet,
-      showVacation,
-    });
-    const weekData = weeklyData.filter((d) => d.week === activeWeek);
-    const comparisons = calculateWeeklyComparison(weeklyData, plan, activeWeek);
+    try {
+      const weeklyData = aggregateTransactionsByWeek(transactions, {
+        hiddenCategories: hiddenSet,
+        showVacation,
+      });
+      const weekData = weeklyData.filter((d) => d.week === activeWeek);
+      const comparisons = calculateWeeklyComparison(weeklyData, plan, activeWeek);
 
-    // Map comparisons to summary format
-    return comparisons.map((c) => ({
-      category: c.category,
-      total: c.actual,
-      count: weekData.find((d) => d.category === c.category)?.qualifiers.transactionCount || 0,
-      target: c.target,
-      variance: c.variance,
-      rolloverAccumulated: c.rolloverAccumulated,
-      hasRollover: plan.categoryBudgets[c.category]?.rolloverEnabled || false,
-    }));
+      // Map comparisons to summary format
+      return comparisons.map((c) => ({
+        category: c.category,
+        total: c.actual,
+        count: weekData.find((d) => d.category === c.category)?.qualifiers.transactionCount || 0,
+        target: c.target,
+        variance: c.variance,
+        rolloverAccumulated: c.rolloverAccumulated,
+        hasRollover: plan.categoryBudgets[c.category]?.rolloverEnabled || false,
+      }));
+    } catch (err) {
+      console.error('Failed to calculate weekly summaries:', err);
+      // Return fallback summaries without budget comparison
+      return calculateMonthlySummaries(transactions, showVacation);
+    }
   }
 
   // Helper to calculate monthly/all-time summaries without budget comparison

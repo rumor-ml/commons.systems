@@ -15,5 +15,11 @@ const currencyFormatter = new Intl.NumberFormat(undefined, {
  *   Sign context is provided by surrounding UI labels ("Income: $X" vs "Expenses: $X").
  */
 export function formatCurrency(amount: number): string {
+  // Validate numeric input - handle NaN and Infinity
+  if (!Number.isFinite(amount)) {
+    console.error(`Invalid currency amount: ${amount}`);
+    return '0.00'; // Safe fallback
+  }
+
   return currencyFormatter.format(Math.abs(amount));
 }

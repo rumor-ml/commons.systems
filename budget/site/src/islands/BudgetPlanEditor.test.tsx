@@ -782,6 +782,33 @@ describe('BudgetPlanEditor', () => {
       expect(mockOnCancel).toHaveBeenCalledTimes(1);
     });
 
+    it('closes modal with Escape even when actively typing in input field', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const incomeInput = screen.getByPlaceholderText('2000') as HTMLInputElement;
+
+      // Start typing a budget value
+      fireEvent.change(incomeInput, { target: { value: '-50' } });
+      incomeInput.focus();
+      expect(document.activeElement).toBe(incomeInput);
+
+      // User accidentally hits Escape while typing
+      fireEvent.keyDown(incomeInput, { key: 'Escape', code: 'Escape' });
+
+      // CURRENT BEHAVIOR: Modal closes, work is lost
+      expect(mockOnCancel).toHaveBeenCalledTimes(1);
+
+      // DESIRED BEHAVIOR: Could show confirmation dialog or prevent closing
+      // This test documents the current risky behavior
+    });
+
     it('maintains focus when input value changes', async () => {
       render(
         <BudgetPlanEditor
@@ -1047,6 +1074,66 @@ describe('BudgetPlanEditor', () => {
       // Error should be cleared
       await waitFor(() => {
         expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+      });
+    });
+
+    it('clears validation errors independently for each category', async () => {
+      render(
+        <BudgetPlanEditor
+          budgetPlan={emptyBudgetPlan}
+          historicData={[]}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const inputs = screen.getAllByRole('spinbutton');
+      const groceriesInput = inputs[3] as HTMLInputElement; // 4th category
+      const diningInput = inputs[4] as HTMLInputElement; // 5th category
+      const housingInput = inputs[1] as HTMLInputElement; // 2nd category
+
+      // Create validation errors in 3 different categories
+      fireEvent.change(groceriesInput, { target: { value: '500' } }); // Wrong sign
+      fireEvent.change(diningInput, { target: { value: '123abc' } }); // Invalid chars
+      fireEvent.change(housingInput, { target: { value: '2000000' } }); // Too large
+
+      await waitFor(() => {
+        expect(screen.getByText(/Expense budgets should be negative/)).toBeDefined();
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+        expect(screen.getByText(/Budget value is unusually large/)).toBeDefined();
+      });
+
+      // Fix only groceries error
+      fireEvent.change(groceriesInput, { target: { value: '-500' } });
+
+      await waitFor(() => {
+        // Groceries error should be cleared
+        expect(screen.queryByText(/Expense budgets should be negative/)).toBeNull();
+
+        // Other errors should still be visible
+        expect(screen.getByText(/Invalid characters in number/)).toBeDefined();
+        expect(screen.getByText(/Budget value is unusually large/)).toBeDefined();
+      });
+
+      // Fix dining error
+      fireEvent.change(diningInput, { target: { value: '-200' } });
+
+      await waitFor(() => {
+        // Dining error should be cleared
+        expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+
+        // Housing error should still be visible
+        expect(screen.getByText(/Budget value is unusually large/)).toBeDefined();
+      });
+
+      // Fix housing error
+      fireEvent.change(housingInput, { target: { value: '-1200' } });
+
+      await waitFor(() => {
+        // All errors should be cleared
+        expect(screen.queryByText(/Expense budgets should be negative/)).toBeNull();
+        expect(screen.queryByText(/Invalid characters in number/)).toBeNull();
+        expect(screen.queryByText(/Budget value is unusually large/)).toBeNull();
       });
     });
 

@@ -268,6 +268,46 @@ describe('BudgetChart', () => {
       });
     });
 
+    it('should display rollover badges when accumulation spans year boundary', async () => {
+      const transactions = [
+        // Last week of 2024 (2024-W52): Spend $300 (budget is $500, so $200 surplus)
+        createTransaction({ id: 'txn-1', date: '2024-12-23', amount: -300, category: 'groceries' }),
+        // First week of 2025 (2025-W01 spans Dec 30, 2024 to Jan 5, 2025): Spend $100 (should have $200 rollover from 2024-W52)
+        createTransaction({ id: 'txn-2', date: '2024-12-30', amount: -100, category: 'groceries' }),
+      ];
+
+      const budgetPlan = createBudgetPlan();
+
+      const { container } = render(
+        <BudgetChart
+          transactions={transactions}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="week"
+          selectedWeek={weekId('2025-W01')}
+          budgetPlan={budgetPlan}
+        />
+      );
+
+      await waitFor(() => {
+        const plot = container.querySelector('[data-test-plot="true"]') as any;
+        expect(plot).toBeTruthy();
+
+        const config = plot.__plotConfig;
+
+        // Find rollover badge mark
+        const rolloverBadge = config.marks.find(
+          (m: any) => m.type === 'text' && m.options?.text?.() === '🔄'
+        );
+        expect(rolloverBadge).toBeTruthy();
+
+        // Verify rollover badge exists for groceries category
+        const rolloverData = rolloverBadge.data.find((d: any) => d.category === 'groceries');
+        expect(rolloverData).toBeTruthy();
+        expect(rolloverData.hasRollover).toBe(true);
+      });
+    });
+
     it('should show empty state message when no data for selected week', async () => {
       const transactions = [
         createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100 }), // W02
@@ -417,6 +457,121 @@ describe('BudgetChart', () => {
         // Verify weekly-specific configuration
         expect(config.x.label).toBe('Category');
         expect(config.x.tickRotate).toBe(-45);
+      });
+    });
+
+    it('filters to selected week when switching from monthly to weekly view', async () => {
+      const transactions = [
+        createTransaction({ id: 'w2-1', date: '2025-01-06', amount: -100, category: 'groceries' }), // W02
+        createTransaction({ id: 'w3-1', date: '2025-01-13', amount: -200, category: 'dining' }), // W03
+        createTransaction({ id: 'w4-1', date: '2025-01-20', amount: -300, category: 'groceries' }), // W04
+      ];
+
+      const { container, rerender } = render(
+        <BudgetChart
+          transactions={transactions}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="month"
+        />
+      );
+
+      await waitFor(() => {
+        const plot = container.querySelector('[data-test-plot="true"]') as any;
+        expect(plot).toBeTruthy();
+
+        const config = plot.__plotConfig;
+        const barMarks = config.marks.filter((m: any) => m.type === 'barY');
+
+        // Monthly view groups by month - all 3 transactions are in Jan 2025
+        const allData = barMarks.flatMap((m: any) => m.data);
+        // In monthly view, we should have data points for groceries and dining
+        expect(allData.length).toBeGreaterThan(0);
+      });
+
+      // Switch to weekly view with specific week selected
+      rerender(
+        <BudgetChart
+          transactions={transactions}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="week"
+          selectedWeek={weekId('2025-W03')}
+        />
+      );
+
+      await waitFor(() => {
+        const plot = container.querySelector('[data-test-plot="true"]') as any;
+        expect(plot).toBeTruthy();
+
+        const config = plot.__plotConfig;
+        const barMarks = config.marks.filter((m: any) => m.type === 'barY');
+
+        // Weekly view should only have W03 data
+        const weeklyData = barMarks.flatMap((m: any) => m.data);
+
+        // All data points should be from W03
+        weeklyData.forEach((d: any) => {
+          expect(d.week).toBe('2025-W03');
+        });
+
+        // Should only have dining category (W03 transaction)
+        expect(weeklyData.find((d: any) => d.category === 'dining')).toBeTruthy();
+        expect(weeklyData.find((d: any) => d.category === 'groceries')).toBeUndefined();
+
+        // Should have exactly the W03 amount
+        const totalAmount = weeklyData.reduce((sum: number, d: any) => sum + Math.abs(d.amount), 0);
+        expect(totalAmount).toBe(200); // Only W03's -200
+      });
+    });
+
+    it('updates displayed week when selectedWeek prop changes in weekly view', async () => {
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100, category: 'groceries' }), // W02
+        createTransaction({ id: 'txn-2', date: '2025-01-13', amount: -200, category: 'dining' }), // W03
+      ];
+
+      const { container, rerender } = render(
+        <BudgetChart
+          transactions={transactions}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="week"
+          selectedWeek={weekId('2025-W02')}
+        />
+      );
+
+      await waitFor(() => {
+        const plot = container.querySelector('[data-test-plot="true"]') as any;
+        expect(plot).toBeTruthy();
+
+        const config = plot.__plotConfig;
+        const data = config.marks.flatMap((m: any) => m.data || []);
+
+        expect(data.find((d: any) => d.category === 'groceries')).toBeTruthy();
+        expect(data.find((d: any) => d.category === 'dining')).toBeUndefined();
+      });
+
+      // Change to different week
+      rerender(
+        <BudgetChart
+          transactions={transactions}
+          hiddenCategories={[]}
+          showVacation={true}
+          granularity="week"
+          selectedWeek={weekId('2025-W03')}
+        />
+      );
+
+      await waitFor(() => {
+        const plot = container.querySelector('[data-test-plot="true"]') as any;
+        expect(plot).toBeTruthy();
+
+        const config = plot.__plotConfig;
+        const data = config.marks.flatMap((m: any) => m.data || []);
+
+        expect(data.find((d: any) => d.category === 'dining')).toBeTruthy();
+        expect(data.find((d: any) => d.category === 'groceries')).toBeUndefined();
       });
     });
 
