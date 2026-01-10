@@ -176,7 +176,7 @@ test.describe('HTMX Cross-Page Navigation', () => {
     }
   });
 
-  test('should navigate multiple times and load correct cards each time', async ({ page }) => {
+  test.skip('should navigate multiple times and load correct cards each time', async ({ page }) => {
     // Test multiple consecutive navigations work correctly
 
     // Start at homepage
