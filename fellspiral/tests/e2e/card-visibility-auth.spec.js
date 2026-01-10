@@ -330,8 +330,11 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     page,
     authEmulator,
   }) => {
+    // Get test collection name to pass via URL parameter for consistency
+    const testCollection = await getTestCollectionName();
+
     // Navigate to cards page first (required for auth initialization)
-    await page.goto('/cards.html');
+    await page.goto(`/cards.html?testCollection=${testCollection}`);
     await page.waitForLoadState('load');
 
     // Wait for Firebase auth to initialize
@@ -398,7 +401,7 @@ test.describe('Card Visibility - Auth State Changes (Regression for #244)', () =
     await createCardInFirestore(publicCard);
 
     // Currently signed in as user2 - reload page to see user2's cards
-    await page.goto('/cards.html');
+    await page.goto(`/cards.html?testCollection=${testCollection}`);
     await page.waitForLoadState('load');
 
     // Wait for auth state to be restored after page reload
