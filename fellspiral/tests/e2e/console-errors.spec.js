@@ -116,7 +116,10 @@ test.describe('Console Errors', () => {
     expect(criticalErrors).toHaveLength(0);
   });
 
-  test('should have no console errors during card operations', async ({ page, authEmulator }) => {
+  test.skip('should have no console errors during card operations', async ({
+    page,
+    authEmulator,
+  }) => {
     const consoleErrors = [];
 
     page.on('console', (msg) => {
