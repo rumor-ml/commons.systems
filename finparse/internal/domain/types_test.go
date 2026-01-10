@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"encoding/json"
+	"fmt"
+	"testing"
+)
 
 func TestValidateCategory(t *testing.T) {
 	t.Run("valid categories", func(t *testing.T) {
@@ -174,10 +178,10 @@ func TestNewTransaction_Validation(t *testing.T) {
 	})
 }
 
-func TestSetRedemptionRate_Validation(t *testing.T) {
+func TestTransaction_SetRedeemable(t *testing.T) {
 	t.Run("negative rate", func(t *testing.T) {
 		tx, _ := NewTransaction("tx1", "2024-01-01", "test", 100.0, CategoryIncome)
-		err := tx.SetRedemptionRate(-0.1)
+		err := tx.SetRedeemable(false, -0.1)
 		if err == nil {
 			t.Error("Expected error for negative rate")
 		}
@@ -185,24 +189,53 @@ func TestSetRedemptionRate_Validation(t *testing.T) {
 
 	t.Run("rate greater than 1", func(t *testing.T) {
 		tx, _ := NewTransaction("tx1", "2024-01-01", "test", 100.0, CategoryIncome)
-		err := tx.SetRedemptionRate(1.1)
+		err := tx.SetRedeemable(false, 1.1)
 		if err == nil {
 			t.Error("Expected error for rate > 1")
 		}
 	})
 
-	t.Run("valid rates", func(t *testing.T) {
-		validRates := []float64{0.0, 0.5, 1.0, 0.25, 0.75}
+	t.Run("redeemable true with zero rate", func(t *testing.T) {
+		tx, _ := NewTransaction("tx1", "2024-01-01", "test", 100.0, CategoryIncome)
+		err := tx.SetRedeemable(true, 0.0)
+		if err == nil {
+			t.Error("Expected error for redeemable=true with rate=0")
+		}
+	})
 
-		for _, rate := range validRates {
-			tx, _ := NewTransaction("tx1", "2024-01-01", "test", 100.0, CategoryIncome)
-			err := tx.SetRedemptionRate(rate)
-			if err != nil {
-				t.Errorf("Expected no error for rate %f, got %v", rate, err)
-			}
-			if tx.RedemptionRate != rate {
-				t.Errorf("Expected RedemptionRate %f, got %f", rate, tx.RedemptionRate)
-			}
+	t.Run("redeemable false with non-zero rate", func(t *testing.T) {
+		tx, _ := NewTransaction("tx1", "2024-01-01", "test", 100.0, CategoryIncome)
+		err := tx.SetRedeemable(false, 0.5)
+		if err == nil {
+			t.Error("Expected error for redeemable=false with rate>0")
+		}
+	})
+
+	t.Run("valid: redeemable true with non-zero rate", func(t *testing.T) {
+		tx, _ := NewTransaction("tx1", "2024-01-01", "test", 100.0, CategoryIncome)
+		err := tx.SetRedeemable(true, 0.5)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if !tx.Redeemable {
+			t.Error("Expected Redeemable=true")
+		}
+		if tx.RedemptionRate != 0.5 {
+			t.Errorf("Expected RedemptionRate 0.5, got %f", tx.RedemptionRate)
+		}
+	})
+
+	t.Run("valid: redeemable false with zero rate", func(t *testing.T) {
+		tx, _ := NewTransaction("tx1", "2024-01-01", "test", 100.0, CategoryIncome)
+		err := tx.SetRedeemable(false, 0.0)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if tx.Redeemable {
+			t.Error("Expected Redeemable=false")
+		}
+		if tx.RedemptionRate != 0.0 {
+			t.Errorf("Expected RedemptionRate 0.0, got %f", tx.RedemptionRate)
 		}
 	})
 }
@@ -259,9 +292,12 @@ func TestNewStatement_Validation(t *testing.T) {
 	})
 
 	t.Run("start date equals end date", func(t *testing.T) {
-		_, err := NewStatement("stmt1", "acc1", "2024-01-15", "2024-01-15")
-		if err == nil {
-			t.Error("Expected error when start date equals end date")
+		stmt, err := NewStatement("stmt1", "acc1", "2024-01-15", "2024-01-15")
+		if err != nil {
+			t.Errorf("Expected no error for same-day statement, got %v", err)
+		}
+		if stmt == nil {
+			t.Error("Expected statement, got nil")
 		}
 	})
 
@@ -411,6 +447,384 @@ func TestNewInstitution_Validation(t *testing.T) {
 			if inst.Name != "Test Bank" {
 				t.Errorf("Expected Name 'Test Bank', got '%s'", inst.Name)
 			}
+		}
+	})
+}
+
+// TestBudget_UnmarshalJSON_Validation tests referential integrity validation
+func TestBudget_UnmarshalJSON_Validation(t *testing.T) {
+	t.Run("valid budget unmarshals successfully", func(t *testing.T) {
+		validJSON := `{
+			"institutions": [{"id": "inst1", "name": "Bank"}],
+			"accounts": [{"id": "acc1", "institutionId": "inst1", "name": "Checking", "type": "checking"}],
+			"statements": [{"id": "stmt1", "accountId": "acc1", "startDate": "2024-01-01", "endDate": "2024-01-31"}],
+			"transactions": []
+		}`
+
+		var budget Budget
+		err := json.Unmarshal([]byte(validJSON), &budget)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("account references non-existent institution", func(t *testing.T) {
+		invalidJSON := `{
+			"institutions": [{"id": "inst1", "name": "Bank"}],
+			"accounts": [{"id": "acc1", "institutionId": "inst999", "name": "Checking", "type": "checking"}],
+			"statements": [],
+			"transactions": []
+		}`
+
+		var budget Budget
+		err := json.Unmarshal([]byte(invalidJSON), &budget)
+		if err == nil {
+			t.Error("Expected error for non-existent institution reference")
+		}
+		if err != nil && err.Error() != "account acc1 references non-existent institution inst999" {
+			t.Errorf("Expected specific error message, got: %s", err.Error())
+		}
+	})
+
+	t.Run("statement references non-existent account", func(t *testing.T) {
+		invalidJSON := `{
+			"institutions": [{"id": "inst1", "name": "Bank"}],
+			"accounts": [{"id": "acc1", "institutionId": "inst1", "name": "Checking", "type": "checking"}],
+			"statements": [{"id": "stmt1", "accountId": "acc999", "startDate": "2024-01-01", "endDate": "2024-01-31"}],
+			"transactions": []
+		}`
+
+		var budget Budget
+		err := json.Unmarshal([]byte(invalidJSON), &budget)
+		if err == nil {
+			t.Error("Expected error for non-existent account reference")
+		}
+		if err != nil && err.Error() != "statement stmt1 references non-existent account acc999" {
+			t.Errorf("Expected specific error message, got: %s", err.Error())
+		}
+	})
+
+	t.Run("institution missing ID", func(t *testing.T) {
+		invalidJSON := `{
+			"institutions": [{"id": "", "name": "Bank"}],
+			"accounts": [],
+			"statements": [],
+			"transactions": []
+		}`
+
+		var budget Budget
+		err := json.Unmarshal([]byte(invalidJSON), &budget)
+		if err == nil {
+			t.Error("Expected error for institution missing ID")
+		}
+	})
+
+	t.Run("institution missing Name", func(t *testing.T) {
+		invalidJSON := `{
+			"institutions": [{"id": "inst1", "name": ""}],
+			"accounts": [],
+			"statements": [],
+			"transactions": []
+		}`
+
+		var budget Budget
+		err := json.Unmarshal([]byte(invalidJSON), &budget)
+		if err == nil {
+			t.Error("Expected error for institution missing Name")
+		}
+	})
+
+	t.Run("account missing required fields", func(t *testing.T) {
+		testCases := []struct {
+			name string
+			json string
+		}{
+			{
+				name: "missing ID",
+				json: `{"institutions": [{"id": "inst1", "name": "Bank"}], "accounts": [{"id": "", "institutionId": "inst1", "name": "Checking", "type": "checking"}], "statements": [], "transactions": []}`,
+			},
+			{
+				name: "missing InstitutionID",
+				json: `{"institutions": [{"id": "inst1", "name": "Bank"}], "accounts": [{"id": "acc1", "institutionId": "", "name": "Checking", "type": "checking"}], "statements": [], "transactions": []}`,
+			},
+			{
+				name: "missing Name",
+				json: `{"institutions": [{"id": "inst1", "name": "Bank"}], "accounts": [{"id": "acc1", "institutionId": "inst1", "name": "", "type": "checking"}], "statements": [], "transactions": []}`,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				var budget Budget
+				err := json.Unmarshal([]byte(tc.json), &budget)
+				if err == nil {
+					t.Errorf("Expected error for account %s", tc.name)
+				}
+			})
+		}
+	})
+
+	t.Run("statement missing required fields", func(t *testing.T) {
+		testCases := []struct {
+			name string
+			json string
+		}{
+			{
+				name: "missing ID",
+				json: `{"institutions": [{"id": "inst1", "name": "Bank"}], "accounts": [{"id": "acc1", "institutionId": "inst1", "name": "Checking", "type": "checking"}], "statements": [{"id": "", "accountId": "acc1", "startDate": "2024-01-01", "endDate": "2024-01-31"}], "transactions": []}`,
+			},
+			{
+				name: "missing AccountID",
+				json: `{"institutions": [{"id": "inst1", "name": "Bank"}], "accounts": [{"id": "acc1", "institutionId": "inst1", "name": "Checking", "type": "checking"}], "statements": [{"id": "stmt1", "accountId": "", "startDate": "2024-01-01", "endDate": "2024-01-31"}], "transactions": []}`,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				var budget Budget
+				err := json.Unmarshal([]byte(tc.json), &budget)
+				if err == nil {
+					t.Errorf("Expected error for statement %s", tc.name)
+				}
+			})
+		}
+	})
+}
+
+// TestTransaction_UnmarshalJSON_Consistency tests Redeemable/RedemptionRate consistency
+func TestTransaction_UnmarshalJSON_Consistency(t *testing.T) {
+	t.Run("consistent: redeemable=true with rate=0.5", func(t *testing.T) {
+		validJSON := `{
+			"id": "tx1",
+			"date": "2024-01-01",
+			"description": "test",
+			"amount": 100.0,
+			"category": "other",
+			"redeemable": true,
+			"vacation": false,
+			"transfer": false,
+			"redemptionRate": 0.5,
+			"statementIds": []
+		}`
+
+		var txn Transaction
+		err := json.Unmarshal([]byte(validJSON), &txn)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("consistent: redeemable=false with rate=0", func(t *testing.T) {
+		validJSON := `{
+			"id": "tx1",
+			"date": "2024-01-01",
+			"description": "test",
+			"amount": 100.0,
+			"category": "other",
+			"redeemable": false,
+			"vacation": false,
+			"transfer": false,
+			"redemptionRate": 0.0,
+			"statementIds": []
+		}`
+
+		var txn Transaction
+		err := json.Unmarshal([]byte(validJSON), &txn)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("inconsistent: redeemable=true with rate=0", func(t *testing.T) {
+		invalidJSON := `{
+			"id": "tx1",
+			"date": "2024-01-01",
+			"description": "test",
+			"amount": 100.0,
+			"category": "other",
+			"redeemable": true,
+			"vacation": false,
+			"transfer": false,
+			"redemptionRate": 0.0,
+			"statementIds": []
+		}`
+
+		var txn Transaction
+		err := json.Unmarshal([]byte(invalidJSON), &txn)
+		if err == nil {
+			t.Error("Expected error for redeemable=true with rate=0")
+		}
+		if err != nil && err.Error() != "redeemable transaction must have non-zero redemption rate" {
+			t.Errorf("Expected specific error message, got: %s", err.Error())
+		}
+	})
+
+	t.Run("inconsistent: redeemable=false with rate>0", func(t *testing.T) {
+		invalidJSON := `{
+			"id": "tx1",
+			"date": "2024-01-01",
+			"description": "test",
+			"amount": 100.0,
+			"category": "other",
+			"redeemable": false,
+			"vacation": false,
+			"transfer": false,
+			"redemptionRate": 0.5,
+			"statementIds": []
+		}`
+
+		var txn Transaction
+		err := json.Unmarshal([]byte(invalidJSON), &txn)
+		if err == nil {
+			t.Error("Expected error for redeemable=false with rate>0")
+		}
+		if err != nil && err.Error() != "non-redeemable transaction must have zero redemption rate" {
+			t.Errorf("Expected specific error message, got: %s", err.Error())
+		}
+	})
+
+	t.Run("invalid redemption rate bounds", func(t *testing.T) {
+		testCases := []struct {
+			name string
+			rate float64
+		}{
+			{"negative rate", -0.1},
+			{"rate > 1", 1.5},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				invalidJSON := `{
+					"id": "tx1",
+					"date": "2024-01-01",
+					"description": "test",
+					"amount": 100.0,
+					"category": "other",
+					"redeemable": false,
+					"vacation": false,
+					"transfer": false,
+					"redemptionRate": ` + fmt.Sprintf("%f", tc.rate) + `,
+					"statementIds": []
+				}`
+
+				var txn Transaction
+				err := json.Unmarshal([]byte(invalidJSON), &txn)
+				if err == nil {
+					t.Errorf("Expected error for %s", tc.name)
+				}
+			})
+		}
+	})
+}
+
+// TestStatement_Validate tests the Validate method
+func TestStatement_Validate(t *testing.T) {
+	t.Run("valid statement validates successfully", func(t *testing.T) {
+		stmt := &Statement{
+			ID:        "stmt1",
+			AccountID: "acc1",
+			StartDate: "2024-01-01",
+			EndDate:   "2024-01-31",
+		}
+
+		err := stmt.Validate()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+	})
+
+	t.Run("empty ID", func(t *testing.T) {
+		stmt := &Statement{
+			ID:        "",
+			AccountID: "acc1",
+			StartDate: "2024-01-01",
+			EndDate:   "2024-01-31",
+		}
+
+		err := stmt.Validate()
+		if err == nil {
+			t.Error("Expected error for empty ID")
+		}
+	})
+
+	t.Run("empty AccountID", func(t *testing.T) {
+		stmt := &Statement{
+			ID:        "stmt1",
+			AccountID: "",
+			StartDate: "2024-01-01",
+			EndDate:   "2024-01-31",
+		}
+
+		err := stmt.Validate()
+		if err == nil {
+			t.Error("Expected error for empty AccountID")
+		}
+	})
+
+	t.Run("invalid start date format", func(t *testing.T) {
+		stmt := &Statement{
+			ID:        "stmt1",
+			AccountID: "acc1",
+			StartDate: "invalid",
+			EndDate:   "2024-01-31",
+		}
+
+		err := stmt.Validate()
+		if err == nil {
+			t.Error("Expected error for invalid start date")
+		}
+	})
+
+	t.Run("invalid end date format", func(t *testing.T) {
+		stmt := &Statement{
+			ID:        "stmt1",
+			AccountID: "acc1",
+			StartDate: "2024-01-01",
+			EndDate:   "invalid",
+		}
+
+		err := stmt.Validate()
+		if err == nil {
+			t.Error("Expected error for invalid end date")
+		}
+	})
+
+	t.Run("end date before start date", func(t *testing.T) {
+		stmt := &Statement{
+			ID:        "stmt1",
+			AccountID: "acc1",
+			StartDate: "2024-01-31",
+			EndDate:   "2024-01-01",
+		}
+
+		err := stmt.Validate()
+		if err == nil {
+			t.Error("Expected error for end date before start date")
+		}
+	})
+
+	t.Run("can re-validate after modification", func(t *testing.T) {
+		stmt := &Statement{
+			ID:        "stmt1",
+			AccountID: "acc1",
+			StartDate: "2024-01-01",
+			EndDate:   "2024-01-31",
+		}
+
+		// Initial validation
+		err := stmt.Validate()
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+
+		// Modify dates (violating invariant)
+		stmt.StartDate = "2024-02-01"
+		// stmt.EndDate is still "2024-01-31", now invalid
+
+		// Re-validate should catch the violation
+		err = stmt.Validate()
+		if err == nil {
+			t.Error("Expected error after modifying dates to invalid state")
 		}
 	})
 }

@@ -193,20 +193,20 @@ func TestRun_VerboseOutput(t *testing.T) {
 
 	defer withFlags(t, tmpDir, true, true)()
 
-	// Capture stdout
-	oldStdout := os.Stdout
+	// Capture stderr (verbose output goes to stderr)
+	oldStderr := os.Stderr
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("Failed to create pipe: %v", err)
 	}
-	os.Stdout = w
+	os.Stderr = w
 
 	// Run
 	err = run()
 
-	// Restore stdout
+	// Restore stderr
 	w.Close()
-	os.Stdout = oldStdout
+	os.Stderr = oldStderr
 
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -238,9 +238,68 @@ func TestRun_NonVerboseSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a test statement file
+	// Create a valid OFX file
+	ofxContent := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>123
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>1234
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001000000
+<DTEND>20251031235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251005120000
+<TRNAMT>-50.00
+<FITID>TXN001
+<NAME>Test Purchase
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>950.00
+<DTASOF>20251031000000
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
 	testFile := filepath.Join(acctDir, "statement.ofx")
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte(ofxContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -273,18 +332,17 @@ func TestRun_NonVerboseSuccess(t *testing.T) {
 	}
 	outputStr := string(output)
 
-	// Verify the "Parsing not yet implemented" message is printed
-	// This protects against accidental removal of the message (main.go:110)
-	if !strings.Contains(outputStr, "Parsing not yet implemented") {
-		t.Errorf("Expected output to contain 'Parsing not yet implemented', got:\n%s", outputStr)
+	// Verify scan summary is printed
+	if !strings.Contains(outputStr, "Scan complete: found 1 statement files") {
+		t.Errorf("Expected output to contain scan summary, got:\n%s", outputStr)
 	}
 
 	// Verify NO verbose scanning details are printed
 	if strings.Contains(outputStr, "Scanning directory:") {
 		t.Errorf("Expected no verbose output in non-verbose mode, got:\n%s", outputStr)
 	}
-	if strings.Contains(outputStr, "Found") && strings.Contains(outputStr, "statement files") {
-		t.Errorf("Expected no verbose file count in non-verbose mode, got:\n%s", outputStr)
+	if strings.Contains(outputStr, "Parsing and transforming statements") {
+		t.Errorf("Expected no verbose parsing details in non-verbose mode, got:\n%s", outputStr)
 	}
 }
 
@@ -360,10 +418,126 @@ func TestRun_NonDryRun_MultipleInstitutions(t *testing.T) {
 	if err := os.MkdirAll(amexDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(amexDir, "stmt1.qfx"), []byte("test"), 0644); err != nil {
+
+	// Create valid OFX files for American Express with different statement periods
+	ofxContent1 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001000000
+<DTEND>20251031235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251005120000
+<TRNAMT>-100.00
+<FITID>TXN001
+<NAME>Purchase
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>900.00
+<DTASOF>20251031000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	ofxContent2 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251101000000
+<DTEND>20251130235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251105120000
+<TRNAMT>-75.00
+<FITID>TXN002
+<NAME>Purchase 2
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>825.00
+<DTASOF>20251130000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	if err := os.WriteFile(filepath.Join(amexDir, "stmt1.qfx"), []byte(ofxContent1), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(amexDir, "stmt2.qfx"), []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(amexDir, "stmt2.qfx"), []byte(ofxContent2), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -371,7 +545,12 @@ func TestRun_NonDryRun_MultipleInstitutions(t *testing.T) {
 	if err := os.MkdirAll(chaseDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(chaseDir, "stmt.csv"), []byte("test"), 0644); err != nil {
+
+	// Create valid PNC CSV file for Chase
+	csvContent := `5678,2025/10/01,2025/10/31,1000.00,950.00
+2025/10/05,50.00,Test Purchase,Purchase memo,REF001,DEBIT`
+
+	if err := os.WriteFile(filepath.Join(chaseDir, "stmt.csv"), []byte(csvContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -407,17 +586,17 @@ func TestRun_NonDryRun_MultipleInstitutions(t *testing.T) {
 		t.Errorf("Expected output to show 'found 3 statement files', got:\n%s", outputStr)
 	}
 
-	// Verify institution count (main.go:120)
+	// Verify institution count (main.go:138)
 	if !strings.Contains(outputStr, "across 2 institutions") {
 		t.Errorf("Expected 'across 2 institutions' in output, got:\n%s", outputStr)
 	}
 
-	// Verify American Express with 2 files (main.go:122)
+	// Verify American Express with 2 files (main.go:140)
 	if !strings.Contains(outputStr, "American Express: 2 files") {
 		t.Errorf("Expected 'American Express: 2 files' in output, got:\n%s", outputStr)
 	}
 
-	// Verify Chase with 1 file (main.go:122)
+	// Verify Chase with 1 file (main.go:140)
 	if !strings.Contains(outputStr, "Chase: 1 files") {
 		t.Errorf("Expected 'Chase: 1 files' in output, got:\n%s", outputStr)
 	}

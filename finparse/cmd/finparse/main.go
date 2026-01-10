@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
+	"github.com/rumor-ml/commons.systems/finparse/internal/output"
 	"github.com/rumor-ml/commons.systems/finparse/internal/registry"
 	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
+	"github.com/rumor-ml/commons.systems/finparse/internal/transform"
 )
 
 const (
@@ -22,11 +26,13 @@ var (
 	dryRun   = flag.Bool("dry-run", false, "Show what would be parsed without writing")
 	verbose  = flag.Bool("verbose", false, "Show detailed parsing logs")
 
-	// Future phase flags (Phase 2+, not yet implemented)
-	outputFile        = flag.String("output", "", "Output JSON file (default: stdout)")
+	// Output and merge flags (Phase 4)
+	outputFile = flag.String("output", "", "Output JSON file (default: stdout)")
+	mergeMode  = flag.Bool("merge", false, "Merge with existing output file")
+
+	// Future phase flags (Phase 5+, not yet implemented)
 	stateFile         = flag.String("state", "", "Deduplication state file")
 	rulesFile         = flag.String("rules", "", "Category rules file")
-	mergeMode         = flag.Bool("merge", false, "Merge with existing output file")
 	formatFilter      = flag.String("format", "all", "Filter by format: ofx,csv,all")
 	institutionFilter = flag.String("institution", "", "Filter by institution name")
 )
@@ -79,12 +85,15 @@ Examples:
 }
 
 func run() error {
+	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling
+	ctx := context.Background()
+
 	// Create scanner
 	s := scanner.New(*inputDir)
 
 	// Scan for files
 	if *verbose {
-		fmt.Printf("Scanning directory: %s\n", *inputDir)
+		fmt.Fprintf(os.Stderr, "Scanning directory: %s\n", *inputDir)
 	}
 
 	files, err := s.Scan()
@@ -93,9 +102,9 @@ func run() error {
 	}
 
 	if *verbose {
-		fmt.Printf("Found %d statement files\n", len(files))
+		fmt.Fprintf(os.Stderr, "Found %d statement files\n", len(files))
 		for _, f := range files {
-			fmt.Printf("  - %s (institution: %s, account: %s)\n",
+			fmt.Fprintf(os.Stderr, "  - %s (institution: %s, account: %s)\n",
 				f.Path, f.Metadata.Institution(), f.Metadata.AccountNumber())
 		}
 	}
@@ -107,10 +116,10 @@ func run() error {
 	}
 
 	if *verbose {
-		fmt.Printf("Registered parsers: %v\n", reg.ListParsers())
+		fmt.Fprintf(os.Stderr, "Registered parsers: %v\n", reg.ListParsers())
 	}
 
-	// Phase 1: Just scanning and detection (no actual parsing yet)
+	// Dry run mode: stop after scanning, don't parse
 	if *dryRun {
 		fmt.Printf("Dry run complete. Would process %d files.\n", len(files))
 		return nil
@@ -137,13 +146,86 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "Warning: No statement files found. Check directory path and ensure files have .qfx, .ofx, or .csv extensions.\n")
 	}
 
-	// TODO(Phase 2): Implement parsing pipeline:
-	//   1. For each file: parser := registry.FindParser(file.Path)
-	//   2. Call parser.Parse(ctx, reader, file.Metadata) -> RawStatement
-	//   3. Normalize RawStatement to domain types (Institution, Account, Statement, Transaction)
-	//   4. Add to Budget struct using Budget.Add* methods (handles validation & dedup)
-	//   5. Marshal Budget to JSON and write to output or stdout
-	fmt.Println("Parsing not yet implemented. Phase 1 complete.")
+	// Phase 4: Transform and output
+	budget := domain.NewBudget()
+
+	if *verbose {
+		fmt.Fprintln(os.Stderr, "\nParsing and transforming statements...")
+	}
+
+	for i, file := range files {
+		// TODO(#1341): Consider removing numbered step comments in favor of descriptive prefixes
+		parser, err := reg.FindParser(file.Path)
+		if err != nil {
+			return fmt.Errorf("failed to find parser for %s: %w", file.Path, err)
+		}
+		if parser == nil {
+			return fmt.Errorf("no parser found for %s", file.Path)
+		}
+
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "  Parsing %s with %s parser\n", file.Path, parser.Name())
+		}
+
+		f, err := os.Open(file.Path)
+		if err != nil {
+			return fmt.Errorf("failed to open %s: %w", file.Path, err)
+		}
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+
+		// Close immediately after parsing
+		closeErr := f.Close()
+		if err != nil {
+			return fmt.Errorf("parse failed for file %d of %d (%s): %w",
+				i+1, len(files), file.Path, err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("failed to close %s: %w", file.Path, closeErr)
+		}
+
+		// Verify parser contract: if no error, rawStmt must not be nil
+		if rawStmt == nil {
+			return fmt.Errorf("parser %s returned nil statement without error for %s (parser bug)",
+				parser.Name(), file.Path)
+		}
+
+		if err := transform.TransformStatement(rawStmt, budget); err != nil {
+			// Provide context about parsed data in error message
+			return fmt.Errorf("transform failed for file %d of %d (%s) with %d transactions from %s to %s: %w",
+				i+1, len(files), file.Path,
+				len(rawStmt.Transactions),
+				rawStmt.Period.Start().Format("2006-01-02"),
+				rawStmt.Period.End().Format("2006-01-02"),
+				err)
+		}
+	}
+
+	if *verbose {
+		institutions := budget.GetInstitutions()
+		accounts := budget.GetAccounts()
+		statements := budget.GetStatements()
+		transactions := budget.GetTransactions()
+
+		fmt.Fprintf(os.Stderr, "\nTransformation complete:\n")
+		fmt.Fprintf(os.Stderr, "  Institutions: %d\n", len(institutions))
+		fmt.Fprintf(os.Stderr, "  Accounts: %d\n", len(accounts))
+		fmt.Fprintf(os.Stderr, "  Statements: %d\n", len(statements))
+		fmt.Fprintf(os.Stderr, "  Transactions: %d\n", len(transactions))
+	}
+
+	opts := output.WriteOptions{
+		MergeMode: *mergeMode,
+		FilePath:  *outputFile,
+	}
+
+	if err := output.WriteBudgetToFile(budget, opts); err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
+
+	if *outputFile != "" {
+		fmt.Printf("\nOutput written to %s\n", *outputFile)
+	}
 
 	return nil
 }
