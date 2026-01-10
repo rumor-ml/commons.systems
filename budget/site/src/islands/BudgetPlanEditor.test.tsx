@@ -1470,4 +1470,73 @@ describe('BudgetPlanEditor', () => {
       expect((groceriesInput as HTMLInputElement).value).toBe('-123');
     });
   });
+
+  describe('Cleanup', () => {
+    it('should clear debounce timer on unmount', () => {
+      vi.useFakeTimers();
+      const { unmount } = render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // Change input to start timer
+      const incomeInput = screen.getByPlaceholderText('2000');
+      fireEvent.change(incomeInput, { target: { value: '2500' } });
+
+      // Unmount before timer fires
+      unmount();
+
+      // Advance timers - should not crash or call onSave
+      vi.advanceTimersByTime(300);
+      vi.useRealTimers();
+
+      // Verify no crash occurred and prediction wasn't called after unmount
+      expect(mockOnSave).not.toHaveBeenCalled();
+    });
+
+    it('should remove keydown listener on unmount', () => {
+      const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
+      const { unmount } = render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      unmount();
+
+      expect(removeEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
+      removeEventListenerSpy.mockRestore();
+    });
+
+    it('should restore focus to previous element on unmount', () => {
+      const button = document.createElement('button');
+      document.body.appendChild(button);
+      button.focus();
+
+      const { unmount } = render(
+        <BudgetPlanEditor
+          budgetPlan={sampleBudgetPlan}
+          historicData={sampleHistoricData}
+          onSave={mockOnSave}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      // Focus should move to modal
+      expect(document.activeElement).not.toBe(button);
+
+      unmount();
+
+      // Focus should restore
+      expect(document.activeElement).toBe(button);
+      document.body.removeChild(button);
+    });
+  });
 });

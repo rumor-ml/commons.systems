@@ -284,6 +284,9 @@ function attachTooltipListeners(
   const incomeBars = barGroups[1]?.querySelectorAll('rect') || [];
 
   // Validate bar groups were found before attaching listeners
+  // This can fail if:
+  // - Observable Plot renders no data (empty chart)
+  // - Plot version changes aria-label structure (see comment above)
   if (barGroups.length === 0) {
     throw new Error('Chart bars not found - tooltip interactivity unavailable');
   }

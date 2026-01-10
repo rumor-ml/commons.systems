@@ -367,16 +367,12 @@ export function createWeeklyBudgetComparison(
       target,
       rolloverAccumulated,
     });
-    // Return safe defaults rather than NaN
-    return {
-      week,
-      category,
-      actual: Number.isFinite(actual) ? actual : 0,
-      target: Number.isFinite(target) ? target : 0,
-      variance: 0,
-      rolloverAccumulated: 0,
-      effectiveTarget: 0,
-    };
+
+    // Throw instead of returning corrupted data
+    throw new Error(
+      `Budget comparison failed: Invalid numeric value for ${category} ` +
+        `(actual=${actual}, target=${target}, rolloverAccumulated=${rolloverAccumulated})`
+    );
   }
 
   const variance = actual - target;
@@ -391,15 +387,12 @@ export function createWeeklyBudgetComparison(
       variance,
       effectiveTarget,
     });
-    return {
-      week,
-      category,
-      actual,
-      target,
-      variance: 0,
-      rolloverAccumulated: 0,
-      effectiveTarget: target,
-    };
+
+    // Throw instead of returning corrupted data
+    throw new Error(
+      `Budget comparison failed: Arithmetic overflow for ${category} ` +
+        `(variance=${variance}, effectiveTarget=${effectiveTarget})`
+    );
   }
 
   return {
@@ -445,24 +438,50 @@ export function createCashFlowPrediction(
       historicAvgIncome,
       historicAvgExpense,
     });
-    return {
-      totalIncomeTarget: 0,
-      totalExpenseTarget: 0,
-      predictedNetIncome: 0,
-      historicAvgIncome: 0,
-      historicAvgExpense: 0,
-      variance: 0,
-    };
+
+    // Throw instead of returning corrupted data
+    throw new Error(
+      'Cash flow prediction failed: Invalid numeric values in inputs ' +
+        `(totalIncomeTarget=${totalIncomeTarget}, totalExpenseTarget=${totalExpenseTarget}, ` +
+        `historicAvgIncome=${historicAvgIncome}, historicAvgExpense=${historicAvgExpense})`
+    );
   }
 
   const predictedNetIncome = totalIncomeTarget - totalExpenseTarget;
   const historicNetIncome = historicAvgIncome - historicAvgExpense;
+
+  // Validate derived values
+  if (!Number.isFinite(predictedNetIncome) || !Number.isFinite(historicNetIncome)) {
+    console.error('Arithmetic overflow in cash flow prediction', {
+      predictedNetIncome,
+      historicNetIncome,
+    });
+
+    // Throw instead of returning corrupted data
+    throw new Error(
+      'Cash flow prediction failed: Arithmetic overflow in calculations ' +
+        `(predictedNetIncome=${predictedNetIncome}, historicNetIncome=${historicNetIncome})`
+    );
+  }
+
+  const variance = predictedNetIncome - historicNetIncome;
+
+  // Validate variance
+  if (!Number.isFinite(variance)) {
+    console.error('Arithmetic overflow in variance calculation', { variance });
+
+    // Throw instead of returning corrupted data
+    throw new Error(
+      `Cash flow prediction failed: Arithmetic overflow in variance calculation (variance=${variance})`
+    );
+  }
+
   return {
     totalIncomeTarget,
     totalExpenseTarget,
     predictedNetIncome,
     historicAvgIncome,
     historicAvgExpense,
-    variance: predictedNetIncome - historicNetIncome,
+    variance,
   };
 }

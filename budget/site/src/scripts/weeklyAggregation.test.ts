@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   getISOWeek,
   getWeekBoundaries,
@@ -12,6 +12,8 @@ import {
   getPreviousWeek,
 } from './weeklyAggregation';
 import { Transaction, WeeklyData, WeekId, Category, BudgetPlan, weekId } from '../islands/types';
+import { StateManager } from './state';
+import * as types from '../islands/types';
 
 describe('weeklyAggregation', () => {
   describe('getISOWeek', () => {
@@ -870,6 +872,129 @@ describe('weeklyAggregation', () => {
       // cumulative: 100 + 50 + (-50) + 0 = 100
       expect(rollover.get('groceries')).toBe(100);
     });
+
+    it('should throw on rollover overflow', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2025-W01'), amount: Number.MAX_VALUE }),
+        createWeeklyData({ week: weekId('2025-W02'), amount: Number.MAX_VALUE }),
+      ];
+      const budgetPlan: BudgetPlan = {
+        categoryBudgets: {
+          groceries: {
+            weeklyTarget: -500, // Large negative vs MAX_VALUE positive creates overflow
+            rolloverEnabled: true,
+          },
+        },
+        lastModified: new Date().toISOString(),
+      };
+
+      expect(() =>
+        calculateRolloverAccumulation(
+          weeklyData,
+          budgetPlan,
+          weekId('2025-W01'),
+          weekId('2025-W03')
+        )
+      ).toThrow('Rollover calculation failed: Overflow for groceries');
+    });
+  });
+
+  describe('calculateRolloverAccumulation error banners', () => {
+    const createWeeklyData = (overrides: Partial<WeeklyData>): WeeklyData => ({
+      week: weekId(weekId('2025-W02')) as WeekId,
+      category: 'groceries' as Category,
+      amount: -100,
+      isIncome: false,
+      qualifiers: {
+        redeemable: 0,
+        nonRedeemable: -100,
+        vacation: 0,
+        nonVacation: -100,
+        transactionCount: 1,
+      },
+      weekStartDate: '2025-01-06',
+      weekEndDate: '2025-01-12',
+      ...overrides,
+    });
+
+    const createBudgetPlan = (): BudgetPlan => ({
+      categoryBudgets: {
+        groceries: {
+          weeklyTarget: -500,
+          rolloverEnabled: true,
+        },
+        income: {
+          weeklyTarget: 2000,
+          rolloverEnabled: true,
+        },
+      },
+      lastModified: new Date().toISOString(),
+    });
+
+    beforeEach(() => {
+      vi.spyOn(StateManager, 'showErrorBanner').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should show error banner for invalid numeric value before throwing', () => {
+      const weeklyData = [createWeeklyData({ week: weekId('2025-W02'), amount: -Infinity })];
+      const budgetPlan = createBudgetPlan();
+
+      expect(() =>
+        calculateRolloverAccumulation(
+          weeklyData,
+          budgetPlan,
+          weekId('2025-W02'),
+          weekId('2025-W03')
+        )
+      ).toThrow('Invalid numeric value');
+
+      expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'CRITICAL: Rollover calculation failed for groceries due to invalid data'
+        )
+      );
+      expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining('Your rollover balances cannot be calculated')
+      );
+    });
+
+    it('should show error banner for overflow before throwing', () => {
+      const weeklyData = [
+        createWeeklyData({ week: weekId('2025-W01'), amount: Number.MAX_VALUE }),
+        createWeeklyData({ week: weekId('2025-W02'), amount: Number.MAX_VALUE }),
+      ];
+      const budgetPlan: BudgetPlan = {
+        categoryBudgets: {
+          groceries: {
+            weeklyTarget: -500,
+            rolloverEnabled: true,
+          },
+        },
+        lastModified: new Date().toISOString(),
+      };
+
+      expect(() =>
+        calculateRolloverAccumulation(
+          weeklyData,
+          budgetPlan,
+          weekId('2025-W01'),
+          weekId('2025-W03')
+        )
+      ).toThrow('Overflow');
+
+      expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'CRITICAL: Rollover calculation failed for groceries: accumulated rollover has exceeded valid range'
+        )
+      );
+      expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining('Consider resetting your budget plan')
+      );
+    });
   });
 
   describe('calculateWeeklyComparison', () => {
@@ -977,6 +1102,119 @@ describe('weeklyAggregation', () => {
       expect(comparison.length).toBe(2); // Groceries and Income
       expect(comparison.find((c) => c.category === 'groceries')).toBeDefined();
       expect(comparison.find((c) => c.category === 'income')).toBeDefined();
+    });
+  });
+
+  describe('calculateWeeklyComparison error handling', () => {
+    const createWeeklyData = (overrides: Partial<WeeklyData>): WeeklyData => ({
+      week: weekId(weekId('2025-W02')) as WeekId,
+      category: 'groceries' as Category,
+      amount: -100,
+      isIncome: false,
+      qualifiers: {
+        redeemable: 0,
+        nonRedeemable: -100,
+        vacation: 0,
+        nonVacation: -100,
+        transactionCount: 1,
+      },
+      weekStartDate: '2025-01-06',
+      weekEndDate: '2025-01-12',
+      ...overrides,
+    });
+
+    const createBudgetPlan = (): BudgetPlan => ({
+      categoryBudgets: {
+        groceries: {
+          weeklyTarget: -500,
+          rolloverEnabled: true,
+        },
+        income: {
+          weeklyTarget: 2000,
+          rolloverEnabled: false,
+        },
+      },
+      lastModified: new Date().toISOString(),
+    });
+
+    beforeEach(() => {
+      vi.spyOn(StateManager, 'showErrorBanner').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should skip category and show error banner when createWeeklyBudgetComparison throws', () => {
+      // Mock createWeeklyBudgetComparison to throw for one category
+      vi.spyOn(types, 'createWeeklyBudgetComparison').mockImplementation(
+        (week, category, actual, target, rollover) => {
+          if (category === 'groceries') {
+            throw new Error('Invalid numeric value in comparison');
+          }
+          // For other categories, return a valid comparison
+          return {
+            week,
+            category,
+            actual,
+            target,
+            variance: actual - target,
+            rolloverAccumulated: rollover,
+            effectiveTarget: target + rollover,
+          };
+        }
+      );
+
+      const weeklyData = [createWeeklyData({ week: weekId('2025-W02'), amount: -400 })];
+      const budgetPlan: BudgetPlan = {
+        categoryBudgets: {
+          groceries: { weeklyTarget: -500, rolloverEnabled: true },
+          income: { weeklyTarget: 2000, rolloverEnabled: false },
+        },
+        lastModified: new Date().toISOString(),
+      };
+
+      const comparison = calculateWeeklyComparison(weeklyData, budgetPlan, weekId('2025-W02'));
+
+      // Should skip groceries but include income
+      expect(comparison.find((c) => c.category === 'groceries')).toBeUndefined();
+      expect(comparison.find((c) => c.category === 'income')).toBeDefined();
+
+      // Should show error banner
+      expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining('Budget comparison failed for groceries due to invalid data')
+      );
+    });
+
+    it('should show specific error banner for arithmetic overflow', () => {
+      vi.spyOn(types, 'createWeeklyBudgetComparison').mockImplementation(
+        (week, category, actual, target, rollover) => {
+          if (category === 'groceries') {
+            throw new Error('Arithmetic overflow in calculation');
+          }
+          return {
+            week,
+            category,
+            actual,
+            target,
+            variance: actual - target,
+            rolloverAccumulated: rollover,
+            effectiveTarget: target + rollover,
+          };
+        }
+      );
+
+      const weeklyData = [];
+      const budgetPlan = createBudgetPlan();
+
+      calculateWeeklyComparison(weeklyData, budgetPlan, weekId('2025-W02'));
+
+      expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining('arithmetic overflow')
+      );
+      expect(StateManager.showErrorBanner).toHaveBeenCalledWith(
+        expect.stringContaining('Consider resetting your budget plan')
+      );
     });
   });
 
@@ -1313,7 +1551,7 @@ describe('weeklyAggregation', () => {
       expect(Number.isFinite(prediction.variance)).toBe(true); // No overflow
     });
 
-    it('should prevent NaN propagation in variance calculation', () => {
+    it('should throw error for NaN propagation in variance calculation', () => {
       const historicDataWithNaN = [
         createWeeklyData({
           week: weekId('2025-W01'),
@@ -1324,14 +1562,14 @@ describe('weeklyAggregation', () => {
         createWeeklyData({ week: weekId('2025-W01'), amount: -500 }),
       ];
       const budgetPlan = createBudgetPlan();
-      const prediction = predictCashFlow(budgetPlan, historicDataWithNaN, 12);
 
-      // createCashFlowPrediction validates inputs and returns 0s for invalid values
-      expect(prediction.historicAvgIncome).toBe(0);
-      expect(prediction.variance).toBe(0);
+      // createCashFlowPrediction now throws on invalid inputs instead of returning 0s
+      expect(() => predictCashFlow(budgetPlan, historicDataWithNaN, 12)).toThrow(
+        'Cash flow prediction failed: Invalid numeric values in inputs'
+      );
     });
 
-    it('should handle Infinity in historic data', () => {
+    it('should throw error for Infinity in historic data', () => {
       const historicDataWithInfinity = [
         createWeeklyData({
           week: weekId('2025-W01'),
@@ -1342,12 +1580,11 @@ describe('weeklyAggregation', () => {
         createWeeklyData({ week: weekId('2025-W01'), amount: -500 }),
       ];
       const budgetPlan = createBudgetPlan();
-      const prediction = predictCashFlow(budgetPlan, historicDataWithInfinity, 12);
 
-      // createCashFlowPrediction validates inputs and returns 0s for invalid values
-      expect(prediction.historicAvgIncome).toBe(0);
-      expect(prediction.historicAvgExpense).toBe(0);
-      expect(prediction.variance).toBe(0);
+      // createCashFlowPrediction now throws on invalid inputs instead of returning 0s
+      expect(() => predictCashFlow(budgetPlan, historicDataWithInfinity, 12)).toThrow(
+        'Cash flow prediction failed: Invalid numeric values in inputs'
+      );
     });
   });
 

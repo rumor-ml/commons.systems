@@ -272,13 +272,39 @@ function initBudgetPlanEvents(): void {
     wrapEventHandler<{ budgetPlan: BudgetPlan }>(
       (detail) => {
         const budgetPlan = detail.budgetPlan;
-        const saved = StateManager.save({
-          budgetPlan,
-          planningMode: false,
-          viewGranularity: 'week', // Switch to weekly view after saving budget
-        });
+        let saved;
 
-        // If save failed, keep planning mode editor open to preserve user's unsaved budget edits.
+        try {
+          saved = StateManager.save({
+            budgetPlan,
+            planningMode: false,
+            viewGranularity: 'week', // Switch to weekly view after saving budget
+          });
+        } catch (error) {
+          // save() threw an exception - show error and keep planning mode open
+          console.error('Budget plan save failed with exception:', error);
+
+          const { reason, recoveryAction } = diagnoseStorageError();
+
+          // Re-open planning mode to preserve unsaved edits (but don't throw if this fails too)
+          try {
+            StateManager.save({ planningMode: true });
+          } catch (nestedError) {
+            console.error('Failed to re-open planning mode after save failure:', nestedError);
+          }
+
+          StateManager.showErrorBanner(
+            `Failed to save budget plan: ${reason}. ${recoveryAction} WARNING: Your changes will be lost on page refresh.`
+          );
+
+          console.error(
+            'CRITICAL: Budget save failed - user should copy values manually:',
+            budgetPlan
+          );
+          return;
+        }
+
+        // If save succeeded but verification failed, keep planning mode open to preserve user's unsaved budget edits.
         // Prevents data loss by maintaining form state until user can retry or copy values.
         // WARNING: Changes will be lost on page refresh - users should copy values manually.
         if (!saved.budgetPlan || !deepEqual(saved.budgetPlan, budgetPlan)) {

@@ -68,7 +68,22 @@ export function BudgetPlanEditor({
       lastModified: new Date().toISOString(),
     };
 
-    return predictCashFlow(plan, historicData);
+    try {
+      return predictCashFlow(plan, historicData);
+    } catch (error) {
+      console.error('Cash flow prediction failed:', error);
+
+      // Return safe defaults when prediction fails
+      // This prevents the UI from crashing while alerting developers to the issue
+      return {
+        totalIncomeTarget: 0,
+        totalExpenseTarget: 0,
+        predictedNetIncome: 0,
+        historicAvgIncome: 0,
+        historicAvgExpense: 0,
+        variance: 0,
+      };
+    }
   }, [debouncedBudgets, historicData]);
 
   // Validation function for a single category budget
