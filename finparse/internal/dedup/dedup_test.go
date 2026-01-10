@@ -9,7 +9,6 @@ import (
 )
 
 func TestGenerateFingerprint(t *testing.T) {
-	// TODO(#1396): Tests already verify determinism/uniqueness/format - hardcoded hashes removed
 	tests := []struct {
 		name        string
 		date        string
@@ -105,8 +104,8 @@ func TestNewState(t *testing.T) {
 		t.Errorf("NewState() fingerprints map length = %d, want 0", len(state.fingerprints))
 	}
 
-	if state.Metadata.TotalFingerprints != 0 {
-		t.Errorf("NewState() metadata.TotalFingerprints = %d, want 0", state.Metadata.TotalFingerprints)
+	if state.TotalFingerprints() != 0 {
+		t.Errorf("NewState() TotalFingerprints() = %d, want 0", state.TotalFingerprints())
 	}
 }
 
@@ -289,8 +288,8 @@ func TestSaveAndLoadState(t *testing.T) {
 	}
 
 	// Verify metadata was updated during save
-	if loaded.Metadata.TotalFingerprints != 2 {
-		t.Errorf("LoadState() metadata.TotalFingerprints = %d, want 2", loaded.Metadata.TotalFingerprints)
+	if loaded.TotalFingerprints() != 2 {
+		t.Errorf("LoadState() TotalFingerprints() = %d, want 2", loaded.TotalFingerprints())
 	}
 }
 
@@ -378,7 +377,6 @@ func TestLoadState_MissingFields(t *testing.T) {
 		t.Fatalf("LoadState() should handle missing fingerprints field gracefully, got error: %v", err)
 	}
 
-	// Verify fingerprints map was initialized (per dedup.go lines 91-93)
 	if state.fingerprints == nil {
 		t.Error("LoadState() did not initialize nil fingerprints map")
 	}
@@ -443,22 +441,19 @@ func TestSaveState_UpdatesMetadata(t *testing.T) {
 	state.RecordTransaction("abc123", "txn-001", time.Now())
 	state.RecordTransaction("def456", "txn-002", time.Now())
 
-	// Initial metadata should be stale
-	state.Metadata.TotalFingerprints = 0
-
 	err := SaveState(state, stateFile)
 	if err != nil {
 		t.Fatalf("SaveState() error = %v", err)
 	}
 
-	// Load and verify metadata was updated
+	// Load and verify fingerprints
 	loaded, err := LoadState(stateFile)
 	if err != nil {
 		t.Fatalf("LoadState() error = %v", err)
 	}
 
-	if loaded.Metadata.TotalFingerprints != 2 {
-		t.Errorf("SaveState() did not update TotalFingerprints: got %d, want 2", loaded.Metadata.TotalFingerprints)
+	if loaded.TotalFingerprints() != 2 {
+		t.Errorf("SaveState() TotalFingerprints() = %d, want 2", loaded.TotalFingerprints())
 	}
 }
 
@@ -567,4 +562,63 @@ func TestGenerateFingerprint_NormalizationCollisions(t *testing.T) {
 			t.Error("Case differences should be normalized (all lowercase)")
 		}
 	})
+}
+
+func TestRecordTransaction_TimestampBeforeFirstSeen(t *testing.T) {
+	state := NewState()
+	fp := "abc123"
+	ts1 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts2 := time.Date(2025, 1, 14, 10, 0, 0, 0, time.UTC) // Earlier
+
+	// Record first transaction
+	err := state.RecordTransaction(fp, "txn-001", ts1)
+	if err != nil {
+		t.Fatalf("Failed to record first transaction: %v", err)
+	}
+
+	// Attempt to record with earlier timestamp
+	err = state.RecordTransaction(fp, "txn-002", ts2)
+	if err == nil {
+		t.Error("Expected error for timestamp before firstSeen")
+	}
+	if !strings.Contains(err.Error(), "before first seen") {
+		t.Errorf("Error should mention 'before first seen', got: %v", err)
+	}
+}
+
+func TestNewFingerprintRecord_ZeroTimestamp(t *testing.T) {
+	_, err := NewFingerprintRecord("txn-001", time.Time{})
+	if err == nil {
+		t.Error("Expected error for zero timestamp")
+	}
+	if !strings.Contains(err.Error(), "timestamp cannot be zero") {
+		t.Errorf("Error should mention 'timestamp cannot be zero', got: %v", err)
+	}
+}
+
+func TestSaveState_RenameFailsWithCleanupFailure(t *testing.T) {
+	// This is difficult to test without OS-level mocking, but can be tested
+	// by using a read-only directory for the state file location
+	tmpDir := t.TempDir()
+	readOnlyDir := filepath.Join(tmpDir, "readonly")
+	if err := os.MkdirAll(readOnlyDir, 0755); err != nil {
+		t.Fatalf("Failed to create read-only directory: %v", err)
+	}
+	if err := os.Chmod(readOnlyDir, 0555); err != nil {
+		t.Fatalf("Failed to set read-only permissions: %v", err)
+	}
+	defer os.Chmod(readOnlyDir, 0755) // Restore for cleanup
+
+	stateFile := filepath.Join(readOnlyDir, "state.json")
+	state := NewState()
+
+	err := SaveState(state, stateFile)
+	if err == nil {
+		t.Error("Expected error when saving to read-only directory")
+	}
+
+	// Verify error handling exists (exact behavior may vary by OS)
+	if !strings.Contains(err.Error(), "failed to") {
+		t.Errorf("Error should be descriptive, got: %v", err)
+	}
 }

@@ -12,12 +12,17 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 )
 
-// TransformStats contains statistics from transformation process
+// TransformStats contains statistics from transformation process.
+//
+// Design note: Fields are exported for simplicity since this is a data transfer object
+// used only within the transform package and main CLI. UnmatchedExamples has a soft
+// cap of 5 items enforced at append time (line 89). If external modification becomes
+// a concern, consider unexported fields with getters returning defensive copies.
 type TransformStats struct {
 	DuplicatesSkipped int
 	RulesMatched      int
 	RulesUnmatched    int
-	UnmatchedExamples []string
+	UnmatchedExamples []string // Capped at 5 items during population
 }
 
 // TransformStatement converts RawStatement to domain types and adds to Budget.
@@ -43,11 +48,13 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		return nil, fmt.Errorf("failed to transform institution: %w", err)
 	}
 
-	// Add institution (idempotent)
+	// Add institution (idempotent - silently skip if already exists)
 	if err := budget.AddInstitution(*institution); err != nil {
 		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return nil, fmt.Errorf("failed to add institution: %w", err)
 		}
+		// Duplicate institutions are expected when processing multiple statements
+		// from the same institution. Not logged to avoid noise in normal operation.
 	}
 
 	account, err := transformAccount(&raw.Account, institution.ID)
@@ -55,11 +62,13 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		return nil, fmt.Errorf("failed to transform account: %w", err)
 	}
 
-	// Add account (idempotent)
+	// Add account (idempotent - silently skip if already exists)
 	if err := budget.AddAccount(*account); err != nil {
 		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return nil, fmt.Errorf("failed to add account: %w", err)
 		}
+		// Duplicate accounts are expected when processing multiple statements
+		// from the same account. Not logged to avoid noise in normal operation.
 	}
 
 	statement, err := transformStatement(raw, account.ID)
@@ -98,7 +107,10 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// Check for duplicates if state is provided
 		if state != nil {
 			if state.IsDuplicate(fingerprint) {
-				// Skip duplicate transaction
+				// Skip duplicate transaction - already processed in a previous run.
+				// Duplicate count is tracked in stats for user visibility.
+				// Individual duplicates not logged to avoid noise when processing
+				// overlapping statement date ranges.
 				stats.DuplicatesSkipped++
 				continue
 			}
@@ -110,7 +122,9 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 				i+1, len(raw.Transactions), txn.ID, err)
 		}
 
-		// Record in state if provided (uses current time for record-keeping, not transaction date)
+		// Record in state if provided. Uses time.Now() to track when we first/last observed
+		// this fingerprint during parsing, not the transaction date. This allows tracking
+		// when fingerprints were added to the state file for debugging and state management.
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
 				return nil, fmt.Errorf("failed to record transaction fingerprint: %w", err)
@@ -213,7 +227,10 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 		return nil, false, err
 	}
 
-	// Apply rules if engine provided and match found
+	// Apply rules if engine provided and match found.
+	// Note: Match() is designed to never fail. Any invalid match types are caught during
+	// engine initialization (NewEngine). Future extensions requiring error handling should
+	// add error return to Match() signature.
 	var matched bool
 	var result *rules.MatchResult
 	if engine != nil {

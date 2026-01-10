@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
@@ -656,12 +657,8 @@ func TestTransformTransaction_UnmatchedDefaultsToOther(t *testing.T) {
 }
 
 func TestFormatDate(t *testing.T) {
-	// Note: Issue pr-test-analyzer-in-scope-3 originally requested testing
-	// formatDate with invalid types (string, nil, int), but the function signature
-	// was changed by another agent to accept only time.Time, eliminating the
-	// possibility of passing invalid types. The type system now enforces correctness.
-
-	// Test with valid time.Time
+	// Test with valid time.Time values. Type system prevents invalid inputs
+	// (string, nil, int) at compile time, so no error handling tests needed.
 	testDate := time.Date(2025, 10, 15, 14, 30, 0, 0, time.UTC)
 	result := formatDate(testDate)
 	expected := "2025-10-15"
@@ -675,6 +672,86 @@ func TestFormatDate(t *testing.T) {
 	expected = "0001-01-01"
 	if result != expected {
 		t.Errorf("expected %q for zero time, got %q", expected, result)
+	}
+}
+
+func TestTransformStatement_StatsAccuracy(t *testing.T) {
+	// Setup: 4 transactions to test comprehensive statistics tracking
+	// - TXN001 (WHOLEFDS): matches rule, marked as duplicate (skipped)
+	// - TXN002 (CHIPOTLE): matches rule, added
+	// - TXN003 (UNKNOWN_XYZ_NOMATCH): doesn't match, added
+	// - TXN004 (STARBUCKS): matches rule, added
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txn1 := mustNewRawTransaction(t, "TXN001", startDate, startDate, "WHOLEFDS MARKET", -50.00)
+	txn2 := mustNewRawTransaction(t, "TXN002", startDate, startDate, "CHIPOTLE", -15.00)
+	txn3 := mustNewRawTransaction(t, "TXN003", startDate, startDate, "UNKNOWN_XYZ_NOMATCH", -10.00)
+	txn4 := mustNewRawTransaction(t, "TXN004", startDate, startDate, "STARBUCKS", -5.00)
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn1, *txn2, *txn3, *txn4},
+	}
+
+	// First pass: record txn1 as duplicate
+	state := dedup.NewState()
+	fp1 := dedup.GenerateFingerprint("2025-10-01", -50.00, "WHOLEFDS MARKET")
+	if err := state.RecordTransaction(fp1, "TXN001", time.Now()); err != nil {
+		t.Fatalf("Failed to record transaction: %v", err)
+	}
+
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("Failed to load rules: %v", err)
+	}
+
+	budget := domain.NewBudget()
+	stats, err := TransformStatement(raw, budget, state, engine)
+	if err != nil {
+		t.Fatalf("TransformStatement failed: %v", err)
+	}
+
+	// Verify duplicate tracking (stats counted BEFORE dedup check per pipeline.go logic)
+	if stats.DuplicatesSkipped != 1 {
+		t.Errorf("Expected 1 duplicate skipped, got %d", stats.DuplicatesSkipped)
+	}
+
+	// Verify rule matching statistics (counted for ALL transactions including duplicates)
+	// TXN001 (WHOLEFDS): matches rule (counted)
+	// TXN002 (CHIPOTLE): matches rule (counted)
+	// TXN003 (UNKNOWN_XYZ_NOMATCH): no match (counted as unmatched)
+	// TXN004 (STARBUCKS): matches rule (counted)
+	expectedMatched := 3
+	expectedUnmatched := 1
+	if stats.RulesMatched != expectedMatched {
+		t.Errorf("Expected %d rules matched, got %d", expectedMatched, stats.RulesMatched)
+	}
+	if stats.RulesUnmatched != expectedUnmatched {
+		t.Errorf("Expected %d rules unmatched, got %d", expectedUnmatched, stats.RulesUnmatched)
+	}
+
+	// Verify UnmatchedExamples contains the unmatched transaction description
+	if len(stats.UnmatchedExamples) != 1 {
+		t.Errorf("Expected 1 unmatched example, got %d", len(stats.UnmatchedExamples))
+	} else if stats.UnmatchedExamples[0] != "UNKNOWN_XYZ_NOMATCH" {
+		t.Errorf("Expected unmatched example 'UNKNOWN_XYZ_NOMATCH', got %q", stats.UnmatchedExamples[0])
+	}
+
+	// Verify only 3 transactions added to budget (1 was duplicate and skipped)
+	transactions := budget.GetTransactions()
+	if len(transactions) != 3 {
+		t.Errorf("Expected 3 transactions in budget, got %d", len(transactions))
+	}
+
+	// Verify the duplicate transaction was NOT added
+	for _, txn := range transactions {
+		if txn.ID == "TXN001" {
+			t.Errorf("Duplicate transaction TXN001 should not be in budget")
+		}
 	}
 }
 

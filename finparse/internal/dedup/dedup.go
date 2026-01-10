@@ -46,7 +46,8 @@ func NewFingerprintRecord(transactionID string, timestamp time.Time) (*Fingerpri
 }
 
 // Update updates the record for a new observation.
-// Returns error if timestamp is before the first seen time.
+// Returns error if timestamp is strictly before the first seen time.
+// Timestamps equal to FirstSeen are allowed (same transaction re-parsed).
 func (r *FingerprintRecord) Update(timestamp time.Time) error {
 	if timestamp.Before(r.FirstSeen) {
 		return fmt.Errorf("timestamp %v is before first seen %v", timestamp, r.FirstSeen)
@@ -59,11 +60,17 @@ func (r *FingerprintRecord) Update(timestamp time.Time) error {
 // MarshalJSON implements json.Marshaler for State
 func (s *State) MarshalJSON() ([]byte, error) {
 	type Alias State
+	// Create defensive copy to prevent external mutation
+	fpCopy := make(map[string]*FingerprintRecord, len(s.fingerprints))
+	for k, v := range s.fingerprints {
+		recordCopy := *v
+		fpCopy[k] = &recordCopy
+	}
 	return json.Marshal(&struct {
 		Fingerprints map[string]*FingerprintRecord `json:"fingerprints"`
 		*Alias
 	}{
-		Fingerprints: s.fingerprints,
+		Fingerprints: fpCopy,
 		Alias:        (*Alias)(s),
 	})
 }
@@ -78,17 +85,20 @@ func (s *State) UnmarshalJSON(data []byte) error {
 		Alias: (*Alias)(s),
 	}
 	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal State from JSON: %w", err)
 	}
-	s.fingerprints = aux.Fingerprints
+	// Create defensive copy to prevent external mutation
+	s.fingerprints = make(map[string]*FingerprintRecord, len(aux.Fingerprints))
+	for k, v := range aux.Fingerprints {
+		recordCopy := *v
+		s.fingerprints[k] = &recordCopy
+	}
 	return nil
 }
 
 // StateMetadata contains aggregate statistics about the state.
-// TODO(#1403): StateMetadata TotalFingerprints can become inconsistent with actual fingerprint count
 type StateMetadata struct {
-	LastUpdated       time.Time `json:"lastUpdated"`
-	TotalFingerprints int       `json:"totalFingerprints"`
+	LastUpdated time.Time `json:"lastUpdated"`
 }
 
 const (
@@ -102,8 +112,7 @@ func NewState() *State {
 		Version:      CurrentVersion,
 		fingerprints: make(map[string]*FingerprintRecord),
 		Metadata: StateMetadata{
-			LastUpdated:       time.Now(),
-			TotalFingerprints: 0,
+			LastUpdated: time.Now(),
 		},
 	}
 }
@@ -165,7 +174,6 @@ func SaveState(state *State, filePath string) error {
 
 	// Update metadata
 	state.Metadata.LastUpdated = time.Now()
-	state.Metadata.TotalFingerprints = len(state.fingerprints)
 
 	// Marshal to JSON with indentation for readability
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -182,8 +190,8 @@ func SaveState(state *State, filePath string) error {
 	if err := os.Rename(tempFile, filePath); err != nil {
 		// Clean up temp file on error
 		if removeErr := os.Remove(tempFile); removeErr != nil {
-			// Include cleanup failure in error context for debugging
-			return fmt.Errorf("failed to rename temp file (cleanup also failed: %v): %w", removeErr, err)
+			// Report both errors: rename failure (primary) and cleanup failure (secondary)
+			return fmt.Errorf("failed to rename temp file: %w (also failed to cleanup temp file: %v)", err, removeErr)
 		}
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
@@ -197,9 +205,15 @@ func (s *State) IsDuplicate(fingerprint string) bool {
 	return exists
 }
 
+// TotalFingerprints returns the current number of fingerprints in the state.
+func (s *State) TotalFingerprints() int {
+	return len(s.fingerprints)
+}
+
 // RecordTransaction records a transaction fingerprint in the state.
 // If new: creates record with firstSeen=timestamp, count=1, transactionID=provided ID.
-// If exists: updates lastSeen=timestamp, increments count. TransactionID is preserved from first occurrence.
+// If exists: updates lastSeen=timestamp, increments count. The provided transactionID
+// parameter is ignored; the original TransactionID from the first occurrence is retained.
 func (s *State) RecordTransaction(fingerprint, transactionID string, timestamp time.Time) error {
 	if fingerprint == "" {
 		return fmt.Errorf("fingerprint cannot be empty")

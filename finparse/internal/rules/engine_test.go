@@ -633,6 +633,75 @@ rules:
 	}
 }
 
+func TestMatch_EqualPriority_StableSort(t *testing.T) {
+	rulesYAML := `
+rules:
+  - name: "First Rule Priority 500"
+    pattern: "TEST"
+    match_type: "contains"
+    priority: 500
+    category: "groceries"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+  - name: "Second Rule Priority 500"
+    pattern: "TEST"
+    match_type: "contains"
+    priority: 500
+    category: "dining"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	result, matched := engine.Match("TEST MERCHANT")
+	if !matched {
+		t.Fatal("Expected match for TEST MERCHANT")
+	}
+
+	// Should match first rule in YAML file order
+	if result.Category != domain.CategoryGroceries {
+		t.Errorf("Expected first rule (groceries) to match, got %s", result.Category)
+	}
+	if result.RuleName != "First Rule Priority 500" {
+		t.Errorf("Expected first rule to match, got %s", result.RuleName)
+	}
+}
+
+func TestMatch_WhitespaceOnlyDescription(t *testing.T) {
+	rulesYAML := `
+rules:
+  - name: "Non-empty Pattern"
+    pattern: "TEST"
+    match_type: "contains"
+    priority: 100
+    category: "groceries"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, _ := NewEngine([]byte(rulesYAML))
+
+	// Description with only whitespace should not match
+	result, matched := engine.Match("   ")
+	if matched {
+		t.Error("Whitespace-only description should not match pattern 'TEST'")
+	}
+	if result != nil {
+		t.Error("Result should be nil for no match")
+	}
+}
+
 func TestNewEngine_InvalidYAML(t *testing.T) {
 	invalidYAML := `
 rules:
@@ -733,6 +802,7 @@ func loadTransactionDescriptions(t *testing.T, dbPath string) []string {
 }
 
 func TestEndToEnd_VacationDateBasedDetection(t *testing.T) {
+	// TODO(#1407): Implement date-based vacation detection
 	// This test verifies the vacation detection requirement from issue #1261:
 	// "Vacation detection (date-based periods + pattern matching)"
 	//
@@ -814,7 +884,7 @@ rules:
 	// - $500 hotel during Hawaii vacation → vacation=true (useful for budget tracking)
 	// - $500 hotel during work conference → vacation=false (business expense)
 	//
-	// TODO(#1261): Implement MatchWithDate() method and VacationPeriod configuration
+	// TODO(#1406): Implement MatchWithDate() method and VacationPeriod configuration
 
 	t.Log("Pattern-based vacation detection: IMPLEMENTED ✓")
 

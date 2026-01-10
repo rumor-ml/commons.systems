@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
@@ -17,7 +18,6 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/transform"
 )
 
-// TestEndToEnd_TransformationPipeline tests the complete Phase 4 transformation pipeline
 func TestEndToEnd_TransformationPipeline(t *testing.T) {
 	// Create temporary directory
 	tmpDir := t.TempDir()
@@ -618,8 +618,8 @@ NEWFILEUID:NONE
 	}
 
 	// Verify state was updated
-	if loadedState.Metadata.TotalFingerprints != 3 {
-		t.Errorf("expected 3 fingerprints in state, got %d", loadedState.Metadata.TotalFingerprints)
+	if loadedState.TotalFingerprints() != 3 {
+		t.Errorf("expected 3 fingerprints in state, got %d", loadedState.TotalFingerprints())
 	}
 }
 
@@ -894,8 +894,8 @@ NEWFILEUID:NONE
 	}
 
 	// Verify state metadata updated
-	if loadedState.Metadata.TotalFingerprints != 3 {
-		t.Errorf("expected 3 unique fingerprints in state, got %d", loadedState.Metadata.TotalFingerprints)
+	if loadedState.TotalFingerprints() != 3 {
+		t.Errorf("expected 3 unique fingerprints in state, got %d", loadedState.TotalFingerprints())
 	}
 }
 
@@ -1082,5 +1082,64 @@ NEWFILEUID:NONE
 		default:
 			t.Errorf("unexpected transaction description: %s", txn.Description)
 		}
+	}
+}
+
+// TestEndToEnd_StateFileSaveFailureDoesNotCorrupt verifies atomic write pattern prevents corruption
+func TestEndToEnd_StateFileSaveFailureDoesNotCorrupt(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create initial state with data
+	state1 := dedup.NewState()
+	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	if err := state1.RecordTransaction("fp1", "txn-001", ts); err != nil {
+		t.Fatalf("Failed to record first transaction: %v", err)
+	}
+	if err := state1.RecordTransaction("fp2", "txn-002", ts); err != nil {
+		t.Fatalf("Failed to record second transaction: %v", err)
+	}
+
+	// Save successfully
+	if err := dedup.SaveState(state1, stateFile); err != nil {
+		t.Fatalf("Initial save failed: %v", err)
+	}
+
+	// Verify temp file is gone
+	tempFile := stateFile + ".tmp"
+	if _, err := os.Stat(tempFile); !os.IsNotExist(err) {
+		t.Error("Temp file should not exist after successful save")
+	}
+
+	// Make directory read-only to force save failure
+	if err := os.Chmod(tmpDir, 0555); err != nil {
+		t.Fatalf("Failed to make directory read-only: %v", err)
+	}
+	defer os.Chmod(tmpDir, 0755)
+
+	// Attempt to save different state (should fail)
+	state2 := dedup.NewState()
+	if err := state2.RecordTransaction("fp3", "txn-003", ts); err != nil {
+		t.Fatalf("Failed to record transaction for state2: %v", err)
+	}
+	err := dedup.SaveState(state2, stateFile)
+	if err == nil {
+		t.Error("Expected save to fail with read-only directory")
+	}
+
+	// Restore permissions and verify original state is intact
+	if err := os.Chmod(tmpDir, 0755); err != nil {
+		t.Fatalf("Failed to restore directory permissions: %v", err)
+	}
+
+	loadedState, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to load state after failed save: %v", err)
+	}
+
+	// Should have original 2 fingerprints, not the 1 from failed save
+	if loadedState.TotalFingerprints() != 2 {
+		t.Errorf("State was corrupted: expected 2 fingerprints, got %d",
+			loadedState.TotalFingerprints())
 	}
 }

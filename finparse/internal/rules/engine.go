@@ -25,8 +25,12 @@ const (
 	MatchTypeContains MatchType = "contains"
 )
 
-// Flags represent special boolean flags for transactions
-// TODO(#1405): Consider adding validation for mutually exclusive flag combinations
+// Flags represent special boolean flags for transactions.
+//
+// Currently allows any combination of flags. Business logic may require certain
+// combinations to be invalid (e.g., Transfer=true with Redeemable=true), but this
+// requires clarification of business rules before adding validation.
+// Tracked in TODO(#1405).
 type Flags struct {
 	Redeemable bool `yaml:"redeemable"`
 	Vacation   bool `yaml:"vacation"`
@@ -45,7 +49,9 @@ type Flags struct {
 //   - MatchType must be "exact" or "contains"
 //   - Category must be a valid domain.Category
 //
-// Direct struct construction bypasses validation and should be avoided.
+// WARNING: Direct struct construction bypasses validation and can create invalid
+// rules. Fields are exported for YAML unmarshaling and testing, but validation
+// is only enforced through NewEngine. Tracked in TODO(#1400).
 type Rule struct {
 	Name           string    `yaml:"name"`
 	Pattern        string    `yaml:"pattern"`
@@ -61,7 +67,13 @@ type RuleSet struct {
 	Rules []Rule `yaml:"rules"`
 }
 
-// TODO(#1401): Add NewMatchResult constructor with validation for RedemptionRate consistency with Redeemable flag
+// MatchResult is currently constructed inline in Engine.Match (line 174-181).
+// Since Match only constructs MatchResult from validated Rule structs, the
+// invariants (Redeemable/RedemptionRate consistency) are preserved transitively.
+//
+// Adding a NewMatchResult constructor would provide defense-in-depth but is not
+// critical since MatchResult is only created from already-validated Rules.
+// Tracked in TODO(#1401).
 
 // Engine performs rule matching on transaction descriptions
 type Engine struct {
@@ -82,7 +94,7 @@ type MatchResult struct {
 func NewEngine(rulesData []byte) (*Engine, error) {
 	var ruleSet RuleSet
 	if err := yaml.Unmarshal(rulesData, &ruleSet); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+		return nil, fmt.Errorf("failed to parse YAML rules (check syntax, indentation, and field names): %w", err)
 	}
 
 	// Validate and process rules
@@ -137,7 +149,11 @@ func NewEngine(rulesData []byte) (*Engine, error) {
 
 // LoadEmbedded loads the embedded rules.yaml file
 func LoadEmbedded() (*Engine, error) {
-	return NewEngine(embeddedRules)
+	engine, err := NewEngine(embeddedRules)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load embedded rules (possible binary corruption): %w", err)
+	}
+	return engine, nil
 }
 
 // LoadFromFile loads rules from a filesystem path
@@ -146,12 +162,16 @@ func LoadFromFile(path string) (*Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read rules file: %w", err)
 	}
-	return NewEngine(data)
+	engine, err := NewEngine(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load rules from %q: %w", path, err)
+	}
+	return engine, nil
 }
 
 // Match applies rules to a transaction description and returns the first match.
-// Rules are evaluated in priority order (highest first). For equal priorities,
-// rules are evaluated in YAML file order (stable sort).
+// Rules are evaluated in priority order (highest first). Rules with equal priority
+// are evaluated in their original YAML file order (sorting happens in NewEngine).
 // Returns (nil, false) if no rules match.
 func (e *Engine) Match(description string) (*MatchResult, bool) {
 	// Normalize description: lowercase and trim
@@ -187,9 +207,11 @@ func (e *Engine) Match(description string) (*MatchResult, bool) {
 
 // GetRules returns a copy of the rules for inspection/debugging.
 //
-// The returned slice and rules are value copies and cannot modify the engine's
-// internal state. Rules are returned in priority order (highest first).
-// For equal priorities, rules appear in YAML file order (stable sort).
+// Returns a new slice containing value copies of each Rule struct. Since Rule
+// contains only value types (no pointers or slices), modifications to returned
+// rules will not affect the engine's internal state. Rules are returned in
+// priority order (highest first). For equal priorities, rules appear in YAML
+// file order (stable sort).
 func (e *Engine) GetRules() []Rule {
 	result := make([]Rule, len(e.rules))
 	copy(result, e.rules)

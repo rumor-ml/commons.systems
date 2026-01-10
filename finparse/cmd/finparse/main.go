@@ -32,7 +32,7 @@ var (
 	outputFile = flag.String("output", "", "Output JSON file (default: stdout)")
 	mergeMode  = flag.Bool("merge", false, "Merge with existing output file")
 
-	// Future phase flags (Phase 5+, not yet implemented)
+	// Phase 5 flags (deduplication and rules)
 	stateFile         = flag.String("state", "", "Deduplication state file")
 	rulesFile         = flag.String("rules", "", "Category rules file")
 	formatFilter      = flag.String("format", "all", "Filter by format: ofx,csv,all")
@@ -166,7 +166,7 @@ func run() error {
 			state = loadedState
 			if *verbose {
 				fmt.Fprintf(os.Stderr, "Loaded state with %d fingerprints\n",
-					state.Metadata.TotalFingerprints)
+					state.TotalFingerprints())
 			}
 		}
 	}
@@ -231,6 +231,11 @@ func run() error {
 		// Close immediately after parsing
 		closeErr := f.Close()
 		if err != nil {
+			// Log close error if it also occurred (prevents masking file descriptor issues)
+			if closeErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: file close also failed for %s: %v (parse error takes precedence)\n",
+					file.Path, closeErr)
+			}
 			return fmt.Errorf("parse failed for file %d of %d (%s): %w",
 				i+1, len(files), file.Path, err)
 		}
@@ -272,7 +277,7 @@ func run() error {
 
 		if *verbose {
 			fmt.Fprintf(os.Stderr, "Saved state with %d fingerprints to %s\n",
-				state.Metadata.TotalFingerprints, *stateFile)
+				state.TotalFingerprints(), *stateFile)
 		}
 	}
 
