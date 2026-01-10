@@ -12,6 +12,12 @@ export function updateQualifierBreakdown(
   txn: Transaction,
   displayAmount: number
 ): void {
+  // Validate displayAmount is finite before accumulating
+  if (!Number.isFinite(displayAmount)) {
+    console.error('Invalid displayAmount in qualifier breakdown:', { txn, displayAmount });
+    return; // Skip this transaction
+  }
+
   if (txn.redeemable) {
     qualifiers.redeemable += displayAmount;
   } else {
@@ -48,7 +54,20 @@ export function filterTransactions(
  * Consolidates duplicate calculation logic from BudgetChart.tsx, weeklyAggregation.ts, and Legend.tsx.
  */
 export function getDisplayAmount(txn: Transaction): number {
-  return txn.redeemable ? txn.amount * txn.redemptionRate : txn.amount;
+  if (!Number.isFinite(txn.amount)) {
+    console.error(`Invalid transaction amount: ${txn.amount}`, txn);
+    return 0; // Safe fallback
+  }
+
+  if (txn.redeemable) {
+    if (!Number.isFinite(txn.redemptionRate)) {
+      console.error(`Invalid redemption rate: ${txn.redemptionRate}`, txn);
+      return txn.amount; // Fallback: treat as non-redeemable
+    }
+    return txn.amount * txn.redemptionRate;
+  }
+
+  return txn.amount;
 }
 
 /**

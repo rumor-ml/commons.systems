@@ -138,10 +138,19 @@ export function aggregateTransactionsByWeek(
       'TO FIX: Review the transaction dates shown above and re-import with valid YYYY-MM-DD format'
     );
 
-    // Critical data loss - use error banner
-    StateManager.showErrorBanner(
-      `⚠️ ${skippedWeeks.size} week(s) of data excluded due to date errors. Your charts are incomplete. See console for details on affected transactions.`
-    );
+    // Check if we skipped ALL weeks
+    if (weeklyData.length === 0) {
+      StateManager.showErrorBanner(
+        `CRITICAL: All transaction data excluded due to date errors. Weekly view is unavailable. ` +
+          `Switch to Monthly view or reimport transactions with valid YYYY-MM-DD dates. ` +
+          `Skipped weeks: ${weekList}`
+      );
+    } else {
+      // Partial data available - use existing error message
+      StateManager.showErrorBanner(
+        `⚠️ ${skippedWeeks.size} week(s) of data excluded due to date errors. Your charts are incomplete. See console for details on affected transactions.`
+      );
+    }
   }
 
   // Sort by week and category

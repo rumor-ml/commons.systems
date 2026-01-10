@@ -663,16 +663,31 @@ export function BudgetChart({
       );
     } catch (err) {
       console.error('Failed to attach event listeners:', err);
+      console.error('DOM diagnostics at failure:', {
+        barGroups: plot.querySelectorAll('g[aria-label="bar"]').length,
+        allGroups: plot.querySelectorAll('g').length,
+        svgChildren: plot.children.length,
+        plotPreview: plot.innerHTML.substring(0, 300),
+      });
       console.warn('Chart rendered in static mode - no tooltip interactivity');
 
-      // Add user-visible warning banner
+      // Add user-visible warning banner with recovery option
       const warningDiv = document.createElement('div');
-      warningDiv.className = 'text-xs text-warning bg-warning-muted p-2 rounded mt-2';
-      warningDiv.innerHTML =
-        '⚠️ Chart loaded in static mode. Hover tooltips are unavailable. Try refreshing the page.';
+      warningDiv.className =
+        'text-xs text-warning bg-warning-muted p-2 rounded mt-2 flex items-center gap-2';
+
+      const messageSpan = document.createElement('span');
+      messageSpan.textContent = '⚠️ Chart loaded in static mode. Hover tooltips are unavailable.';
+
+      const refreshButton = document.createElement('button');
+      refreshButton.className = 'btn btn-sm btn-ghost underline';
+      refreshButton.textContent = 'Refresh Page';
+      refreshButton.onclick = () => window.location.reload();
+
+      warningDiv.appendChild(messageSpan);
+      warningDiv.appendChild(refreshButton);
       containerRef.current?.appendChild(warningDiv);
 
-      // TODO: Log to Statsig/Sentry when available to track Observable Plot structure changes
       // Don't call setError() here - the chart has already rendered successfully
       // Tooltip failures are non-fatal and should not trigger error UI
     }

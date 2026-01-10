@@ -100,6 +100,25 @@ export type BudgetState = {
   | { readonly viewGranularity: 'week'; readonly selectedWeek: WeekId | null }
 );
 
+/**
+ * Creates a BudgetState for month view (selectedWeek must be null).
+ */
+export function createMonthViewState(
+  base: Omit<BudgetState, 'viewGranularity' | 'selectedWeek'>
+): BudgetState {
+  return { ...base, viewGranularity: 'month' as const, selectedWeek: null };
+}
+
+/**
+ * Creates a BudgetState for week view (selectedWeek can be WeekId | null).
+ */
+export function createWeekViewState(
+  base: Omit<BudgetState, 'viewGranularity' | 'selectedWeek'>,
+  selectedWeek: WeekId | null
+): BudgetState {
+  return { ...base, viewGranularity: 'week' as const, selectedWeek };
+}
+
 export class StateManager {
   private static STORAGE_KEY = 'budget-state';
 
@@ -223,20 +242,12 @@ export class StateManager {
       };
 
       if (viewGranularity === 'month') {
-        return {
-          ...baseState,
-          viewGranularity: 'month' as const,
-          selectedWeek: null,
-        };
+        return createMonthViewState(baseState);
       } else {
-        return {
-          ...baseState,
-          viewGranularity: 'week' as const,
-          selectedWeek,
-        };
+        return createWeekViewState(baseState, selectedWeek);
       }
     } catch (error) {
-      // TODO(#1387): Distinguish between error types (JSON parse, localStorage access, validation) and provide specific user guidance
+      // TODO: Distinguish between error types (JSON parse, localStorage access, validation) and provide specific user guidance
       console.error('Failed to load state from localStorage:', error);
 
       // Show user-facing warning
@@ -321,8 +332,10 @@ export class StateManager {
         );
       }
 
-      // Return current persisted state, NOT the failed update
-      return current;
+      // Throw error instead of returning stale state
+      throw new Error(
+        `State save failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 }

@@ -195,6 +195,14 @@ export function Legend({
               return (
                 <div
                   key={category}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleCategoryToggle(category);
+                    }
+                  }}
                   onClick={() => handleCategoryToggle(category)}
                   className={`flex items-center justify-between p-3 rounded-lg cursor-pointer legend-category-row ${isHidden ? 'legend-category-hidden' : ''}`}
                   style={{
@@ -222,7 +230,7 @@ export function Legend({
                         </div>
                         {rolloverAccumulated !== undefined && rolloverAccumulated !== 0 && (
                           <div className="text-xs text-white opacity-90">
-                            Rollover: ${rolloverAccumulated.toFixed(2)}
+                            Rollover: ${formatCurrency(rolloverAccumulated)}
                           </div>
                         )}
                         <div className="text-xs text-white opacity-90">{count} txns</div>

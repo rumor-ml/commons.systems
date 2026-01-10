@@ -14,7 +14,7 @@ export type Category =
   | 'investment'
   | 'other';
 
-// TODO: See issue #386 - Add readonly modifiers, branded types for IDs, validation, constrain redemptionRate to [0,1]
+// TODO: Add readonly modifiers, branded types for IDs, validation, constrain redemptionRate to [0,1]
 export interface Transaction {
   id: string;
   date: string; // ISO date
@@ -91,7 +91,7 @@ export function validateQualifierBreakdown(q: QualifierBreakdown): boolean {
   return true;
 }
 
-// TODO: See issue #386 - Use branded YearMonth type, remove redundant isIncome, validate qualifier sums
+// TODO: Use branded YearMonth type, remove redundant isIncome, validate qualifier sums
 export interface MonthlyData {
   month: string; // YYYY-MM format
   category: Category;
@@ -100,7 +100,7 @@ export interface MonthlyData {
   qualifiers: QualifierBreakdown;
 }
 
-// TODO: See issue #386 - Replace index signature with explicit Record<Category, boolean> or exhaustive interface
+// TODO: Replace index signature with explicit Record<Category, boolean> or exhaustive interface
 export interface CategoryFilter {
   [category: string]: boolean;
 }

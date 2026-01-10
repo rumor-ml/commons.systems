@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { BudgetPlan, CategoryBudget, WeeklyData, Category } from './types';
 import { CATEGORIES, CATEGORY_LABELS } from './constants';
 import { predictCashFlow } from '../scripts/weeklyAggregation';
@@ -25,6 +25,10 @@ export function BudgetPlanEditor({
 
   // Validation errors for user feedback
   const [validationErrors, setValidationErrors] = useState<Partial<Record<Category, string>>>({});
+
+  // Refs for focus trap
+  const modalContentRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   // Helper to clear validation error for a category
   const clearValidationError = (category: Category) => {
@@ -66,6 +70,55 @@ export function BudgetPlanEditor({
 
     return predictCashFlow(plan, historicData);
   }, [debouncedBudgets, historicData]);
+
+  // Validation function for a single category budget
+  const validateCategoryBudget = useCallback((category: Category, value: number): string | null => {
+    // Validate numeric input
+    if (!Number.isFinite(value)) {
+      return 'Please enter a valid number (e.g., -500 for expenses)';
+    }
+
+    // Validate non-zero
+    if (value === 0) {
+      return 'Budget target cannot be zero. Leave empty for no budget, or enter a non-zero value.';
+    }
+
+    // Validate range
+    const absValue = Math.abs(value);
+    if (absValue > 1000000) {
+      return 'Budget value is unusually large (max $1,000,000)';
+    }
+
+    // Validate sign for expense categories
+    const isExpenseCategory = category !== 'income';
+    if (isExpenseCategory && value > 0) {
+      return 'Expense budgets should be negative (e.g., -500)';
+    }
+
+    return null;
+  }, []);
+
+  // Validate all category budgets
+  const validateAllBudgets = useCallback((): boolean => {
+    const errors: Partial<Record<Category, string>> = {};
+    let hasErrors = false;
+
+    Object.entries(categoryBudgets).forEach(([category, budget]) => {
+      if (budget && typeof budget.weeklyTarget === 'number') {
+        const error = validateCategoryBudget(category as Category, budget.weeklyTarget);
+        if (error) {
+          errors[category as Category] = error;
+          hasErrors = true;
+        }
+      }
+    });
+
+    if (hasErrors) {
+      setValidationErrors(errors);
+    }
+
+    return !hasErrors;
+  }, [categoryBudgets, validateCategoryBudget]);
 
   const handleTargetChange = (category: Category, value: string) => {
     // TODO(#1390): Remove console.warn calls after 1+ month of stable validation (keep user-facing error messages)
@@ -150,6 +203,13 @@ export function BudgetPlanEditor({
   };
 
   const handleSave = () => {
+    // Validate all budgets before saving
+    if (!validateAllBudgets()) {
+      // Validation errors are already set by validateAllBudgets
+      // User will see error messages in the form
+      return;
+    }
+
     const plan: BudgetPlan = {
       categoryBudgets,
       lastModified: new Date().toISOString(),
@@ -165,6 +225,56 @@ export function BudgetPlanEditor({
 
     onCancel();
   }, [onCancel]);
+
+  // Focus trap: Move focus to modal on mount and trap Tab navigation
+  useEffect(() => {
+    // Store the currently focused element to restore later
+    previousFocusRef.current = document.activeElement as HTMLElement;
+
+    // Focus the modal content
+    if (modalContentRef.current) {
+      modalContentRef.current.focus();
+    }
+
+    // Trap focus within modal
+    const handleTabKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !modalContentRef.current) return;
+
+      const focusableElements = modalContentRef.current.querySelectorAll<HTMLElement>(
+        'button, input, [tabindex]:not([tabindex="-1"])'
+      );
+      const focusableArray = Array.from(focusableElements);
+
+      if (focusableArray.length === 0) return;
+
+      const firstElement = focusableArray[0];
+      const lastElement = focusableArray[focusableArray.length - 1];
+
+      if (e.shiftKey) {
+        // Shift+Tab: if on first element, wrap to last
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement.focus();
+        }
+      } else {
+        // Tab: if on last element, wrap to first
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement.focus();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleTabKey);
+
+    return () => {
+      document.removeEventListener('keydown', handleTabKey);
+      // Restore focus to previous element when modal closes
+      if (previousFocusRef.current) {
+        previousFocusRef.current.focus();
+      }
+    };
+  }, []);
 
   // Handle Escape key to close modal
   // TODO(#1386): Add accessibility tests for keyboard navigation
@@ -193,7 +303,12 @@ export function BudgetPlanEditor({
 
   return (
     <div className="plan-editor-modal" onClick={handleCancel}>
-      <div className="plan-editor-content card" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalContentRef}
+        tabIndex={-1}
+        className="plan-editor-content card"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="p-6">
           <h2 className="text-2xl font-semibold mb-2 text-text-primary">Budget Planning</h2>
 

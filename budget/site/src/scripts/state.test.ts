@@ -536,7 +536,7 @@ describe('StateManager', () => {
   });
 
   describe('save() - Error Recovery', () => {
-    it('returns merged state when localStorage.setItem throws (quota exceeded)', () => {
+    it('throws error when localStorage.setItem throws (quota exceeded)', () => {
       const initialState: BudgetState = {
         hiddenCategories: [],
         showVacation: true,
@@ -551,25 +551,24 @@ describe('StateManager', () => {
         throw new Error('QuotaExceededError');
       });
 
-      const updated = StateManager.save({ planningMode: true });
-
-      // When save fails, returns current persisted state (not the failed update)
-      expect(updated.planningMode).toBe(false);
-      expect(updated.hiddenCategories).toEqual([]);
+      // When save fails, it should throw an error
+      expect(() => {
+        StateManager.save({ planningMode: true });
+      }).toThrow('State save failed: QuotaExceededError');
     });
 
-    it('handles save failure gracefully without crashing', () => {
+    it('throws error when save fails', () => {
       vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new Error('Storage unavailable');
       });
 
-      // Should not throw
+      // Should throw
       expect(() => {
         StateManager.save({ showVacation: false });
-      }).not.toThrow();
+      }).toThrow('State save failed: Storage unavailable');
     });
 
-    it('returns updated state even when persistence fails', () => {
+    it('throws error when persistence fails', () => {
       const initialState: BudgetState = {
         hiddenCategories: ['income'],
         showVacation: true,
@@ -584,15 +583,13 @@ describe('StateManager', () => {
         throw new Error('Write failed');
       });
 
-      const updated = StateManager.save({
-        hiddenCategories: ['groceries', 'dining'],
-        viewGranularity: 'week',
-      });
-
-      // When save fails, returns current persisted state (not the failed update)
-      expect(updated.hiddenCategories).toEqual(['income']);
-      expect(updated.viewGranularity).toBe('month');
-      expect(updated.showVacation).toBe(true);
+      // When save fails, it should throw an error
+      expect(() => {
+        StateManager.save({
+          hiddenCategories: ['groceries', 'dining'],
+          viewGranularity: 'week',
+        });
+      }).toThrow('State save failed: Write failed');
     });
   });
 
@@ -764,7 +761,11 @@ describe('StateManager', () => {
         throw new Error('QuotaExceededError');
       });
 
-      StateManager.save({ budgetPlan });
+      try {
+        StateManager.save({ budgetPlan });
+      } catch {
+        // Expected to throw
+      }
 
       const banner = document.querySelector('.bg-error');
       expect(banner).toBeTruthy();
@@ -783,7 +784,11 @@ describe('StateManager', () => {
         throw new Error('Storage full');
       });
 
-      StateManager.save({ budgetPlan });
+      try {
+        StateManager.save({ budgetPlan });
+      } catch {
+        // Expected to throw
+      }
 
       const banner = document.querySelector('.bg-error');
       const icon = banner?.querySelector('span');
@@ -807,7 +812,11 @@ describe('StateManager', () => {
         throw new Error('QuotaExceededError');
       });
 
-      StateManager.save({ budgetPlan });
+      try {
+        StateManager.save({ budgetPlan });
+      } catch {
+        // Expected to throw
+      }
 
       expect(document.querySelector('.bg-error')).toBeTruthy();
 
@@ -830,7 +839,11 @@ describe('StateManager', () => {
         throw new Error('QuotaExceededError');
       });
 
-      StateManager.save({ budgetPlan });
+      try {
+        StateManager.save({ budgetPlan });
+      } catch {
+        // Expected to throw
+      }
 
       const banner = document.querySelector('.bg-error');
       const closeBtn = banner?.querySelector('button');
@@ -853,7 +866,11 @@ describe('StateManager', () => {
         throw new Error('Storage full');
       });
 
-      StateManager.save({ budgetPlan });
+      try {
+        StateManager.save({ budgetPlan });
+      } catch {
+        // Expected to throw
+      }
 
       const banner = document.querySelector('.bg-error');
       expect(banner?.className).toContain('fixed');
@@ -879,7 +896,11 @@ describe('StateManager', () => {
         throw new Error('QuotaExceededError');
       });
 
-      StateManager.save({ showVacation: false });
+      try {
+        StateManager.save({ showVacation: false });
+      } catch {
+        // Expected to throw
+      }
 
       const banner = document.querySelector('.bg-warning');
       expect(banner).toBeTruthy();
@@ -891,7 +912,11 @@ describe('StateManager', () => {
         throw new Error('Storage unavailable');
       });
 
-      StateManager.save({ planningMode: true });
+      try {
+        StateManager.save({ planningMode: true });
+      } catch {
+        // Expected to throw
+      }
 
       const banner = document.querySelector('.bg-warning');
       const text = banner?.querySelector('p');
@@ -906,7 +931,11 @@ describe('StateManager', () => {
         throw new Error('Storage error');
       });
 
-      StateManager.save({ hiddenCategories: ['groceries'] });
+      try {
+        StateManager.save({ hiddenCategories: ['groceries'] });
+      } catch {
+        // Expected to throw
+      }
 
       expect(document.querySelector('.bg-warning')).toBeTruthy();
 
@@ -965,7 +994,11 @@ describe('StateManager', () => {
       vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new Error('Storage full');
       });
-      StateManager.save({ budgetPlan });
+      try {
+        StateManager.save({ budgetPlan });
+      } catch {
+        // Expected to throw
+      }
 
       expect(document.querySelector('.bg-warning')).toBeTruthy();
       expect(document.querySelector('.bg-error')).toBeTruthy();

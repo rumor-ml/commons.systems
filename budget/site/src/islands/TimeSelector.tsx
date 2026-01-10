@@ -33,10 +33,19 @@ export function TimeSelector({ granularity, selectedWeek, availableWeeks }: Time
     activeWeek = currentWeek;
   } else if (availableWeeks.length > 0) {
     // Use latest available week as last resort
-    activeWeek = availableWeeks[availableWeeks.length - 1];
-    StateManager.showErrorBanner(
-      `Using latest available week (${activeWeek}) as fallback. Week navigation may be incorrect.`
-    );
+    const fallbackWeek = availableWeeks[availableWeeks.length - 1];
+
+    // Validate the fallback week can actually be used
+    try {
+      getWeekBoundaries(fallbackWeek); // Test that it's valid
+      activeWeek = fallbackWeek;
+      StateManager.showErrorBanner(
+        `Using latest available week (${activeWeek}) as fallback. Week navigation may be incorrect.`
+      );
+    } catch (error) {
+      console.error('Fallback week is invalid:', fallbackWeek, error);
+      activeWeek = null; // Give up, show error state
+    }
   } else {
     // No valid week available - render error state
     activeWeek = null;
