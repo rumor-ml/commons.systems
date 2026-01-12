@@ -168,8 +168,8 @@ func run() error {
 					fmt.Fprintf(os.Stderr, "State file not found, creating new state\n")
 				}
 			} else {
-				// CRITICAL: State file exists but can't be loaded - return error to prevent data loss.
-				// Stopping here ensures SaveState() won't overwrite the problematic file during this run.
+				// CRITICAL: State file exists but cannot be loaded. Return error to prevent data loss
+				// and avoid overwriting the problematic file.
 				// Check if this is a permission error to provide specific guidance
 				var pathErr *os.PathError
 				if errors.As(err, &pathErr) && errors.Is(pathErr.Err, os.ErrPermission) {
@@ -192,7 +192,18 @@ func run() error {
 
 			if state.TotalFingerprints() == 0 {
 				fmt.Fprintf(os.Stderr, "WARNING: State file loaded but contains 0 fingerprints\n")
-				fmt.Fprintf(os.Stderr, "         This is normal for first run, but unexpected if you've processed statements before\n")
+				if !state.Metadata.LastUpdated.IsZero() {
+					timeSinceUpdate := time.Since(state.Metadata.LastUpdated)
+					if timeSinceUpdate < 30*24*time.Hour {
+						fmt.Fprintf(os.Stderr, "         State was last updated %v ago but is now empty!\n", timeSinceUpdate)
+						fmt.Fprintf(os.Stderr, "         This likely indicates corruption or accidental reset.\n")
+						fmt.Fprintf(os.Stderr, "         ALL transactions will be reprocessed as NEW.\n")
+					} else {
+						fmt.Fprintf(os.Stderr, "         This is normal for first run\n")
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "         This is normal for first run\n")
+				}
 			}
 
 			if *verbose {
@@ -239,6 +250,9 @@ func run() error {
 	// Phase 4: Transform and output
 	budget := domain.NewBudget()
 
+	// Track state save failures for final output message
+	var stateSaveFailed bool
+
 	// Aggregate statistics across all statements
 	var (
 		totalDuplicatesSkipped            int
@@ -246,6 +260,8 @@ func run() error {
 		totalRulesUnmatched               int
 		totalDuplicateInstitutionsSkipped int
 		totalDuplicateAccountsSkipped     int
+		totalStateRecordingErrors         int
+		closeErrorCount                   int
 	)
 	unmatchedExamplesMap := make(map[string]bool) // Track unique unmatched descriptions
 	duplicateExamplesMap := make(map[string]bool) // Track unique duplicate examples
@@ -277,8 +293,8 @@ func run() error {
 		// Close file immediately after parsing (not deferred) to avoid file descriptor accumulation
 		closeErr := f.Close()
 		if closeErr != nil {
-			fmt.Fprintf(os.Stderr, "WARNING: failed to close %s: %v\n",
-				file.Path, closeErr)
+			fmt.Fprintf(os.Stderr, "WARNING: failed to close %s: %v\n", file.Path, closeErr)
+			closeErrorCount++
 		}
 
 		if err != nil {
@@ -314,8 +330,18 @@ func run() error {
 		// Track duplicate statistics
 		totalDuplicateInstitutionsSkipped += stats.DuplicateInstitutionsSkipped
 		totalDuplicateAccountsSkipped += stats.DuplicateAccountsSkipped
+		totalStateRecordingErrors += stats.StateRecordingErrors
 		for _, example := range stats.DuplicateExamples() {
 			duplicateExamplesMap[example] = true
+		}
+	}
+
+	// Check for systemic close failures
+	if closeErrorCount > 0 {
+		fmt.Fprintf(os.Stderr, "\nWARNING: %d file(s) failed to close properly\n", closeErrorCount)
+		// If more than half the files failed to close, filesystem issue likely
+		if closeErrorCount > len(files)/2 {
+			return fmt.Errorf("%d of %d files failed to close (possible filesystem issue)", closeErrorCount, len(files))
 		}
 	}
 
@@ -374,7 +400,11 @@ func run() error {
 
 			// Warn if coverage is low
 			if coverage < 80.0 {
-				fmt.Fprintf(os.Stderr, "  WARNING: Rule coverage is below 80%%. Consider adding more rules.\n")
+				fmt.Fprintf(os.Stderr, "  WARNING: Rule coverage is %.1f%% (below 80%% target)\n", coverage)
+				fmt.Fprintf(os.Stderr, "           %d transactions categorized as 'other' need rules\n", totalRulesUnmatched)
+				if !*verbose {
+					fmt.Fprintf(os.Stderr, "           Run with -verbose to see example unmatched transactions\n")
+				}
 			}
 		}
 	}
@@ -390,6 +420,13 @@ func run() error {
 			fmt.Fprintf(os.Stderr, "    - %s\n", desc)
 			count++
 		}
+	}
+
+	// Show state recording errors if any occurred
+	if state != nil && totalStateRecordingErrors > 0 {
+		fmt.Fprintf(os.Stderr, "\nWARNING: %d transaction(s) failed state recording\n", totalStateRecordingErrors)
+		fmt.Fprintf(os.Stderr, "         These transactions are in the output but will be reprocessed as duplicates on next run\n")
+		fmt.Fprintf(os.Stderr, "         This may indicate filesystem issues or state corruption\n")
 	}
 
 	// Phase 5: Save state before writing output (transactional ordering)
@@ -420,7 +457,9 @@ func run() error {
 			// Check for environment variable override
 			if os.Getenv("FINPARSE_SKIP_STATE_SAVE") == "1" {
 				fmt.Fprintf(os.Stderr, "\nWARNING: Continuing without saving state due to FINPARSE_SKIP_STATE_SAVE=1\n")
-				fmt.Fprintf(os.Stderr, "         All transactions will be reprocessed on next run\n\n")
+				fmt.Fprintf(os.Stderr, "         All transactions will be reprocessed on next run\n")
+				fmt.Fprintf(os.Stderr, "         This environment variable should only be used for debugging\n\n")
+				stateSaveFailed = true
 			} else {
 				return fmt.Errorf("failed to save state file %q before writing output: %w\n\nOutput not written to maintain consistency.\nUse FINPARSE_SKIP_STATE_SAVE=1 to write output anyway (will reprocess transactions on next run).",
 					*stateFile, err)
@@ -442,6 +481,12 @@ func run() error {
 
 	if *outputFile != "" {
 		fmt.Printf("\nOutput written to %s\n", *outputFile)
+		if stateSaveFailed {
+			fmt.Fprintf(os.Stderr, "\n⚠️  WARNING: State file was NOT saved - duplicates will be reprocessed on next run\n")
+			fmt.Fprintf(os.Stderr, "    Unset FINPARSE_SKIP_STATE_SAVE to restore normal operation\n")
+			// Exit with non-zero to signal partial failure
+			os.Exit(1)
+		}
 	}
 
 	return nil

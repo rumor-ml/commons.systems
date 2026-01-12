@@ -50,9 +50,8 @@ func NewFingerprintRecord(transactionID string, timestamp time.Time) (*Fingerpri
 
 // Update updates the record for a new observation.
 // Returns error if timestamp is strictly before the first seen time.
-// Timestamps equal to FirstSeen are allowed (same transaction re-parsed).
-// Count is incremented on every call to track total observations, even when
-// re-parsing the same transaction at the same timestamp (Count increases on every observation).
+// Timestamps equal to FirstSeen are allowed (re-parsing same transaction).
+// Count is incremented on every call to track total observations.
 func (r *FingerprintRecord) Update(timestamp time.Time) error {
 	if timestamp.Before(r.FirstSeen) {
 		return fmt.Errorf("timestamp %v is before first seen %v", timestamp, r.FirstSeen)
@@ -65,9 +64,9 @@ func (r *FingerprintRecord) Update(timestamp time.Time) error {
 // MarshalJSON implements json.Marshaler for State
 func (s *State) MarshalJSON() ([]byte, error) {
 	type Alias State
-	// Create defensive copy for consistency with UnmarshalJSON defensive copying,
-	// ensuring symmetrical handling. Also ensures State's internal map is fully
-	// owned even if unmarshaled data structures are modified later.
+	// Create defensive copy to prevent external modification of State's internal
+	// map during JSON serialization. Also maintains symmetry with UnmarshalJSON
+	// which performs defensive copying on deserialization.
 	fpCopy := make(map[string]*FingerprintRecord, len(s.fingerprints))
 	for k, v := range s.fingerprints {
 		recordCopy := *v
@@ -212,8 +211,14 @@ func SaveState(state *State, filePath string) error {
 			fmt.Fprintf(os.Stderr, "  4. Fix underlying issue before retrying\n")
 			fmt.Fprintf(os.Stderr, "%s\n\n", separator)
 
-			return fmt.Errorf("failed to save state file %q: rename failed (%w) AND cleanup failed (%v)\nCRITICAL: Orphaned temp file at %q requires manual removal - see stderr output above for instructions",
-				filePath, err, removeErr, tempFile)
+			return fmt.Errorf("failed to save state file %q: rename failed (%w) AND cleanup failed (%v)\n"+
+				"CRITICAL: Orphaned temp file at %q requires manual removal\n\n"+
+				"Recovery steps:\n"+
+				"  1. Check disk space: df -h\n"+
+				"  2. Check permissions: ls -la %q\n"+
+				"  3. Manually remove: rm %q\n"+
+				"  4. Fix underlying issue before retrying",
+				filePath, err, removeErr, tempFile, filepath.Dir(filePath), tempFile)
 		}
 		return fmt.Errorf("failed to rename temp file to %s: %w (temp file cleanup successful)",
 			filePath, err)
@@ -231,6 +236,17 @@ func (s *State) IsDuplicate(fingerprint string) bool {
 // TotalFingerprints returns the current number of fingerprints in the state.
 func (s *State) TotalFingerprints() int {
 	return len(s.fingerprints)
+}
+
+// GetFingerprints returns a defensive copy of the fingerprints map.
+// Each FingerprintRecord is copied to prevent external mutation.
+// This maintains the encapsulation pattern used throughout the State API.
+func (s *State) GetFingerprints() map[string]FingerprintRecord {
+	result := make(map[string]FingerprintRecord, len(s.fingerprints))
+	for k, v := range s.fingerprints {
+		result[k] = *v // Copy the record value (dereference pointer)
+	}
+	return result
 }
 
 // RecordTransaction records a transaction fingerprint in the state.

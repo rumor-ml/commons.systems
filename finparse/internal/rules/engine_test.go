@@ -103,6 +103,62 @@ rules:
 	}
 }
 
+func TestNewEngine_PriorityBoundaries(t *testing.T) {
+	rulesYAML := `
+rules:
+  - name: "Lowest Priority"
+    pattern: "TEST"
+    match_type: "contains"
+    priority: 0
+    category: "other"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+  - name: "Highest Priority"
+    pattern: "TEST"
+    match_type: "contains"
+    priority: 999
+    category: "income"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() failed with valid boundaries: %v", err)
+	}
+
+	// Verify sorting: highest priority first
+	if len(engine.rules) != 2 {
+		t.Fatalf("Expected 2 rules, got %d", len(engine.rules))
+	}
+	if engine.rules[0].Priority != 999 {
+		t.Errorf("Expected priority 999 first, got %d", engine.rules[0].Priority)
+	}
+	if engine.rules[1].Priority != 0 {
+		t.Errorf("Expected priority 0 last, got %d", engine.rules[1].Priority)
+	}
+
+	// Verify matching: highest priority wins
+	result, matched, err := engine.Match("TEST TRANSACTION")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if !matched {
+		t.Fatal("Expected match for TEST TRANSACTION")
+	}
+	if result.Category != domain.CategoryIncome {
+		t.Errorf("Expected highest priority rule (income), got %s", result.Category)
+	}
+	if result.RuleName != "Highest Priority" {
+		t.Errorf("Expected 'Highest Priority' rule to match, got %s", result.RuleName)
+	}
+}
+
 func TestNewEngine_InvalidRedemptionRate(t *testing.T) {
 	tests := []struct {
 		name string

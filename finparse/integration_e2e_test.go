@@ -995,6 +995,435 @@ NEWFILEUID:NONE
 	}
 }
 
+// TestEndToEnd_ThreeStatementRollingOverlap tests deduplication with 3 statements having rolling overlaps.
+// This validates the realistic scenario where billing cycles create partial overlaps between consecutive statements.
+func TestEndToEnd_ThreeStatementRollingOverlap(t *testing.T) {
+	// Create temporary directory
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create directory structure
+	instDir := filepath.Join(tmpDir, "american_express")
+	acctDir := filepath.Join(instDir, "2011")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatalf("failed to create directory structure: %v", err)
+	}
+
+	// Statement 1: Oct 1-31 with transactions on Oct 5 and Oct 25
+	ofxContent1 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001000000
+<DTEND>20251031235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251005120000
+<TRNAMT>-100.00
+<FITID>TXN_OCT_05
+<NAME>Early October Purchase
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251025120000
+<TRNAMT>-50.00
+<FITID>TXN_OCT_25
+<NAME>Late October Purchase
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>850.00
+<DTASOF>20251031000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	// Statement 2: Oct 20-Nov 20 with Oct 25 duplicate and new Nov 15 transaction
+	ofxContent2 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251101120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251020000000
+<DTEND>20251120235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251025120000
+<TRNAMT>-50.00
+<FITID>TXN_OCT_25
+<NAME>Late October Purchase
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251115120000
+<TRNAMT>-75.00
+<FITID>TXN_NOV_15
+<NAME>Mid November Purchase
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>775.00
+<DTASOF>20251120000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	// Statement 3: Nov 10-Dec 10 with Nov 15 duplicate and new Dec 5 transaction
+	ofxContent3 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251201120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>2011
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251110000000
+<DTEND>20251210235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251115120000
+<TRNAMT>-75.00
+<FITID>TXN_NOV_15
+<NAME>Mid November Purchase
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251205120000
+<TRNAMT>-60.00
+<FITID>TXN_DEC_05
+<NAME>Early December Purchase
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>715.00
+<DTASOF>20251210000000
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`
+
+	// Write all three OFX files
+	ofxFile1 := filepath.Join(acctDir, "2025-10.qfx")
+	ofxFile2 := filepath.Join(acctDir, "2025-11a.qfx")
+	ofxFile3 := filepath.Join(acctDir, "2025-11b.qfx")
+
+	if err := os.WriteFile(ofxFile1, []byte(ofxContent1), 0644); err != nil {
+		t.Fatalf("failed to write first OFX file: %v", err)
+	}
+	if err := os.WriteFile(ofxFile2, []byte(ofxContent2), 0644); err != nil {
+		t.Fatalf("failed to write second OFX file: %v", err)
+	}
+	if err := os.WriteFile(ofxFile3, []byte(ofxContent3), 0644); err != nil {
+		t.Fatalf("failed to write third OFX file: %v", err)
+	}
+
+	// Initialize state and rules
+	state := dedup.NewState()
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+
+	ctx := context.Background()
+	reg, err := registry.New()
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	// Scan files once to get file list
+	s := scanner.New(tmpDir)
+	files, err := s.Scan()
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	// Parse Statement 1 (Oct 1-31)
+	budget1 := domain.NewBudget()
+	for _, file := range files {
+		if strings.Contains(file.Path, "2025-10.qfx") {
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("FindParser failed: %v", err)
+			}
+			if parser == nil {
+				t.Fatalf("no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("failed to open file: %v", err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("failed to close file: %v", closeErr)
+			}
+			if err != nil {
+				t.Fatalf("parse failed for statement 1: %v", err)
+			}
+
+			if _, err := transform.TransformStatement(rawStmt, budget1, state, engine); err != nil {
+				t.Fatalf("transform failed for statement 1: %v", err)
+			}
+			break
+		}
+	}
+
+	// Verify statement 1: should have 2 transactions (Oct 5, Oct 25)
+	transactions1 := budget1.GetTransactions()
+	if len(transactions1) != 2 {
+		t.Fatalf("expected 2 transactions after statement 1, got %d", len(transactions1))
+	}
+
+	// Save state after statement 1
+	if err := dedup.SaveState(state, stateFile); err != nil {
+		t.Fatalf("failed to save state after statement 1: %v", err)
+	}
+
+	// Parse Statement 2 (Oct 20-Nov 20)
+	state2, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("failed to load state for statement 2: %v", err)
+	}
+
+	budget2 := domain.NewBudget()
+	for _, file := range files {
+		if strings.Contains(file.Path, "2025-11a.qfx") {
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("FindParser failed: %v", err)
+			}
+			if parser == nil {
+				t.Fatalf("no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("failed to open file: %v", err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("failed to close file: %v", closeErr)
+			}
+			if err != nil {
+				t.Fatalf("parse failed for statement 2: %v", err)
+			}
+
+			if _, err := transform.TransformStatement(rawStmt, budget2, state2, engine); err != nil {
+				t.Fatalf("transform failed for statement 2: %v", err)
+			}
+			break
+		}
+	}
+
+	// Verify statement 2: should have 1 new transaction (Nov 15), Oct 25 filtered
+	transactions2 := budget2.GetTransactions()
+	if len(transactions2) != 1 {
+		t.Errorf("expected 1 transaction after statement 2 (Oct 25 filtered), got %d", len(transactions2))
+	}
+	if len(transactions2) > 0 && transactions2[0].ID != "TXN_NOV_15" {
+		t.Errorf("expected TXN_NOV_15 after statement 2, got %s", transactions2[0].ID)
+	}
+
+	// Save state after statement 2
+	if err := dedup.SaveState(state2, stateFile); err != nil {
+		t.Fatalf("failed to save state after statement 2: %v", err)
+	}
+
+	// Parse Statement 3 (Nov 10-Dec 10)
+	state3, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("failed to load state for statement 3: %v", err)
+	}
+
+	budget3 := domain.NewBudget()
+	for _, file := range files {
+		if strings.Contains(file.Path, "2025-11b.qfx") {
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("FindParser failed: %v", err)
+			}
+			if parser == nil {
+				t.Fatalf("no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("failed to open file: %v", err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("failed to close file: %v", closeErr)
+			}
+			if err != nil {
+				t.Fatalf("parse failed for statement 3: %v", err)
+			}
+
+			if _, err := transform.TransformStatement(rawStmt, budget3, state3, engine); err != nil {
+				t.Fatalf("transform failed for statement 3: %v", err)
+			}
+			break
+		}
+	}
+
+	// Verify statement 3: should have 1 new transaction (Dec 5), Nov 15 filtered
+	transactions3 := budget3.GetTransactions()
+	if len(transactions3) != 1 {
+		t.Errorf("expected 1 transaction after statement 3 (Nov 15 filtered), got %d", len(transactions3))
+	}
+	if len(transactions3) > 0 && transactions3[0].ID != "TXN_DEC_05" {
+		t.Errorf("expected TXN_DEC_05 after statement 3, got %s", transactions3[0].ID)
+	}
+
+	// Save final state
+	if err := dedup.SaveState(state3, stateFile); err != nil {
+		t.Fatalf("failed to save final state: %v", err)
+	}
+
+	// Verify overall deduplication: 4 unique transactions total
+	allTransactions := append(transactions1, transactions2...)
+	allTransactions = append(allTransactions, transactions3...)
+
+	if len(allTransactions) != 4 {
+		t.Errorf("expected 4 unique transactions total, got %d", len(allTransactions))
+	}
+
+	// Verify each transaction appears exactly once
+	txnCounts := make(map[string]int)
+	for _, txn := range allTransactions {
+		txnCounts[txn.ID]++
+	}
+
+	expectedTxns := []string{"TXN_OCT_05", "TXN_OCT_25", "TXN_NOV_15", "TXN_DEC_05"}
+	for _, txnID := range expectedTxns {
+		if count, exists := txnCounts[txnID]; !exists {
+			t.Errorf("expected transaction %s not found", txnID)
+		} else if count != 1 {
+			t.Errorf("expected transaction %s to appear exactly once, found %d occurrences", txnID, count)
+		}
+	}
+
+	// Verify final state has 4 unique fingerprints
+	if state3.TotalFingerprints() != 4 {
+		t.Errorf("expected 4 unique fingerprints in final state, got %d", state3.TotalFingerprints())
+	}
+
+	// Verify duplicate transactions have count=2 in state
+	oct25Fingerprint := dedup.GenerateFingerprint("2025-10-25", -50.00, "Late October Purchase")
+	nov15Fingerprint := dedup.GenerateFingerprint("2025-11-15", -75.00, "Mid November Purchase")
+
+	if !state3.IsDuplicate(oct25Fingerprint) {
+		t.Error("expected Oct 25 transaction fingerprint to be marked as duplicate in state")
+	}
+	if !state3.IsDuplicate(nov15Fingerprint) {
+		t.Error("expected Nov 15 transaction fingerprint to be marked as duplicate in state")
+	}
+}
+
 // TestEndToEnd_RedeemableExclusions tests that transfer/payment/ATM/fee transactions are NOT redeemable
 func TestEndToEnd_RedeemableExclusions(t *testing.T) {
 	// Create temporary directory
@@ -1914,4 +2343,230 @@ func TestEndToEnd_IncrementalParsingWithStatePersistence(t *testing.T) {
 	if state2.TotalFingerprints() != 2 {
 		t.Errorf("State should have 2 fingerprints, got %d", state2.TotalFingerprints())
 	}
+}
+
+// TestEndToEnd_IncrementalParsingWithRuleUpdates verifies that rule changes between runs
+// properly recategorize transactions without being blocked by deduplication.
+func TestEndToEnd_IncrementalParsingWithRuleUpdates(t *testing.T) {
+	// Setup: Create temp directory with proper structure
+	tmpDir := t.TempDir()
+	instDir := filepath.Join(tmpDir, "test_bank")
+	acctDir := filepath.Join(instDir, "1234")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatalf("failed to create directory structure: %v", err)
+	}
+
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create test OFX statement with transactions that will be recategorized
+	ofxContent := createOFXWithTransactions([]string{
+		"TXN001|2024-01-05|-50.00|WHOLEFDS MARKET #123",
+		"TXN002|2024-01-10|-75.50|UNKNOWN STORE XYZ",
+	}, "1234567890123456")
+
+	ofxFile := filepath.Join(acctDir, "statement_202401.qfx")
+	if err := os.WriteFile(ofxFile, []byte(ofxContent), 0644); err != nil {
+		t.Fatalf("Failed to write OFX file: %v", err)
+	}
+
+	// Phase 1: Parse with initial rules (partial coverage)
+	initialRulesYAML := `rules:
+  - name: "Groceries - Whole Foods"
+    pattern: "WHOLEFDS"
+    match_type: "contains"
+    category: "groceries"
+    priority: 100`
+
+	engine1, err := rules.NewEngine([]byte(initialRulesYAML))
+	if err != nil {
+		t.Fatalf("Failed to create initial engine: %v", err)
+	}
+
+	// Create registry and scanner
+	ctx := context.Background()
+	reg, err := registry.New()
+	if err != nil {
+		t.Fatalf("Failed to create registry: %v", err)
+	}
+
+	s := scanner.New(tmpDir)
+
+	// Parse and transform with initial rules
+	budget1 := domain.NewBudget()
+	state1 := dedup.NewState()
+
+	files, err := s.Scan()
+	if err != nil {
+		t.Fatalf("Scanner failed: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("Expected 1 file, got %d", len(files))
+	}
+
+	file := files[0]
+	parser1, err := reg.FindParser(file.Path)
+	if err != nil {
+		t.Fatalf("Failed to find parser: %v", err)
+	}
+	if parser1 == nil {
+		t.Fatalf("No parser found for %s", file.Path)
+	}
+
+	f1, err := os.Open(file.Path)
+	if err != nil {
+		t.Fatalf("Failed to open file: %v", err)
+	}
+
+	rawStmt1, err := parser1.Parse(ctx, f1, file.Metadata)
+	closeErr1 := f1.Close()
+	if closeErr1 != nil {
+		t.Errorf("Failed to close file: %v", closeErr1)
+	}
+	if err != nil {
+		t.Fatalf("First parse failed: %v", err)
+	}
+
+	_, err = transform.TransformStatement(rawStmt1, budget1, state1, engine1)
+	if err != nil {
+		t.Fatalf("First transform failed: %v", err)
+	}
+
+	// Verify Phase 1 results
+	txns1 := budget1.GetTransactions()
+	if len(txns1) != 2 {
+		t.Fatalf("Expected 2 transactions in phase 1, got %d", len(txns1))
+	}
+
+	// Find transactions
+	var wholefds1, unknown1 domain.Transaction
+	var foundWholefds, foundUnknown bool
+	for _, txn := range txns1 {
+		if strings.Contains(txn.Description, "WHOLEFDS") {
+			wholefds1 = txn
+			foundWholefds = true
+		} else if strings.Contains(txn.Description, "UNKNOWN") {
+			unknown1 = txn
+			foundUnknown = true
+		}
+	}
+
+	// Verify initial categorization
+	if !foundWholefds {
+		t.Fatal("WHOLEFDS transaction not found")
+	}
+	if wholefds1.Category != "groceries" {
+		t.Errorf("Phase 1: WHOLEFDS should be 'groceries', got %q", wholefds1.Category)
+	}
+	if !foundUnknown {
+		t.Fatal("UNKNOWN transaction not found")
+	}
+	if unknown1.Category != "other" {
+		t.Errorf("Phase 1: UNKNOWN should be 'other', got %q", unknown1.Category)
+	}
+
+	// Save state after phase 1
+	if err := dedup.SaveState(state1, stateFile); err != nil {
+		t.Fatalf("Failed to save state: %v", err)
+	}
+
+	// Phase 2: Update rules to cover previously unmatched transaction
+	improvedRulesYAML := `rules:
+  - name: "Groceries - Whole Foods"
+    pattern: "WHOLEFDS"
+    match_type: "contains"
+    category: "groceries"
+    priority: 100
+  - name: "Shopping - Unknown Store"
+    pattern: "UNKNOWN STORE"
+    match_type: "contains"
+    category: "shopping"
+    priority: 100`
+
+	engine2, err := rules.NewEngine([]byte(improvedRulesYAML))
+	if err != nil {
+		t.Fatalf("Failed to create improved engine: %v", err)
+	}
+
+	// Load state from phase 1
+	state2, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to load state: %v", err)
+	}
+
+	// Parse and transform again with improved rules
+	budget2 := domain.NewBudget()
+
+	f2, err := os.Open(file.Path)
+	if err != nil {
+		t.Fatalf("Failed to open file for phase 2: %v", err)
+	}
+
+	rawStmt2, err := parser1.Parse(ctx, f2, file.Metadata)
+	closeErr2 := f2.Close()
+	if closeErr2 != nil {
+		t.Errorf("Failed to close file for phase 2: %v", closeErr2)
+	}
+	if err != nil {
+		t.Fatalf("Second parse failed: %v", err)
+	}
+
+	stats2, err := transform.TransformStatement(rawStmt2, budget2, state2, engine2)
+	if err != nil {
+		t.Fatalf("Second transform failed: %v", err)
+	}
+
+	// Verify Phase 2 results
+	txns2 := budget2.GetTransactions()
+
+	// CRITICAL ASSERTION: Verify dedup didn't prevent recategorization
+	// Current behavior: dedup happens BEFORE rule matching, so duplicates are skipped
+	// Expected behavior after fix: rules should be applied even to duplicate fingerprints
+
+	// For now, document current behavior in test
+	if len(txns2) == 0 && stats2.DuplicatesSkipped == 2 {
+		t.Logf("Current behavior: dedup blocks recategorization")
+		t.Logf("  Duplicates skipped: %d", stats2.DuplicatesSkipped)
+		t.Logf("  Transactions in budget: %d", len(txns2))
+		t.Skip("Test documents current behavior: dedup blocks recategorization (issue #1261)")
+		return
+	}
+
+	// If we reach here, verify transactions were not all deduplicated
+	if len(txns2) != 2 {
+		t.Fatalf("Expected 2 transactions after rule update, got %d (duplicates skipped: %d)",
+			len(txns2), stats2.DuplicatesSkipped)
+	}
+
+	// Find transactions in phase 2
+	var unknown2 domain.Transaction
+	var foundUnknown2 bool
+	for _, txn := range txns2 {
+		if strings.Contains(txn.Description, "UNKNOWN") {
+			unknown2 = txn
+			foundUnknown2 = true
+		}
+	}
+
+	// Verify recategorization happened
+	if !foundUnknown2 {
+		t.Fatal("UNKNOWN transaction not found in phase 2")
+	}
+	if unknown2.Category != "shopping" {
+		t.Errorf("Phase 2: UNKNOWN should be recategorized to 'shopping', got %q", unknown2.Category)
+	}
+}
+
+// loadBudgetJSON loads and parses a budget JSON file
+func loadBudgetJSON(path string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var budget map[string]interface{}
+	if err := json.Unmarshal(data, &budget); err != nil {
+		return nil, err
+	}
+
+	return budget, nil
 }

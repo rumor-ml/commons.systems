@@ -14,13 +14,10 @@ import (
 
 // TransformStats contains statistics from transformation process.
 //
-// Example slices are capped at 5 items to limit CLI output verbosity while
-// still providing useful debugging context. The cap of 5 balances providing
-// helpful examples without overwhelming users with excessive output.
-//
-// Fields use defensive encapsulation: example slices are unexported and
-// accessed via methods that return defensive copies to prevent external
-// modification of internal state.
+// Example slices are capped at 5 items to balance debugging context with CLI
+// output verbosity. Fields use defensive encapsulation: example slices are
+// unexported and accessed via methods that return defensive copies to prevent
+// external modification of internal state.
 type TransformStats struct {
 	DuplicatesSkipped            int
 	RulesMatched                 int
@@ -29,6 +26,7 @@ type TransformStats struct {
 	DuplicateInstitutionsSkipped int
 	DuplicateAccountsSkipped     int
 	duplicateExamples            []string // unexported, capped at 5 items
+	StateRecordingErrors         int
 }
 
 // UnmatchedExamples returns a defensive copy of unmatched transaction examples (max 5 items).
@@ -96,6 +94,8 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// Different institution names mapping to the same slug will also be skipped
 		// (e.g., "Chase Bank" and "Chase" → same slug), preserving first occurrence.
 		stats.DuplicateInstitutionsSkipped++
+		// TODO(#1431): Add verbose logging when verbose flag is accessible
+		// In verbose mode, log skipped duplicates to help users verify slugification
 	}
 
 	account, err := transformAccount(&raw.Account, institution.ID)
@@ -114,6 +114,8 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// Account metadata differences (type, name) between statements are ignored;
 		// only the first occurrence is preserved.
 		stats.DuplicateAccountsSkipped++
+		// TODO(#1431): Add verbose logging when verbose flag is accessible
+		// In verbose mode, log skipped duplicates with account details
 	}
 
 	statement, err := transformStatement(raw, account.ID)
@@ -191,8 +193,11 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// strategies (removing fingerprints not seen in N days).
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
-				return nil, fmt.Errorf("failed to record transaction fingerprint for %q after adding to budget: %w (WARNING: transaction is in budget but not in state, may be reprocessed as duplicate on retry)",
-					txn.ID, err)
+				// Log error but continue - prefer duplicate on retry over losing all progress
+				// Transaction is in budget, will be reprocessed as duplicate on retry
+				stats.StateRecordingErrors++
+				// TODO(#1431): Add verbose logging when verbose flag is accessible
+				// In verbose mode, log the specific error to help diagnose state issues
 			}
 		}
 	}

@@ -500,6 +500,46 @@ func TestLoadState_FutureVersionMigration(t *testing.T) {
 		}
 	})
 
+	t.Run("v3 state file rejected with helpful error message", func(t *testing.T) {
+		stateFile := filepath.Join(tmpDir, "v3.json")
+		v3State := `{
+			"version": 3,
+			"fingerprints": {},
+			"newFeature": {
+				"data": "from v3"
+			},
+			"metadata": {
+				"lastUpdated": "2025-01-15T10:30:00Z"
+			}
+		}`
+
+		err := os.WriteFile(stateFile, []byte(v3State), 0644)
+		if err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		_, err = LoadState(stateFile)
+		if err == nil {
+			t.Error("LoadState() should reject v3 state file")
+		}
+
+		// Verify error message is helpful for users who downgraded
+		if err != nil {
+			errMsg := err.Error()
+			if !strings.Contains(errMsg, "version") {
+				t.Errorf("Error should mention version, got: %v", err)
+			}
+			if !strings.Contains(errMsg, "3") {
+				t.Errorf("Error should mention version 3, got: %v", err)
+			}
+			// Current error format: "unsupported state file version 3 (current version: 1)"
+			// This is sufficient - users can see they need a newer version of finparse
+			if !strings.Contains(errMsg, "unsupported") {
+				t.Errorf("Error should indicate version is unsupported, got: %v", err)
+			}
+		}
+	})
+
 	// TODO: When v2 is implemented, add tests for:
 	// - Automatic migration (if supported)
 	// - Manual migration tool (if provided)
@@ -1221,4 +1261,251 @@ func TestState_PerformanceWithLargeDataset(t *testing.T) {
 	// 3. Use binary format instead of JSON (protobuf, msgpack, gob)
 	// 4. Implement LRU eviction for old fingerprints
 	// 5. Add compression (gzip)
+}
+
+// TestSaveState_AtomicWriteGuarantee verifies atomic write-then-rename behavior.
+// Tests that state file is never partially written - either fully written or not at all.
+func TestSaveState_AtomicWriteGuarantee(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	state := NewState()
+	state.RecordTransaction(
+		GenerateFingerprint("2025-01-15", -50.00, "Test Transaction"),
+		"txn-001",
+		time.Now(),
+	)
+
+	// Save state
+	if err := SaveState(state, filePath); err != nil {
+		t.Fatalf("SaveState() failed: %v", err)
+	}
+
+	// Verify no temp files remain
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Errorf("Temp file not cleaned up: %s", entry.Name())
+		}
+	}
+
+	// Verify state file exists and is valid JSON
+	loadedState, err := LoadState(filePath)
+	if err != nil {
+		t.Fatalf("LoadState() failed after save: %v", err)
+	}
+
+	if loadedState.TotalFingerprints() != 1 {
+		t.Errorf("LoadState() fingerprints = %d, want 1", loadedState.TotalFingerprints())
+	}
+}
+
+// TestLoadState_DetectsCorruption verifies corrupted state files are detected and rejected.
+func TestLoadState_DetectsCorruption(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name:    "truncated JSON",
+			content: `{"version":1,"fingerprints":{`,
+			wantErr: "failed to parse state file",
+		},
+		{
+			name:    "invalid JSON",
+			content: `not valid json at all`,
+			wantErr: "failed to parse state file",
+		},
+		{
+			name:    "malformed fingerprints",
+			content: `{"version":1,"fingerprints":"not-a-map","metadata":{"lastUpdated":"2025-01-01T00:00:00Z"}}`,
+			wantErr: "failed to parse state file",
+		},
+		{
+			name:    "empty file",
+			content: ``,
+			wantErr: "failed to parse state file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			filePath := filepath.Join(tempDir, "state.json")
+
+			// Write corrupted content
+			if err := os.WriteFile(filePath, []byte(tt.content), 0644); err != nil {
+				t.Fatalf("WriteFile failed: %v", err)
+			}
+
+			// Attempt to load
+			_, err := LoadState(filePath)
+			if err == nil {
+				t.Fatal("LoadState() succeeded with corrupted file, want error")
+			}
+
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("LoadState() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestSaveState_ConcurrentWriteSafety verifies concurrent saves don't corrupt state file.
+// Launches multiple goroutines writing to same state file, verifies:
+// 1. No corruption (all saves produce valid JSON)
+// 2. One save wins (state file reflects one complete state)
+// 3. No temp files remain orphaned
+func TestSaveState_ConcurrentWriteSafety(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	successCount := 0
+	var mu sync.Mutex
+
+	// Launch concurrent saves
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			state := NewState()
+			txnID := fmt.Sprintf("txn-%03d", id)
+			fp := GenerateFingerprint("2025-01-15", -50.00, fmt.Sprintf("Transaction %d", id))
+
+			if err := state.RecordTransaction(fp, txnID, time.Now()); err != nil {
+				t.Errorf("goroutine %d: RecordTransaction failed: %v", id, err)
+				return
+			}
+
+			if err := SaveState(state, filePath); err != nil {
+				// Concurrent writes may fail due to race conditions - this is expected
+				t.Logf("goroutine %d: SaveState failed (expected in concurrent scenario): %v", id, err)
+				return
+			}
+
+			mu.Lock()
+			successCount++
+			mu.Unlock()
+		}(i)
+	}
+
+	wg.Wait()
+
+	// At least one goroutine should succeed
+	if successCount == 0 {
+		t.Fatal("All goroutines failed - expected at least one to succeed")
+	}
+
+	t.Logf("Concurrent writes: %d/%d goroutines succeeded", successCount, numGoroutines)
+
+	// Verify no temp files remain
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Errorf("Orphaned temp file: %s", entry.Name())
+		}
+	}
+
+	// Verify state file is valid (not corrupted)
+	loadedState, err := LoadState(filePath)
+	if err != nil {
+		t.Fatalf("LoadState() failed after concurrent saves: %v", err)
+	}
+
+	// Should have exactly 1 fingerprint (one goroutine's state won)
+	if count := loadedState.TotalFingerprints(); count != 1 {
+		t.Errorf("LoadState() fingerprints = %d, want 1 (one save should win)", count)
+	}
+}
+
+// TestGenerateFingerprint_IntentionalCollisions verifies that TRUE duplicates collide
+// while SIMILAR but distinct transactions do not.
+func TestGenerateFingerprint_IntentionalCollisions(t *testing.T) {
+	tests := []struct {
+		name          string
+		desc1         string
+		desc2         string
+		shouldCollide bool
+	}{
+		{
+			name:          "case normalization",
+			desc1:         "WHOLE FOODS",
+			desc2:         "whole foods",
+			shouldCollide: true,
+		},
+		{
+			name:          "whitespace trim",
+			desc1:         "  STARBUCKS  ",
+			desc2:         "STARBUCKS",
+			shouldCollide: true,
+		},
+		{
+			name:          "internal whitespace preserved",
+			desc1:         "AMAZON  MARKETPLACE",
+			desc2:         "AMAZON MARKETPLACE",
+			shouldCollide: false, // Double space vs single space
+		},
+		{
+			name:          "different order IDs",
+			desc1:         "AMAZON #123",
+			desc2:         "AMAZON #456",
+			shouldCollide: false,
+		},
+		{
+			name:          "substring not equal",
+			desc1:         "TARGET",
+			desc2:         "TARGET STORE",
+			shouldCollide: false,
+		},
+		{
+			name:          "similar merchants",
+			desc1:         "WHOLE FOODS",
+			desc2:         "WHOLEFDS",
+			shouldCollide: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fp1 := GenerateFingerprint("2025-01-15", -50.00, tt.desc1)
+			fp2 := GenerateFingerprint("2025-01-15", -50.00, tt.desc2)
+			collision := (fp1 == fp2)
+
+			if collision != tt.shouldCollide {
+				t.Errorf("Collision mismatch: %q vs %q (expected collision=%v, got %v)",
+					tt.desc1, tt.desc2, tt.shouldCollide, collision)
+			}
+		})
+	}
+}
+
+// TestGenerateFingerprint_SameTransactionMultipleTimes tests the known limitation
+// where multiple identical transactions on the same day produce the same fingerprint.
+// This documents expected behavior: fingerprints are coarse-grained by design.
+func TestGenerateFingerprint_SameTransactionMultipleTimes(t *testing.T) {
+	// Scenario: User buys coffee twice at same Starbucks on same day, same amount
+	// These WILL collide because fingerprint = SHA256(date + amount + "starbucks")
+	fp1 := GenerateFingerprint("2025-01-15", -5.50, "STARBUCKS")
+	fp2 := GenerateFingerprint("2025-01-15", -5.50, "STARBUCKS")
+
+	if fp1 != fp2 {
+		t.Errorf("Expected collision for identical transactions, got different fingerprints")
+	}
+
+	t.Log("KNOWN LIMITATION: Multiple identical transactions on same day will be")
+	t.Log("treated as duplicates. This is expected behavior for overlapping statement")
+	t.Log("parsing (Phase 5 requirement). Users should avoid parsing same statement twice.")
+	t.Log("Future enhancement: Add transaction IDs or sequence numbers to fingerprint.")
 }
