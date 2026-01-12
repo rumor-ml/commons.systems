@@ -185,16 +185,6 @@ function sanitizeCardType(type) {
  */
 
 /**
- * Validation constraints for card data fields.
- * Centralized to ensure consistency between client and server validation.
- */
-const CARD_CONSTRAINTS = Object.freeze({
-  TITLE_MAX_LENGTH: 100,
-  DESCRIPTION_MAX_LENGTH: 500,
-  REQUIRED_FIELDS: Object.freeze(['title', 'type', 'subtype']),
-});
-
-/**
  * Validate card data structure and return validation errors.
  * TODO(#1351): Consolidate with firebase.js validateCardData - both functions validate same fields
  * but have different signatures (return errors vs throw). Consider shared validation module.
@@ -730,7 +720,7 @@ async function init() {
     // Validate auth - continue initialization even if not ready
     // Cards can still load for viewing even without auth
     // Auth state listener will retry automatically when auth becomes available
-    const authInstance = getAuthInstance();
+    getAuthInstance();
 
     // Note: Authentication is initialized globally in main.js DOMContentLoaded
     // Don't call initializeAuth() here to avoid duplicates

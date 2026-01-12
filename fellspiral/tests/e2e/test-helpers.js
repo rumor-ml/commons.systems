@@ -258,7 +258,6 @@ export async function createCardViaUI(page, cardData) {
       // Capture diagnostic state when modal doesn't close
       const modalState = await page.evaluate(() => {
         const modal = document.getElementById('cardEditorModal');
-        const form = document.getElementById('cardForm');
         const errorBanner = modal?.querySelector('.error-banner');
         const validationErrors = Array.from(
           modal?.querySelectorAll('.has-error .error-message') || []

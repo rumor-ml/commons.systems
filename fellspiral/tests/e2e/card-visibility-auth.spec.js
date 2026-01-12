@@ -7,7 +7,6 @@
 import { test, expect } from '../../../playwright.fixtures.ts';
 import {
   createCardInFirestore,
-  waitForCardCount,
   waitForCardInFirestore,
   isCardVisibleInUI,
   deleteTestCards,
