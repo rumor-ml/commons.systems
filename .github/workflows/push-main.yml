@@ -101,10 +101,10 @@ jobs:
           export SKIP_HOSTING=1  # Only need backend emulators for rules test
           source ../../infrastructure/scripts/start-emulators.sh fellspiral
 
-          # Install dependencies and run tests directly (avoids pnpm workspace recursive mode issues)
+          # Install dependencies and run tests using pnpm exec to ensure correct package context
           # This matches the test:rules script in package.json
           pnpm install
-          node --import tsx/esm unit/firestore-rules.test.ts
+          pnpm exec node --import tsx/esm unit/firestore-rules.test.ts
           TEST_EXIT_CODE=$?
 
           # Cleanup using existing script
