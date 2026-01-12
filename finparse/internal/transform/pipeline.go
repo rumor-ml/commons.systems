@@ -154,25 +154,37 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 				stats.addDuplicateExample(
 					fmt.Sprintf("%s: %s (%.2f)", txn.Date, txn.Description, txn.Amount))
 
+				// TODO(#1431): Add verbose logging when verbose flag is accessible
+				// In verbose mode, log each duplicate individually to help users verify
+				// duplicate detection is working correctly:
+				//   if verbose {
+				//     fmt.Fprintf(os.Stderr, "    Skip duplicate: %s\n", exampleMsg)
+				//   }
+
 				continue
 			}
 		}
 
-		// Add transaction to budget
-		if err := budget.AddTransaction(*txn); err != nil {
-			return nil, fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w",
-				i+1, len(raw.Transactions), txn.ID, err)
-		}
-
-		// Record in state if provided. Uses time.Now() to track when we first/last observed
+		// Record in state if provided. Do this BEFORE adding to budget to prevent
+		// inconsistency if state recording fails. Better to skip a valid transaction
+		// than to process it twice. Uses time.Now() to track when we first/last observed
 		// this fingerprint during parsing, not the transaction date. This allows state file
 		// cleanup based on parsing recency (removing fingerprints not seen in N days of runs)
 		// rather than transaction date (which could be months old for valid transactions).
 		// Also enables auditing when transactions were processed vs when they occurred.
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
-				return nil, fmt.Errorf("failed to record transaction fingerprint: %w", err)
+				return nil, fmt.Errorf("failed to record transaction fingerprint for %q before adding to budget: %w (transaction not added to prevent duplicate on retry)",
+					txn.ID, err)
 			}
+		}
+
+		// Add transaction to budget (state already updated)
+		if err := budget.AddTransaction(*txn); err != nil {
+			// State was updated but budget add failed - this is also inconsistent
+			// but less severe (transaction will be skipped as duplicate on retry)
+			return nil, fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w (WARNING: transaction recorded in state but not added to budget)",
+				i+1, len(raw.Transactions), txn.ID, err)
 		}
 	}
 

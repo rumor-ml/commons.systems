@@ -355,6 +355,33 @@ func TestLoadState_PartialCorruption(t *testing.T) {
 	}
 }
 
+func TestStateFileCorruptionRecovery(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create initial valid state
+	state1 := NewState()
+	state1.RecordTransaction("fp1", "txn-001", time.Now())
+	if err := SaveState(state1, stateFile); err != nil {
+		t.Fatalf("Initial save failed: %v", err)
+	}
+
+	// Simulate corruption: truncate file mid-JSON
+	content, _ := os.ReadFile(stateFile)
+	os.WriteFile(stateFile, content[:len(content)/2], 0644)
+
+	// Attempt to load - should fail with parse error
+	_, err := LoadState(stateFile)
+	if err == nil {
+		t.Error("LoadState should fail with corrupted file")
+	}
+
+	// Verify corruption is detected (not silent failure)
+	if !strings.Contains(err.Error(), "failed to parse state file") {
+		t.Errorf("Error should indicate parse failure, got: %v", err)
+	}
+}
+
 func TestLoadState_MissingFields(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateFile := filepath.Join(tmpDir, "missing-fields.json")
@@ -738,6 +765,44 @@ func TestGenerateFingerprint_SimilarTransactionsCollision(t *testing.T) {
 	// consider adding transaction ID to fingerprint input.
 }
 
+func TestDeduplication_SimilarButNotIdentical(t *testing.T) {
+	state := NewState()
+
+	// Two transactions same day, same merchant, slightly different amounts
+	fp1 := GenerateFingerprint("2025-01-15", -50.00, "Starbucks")
+	fp2 := GenerateFingerprint("2025-01-15", -50.01, "Starbucks")
+
+	// Record both
+	err1 := state.RecordTransaction(fp1, "txn-001", time.Now())
+	err2 := state.RecordTransaction(fp2, "txn-002", time.Now())
+
+	if err1 != nil || err2 != nil {
+		t.Fatalf("Failed to record transactions: %v, %v", err1, err2)
+	}
+
+	// Verify both are tracked separately
+	if !state.IsDuplicate(fp1) || !state.IsDuplicate(fp2) {
+		t.Error("Both fingerprints should be in state")
+	}
+
+	if state.TotalFingerprints() != 2 {
+		t.Errorf("Expected 2 distinct fingerprints, got %d", state.TotalFingerprints())
+	}
+
+	// Verify fingerprints are different
+	if fp1 == fp2 {
+		t.Error("Similar but not identical transactions should produce different fingerprints")
+	}
+
+	// Verify re-parsing same transactions marks as duplicates
+	if !state.IsDuplicate(fp1) {
+		t.Error("First transaction should be marked as duplicate on re-parse")
+	}
+	if !state.IsDuplicate(fp2) {
+		t.Error("Second transaction should be marked as duplicate on re-parse")
+	}
+}
+
 func TestRecordTransaction_TimestampBeforeFirstSeen(t *testing.T) {
 	state := NewState()
 	fp := "abc123"
@@ -757,6 +822,36 @@ func TestRecordTransaction_TimestampBeforeFirstSeen(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "before first seen") {
 		t.Errorf("Error should mention 'before first seen', got: %v", err)
+	}
+}
+
+func TestRecordTransaction_MultipleRunsWithDifferentTimestamps(t *testing.T) {
+	state := NewState()
+	fp := "abc123"
+
+	// First run: record transaction
+	ts1 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	err := state.RecordTransaction(fp, "txn-001", ts1)
+	if err != nil {
+		t.Fatalf("Failed first record: %v", err)
+	}
+
+	// Second run: same transaction, later processing time
+	ts2 := time.Date(2025, 1, 16, 14, 0, 0, 0, time.UTC)
+	err = state.RecordTransaction(fp, "txn-001", ts2)
+	if err != nil {
+		t.Fatalf("Failed second record: %v", err)
+	}
+
+	record := state.fingerprints[fp]
+	if !record.LastSeen.Equal(ts2) {
+		t.Errorf("LastSeen not updated to later timestamp: got %v, want %v", record.LastSeen, ts2)
+	}
+	if record.Count != 2 {
+		t.Errorf("Count should be 2 for re-processing, got %d", record.Count)
+	}
+	if !record.FirstSeen.Equal(ts1) {
+		t.Errorf("FirstSeen should remain %v, got %v", ts1, record.FirstSeen)
 	}
 }
 

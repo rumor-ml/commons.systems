@@ -65,11 +65,11 @@ func (r *FingerprintRecord) Update(timestamp time.Time) error {
 // MarshalJSON implements json.Marshaler for State
 func (s *State) MarshalJSON() ([]byte, error) {
 	type Alias State
-	// Create defensive copy to prevent external mutation.
-	// Without this, external code holding references to FingerprintRecord pointers
-	// could modify them and affect the internal state map. JSON marshaling preserves
-	// pointer sharing without deep copying the pointed-to values, so we manually
-	// deep copy each FingerprintRecord to ensure independent copies.
+	// Create defensive copy to prevent exposing internal pointers.
+	// Without this, the Alias cast exposes s.fingerprints directly, allowing
+	// external code to retain references to FingerprintRecord pointers from the
+	// JSON marshaling process. By deep copying each record, we ensure JSON
+	// marshaling operates on independent copies, protecting internal state.
 	fpCopy := make(map[string]*FingerprintRecord, len(s.fingerprints))
 	for k, v := range s.fingerprints {
 		recordCopy := *v
@@ -203,6 +203,8 @@ func SaveState(state *State, filePath string) error {
 		// Clean up temp file on error
 		if removeErr := os.Remove(tempFile); removeErr != nil {
 			// CRITICAL: Both rename and cleanup failed - temp file orphaned
+			// Log explicitly to stderr to ensure visibility even if error is swallowed
+			fmt.Fprintf(os.Stderr, "CRITICAL: Failed to cleanup temp file %s after rename failure. Manual cleanup required.\n", tempFile)
 			return fmt.Errorf("failed to rename temp file to %s: %w (CRITICAL: failed to cleanup temp file %s: %v - manual cleanup required)",
 				filePath, err, tempFile, removeErr)
 		}

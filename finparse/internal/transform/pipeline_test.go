@@ -798,6 +798,52 @@ func TestTransformStatement_StatsWithNilEngine(t *testing.T) {
 	}
 }
 
+func TestTransformStatement_DedupWithoutRules(t *testing.T) {
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, startDate.AddDate(0, 1, 0))
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txn1 := mustNewRawTransaction(t, "TXN001", startDate, startDate, "Purchase 1", -50.00)
+	txn2 := mustNewRawTransaction(t, "TXN002", startDate, startDate, "Purchase 2", -75.00)
+	txn3 := mustNewRawTransaction(t, "TXN003", startDate, startDate, "Purchase 3", -25.00)
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn1, *txn2, *txn3},
+	}
+
+	// First pass with state, no engine
+	state := dedup.NewState()
+	budget1 := domain.NewBudget()
+	stats1, err := TransformStatement(raw, budget1, state, nil)
+	if err != nil {
+		t.Fatalf("First pass failed: %v", err)
+	}
+
+	// Verify stats: no rule checking occurred
+	if stats1.RulesMatched != 0 || stats1.RulesUnmatched != 0 {
+		t.Errorf("Expected 0 rule stats with nil engine, got matched=%d unmatched=%d",
+			stats1.RulesMatched, stats1.RulesUnmatched)
+	}
+
+	// Second pass: should skip all as duplicates
+	budget2 := domain.NewBudget()
+	stats2, err := TransformStatement(raw, budget2, state, nil)
+	if err != nil {
+		t.Fatalf("Second pass failed: %v", err)
+	}
+
+	if stats2.DuplicatesSkipped != 3 {
+		t.Errorf("Expected 3 duplicates skipped, got %d", stats2.DuplicatesSkipped)
+	}
+
+	// Verify duplicate examples captured
+	if len(stats2.DuplicateExamples()) == 0 {
+		t.Error("Expected duplicate examples to be captured")
+	}
+}
+
 // TODO(#1347): Consider adding benchmark tests for transformation pipeline performance
 // Helper functions for test setup
 

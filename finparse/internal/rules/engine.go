@@ -301,7 +301,8 @@ func (e *Engine) Match(description string) (*MatchResult, bool, error) {
 			)
 			if err != nil {
 				// Defense in depth: should never happen due to validation, but return error instead of crash
-				return nil, false, fmt.Errorf("internal error constructing match result from rule %q: %w (please report this bug)", rule.Name, err)
+				// Return true to indicate rule DID match (this is an internal error, not "no match")
+				return nil, true, fmt.Errorf("INTERNAL ERROR constructing match result from rule %q: %w (this indicates rule validation was bypassed or rules were modified after loading - please report this bug with rule definition)", rule.Name, err)
 			}
 			return result, true, nil
 		}

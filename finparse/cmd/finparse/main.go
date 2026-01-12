@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -164,7 +165,15 @@ func run() error {
 				}
 			} else {
 				// CRITICAL: State file exists but can't be loaded - DO NOT OVERWRITE
-				return fmt.Errorf("failed to load existing state file %q: %w\n\nTo prevent data loss, finparse will not continue.\nOptions:\n  1. Fix permissions: chmod 644 %q\n  2. Reset state: rm %q\n  3. Backup and retry: cp %q %q.backup && finparse ...",
+				// Check if this is a permission error to provide specific guidance
+				var pathErr *os.PathError
+				if errors.As(err, &pathErr) && errors.Is(pathErr.Err, os.ErrPermission) {
+					return fmt.Errorf("failed to load state file %q: permission denied: %w\n\nThe state file exists but cannot be read.\nOptions:\n  1. Check file permissions: ls -la %q\n  2. Check ownership: stat %q\n  3. Reset state (loses deduplication): rm %q",
+						*stateFile, err, *stateFile, *stateFile, *stateFile)
+				}
+
+				// Generic load failure (corruption, format error, etc)
+				return fmt.Errorf("failed to load existing state file %q: %w\n\nThe state file exists but cannot be loaded.\nOptions:\n  1. Check file integrity: file %q\n  2. Backup and reset: cp %q %q.backup && rm %q",
 					*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile)
 			}
 		} else {
@@ -242,28 +251,31 @@ func run() error {
 			return fmt.Errorf("failed to open %s: %w", file.Path, err)
 		}
 
-		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
-
-		// Close immediately after parsing
-		closeErr := f.Close()
-		if err != nil {
-			// If parse failed AND close also failed, warn about the close error to prevent
-			// masking potential file descriptor leaks (parse error is returned below)
-			if closeErr != nil {
-				// Both parse and close failed - this is critical for debugging.
-				// Could indicate filesystem issues, not just parse errors.
-				return fmt.Errorf("parse failed for file %d of %d (%s): %w (WARNING: file close also failed, possible file descriptor leak: %v)",
-					i+1, len(files), file.Path, err, closeErr)
+		// Defer close to ensure cleanup even on panic or early return
+		defer func() {
+			if closeErr := f.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: failed to close %s: %v (possible file descriptor leak)\n",
+					file.Path, closeErr)
 			}
+		}()
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+		if err != nil {
 			return fmt.Errorf("parse failed for file %d of %d (%s): %w",
 				i+1, len(files), file.Path, err)
 		}
-		if closeErr != nil {
-			return fmt.Errorf("failed to close %s after successful parse: %w", file.Path, closeErr)
-		}
 
 		// Verify parser contract: if no error, rawStmt must not be nil
+		// Check this BEFORE file closes (via defer) so we can extract debug info
 		if rawStmt == nil {
+			// Try to extract file sample for debugging
+			if _, seekErr := f.Seek(0, 0); seekErr == nil {
+				sample := make([]byte, 200)
+				if n, _ := f.Read(sample); n > 0 {
+					return fmt.Errorf("parser %s returned nil statement without error for %s (parser bug) - file sample: %q",
+						parser.Name(), file.Path, string(sample[:n]))
+				}
+			}
 			return fmt.Errorf("parser %s returned nil statement without error for %s (parser bug)",
 				parser.Name(), file.Path)
 		}

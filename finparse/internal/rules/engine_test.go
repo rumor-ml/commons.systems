@@ -1020,3 +1020,86 @@ func TestRuleIsValueType(t *testing.T) {
 	// Document why this matters
 	t.Log("Rule is a pure value type - GetRules shallow copy is safe")
 }
+
+func TestNewEngine_TransferRedeemableConflict(t *testing.T) {
+	rulesYAML := `
+rules:
+  - name: "Invalid Transfer+Redeemable"
+    pattern: "TEST PAYMENT"
+    match_type: "contains"
+    priority: 100
+    category: "other"
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: true
+    redemption_rate: 0.02
+`
+	_, err := NewEngine([]byte(rulesYAML))
+	if err == nil {
+		t.Error("NewEngine should reject transfer=true with redeemable=true")
+	}
+	if !strings.Contains(err.Error(), "transfer") || !strings.Contains(err.Error(), "redeemable") {
+		t.Errorf("Error should mention conflicting flags, got: %v", err)
+	}
+}
+
+func TestEmbeddedRules_CoverageProgress(t *testing.T) {
+	// This test documents current coverage and fails if it regresses
+	engine, err := LoadEmbedded()
+	if err != nil {
+		t.Fatalf("LoadEmbedded() error = %v", err)
+	}
+
+	descriptions := loadEmbeddedReferenceTransactions(t)
+	if len(descriptions) != 1268 {
+		t.Errorf("Expected 1,268 reference transactions, got %d", len(descriptions))
+	}
+
+	matched := 0
+	for _, desc := range descriptions {
+		if _, ok, _ := engine.Match(desc); ok {
+			matched++
+		}
+	}
+
+	coverage := float64(matched) / float64(len(descriptions))
+	currentTarget := 0.84 // Update as coverage improves
+
+	if coverage < currentTarget {
+		t.Errorf("Coverage regressed: %.2f%% < %.2f%%", coverage*100, currentTarget*100)
+	}
+
+	t.Logf("Current coverage: %.2f%% (%d/%d), Target: 95%%",
+		coverage*100, matched, len(descriptions))
+
+	if coverage < 0.95 {
+		t.Logf("Coverage gap: need %d more rules to reach 95%%",
+			int(0.95*float64(len(descriptions)))-matched)
+	}
+}
+
+func TestMatch_InternalErrorUnreachable(t *testing.T) {
+	// This test documents that Match() internal error path should be unreachable
+	// due to validation in NewEngine. If this test can trigger the error, validation
+	// is broken and should be fixed.
+
+	engine, _ := NewEngine([]byte(`
+rules:
+  - name: "Valid Rule"
+    pattern: "TEST"
+    match_type: "contains"
+    priority: 100
+    category: "groceries"
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+`))
+
+	_, _, err := engine.Match("TEST TRANSACTION")
+	if err != nil {
+		t.Errorf("Match() returned unexpected error (validation should prevent this): %v", err)
+	}
+}
