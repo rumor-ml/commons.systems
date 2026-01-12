@@ -16,6 +16,7 @@ import (
 var embeddedRules []byte
 
 // MatchType defines how patterns are matched against transaction descriptions
+// TODO(#1430): Consider stronger type-level enforcement for valid match types
 type MatchType string
 
 const (
@@ -41,8 +42,25 @@ type Flags struct {
 	Transfer   bool `yaml:"transfer"`
 }
 
+// NewFlags creates a validated Flags instance.
+// Returns error if flag combination violates business rules.
+// Currently enforces: Transfer=true with Redeemable=true is invalid
+// (transfers between accounts should not earn cashback rewards).
+func NewFlags(redeemable, vacation, transfer bool) (*Flags, error) {
+	if transfer && redeemable {
+		return nil, fmt.Errorf("invalid flags: transfer=true with redeemable=true (transfers should not earn cashback)")
+	}
+
+	return &Flags{
+		Redeemable: redeemable,
+		Vacation:   vacation,
+		Transfer:   transfer,
+	}, nil
+}
+
 // Rule represents a single categorization rule.
 //
+// TODO(#1416): Comment uses conditional "should be" language that's ambiguous about current implementation
 // Rules should be created via:
 //   - YAML loading: NewEngine, LoadEmbedded, LoadFromFile
 //   - Programmatic construction: NewRule constructor
@@ -73,6 +91,11 @@ type Rule struct {
 // This constructor should be used when constructing Rule instances programmatically.
 // YAML loading via NewEngine performs equivalent validation automatically.
 func NewRule(name, pattern string, matchType MatchType, priority int, category string, flags Flags, redemptionRate float64) (*Rule, error) {
+	// Validate flags
+	if _, err := NewFlags(flags.Redeemable, flags.Vacation, flags.Transfer); err != nil {
+		return nil, err
+	}
+
 	// Validate category
 	if !domain.ValidateCategory(domain.Category(category)) {
 		return nil, fmt.Errorf("invalid category %q", category)
@@ -119,6 +142,23 @@ func NewRule(name, pattern string, matchType MatchType, priority int, category s
 	}, nil
 }
 
+// Validate checks all invariants on a Rule instance.
+// Useful for validating Rules created through direct struct construction
+// (e.g., in tests) or to re-check rules after modification.
+func (r *Rule) Validate() error {
+	_, err := NewRule(
+		r.Name,
+		r.Pattern,
+		r.MatchType,
+		r.Priority,
+		r.Category,
+		r.Flags,
+		r.RedemptionRate,
+	)
+	return err
+}
+
+// TODO(#1427): RuleSet is only used for YAML unmarshaling in NewEngine and could be unexported
 // RuleSet represents the top-level YAML structure
 type RuleSet struct {
 	Rules []Rule `yaml:"rules"`
@@ -147,6 +187,31 @@ type MatchResult struct {
 	RuleName       string // For debugging
 }
 
+// NewMatchResult creates a validated match result.
+// Enforces invariant: Redeemable=true requires RedemptionRate > 0.
+func NewMatchResult(category domain.Category, redeemable, vacation, transfer bool, redemptionRate float64, ruleName string) (*MatchResult, error) {
+	if !domain.ValidateCategory(category) {
+		return nil, fmt.Errorf("invalid category %q", category)
+	}
+
+	if redeemable && redemptionRate == 0 {
+		return nil, fmt.Errorf("redeemable=true requires redemption_rate > 0")
+	}
+
+	if !redeemable && redemptionRate != 0 {
+		return nil, fmt.Errorf("redeemable=false requires redemption_rate = 0")
+	}
+
+	return &MatchResult{
+		Category:       category,
+		Redeemable:     redeemable,
+		Vacation:       vacation,
+		Transfer:       transfer,
+		RedemptionRate: redemptionRate,
+		RuleName:       ruleName,
+	}, nil
+}
+
 // NewEngine creates a rules engine from YAML data
 func NewEngine(rulesData []byte) (*Engine, error) {
 	var ruleSet RuleSet
@@ -154,56 +219,32 @@ func NewEngine(rulesData []byte) (*Engine, error) {
 		return nil, fmt.Errorf("failed to parse YAML rules (check syntax, indentation, and field names): %w", err)
 	}
 
-	// TODO(#1411): Consider adding a validationError helper function to ensure
-	// consistent error formatting with rule context (index + name) across all validation checks
-	// Validate and process rules
+	// Validate rules by reconstructing them through NewRule constructor
+	validatedRules := make([]Rule, len(ruleSet.Rules))
 	for i, rule := range ruleSet.Rules {
-		// Validate category
-		if !domain.ValidateCategory(domain.Category(rule.Category)) {
-			return nil, fmt.Errorf("rule %d (%s): invalid category %q", i, rule.Name, rule.Category)
+		validatedRule, err := NewRule(
+			rule.Name,
+			rule.Pattern,
+			rule.MatchType,
+			rule.Priority,
+			rule.Category,
+			rule.Flags,
+			rule.RedemptionRate,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("rule %d (%s): %w", i, rule.Name, err)
 		}
-
-		// Validate priority (0-999)
-		if rule.Priority < 0 || rule.Priority > 999 {
-			return nil, fmt.Errorf("rule %d (%s): priority must be in [0,999], got %d", i, rule.Name, rule.Priority)
-		}
-
-		// Validate redemption rate (0.0-1.0)
-		if rule.RedemptionRate < 0.0 || rule.RedemptionRate > 1.0 {
-			return nil, fmt.Errorf("rule %d (%s): redemption rate must be in [0,1], got %f", i, rule.Name, rule.RedemptionRate)
-		}
-
-		// Validate consistency: redeemable=true requires rate > 0
-		if rule.Flags.Redeemable && rule.RedemptionRate == 0 {
-			return nil, fmt.Errorf("rule %d (%s): redeemable=true requires redemption_rate > 0", i, rule.Name)
-		}
-
-		// Validate consistency: redeemable=false requires rate = 0
-		if !rule.Flags.Redeemable && rule.RedemptionRate != 0 {
-			return nil, fmt.Errorf("rule %d (%s): redeemable=false requires redemption_rate = 0", i, rule.Name)
-		}
-
-		// Validate match type
-		if rule.MatchType != MatchTypeExact && rule.MatchType != MatchTypeContains {
-			return nil, fmt.Errorf("rule %d (%s): invalid match_type %q (must be 'exact' or 'contains')", i, rule.Name, rule.MatchType)
-		}
-
-		// Validate pattern is not empty
-		if strings.TrimSpace(rule.Pattern) == "" {
-			return nil, fmt.Errorf("rule %d (%s): pattern cannot be empty", i, rule.Name)
-		}
+		validatedRules[i] = *validatedRule
 	}
 
 	// Sort rules by priority (highest first). Use SliceStable to preserve YAML file
 	// order for rules with equal priority (guarantees deterministic matching).
-	sortedRules := make([]Rule, len(ruleSet.Rules))
-	copy(sortedRules, ruleSet.Rules)
-	sort.SliceStable(sortedRules, func(i, j int) bool {
-		return sortedRules[i].Priority > sortedRules[j].Priority
+	sort.SliceStable(validatedRules, func(i, j int) bool {
+		return validatedRules[i].Priority > validatedRules[j].Priority
 	})
 
 	return &Engine{
-		rules: sortedRules,
+		rules: validatedRules,
 	}, nil
 }
 
@@ -251,14 +292,19 @@ func (e *Engine) Match(description string) (*MatchResult, bool) {
 		}
 
 		if matched {
-			return &MatchResult{
-				Category:       domain.Category(rule.Category),
-				Redeemable:     rule.Flags.Redeemable,
-				Vacation:       rule.Flags.Vacation,
-				Transfer:       rule.Flags.Transfer,
-				RedemptionRate: rule.RedemptionRate,
-				RuleName:       rule.Name,
-			}, true
+			result, err := NewMatchResult(
+				domain.Category(rule.Category),
+				rule.Flags.Redeemable,
+				rule.Flags.Vacation,
+				rule.Flags.Transfer,
+				rule.RedemptionRate,
+				rule.Name,
+			)
+			if err != nil {
+				// This should never happen since rules are validated at construction
+				panic(fmt.Sprintf("invalid match result from validated rule %q: %v", rule.Name, err))
+			}
+			return result, true
 		}
 	}
 
@@ -270,6 +316,7 @@ func (e *Engine) Match(description string) (*MatchResult, bool) {
 // Returns a new slice containing value copies of each Rule struct. Since Rule
 // struct fields are all value types (string, int, float64, bool, MatchType enum),
 // modifying returned rules will not affect the engine's internal state.
+// TODO(#1415): Comment warning about pointer fields will become stale if/when refactored
 // WARNING: If Rule struct is extended with pointer/slice fields, this method must
 // be updated to perform deep copying to maintain this guarantee.
 // Rules are returned in priority order (highest first). For equal priorities,

@@ -735,10 +735,10 @@ func TestTransformStatement_StatsAccuracy(t *testing.T) {
 	}
 
 	// Verify UnmatchedExamples contains the unmatched transaction description
-	if len(stats.UnmatchedExamples) != 1 {
-		t.Errorf("Expected 1 unmatched example, got %d", len(stats.UnmatchedExamples))
-	} else if stats.UnmatchedExamples[0] != "UNKNOWN_XYZ_NOMATCH" {
-		t.Errorf("Expected unmatched example 'UNKNOWN_XYZ_NOMATCH', got %q", stats.UnmatchedExamples[0])
+	if len(stats.UnmatchedExamples()) != 1 {
+		t.Errorf("Expected 1 unmatched example, got %d", len(stats.UnmatchedExamples()))
+	} else if stats.UnmatchedExamples()[0] != "UNKNOWN_XYZ_NOMATCH" {
+		t.Errorf("Expected unmatched example 'UNKNOWN_XYZ_NOMATCH', got %q", stats.UnmatchedExamples()[0])
 	}
 
 	// Verify only 3 transactions added to budget (1 was duplicate and skipped)
@@ -751,6 +751,49 @@ func TestTransformStatement_StatsAccuracy(t *testing.T) {
 	for _, txn := range transactions {
 		if txn.ID == "TXN001" {
 			t.Errorf("Duplicate transaction TXN001 should not be in budget")
+		}
+	}
+}
+
+func TestTransformStatement_StatsWithNilEngine(t *testing.T) {
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, startDate.AddDate(0, 1, 0))
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txn1 := mustNewRawTransaction(t, "TXN001", startDate, startDate, "Purchase 1", -50.00)
+	txn2 := mustNewRawTransaction(t, "TXN002", startDate, startDate, "Purchase 2", -75.00)
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn1, *txn2},
+	}
+
+	budget := domain.NewBudget()
+	stats, err := TransformStatement(raw, budget, nil, nil) // nil engine
+	if err != nil {
+		t.Fatalf("TransformStatement failed: %v", err)
+	}
+
+	// When no rules engine, stats should reflect "not applicable" state
+	if stats.RulesMatched != 0 {
+		t.Errorf("Expected RulesMatched=0 with nil engine, got %d", stats.RulesMatched)
+	}
+	if stats.RulesUnmatched != 0 {
+		t.Errorf("Expected RulesUnmatched=0 with nil engine, got %d", stats.RulesUnmatched)
+	}
+	if len(stats.UnmatchedExamples()) != 0 {
+		t.Errorf("Expected empty UnmatchedExamples with nil engine, got %d", len(stats.UnmatchedExamples()))
+	}
+
+	// Verify transactions still added with default category
+	transactions := budget.GetTransactions()
+	if len(transactions) != 2 {
+		t.Errorf("Expected 2 transactions, got %d", len(transactions))
+	}
+	for _, txn := range transactions {
+		if txn.Category != domain.CategoryOther {
+			t.Errorf("Expected default category 'other', got %s", txn.Category)
 		}
 	}
 }

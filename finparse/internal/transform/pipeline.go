@@ -12,24 +12,51 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 )
 
-// TODO(#1409): TransformStats.UnmatchedExamples mutable slice allows external corruption
 // TransformStats contains statistics from transformation process.
 //
-// Design note: Fields are exported for simplicity since this is a data transfer object
-// used only within the transform package and main CLI. UnmatchedExamples and
-// DuplicateExamples are capped at 5 items (enforced during append) to limit CLI
-// output verbosity while still providing useful examples. The cap of 5 balances
-// providing helpful examples without overwhelming users with excessive output.
-// If external modification becomes a concern, consider unexported fields with
-// getters returning defensive copies.
+// Example slices are capped at 5 items to limit CLI output verbosity while
+// still providing useful debugging context. The cap of 5 balances providing
+// helpful examples without overwhelming users with excessive output.
+//
+// Fields use defensive encapsulation: example slices are unexported and
+// accessed via methods that return defensive copies to prevent external
+// modification of internal state.
 type TransformStats struct {
 	DuplicatesSkipped            int
 	RulesMatched                 int
 	RulesUnmatched               int
-	UnmatchedExamples            []string // Capped at 5 items during population
+	unmatchedExamples            []string // unexported, capped at 5 items
 	DuplicateInstitutionsSkipped int
 	DuplicateAccountsSkipped     int
-	DuplicateExamples            []string // Capped at 5 items during population
+	duplicateExamples            []string // unexported, capped at 5 items
+}
+
+// UnmatchedExamples returns a defensive copy of unmatched transaction examples (max 5 items).
+func (s *TransformStats) UnmatchedExamples() []string {
+	result := make([]string, len(s.unmatchedExamples))
+	copy(result, s.unmatchedExamples)
+	return result
+}
+
+// DuplicateExamples returns a defensive copy of duplicate transaction examples (max 5 items).
+func (s *TransformStats) DuplicateExamples() []string {
+	result := make([]string, len(s.duplicateExamples))
+	copy(result, s.duplicateExamples)
+	return result
+}
+
+// addUnmatchedExample adds an example if under the 5-item cap.
+func (s *TransformStats) addUnmatchedExample(example string) {
+	if len(s.unmatchedExamples) < 5 {
+		s.unmatchedExamples = append(s.unmatchedExamples, example)
+	}
+}
+
+// addDuplicateExample adds an example if under the 5-item cap.
+func (s *TransformStats) addDuplicateExample(example string) {
+	if len(s.duplicateExamples) < 5 {
+		s.duplicateExamples = append(s.duplicateExamples, example)
+	}
 }
 
 // TransformStatement converts RawStatement to domain types and adds to Budget.
@@ -47,7 +74,8 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 	}
 
 	stats := &TransformStats{
-		UnmatchedExamples: make([]string, 0, 5),
+		unmatchedExamples: make([]string, 0, 5),
+		duplicateExamples: make([]string, 0, 5),
 	}
 
 	institution, err := transformInstitution(&raw.Account)
@@ -60,6 +88,7 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return nil, fmt.Errorf("failed to add institution: %w", err)
 		}
+		// TODO(#1424): Consider caching strategy
 		// Duplicate institutions are expected when processing multiple statements
 		// from the same institution. Tracked for debugging but not logged in normal operation.
 		stats.DuplicateInstitutionsSkipped++
@@ -75,6 +104,7 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		if !errors.Is(err, domain.ErrAlreadyExists) {
 			return nil, fmt.Errorf("failed to add account: %w", err)
 		}
+		// TODO(#1424): Consider caching strategy
 		// Duplicate accounts are expected when processing multiple statements
 		// from the same account. Tracked for debugging but not logged in normal operation.
 		stats.DuplicateAccountsSkipped++
@@ -104,9 +134,7 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 				stats.RulesMatched++
 			} else {
 				stats.RulesUnmatched++
-				if len(stats.UnmatchedExamples) < 5 {
-					stats.UnmatchedExamples = append(stats.UnmatchedExamples, txn.Description)
-				}
+				stats.addUnmatchedExample(txn.Description)
 			}
 		}
 
@@ -116,6 +144,7 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// Check for duplicates if state is provided
 		if state != nil {
 			if state.IsDuplicate(fingerprint) {
+				// TODO(#1425): Comment about duplicate detection warns about "noise" but doesn't quantify acceptable noise level
 				// Skip duplicate transaction - already processed in a previous run.
 				// Duplicate count is tracked in stats for user visibility.
 				// Individual duplicates not logged to avoid noise when processing
@@ -123,10 +152,8 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 				stats.DuplicatesSkipped++
 
 				// Track first few duplicates for verbose mode debugging
-				if len(stats.DuplicateExamples) < 5 {
-					stats.DuplicateExamples = append(stats.DuplicateExamples,
-						fmt.Sprintf("%s: %s (%.2f)", txn.Date, txn.Description, txn.Amount))
-				}
+				stats.addDuplicateExample(
+					fmt.Sprintf("%s: %s (%.2f)", txn.Date, txn.Description, txn.Amount))
 
 				continue
 			}
@@ -138,6 +165,7 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 				i+1, len(raw.Transactions), txn.ID, err)
 		}
 
+		// TODO(#1421): Clarify why transaction date isn't sufficient for tracking
 		// Record in state if provided. Uses time.Now() to track when we first/last observed
 		// this fingerprint during parsing, not the transaction date. This enables:
 		//   - Debugging when duplicate detection started (state file history)
@@ -248,6 +276,7 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 		return nil, false, err
 	}
 
+	// TODO(#1419): Improve comment to explain validation mechanism
 	// Apply rules if engine provided. Match() cannot fail because invalid match types
 	// are caught during engine initialization (NewEngine validation). The matched boolean
 	// indicates whether any rule matched the description.

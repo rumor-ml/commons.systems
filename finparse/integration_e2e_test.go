@@ -467,6 +467,7 @@ func TestEndToEnd_DedupAndRules(t *testing.T) {
 	}
 
 	// Create OFX file with transactions that match embedded rules
+	// TODO(#1422): Consider creating helper functions for OFX test fixtures
 	ofxContent := `OFXHEADER:100
 DATA:OFXSGML
 VERSION:102

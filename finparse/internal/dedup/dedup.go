@@ -13,6 +13,9 @@ import (
 )
 
 // State represents the deduplication state with fingerprint history.
+// IMPORTANT: State should always be passed by pointer (*State), never by value.
+// Copying State by value creates a shallow copy that shares the underlying
+// fingerprints map, which can lead to unexpected behavior.
 type State struct {
 	Version      int                           `json:"version"`
 	fingerprints map[string]*FingerprintRecord `json:"fingerprints"`
@@ -48,6 +51,8 @@ func NewFingerprintRecord(transactionID string, timestamp time.Time) (*Fingerpri
 // Update updates the record for a new observation.
 // Returns error if timestamp is strictly before the first seen time.
 // Timestamps equal to FirstSeen are allowed (same transaction re-parsed).
+// Count is incremented on every call to track the total number of observations,
+// even if timestamp equals FirstSeen or LastSeen (idempotent re-parsing).
 func (r *FingerprintRecord) Update(timestamp time.Time) error {
 	if timestamp.Before(r.FirstSeen) {
 		return fmt.Errorf("timestamp %v is before first seen %v", timestamp, r.FirstSeen)
@@ -104,6 +109,7 @@ func (s *State) UnmarshalJSON(data []byte) error {
 }
 
 // StateMetadata contains aggregate statistics about the state.
+// TODO(#1429): StateMetadata underutilized - could track more useful state information
 type StateMetadata struct {
 	LastUpdated time.Time `json:"lastUpdated"`
 }
@@ -159,11 +165,6 @@ func LoadState(filePath string) (*State, error) {
 	// Validate version
 	if state.Version != CurrentVersion {
 		return nil, fmt.Errorf("unsupported state file version %d (current version: %d)", state.Version, CurrentVersion)
-	}
-
-	// Ensure fingerprints map is initialized
-	if state.fingerprints == nil {
-		state.fingerprints = make(map[string]*FingerprintRecord)
 	}
 
 	return &state, nil

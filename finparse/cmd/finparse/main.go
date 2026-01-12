@@ -152,6 +152,7 @@ func run() error {
 	}
 
 	// Phase 5: Load dedup state if provided
+	// TODO(#1428): Use structured logging with error IDs instead of fmt.Fprintf
 	var state *dedup.State
 	if *stateFile != "" {
 		loadedState, err := dedup.LoadState(*stateFile)
@@ -163,7 +164,8 @@ func run() error {
 					fmt.Fprintf(os.Stderr, "State file not found, creating new state\n")
 				}
 			} else {
-				return fmt.Errorf("failed to load state file: %w", err)
+				// CRITICAL: State file exists but can't be loaded
+				return fmt.Errorf("failed to load state file %q: %w (deduplication disabled, check file permissions and format)", *stateFile, err)
 			}
 		} else {
 			state = loadedState
@@ -172,6 +174,12 @@ func run() error {
 					state.TotalFingerprints())
 			}
 		}
+	}
+
+	// Show deduplication status (always, not just verbose)
+	if state != nil && *stateFile != "" {
+		fmt.Fprintf(os.Stderr, "Deduplication enabled with state file: %s (%d existing fingerprints)\n",
+			*stateFile, state.TotalFingerprints())
 	}
 
 	// Phase 5: Load rules engine
@@ -202,12 +210,14 @@ func run() error {
 	budget := domain.NewBudget()
 
 	// Aggregate statistics across all statements
-	var totalDuplicatesSkipped int
-	var totalRulesMatched int
-	var totalRulesUnmatched int
+	var (
+		totalDuplicatesSkipped            int
+		totalRulesMatched                 int
+		totalRulesUnmatched               int
+		totalDuplicateInstitutionsSkipped int
+		totalDuplicateAccountsSkipped     int
+	)
 	unmatchedExamplesMap := make(map[string]bool) // Track unique unmatched descriptions
-	var totalDuplicateInstitutionsSkipped int
-	var totalDuplicateAccountsSkipped int
 	duplicateExamplesMap := make(map[string]bool) // Track unique duplicate examples
 
 	if *verbose {
@@ -237,6 +247,7 @@ func run() error {
 		// Close immediately after parsing
 		closeErr := f.Close()
 		if err != nil {
+			// TODO(#1423): Comment about error message context will become outdated when error messages change
 			// If parse failed AND close also failed, warn about the close error to prevent
 			// masking potential file descriptor leaks (parse error is returned below)
 			if closeErr != nil {
@@ -273,19 +284,20 @@ func run() error {
 		totalDuplicatesSkipped += stats.DuplicatesSkipped
 		totalRulesMatched += stats.RulesMatched
 		totalRulesUnmatched += stats.RulesUnmatched
-		for _, desc := range stats.UnmatchedExamples {
+		for _, desc := range stats.UnmatchedExamples() {
 			unmatchedExamplesMap[desc] = true
 		}
 
 		// Track duplicate statistics
 		totalDuplicateInstitutionsSkipped += stats.DuplicateInstitutionsSkipped
 		totalDuplicateAccountsSkipped += stats.DuplicateAccountsSkipped
-		for _, example := range stats.DuplicateExamples {
+		for _, example := range stats.DuplicateExamples() {
 			duplicateExamplesMap[example] = true
 		}
 	}
 
 	// Phase 5: Save state if modified
+	// TODO(#1428): Use structured logging with error IDs instead of fmt.Fprintf
 	if state != nil && *stateFile != "" {
 		if err := dedup.SaveState(state, *stateFile); err != nil {
 			return fmt.Errorf("failed to save state file: %w", err)
@@ -309,22 +321,24 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "  Statements: %d\n", len(statements))
 		fmt.Fprintf(os.Stderr, "  Transactions: %d\n", len(transactions))
 
-		// Show deduplication statistics
-		if state != nil && totalDuplicatesSkipped > 0 {
-			fmt.Fprintf(os.Stderr, "\nDeduplication:\n")
-			fmt.Fprintf(os.Stderr, "  Skipped %d duplicate transactions\n", totalDuplicatesSkipped)
+	}
 
-			if *verbose && len(duplicateExamplesMap) > 0 {
-				fmt.Fprintf(os.Stderr, "  Example duplicates:\n")
-				count := 0
-				for desc := range duplicateExamplesMap {
-					if count >= 5 {
-						break
-					}
-					fmt.Fprintf(os.Stderr, "    - %s\n", desc)
-					count++
-				}
+	// Show deduplication statistics (always, not just verbose)
+	if state != nil && totalDuplicatesSkipped > 0 {
+		fmt.Fprintf(os.Stderr, "\nDeduplication:\n")
+		fmt.Fprintf(os.Stderr, "  Skipped %d duplicate transactions\n", totalDuplicatesSkipped)
+	}
+
+	// Example duplicates only in verbose mode
+	if *verbose && state != nil && len(duplicateExamplesMap) > 0 {
+		fmt.Fprintf(os.Stderr, "  Example duplicates:\n")
+		count := 0
+		for desc := range duplicateExamplesMap {
+			if count >= 5 {
+				break
 			}
+			fmt.Fprintf(os.Stderr, "    - %s\n", desc)
+			count++
 		}
 
 		// Show duplicate institution/account statistics
@@ -337,28 +351,46 @@ func run() error {
 			}
 		}
 
-		// Show rule matching statistics
-		if engine != nil {
-			totalProcessed := totalRulesMatched + totalRulesUnmatched
-			if totalProcessed > 0 {
-				coverage := float64(totalRulesMatched) / float64(totalProcessed) * 100
-				fmt.Fprintf(os.Stderr, "\nRule matching statistics:\n")
-				fmt.Fprintf(os.Stderr, "  Matched: %d (%.1f%%)\n", totalRulesMatched, coverage)
-				fmt.Fprintf(os.Stderr, "  Unmatched: %d\n", totalRulesUnmatched)
+	}
 
-				// Show example unmatched transactions (up to 5)
-				if len(unmatchedExamplesMap) > 0 {
-					fmt.Fprintf(os.Stderr, "  Example unmatched transactions:\n")
-					count := 0
-					for desc := range unmatchedExamplesMap {
-						if count >= 5 {
-							break
-						}
-						fmt.Fprintf(os.Stderr, "    - %s\n", desc)
-						count++
-					}
-				}
+	// Show rule matching statistics (always, not just verbose)
+	if engine != nil {
+		totalProcessed := totalRulesMatched + totalRulesUnmatched
+		if totalProcessed > 0 {
+			coverage := float64(totalRulesMatched) / float64(totalProcessed) * 100
+			fmt.Fprintf(os.Stderr, "\nRule matching statistics:\n")
+			fmt.Fprintf(os.Stderr, "  Matched: %d (%.1f%%)\n", totalRulesMatched, coverage)
+			fmt.Fprintf(os.Stderr, "  Unmatched: %d\n", totalRulesUnmatched)
+
+			// Warn if coverage is low
+			if coverage < 80.0 {
+				fmt.Fprintf(os.Stderr, "  WARNING: Rule coverage is below 80%%. Consider adding more rules.\n")
 			}
+		}
+	}
+
+	// Show example unmatched transactions only in verbose mode
+	if *verbose && len(unmatchedExamplesMap) > 0 {
+		fmt.Fprintf(os.Stderr, "  Example unmatched transactions:\n")
+		count := 0
+		for desc := range unmatchedExamplesMap {
+			if count >= 5 {
+				break
+			}
+			fmt.Fprintf(os.Stderr, "    - %s\n", desc)
+			count++
+		}
+	}
+
+	// Phase 5: Save state before writing output (transactional ordering)
+	if state != nil && *stateFile != "" {
+		if err := dedup.SaveState(state, *stateFile); err != nil {
+			return fmt.Errorf("failed to save state file %q before writing output (no data written): %w", *stateFile, err)
+		}
+
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "Saved state with %d fingerprints to %s\n",
+				state.TotalFingerprints(), *stateFile)
 		}
 	}
 

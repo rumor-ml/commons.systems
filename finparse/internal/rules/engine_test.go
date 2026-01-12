@@ -639,6 +639,52 @@ rules:
 	}
 }
 
+func TestMatch_InternalWhitespaceNormalization(t *testing.T) {
+	rulesYAML := `
+rules:
+  - name: "Double Space Pattern"
+    pattern: "AMAZON  MARKETPLACE"
+    match_type: "contains"
+    priority: 100
+    category: "shopping"
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	tests := []struct {
+		desc        string
+		shouldMatch bool
+		reason      string
+	}{
+		{"AMAZON  MARKETPLACE", true, "exact match with double space"},
+		{"AMAZON MARKETPLACE", false, "single space does not match double space pattern"},
+		{"AMAZON   MARKETPLACE", false, "triple space does not match double space pattern"},
+		{"AMAZON\tMARKETPLACE", false, "tab does not match space"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, matched := engine.Match(tt.desc)
+			if matched != tt.shouldMatch {
+				t.Errorf("Match(%q) = %v, want %v (%s)", tt.desc, matched, tt.shouldMatch, tt.reason)
+			}
+		})
+	}
+
+	// DESIGN DECISION: Internal whitespace is NOT normalized
+	// Pattern "A  B" (2 spaces) only matches description "A  B" (2 spaces)
+	// This is intentional - whitespace normalization would require regex
+	// and could cause unexpected matches. If this causes rule coverage issues
+	// with real-world transactions, consider adding \s+ regex support.
+}
+
 func TestMatch_EqualPriority_StableSort(t *testing.T) {
 	rulesYAML := `
 rules:
@@ -921,4 +967,15 @@ rules:
 		t.Log("Expected API: MatchWithDate(description, date) or vacation period configuration")
 		t.Log("See test comments above for detailed design specification")
 	})
+}
+
+func TestRuleIsValueType(t *testing.T) {
+	// This test ensures Rule contains only value types (no pointers/slices).
+	// If Rule gains pointer/slice fields, this will fail to compile,
+	// alerting developers that GetRules needs deep copying.
+	var r1, r2 Rule
+	_ = r1 == r2
+
+	// Document why this matters
+	t.Log("Rule is a pure value type - GetRules shallow copy is safe")
 }

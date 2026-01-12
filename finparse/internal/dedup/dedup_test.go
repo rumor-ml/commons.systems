@@ -544,6 +544,25 @@ func TestSaveState_Atomic(t *testing.T) {
 	}
 }
 
+func TestSaveState_DiskFullDuringWrite(t *testing.T) {
+	// Document expected behavior for disk-full scenarios
+	// This test is skipped because reliably triggering disk-full requires OS-level mocking
+	t.Skip("Disk-full testing requires OS-level mocking or ramfs setup")
+
+	// Expected behavior when disk fills during WriteFile:
+	// 1. SaveState should return error (not panic)
+	// 2. Temp file may exist with partial data
+	// 3. Original state file remains untouched (if it existed)
+	// 4. Caller should handle error and retry or alert user
+	//
+	// Current implementation (dedup.go:193-195):
+	// - WriteFile returns error if disk full
+	// - Temp file cleanup only happens in Rename failure path
+	// - If WriteFile fails, temp file is NOT cleaned up (minor issue)
+	//
+	// Future improvement: Add defer cleanup after WriteFile
+}
+
 func TestGenerateFingerprint_Unicode(t *testing.T) {
 	// Test with unicode characters
 	fp1 := GenerateFingerprint("2025-01-15", -50.00, "Café Münchën")
@@ -571,6 +590,34 @@ func TestGenerateFingerprint_EmptyDescription(t *testing.T) {
 	fp2 := GenerateFingerprint("2025-01-15", -50.00, "a")
 	if fp == fp2 {
 		t.Error("GenerateFingerprint() returned same hash for empty and non-empty description")
+	}
+}
+
+func TestGenerateFingerprint_LargeAmounts(t *testing.T) {
+	tests := []struct {
+		name   string
+		amount float64
+	}{
+		{"million dollars", 1000000.00},
+		{"negative million", -1000000.00},
+		{"ten million", 10000000.00},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fp1 := GenerateFingerprint("2025-01-15", tt.amount, "Large Transaction")
+			fp2 := GenerateFingerprint("2025-01-15", tt.amount, "Large Transaction")
+
+			// Verify determinism
+			if fp1 != fp2 {
+				t.Errorf("Fingerprint not deterministic for amount %f", tt.amount)
+			}
+
+			// Verify valid hex string
+			if len(fp1) != 64 {
+				t.Errorf("Expected 64-char hash, got %d for amount %f", len(fp1), tt.amount)
+			}
+		})
 	}
 }
 
@@ -720,6 +767,32 @@ func TestNewFingerprintRecord_ZeroTimestamp(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "timestamp cannot be zero") {
 		t.Errorf("Error should mention 'timestamp cannot be zero', got: %v", err)
+	}
+}
+
+func TestFingerprintRecord_UpdateWithEqualTimestamp(t *testing.T) {
+	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	record, err := NewFingerprintRecord("txn-001", ts)
+	if err != nil {
+		t.Fatalf("NewFingerprintRecord() error = %v", err)
+	}
+
+	// Same timestamp should be allowed (idempotent re-parse)
+	err = record.Update(ts)
+	if err != nil {
+		t.Errorf("Update with equal timestamp should succeed, got error: %v", err)
+	}
+
+	if record.Count != 2 {
+		t.Errorf("Count should increment to 2, got %d", record.Count)
+	}
+
+	// FirstSeen and LastSeen should both equal original timestamp
+	if !record.FirstSeen.Equal(ts) {
+		t.Errorf("FirstSeen should remain %v, got %v", ts, record.FirstSeen)
+	}
+	if !record.LastSeen.Equal(ts) {
+		t.Errorf("LastSeen should equal %v, got %v", ts, record.LastSeen)
 	}
 }
 
