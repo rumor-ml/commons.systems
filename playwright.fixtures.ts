@@ -181,15 +181,32 @@ type AuthFixtures = {
   };
 };
 
-// Initialize Firebase Admin once
+// Firebase Admin - lazy initialization to avoid module-level errors in smoke tests
+// Smoke tests don't use authEmulator fixture, so they shouldn't trigger Admin SDK init
 // IMPORTANT: Must use same projectId as the Auth emulator (from GCP_PROJECT_ID env var)
-let adminApp: admin.app.App;
-if (!admin.apps.length) {
-  adminApp = admin.initializeApp({
-    projectId: process.env.GCP_PROJECT_ID || 'demo-test',
-  });
-} else {
-  adminApp = admin.app();
+let adminApp: admin.app.App | null = null;
+
+function getAdminApp(): admin.app.App {
+  if (adminApp) {
+    return adminApp;
+  }
+
+  // CRITICAL: Remove credentials file to use emulator without auth
+  // CI sets GOOGLE_APPLICATION_CREDENTIALS which causes "Invalid credentials" errors
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    console.log('⚠️  Removing GOOGLE_APPLICATION_CREDENTIALS for emulator mode');
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  }
+
+  if (!admin.apps.length) {
+    adminApp = admin.initializeApp({
+      projectId: process.env.GCP_PROJECT_ID || 'demo-test',
+    });
+  } else {
+    adminApp = admin.app();
+  }
+
+  return adminApp;
 }
 
 export const test = base.extend<AuthFixtures>({
@@ -276,7 +293,8 @@ export const test = base.extend<AuthFixtures>({
       }
 
       // Step 2: Generate custom token (with retry)
-      const customToken = await withRetry(() => admin.auth(adminApp).createCustomToken(uid), {
+      // Use lazy initialization to avoid module-level errors in smoke tests
+      const customToken = await withRetry(() => admin.auth(getAdminApp()).createCustomToken(uid), {
         operationName: 'createCustomToken',
         maxAttempts: 3,
         baseDelayMs: 500,
