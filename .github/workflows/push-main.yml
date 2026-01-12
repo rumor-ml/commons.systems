@@ -95,20 +95,18 @@ jobs:
           install-firebase: 'true'
 
       - name: Test Firestore security rules
-        working-directory: fellspiral/tests
         run: |
           # Use existing emulator infrastructure (consistent with local dev)
           export SKIP_HOSTING=1  # Only need backend emulators for rules test
-          source ../../infrastructure/scripts/start-emulators.sh fellspiral
+          source infrastructure/scripts/start-emulators.sh fellspiral
 
-          # Install dependencies and run tests using pnpm exec to ensure correct package context
-          # This matches the test:rules script in package.json
-          pnpm install
-          pnpm exec node --import tsx/esm unit/firestore-rules.test.ts
+          # Run tests using pnpm filter to target the specific package (avoids recursive workspace mode)
+          # This runs the test:rules script from fellspiral/tests/package.json
+          pnpm --filter @commons/fellspiral-tests run test:rules
           TEST_EXIT_CODE=$?
 
           # Cleanup using existing script
-          ../../infrastructure/scripts/stop-emulators.sh
+          infrastructure/scripts/stop-emulators.sh
 
           exit $TEST_EXIT_CODE
 
