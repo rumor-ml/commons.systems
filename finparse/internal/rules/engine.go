@@ -60,7 +60,6 @@ func NewFlags(redeemable, vacation, transfer bool) (*Flags, error) {
 
 // Rule represents a single categorization rule.
 //
-// TODO(#1416): Comment uses conditional "should be" language that's ambiguous about current implementation
 // Rules should be created via:
 //   - YAML loading: NewEngine, LoadEmbedded, LoadFromFile
 //   - Programmatic construction: NewRule constructor
@@ -273,8 +272,8 @@ func LoadFromFile(path string) (*Engine, error) {
 // Match applies rules to a transaction description and returns the first match.
 // Rules are evaluated in priority order (highest first). Rules with equal priority
 // are evaluated in their original YAML file order (stable sort in NewEngine preserves
-// this ordering). Returns (nil, false) if no rules match.
-func (e *Engine) Match(description string) (*MatchResult, bool) {
+// this ordering). Returns (nil, false, nil) if no rules match.
+func (e *Engine) Match(description string) (*MatchResult, bool, error) {
 	// Normalize description: lowercase and trim
 	normalizedDesc := strings.ToLower(strings.TrimSpace(description))
 
@@ -301,14 +300,14 @@ func (e *Engine) Match(description string) (*MatchResult, bool) {
 				rule.Name,
 			)
 			if err != nil {
-				// This should never happen since rules are validated at construction
-				panic(fmt.Sprintf("invalid match result from validated rule %q: %v", rule.Name, err))
+				// Defense in depth: should never happen due to validation, but return error instead of crash
+				return nil, false, fmt.Errorf("internal error constructing match result from rule %q: %w (please report this bug)", rule.Name, err)
 			}
-			return result, true
+			return result, true, nil
 		}
 	}
 
-	return nil, false
+	return nil, false, nil
 }
 
 // GetRules returns a copy of the rules for inspection/debugging.
@@ -316,9 +315,6 @@ func (e *Engine) Match(description string) (*MatchResult, bool) {
 // Returns a new slice containing value copies of each Rule struct. Since Rule
 // struct fields are all value types (string, int, float64, bool, MatchType enum),
 // modifying returned rules will not affect the engine's internal state.
-// TODO(#1415): Comment warning about pointer fields will become stale if/when refactored
-// WARNING: If Rule struct is extended with pointer/slice fields, this method must
-// be updated to perform deep copying to maintain this guarantee.
 // Rules are returned in priority order (highest first). For equal priorities,
 // rules appear in YAML file order (stable sort).
 func (e *Engine) GetRules() []Rule {

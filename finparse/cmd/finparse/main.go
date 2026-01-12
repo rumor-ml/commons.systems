@@ -152,7 +152,6 @@ func run() error {
 	}
 
 	// Phase 5: Load dedup state if provided
-	// TODO(#1428): Use structured logging with error IDs instead of fmt.Fprintf
 	var state *dedup.State
 	if *stateFile != "" {
 		loadedState, err := dedup.LoadState(*stateFile)
@@ -164,8 +163,9 @@ func run() error {
 					fmt.Fprintf(os.Stderr, "State file not found, creating new state\n")
 				}
 			} else {
-				// CRITICAL: State file exists but can't be loaded
-				return fmt.Errorf("failed to load state file %q: %w (deduplication disabled, check file permissions and format)", *stateFile, err)
+				// CRITICAL: State file exists but can't be loaded - DO NOT OVERWRITE
+				return fmt.Errorf("failed to load existing state file %q: %w\n\nTo prevent data loss, finparse will not continue.\nOptions:\n  1. Fix permissions: chmod 644 %q\n  2. Reset state: rm %q\n  3. Backup and retry: cp %q %q.backup && finparse ...",
+					*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile)
 			}
 		} else {
 			state = loadedState
@@ -247,7 +247,6 @@ func run() error {
 		// Close immediately after parsing
 		closeErr := f.Close()
 		if err != nil {
-			// TODO(#1423): Comment about error message context will become outdated when error messages change
 			// If parse failed AND close also failed, warn about the close error to prevent
 			// masking potential file descriptor leaks (parse error is returned below)
 			if closeErr != nil {
@@ -293,19 +292,6 @@ func run() error {
 		totalDuplicateAccountsSkipped += stats.DuplicateAccountsSkipped
 		for _, example := range stats.DuplicateExamples() {
 			duplicateExamplesMap[example] = true
-		}
-	}
-
-	// Phase 5: Save state if modified
-	// TODO(#1428): Use structured logging with error IDs instead of fmt.Fprintf
-	if state != nil && *stateFile != "" {
-		if err := dedup.SaveState(state, *stateFile); err != nil {
-			return fmt.Errorf("failed to save state file: %w", err)
-		}
-
-		if *verbose {
-			fmt.Fprintf(os.Stderr, "Saved state with %d fingerprints to %s\n",
-				state.TotalFingerprints(), *stateFile)
 		}
 	}
 
@@ -385,7 +371,7 @@ func run() error {
 	// Phase 5: Save state before writing output (transactional ordering)
 	if state != nil && *stateFile != "" {
 		if err := dedup.SaveState(state, *stateFile); err != nil {
-			return fmt.Errorf("failed to save state file %q before writing output (no data written): %w", *stateFile, err)
+			return fmt.Errorf("failed to save state file %q before writing output: %w (output not written to maintain consistency)", *stateFile, err)
 		}
 
 		if *verbose {

@@ -305,7 +305,10 @@ rules:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, matched := engine.Match(tt.description)
+			result, matched, err := engine.Match(tt.description)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
 			if matched != tt.wantMatch {
 				t.Errorf("Match(%q) matched = %v, want %v", tt.description, matched, tt.wantMatch)
 			}
@@ -359,7 +362,10 @@ rules:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, matched := engine.Match(tt.description)
+			result, matched, err := engine.Match(tt.description)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
 			if matched != tt.wantMatch {
 				t.Errorf("Match(%q) matched = %v, want %v", tt.description, matched, tt.wantMatch)
 			}
@@ -405,7 +411,10 @@ rules:
 		t.Fatalf("NewEngine() error = %v", err)
 	}
 
-	result, matched := engine.Match("UBER EATS")
+	result, matched, err := engine.Match("UBER EATS")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
 	if !matched {
 		t.Fatal("Match() expected match for UBER EATS")
 	}
@@ -438,7 +447,10 @@ rules:
 		t.Fatalf("NewEngine() error = %v", err)
 	}
 
-	result, matched := engine.Match("TARGET STORE")
+	result, matched, err := engine.Match("TARGET STORE")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
 	if matched {
 		t.Error("Match() expected no match for TARGET STORE")
 	}
@@ -480,7 +492,10 @@ func TestLoadEmbedded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			result, matched := engine.Match(tt.description)
+			result, matched, err := engine.Match(tt.description)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
 			if matched != tt.wantMatch {
 				t.Errorf("Match(%q) matched = %v, want %v", tt.description, matched, tt.wantMatch)
 			}
@@ -519,7 +534,10 @@ rules:
 		t.Fatalf("LoadFromFile() error = %v", err)
 	}
 
-	result, matched := engine.Match("CUSTOM MERCHANT STORE")
+	result, matched, err := engine.Match("CUSTOM MERCHANT STORE")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
 	if !matched {
 		t.Error("Match() expected match for CUSTOM MERCHANT STORE")
 	}
@@ -595,7 +613,10 @@ rules:
 
 	for _, desc := range tests {
 		t.Run(desc, func(t *testing.T) {
-			_, matched := engine.Match(desc)
+			_, matched, err := engine.Match(desc)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
 			if !matched {
 				t.Errorf("Match(%q) expected match", desc)
 			}
@@ -631,7 +652,10 @@ rules:
 
 	for _, desc := range tests {
 		t.Run(desc, func(t *testing.T) {
-			_, matched := engine.Match(desc)
+			_, matched, err := engine.Match(desc)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
 			if !matched {
 				t.Errorf("Match(%q) expected match", desc)
 			}
@@ -671,7 +695,10 @@ rules:
 
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-			_, matched := engine.Match(tt.desc)
+			_, matched, err := engine.Match(tt.desc)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
 			if matched != tt.shouldMatch {
 				t.Errorf("Match(%q) = %v, want %v (%s)", tt.desc, matched, tt.shouldMatch, tt.reason)
 			}
@@ -714,7 +741,10 @@ rules:
 		t.Fatalf("NewEngine() error = %v", err)
 	}
 
-	result, matched := engine.Match("TEST MERCHANT")
+	result, matched, err := engine.Match("TEST MERCHANT")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
 	if !matched {
 		t.Fatal("Expected match for TEST MERCHANT")
 	}
@@ -745,7 +775,10 @@ rules:
 	engine, _ := NewEngine([]byte(rulesYAML))
 
 	// Description with only whitespace should not match
-	result, matched := engine.Match("   ")
+	result, matched, err := engine.Match("   ")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
 	if matched {
 		t.Error("Whitespace-only description should not match pattern 'TEST'")
 	}
@@ -787,7 +820,9 @@ func TestEmbeddedRules_CoverageRequirement(t *testing.T) {
 	unmatched := []string{}
 
 	for _, desc := range descriptions {
-		if _, ok := engine.Match(desc); ok {
+		if _, ok, err := engine.Match(desc); err != nil {
+			t.Fatalf("Match() error = %v", err)
+		} else if ok {
 			matched++
 		} else {
 			unmatched = append(unmatched, desc)
@@ -915,7 +950,10 @@ rules:
 
 	// Test pattern-based vacation detection
 	t.Run("pattern-based vacation", func(t *testing.T) {
-		result, matched := engine.Match("MARRIOTT HOTEL")
+		result, matched, err := engine.Match("MARRIOTT HOTEL")
+		if err != nil {
+			t.Fatalf("Match() error = %v", err)
+		}
 		if !matched {
 			t.Fatal("Expected match for MARRIOTT HOTEL")
 		}
@@ -923,7 +961,10 @@ rules:
 			t.Error("MARRIOTT HOTEL should have vacation=true (pattern match)")
 		}
 
-		result, matched = engine.Match("STARBUCKS")
+		result, matched, err = engine.Match("STARBUCKS")
+		if err != nil {
+			t.Fatalf("Match() error = %v", err)
+		}
 		if !matched {
 			t.Fatal("Expected match for STARBUCKS")
 		}

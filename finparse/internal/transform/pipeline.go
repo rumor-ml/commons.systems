@@ -144,7 +144,6 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// Check for duplicates if state is provided
 		if state != nil {
 			if state.IsDuplicate(fingerprint) {
-				// TODO(#1425): Comment about duplicate detection warns about "noise" but doesn't quantify acceptable noise level
 				// Skip duplicate transaction - already processed in a previous run.
 				// Duplicate count is tracked in stats for user visibility.
 				// Individual duplicates not logged to avoid noise when processing
@@ -165,12 +164,11 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 				i+1, len(raw.Transactions), txn.ID, err)
 		}
 
-		// TODO(#1421): Clarify why transaction date isn't sufficient for tracking
 		// Record in state if provided. Uses time.Now() to track when we first/last observed
-		// this fingerprint during parsing, not the transaction date. This enables:
-		//   - Debugging when duplicate detection started (state file history)
-		//   - State file cleanup (remove fingerprints not seen in N days)
-		//   - Auditing when transactions were processed vs when they occurred
+		// this fingerprint during parsing, not the transaction date. This allows state file
+		// cleanup based on parsing recency (removing fingerprints not seen in N days of runs)
+		// rather than transaction date (which could be months old for valid transactions).
+		// Also enables auditing when transactions were processed vs when they occurred.
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
 				return nil, fmt.Errorf("failed to record transaction fingerprint: %w", err)
@@ -276,14 +274,17 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 		return nil, false, err
 	}
 
-	// TODO(#1419): Improve comment to explain validation mechanism
-	// Apply rules if engine provided. Match() cannot fail because invalid match types
-	// are caught during engine initialization (NewEngine validation). The matched boolean
-	// indicates whether any rule matched the description.
+	// Apply rules if engine provided. Match() validates that rules produce valid MatchResults
+	// and returns an error if a validated rule produces an invalid result (engine initialization
+	// ensures this should never happen). The matched boolean indicates whether any rule matched.
 	var matched bool
 	var result *rules.MatchResult
 	if engine != nil {
-		result, matched = engine.Match(description)
+		var err error
+		result, matched, err = engine.Match(description)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to apply categorization rules to transaction %q: %w", description, err)
+		}
 	}
 
 	if matched {

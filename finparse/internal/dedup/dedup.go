@@ -66,8 +66,10 @@ func (r *FingerprintRecord) Update(timestamp time.Time) error {
 func (s *State) MarshalJSON() ([]byte, error) {
 	type Alias State
 	// Create defensive copy to prevent external mutation.
-	// Without this, callers could modify FingerprintRecord pointers after marshaling,
-	// affecting the internal state map since JSON marshaling doesn't deep copy.
+	// Without this, external code holding references to FingerprintRecord pointers
+	// could modify them and affect the internal state map. JSON marshaling preserves
+	// pointer sharing without deep copying the pointed-to values, so we manually
+	// deep copy each FingerprintRecord to ensure independent copies.
 	fpCopy := make(map[string]*FingerprintRecord, len(s.fingerprints))
 	for k, v := range s.fingerprints {
 		recordCopy := *v
@@ -98,7 +100,9 @@ func (s *State) UnmarshalJSON(data []byte) error {
 	if aux.Fingerprints == nil {
 		s.fingerprints = make(map[string]*FingerprintRecord)
 	} else {
-		// Create defensive copy to prevent external mutation
+		// Create defensive copy to prevent external mutation.
+		// Copy each FingerprintRecord to ensure the State's internal map is independent
+		// from any external references to the unmarshaled data.
 		s.fingerprints = make(map[string]*FingerprintRecord, len(aux.Fingerprints))
 		for k, v := range aux.Fingerprints {
 			recordCopy := *v
