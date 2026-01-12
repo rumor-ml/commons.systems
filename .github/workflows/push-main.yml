@@ -96,11 +96,20 @@ jobs:
 
       - name: Test Firestore security rules
         working-directory: fellspiral/tests
-        env:
-          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8081
         run: |
+          # Use existing emulator infrastructure (consistent with local dev)
+          export SKIP_HOSTING=1  # Only need backend emulators for rules test
+          source ../../infrastructure/scripts/start-emulators.sh fellspiral
+
+          # Run tests (emulator env vars now set by start-emulators.sh)
           pnpm install
           pnpm test:rules
+          TEST_EXIT_CODE=$?
+
+          # Cleanup using existing script
+          ../../infrastructure/scripts/stop-emulators.sh
+
+          exit $TEST_EXIT_CODE
 
       - name: Run E2E tests
         run: ./infrastructure/scripts/test-firebase-app.sh fellspiral

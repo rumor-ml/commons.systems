@@ -45,13 +45,18 @@ const validCard = {
 };
 
 before(async () => {
+  // Use FIRESTORE_EMULATOR_HOST env var set by start-emulators.sh (consistent with other tests)
+  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
+  const [host, portStr] = firestoreHost.split(':');
+  const port = parseInt(portStr, 10);
+
   // Initialize test environment
   testEnv = await initializeTestEnvironment({
     projectId: 'demo-test-firestore-rules',
     firestore: {
       rules,
-      host: '127.0.0.1',
-      port: 8081,
+      host,
+      port,
     },
   });
 });
