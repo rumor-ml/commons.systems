@@ -571,6 +571,60 @@ func TestSaveState_Atomic(t *testing.T) {
 	}
 }
 
+func TestSaveState_ConcurrentSave(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "concurrent.json")
+
+	state1 := NewState()
+	state1.RecordTransaction("fp1", "txn-001", time.Now())
+
+	state2 := NewState()
+	state2.RecordTransaction("fp2", "txn-002", time.Now())
+
+	var wg sync.WaitGroup
+	errors := make(chan error, 2)
+
+	// Launch two concurrent saves
+	for i, s := range []*State{state1, state2} {
+		wg.Add(1)
+		go func(state *State, id int) {
+			defer wg.Done()
+			if err := SaveState(state, stateFile); err != nil {
+				errors <- fmt.Errorf("save %d failed: %w", id, err)
+			}
+		}(s, i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Check for errors
+	errCount := 0
+	for err := range errors {
+		errCount++
+		t.Logf("Concurrent save error: %v", err)
+	}
+
+	// Load final state and verify it's valid
+	loaded, err := LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to load state after concurrent saves: %v", err)
+	}
+
+	// State should be valid (either state1 or state2, not corrupted mix)
+	// Since SaveState is not documented as thread-safe, one save should win
+	total := loaded.TotalFingerprints()
+	if total != 1 {
+		t.Errorf("Expected 1 fingerprint (one save won), got %d (indicates corruption)", total)
+	}
+
+	// Verify no temp files remain
+	tempFile := stateFile + ".tmp"
+	if _, err := os.Stat(tempFile); !os.IsNotExist(err) {
+		t.Error("Concurrent saves left temp file behind")
+	}
+}
+
 func TestSaveState_DiskFullDuringWrite(t *testing.T) {
 	// Document expected behavior for disk-full scenarios
 	// This test is skipped because reliably triggering disk-full requires OS-level mocking
@@ -822,6 +876,45 @@ func TestRecordTransaction_TimestampBeforeFirstSeen(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "before first seen") {
 		t.Errorf("Error should mention 'before first seen', got: %v", err)
+	}
+}
+
+func TestRecordTransaction_ZeroFirstSeenTimestamp(t *testing.T) {
+	state := NewState()
+	fp := "corrupt-fp"
+
+	// Manually create a corrupted record (simulates file corruption or manual edit)
+	state.fingerprints[fp] = &FingerprintRecord{
+		FirstSeen:     time.Time{}, // Zero time
+		LastSeen:      time.Time{},
+		Count:         1,
+		TransactionID: "txn-001",
+	}
+
+	// Attempt to record with valid timestamp
+	ts := time.Now()
+	err := state.RecordTransaction(fp, "txn-002", ts)
+
+	// Current implementation succeeds but leaves FirstSeen as zero
+	// This test documents the behavior: RecordTransaction does NOT fix zero FirstSeen
+	if err != nil {
+		t.Fatalf("RecordTransaction failed with zero FirstSeen: %v", err)
+	}
+
+	// Verify the zero FirstSeen is NOT fixed (current behavior)
+	record := state.fingerprints[fp]
+	if !record.FirstSeen.IsZero() {
+		t.Error("Expected FirstSeen to remain zero (current implementation behavior)")
+	}
+
+	// Verify LastSeen is updated correctly
+	if !record.LastSeen.Equal(ts) {
+		t.Errorf("LastSeen should be updated to %v, got %v", ts, record.LastSeen)
+	}
+
+	// Verify Count is incremented
+	if record.Count != 2 {
+		t.Errorf("Count should be 2, got %d", record.Count)
 	}
 }
 

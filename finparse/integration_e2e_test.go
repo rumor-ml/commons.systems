@@ -3,6 +3,7 @@ package finparse_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,11 +220,11 @@ NEWFILEUID:NONE
 		if txn.Category != domain.CategoryOther {
 			t.Errorf("expected category 'other', got %q", txn.Category)
 		}
-		if txn.Redeemable != false {
-			t.Errorf("expected redeemable false, got %v", txn.Redeemable)
+		if txn.Redeemable() != false {
+			t.Errorf("expected redeemable false, got %v", txn.Redeemable())
 		}
-		if txn.RedemptionRate != 0.0 {
-			t.Errorf("expected redemption rate 0.0, got %f", txn.RedemptionRate)
+		if txn.RedemptionRate() != 0.0 {
+			t.Errorf("expected redemption rate 0.0, got %f", txn.RedemptionRate())
 		}
 	}
 
@@ -611,21 +612,21 @@ NEWFILEUID:NONE
 			if txn.Category != domain.CategoryGroceries {
 				t.Errorf("WHOLEFDS should be groceries, got %s", txn.Category)
 			}
-			if !txn.Redeemable {
+			if !txn.Redeemable() {
 				t.Error("WHOLEFDS should be redeemable")
 			}
 		} else if strings.Contains(txn.Description, "CHIPOTLE") {
 			if txn.Category != domain.CategoryDining {
 				t.Errorf("CHIPOTLE should be dining, got %s", txn.Category)
 			}
-			if !txn.Redeemable {
+			if !txn.Redeemable() {
 				t.Error("CHIPOTLE should be redeemable")
 			}
 		} else if strings.Contains(txn.Description, "JOHNS HOPKINS") {
 			if txn.Category != domain.CategoryIncome {
 				t.Errorf("JOHNS HOPKINS should be income, got %s", txn.Category)
 			}
-			if txn.Redeemable {
+			if txn.Redeemable() {
 				t.Error("JOHNS HOPKINS should not be redeemable")
 			}
 		}
@@ -1148,11 +1149,11 @@ NEWFILEUID:NONE
 		switch {
 		case strings.Contains(txn.Description, "CAPITAL ONE PAYMENT"):
 			// Transfer/payment should NOT be redeemable
-			if txn.Redeemable {
-				t.Errorf("CAPITAL ONE PAYMENT should NOT be redeemable, got redeemable=%v", txn.Redeemable)
+			if txn.Redeemable() {
+				t.Errorf("CAPITAL ONE PAYMENT should NOT be redeemable, got redeemable=%v", txn.Redeemable())
 			}
-			if txn.RedemptionRate != 0.0 {
-				t.Errorf("CAPITAL ONE PAYMENT should have redemption_rate=0.0, got %f", txn.RedemptionRate)
+			if txn.RedemptionRate() != 0.0 {
+				t.Errorf("CAPITAL ONE PAYMENT should have redemption_rate=0.0, got %f", txn.RedemptionRate())
 			}
 			if !txn.Transfer {
 				t.Errorf("CAPITAL ONE PAYMENT should be marked as transfer, got transfer=%v", txn.Transfer)
@@ -1160,11 +1161,11 @@ NEWFILEUID:NONE
 
 		case strings.Contains(txn.Description, "ATM WITHDRAWAL"):
 			// ATM withdrawal should NOT be redeemable
-			if txn.Redeemable {
-				t.Errorf("ATM WITHDRAWAL should NOT be redeemable, got redeemable=%v", txn.Redeemable)
+			if txn.Redeemable() {
+				t.Errorf("ATM WITHDRAWAL should NOT be redeemable, got redeemable=%v", txn.Redeemable())
 			}
-			if txn.RedemptionRate != 0.0 {
-				t.Errorf("ATM WITHDRAWAL should have redemption_rate=0.0, got %f", txn.RedemptionRate)
+			if txn.RedemptionRate() != 0.0 {
+				t.Errorf("ATM WITHDRAWAL should have redemption_rate=0.0, got %f", txn.RedemptionRate())
 			}
 			if !txn.Transfer {
 				t.Errorf("ATM WITHDRAWAL should be marked as transfer, got transfer=%v", txn.Transfer)
@@ -1172,20 +1173,20 @@ NEWFILEUID:NONE
 
 		case strings.Contains(txn.Description, "LATE FEE"):
 			// Fee should NOT be redeemable
-			if txn.Redeemable {
-				t.Errorf("LATE FEE should NOT be redeemable, got redeemable=%v", txn.Redeemable)
+			if txn.Redeemable() {
+				t.Errorf("LATE FEE should NOT be redeemable, got redeemable=%v", txn.Redeemable())
 			}
-			if txn.RedemptionRate != 0.0 {
-				t.Errorf("LATE FEE should have redemption_rate=0.0, got %f", txn.RedemptionRate)
+			if txn.RedemptionRate() != 0.0 {
+				t.Errorf("LATE FEE should have redemption_rate=0.0, got %f", txn.RedemptionRate())
 			}
 
 		case strings.Contains(txn.Description, "WHOLEFDS"):
 			// Grocery purchase should be redeemable
-			if !txn.Redeemable {
-				t.Errorf("WHOLEFDS MARKET should be redeemable, got redeemable=%v", txn.Redeemable)
+			if !txn.Redeemable() {
+				t.Errorf("WHOLEFDS MARKET should be redeemable, got redeemable=%v", txn.Redeemable())
 			}
-			if txn.RedemptionRate <= 0.0 {
-				t.Errorf("WHOLEFDS MARKET should have redemption_rate>0.0, got %f", txn.RedemptionRate)
+			if txn.RedemptionRate() <= 0.0 {
+				t.Errorf("WHOLEFDS MARKET should have redemption_rate>0.0, got %f", txn.RedemptionRate())
 			}
 			if txn.Category != domain.CategoryGroceries {
 				t.Errorf("WHOLEFDS MARKET should be groceries category, got %s", txn.Category)
@@ -1652,4 +1653,265 @@ NEWFILEUID:NONE
 	}
 
 	t.Log("SUCCESS: State file persistence across CLI runs verified")
+}
+
+// createOFXWithTransactions generates OFX content for testing with specified transactions.
+// Each transaction spec format: "FITID|DATE|AMOUNT|NAME"
+// Example: "TXN001|2025-10-05|-50.00|WHOLEFDS MARKET"
+func createOFXWithTransactions(txnSpecs []string, acctID string) string {
+	// Parse transaction specs
+	var stmtTrns strings.Builder
+	for _, spec := range txnSpecs {
+		parts := strings.Split(spec, "|")
+		if len(parts) != 4 {
+			panic(fmt.Sprintf("invalid transaction spec: %s (expected FITID|DATE|AMOUNT|NAME)", spec))
+		}
+		fitid := parts[0]
+		date := parts[1]
+		amount := parts[2]
+		name := parts[3]
+
+		// Parse date to OFX format (YYYYMMDDHHMMSS)
+		dateTime, err := time.Parse("2006-01-02", date)
+		if err != nil {
+			panic(fmt.Sprintf("invalid date in spec: %s", date))
+		}
+		ofxDate := dateTime.Format("20060102") + "120000"
+
+		// Determine transaction type
+		trnType := "DEBIT"
+		if strings.HasPrefix(amount, "-") {
+			trnType = "DEBIT"
+		} else {
+			trnType = "CREDIT"
+		}
+
+		stmtTrns.WriteString(fmt.Sprintf(`<STMTTRN>
+<TRNTYPE>%s
+<DTPOSTED>%s
+<TRNAMT>%s
+<FITID>%s
+<NAME>%s
+</STMTTRN>
+`, trnType, ofxDate, amount, fitid, name))
+	}
+
+	// Calculate start/end dates from first transaction
+	firstDate := strings.Split(txnSpecs[0], "|")[1]
+	dateTime, _ := time.Parse("2006-01-02", firstDate)
+	startDate := dateTime.Format("20060102") + "000000"
+	endDate := dateTime.AddDate(0, 0, 30).Format("20060102") + "235959"
+
+	ofxContent := fmt.Sprintf(`OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>AMEX
+<FID>1000
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+<CCSTMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<CCSTMTRS>
+<CURDEF>USD
+<CCACCTFROM>
+<ACCTID>%s
+</CCACCTFROM>
+<BANKTRANLIST>
+<DTSTART>%s
+<DTEND>%s
+%s</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>1000.00
+<DTASOF>%s
+</LEDGERBAL>
+</CCSTMTRS>
+</CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>`, acctID, startDate, endDate, stmtTrns.String(), endDate)
+
+	return ofxContent
+}
+
+// TestEndToEnd_IncrementalParsingWithStatePersistence validates incremental parsing with state file.
+// This test verifies the acceptance criterion: "State file enables incremental parsing".
+func TestEndToEnd_IncrementalParsingWithStatePersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create directory structure
+	instDir := filepath.Join(tmpDir, "american_express", "2011")
+	if err := os.MkdirAll(instDir, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	// Create two overlapping OFX files with same transactions
+	ofxContent := createOFXWithTransactions([]string{
+		"TXN001|2025-10-05|-50.00|WHOLEFDS MARKET",
+		"TXN002|2025-10-15|-25.00|CHIPOTLE MEXICAN GRILL",
+	}, "2011")
+
+	file1 := filepath.Join(instDir, "statement_202510.qfx")
+	file2 := filepath.Join(instDir, "statement_202510_duplicate.qfx")
+
+	if err := os.WriteFile(file1, []byte(ofxContent), 0644); err != nil {
+		t.Fatalf("failed to write file1: %v", err)
+	}
+	if err := os.WriteFile(file2, []byte(ofxContent), 0644); err != nil {
+		t.Fatalf("failed to write file2: %v", err)
+	}
+
+	// Setup for parsing
+	ctx := context.Background()
+	reg, err := registry.New()
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+
+	// Scanner to get metadata
+	s := scanner.New(tmpDir)
+
+	// First run: parse file1, create state
+	budget1 := domain.NewBudget()
+	state1 := dedup.NewState()
+
+	files1, err := s.Scan()
+	if err != nil {
+		t.Fatalf("First run: scan failed: %v", err)
+	}
+
+	// Find and parse file1
+	for _, file := range files1 {
+		if file.Path == file1 {
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("First run: FindParser failed: %v", err)
+			}
+			if parser == nil {
+				t.Fatalf("First run: no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("First run: failed to open file: %v", err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("First run: failed to close file: %v", closeErr)
+			}
+			if err != nil {
+				t.Fatalf("First run: parse failed: %v", err)
+			}
+
+			if _, err := transform.TransformStatement(rawStmt, budget1, state1, engine); err != nil {
+				t.Fatalf("First run: transform failed: %v", err)
+			}
+			break
+		}
+	}
+
+	// Verify first run: 2 transactions added
+	if len(budget1.GetTransactions()) != 2 {
+		t.Errorf("First run should have 2 transactions, got %d", len(budget1.GetTransactions()))
+	}
+
+	// Save state to file
+	if err := dedup.SaveState(state1, stateFile); err != nil {
+		t.Fatalf("Failed to save state: %v", err)
+	}
+
+	// Verify state file exists and is valid JSON
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		t.Fatal("State file was not created")
+	}
+
+	// Verify state file content
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to read state file: %v", err)
+	}
+	var stateData map[string]interface{}
+	if err := json.Unmarshal(data, &stateData); err != nil {
+		t.Fatalf("State file is not valid JSON: %v", err)
+	}
+
+	// Second run: parse file2 (same transactions), load state
+	budget2 := domain.NewBudget()
+	state2, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to load state: %v", err)
+	}
+
+	files2, err := s.Scan()
+	if err != nil {
+		t.Fatalf("Second run: scan failed: %v", err)
+	}
+
+	// Find and parse file2
+	for _, file := range files2 {
+		if file.Path == file2 {
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("Second run: FindParser failed: %v", err)
+			}
+			if parser == nil {
+				t.Fatalf("Second run: no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("Second run: failed to open file: %v", err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("Second run: failed to close file: %v", closeErr)
+			}
+			if err != nil {
+				t.Fatalf("Second run: parse failed: %v", err)
+			}
+
+			if _, err := transform.TransformStatement(rawStmt, budget2, state2, engine); err != nil {
+				t.Fatalf("Second run: transform failed: %v", err)
+			}
+			break
+		}
+	}
+
+	// Verify second run: 0 transactions added (all duplicates)
+	if len(budget2.GetTransactions()) != 0 {
+		t.Errorf("Second run should add 0 transactions, got %d", len(budget2.GetTransactions()))
+	}
+
+	// Verify state2 has updated counts (FirstSeen preserved, LastSeen updated)
+	if state2.TotalFingerprints() != 2 {
+		t.Errorf("State should have 2 fingerprints, got %d", state2.TotalFingerprints())
+	}
 }

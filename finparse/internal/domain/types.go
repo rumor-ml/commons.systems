@@ -85,10 +85,10 @@ type Transaction struct {
 	// Parsers must normalize to this convention regardless of source file representation.
 	Amount              float64  `json:"amount"`
 	Category            Category `json:"category"`
-	Redeemable          bool     `json:"redeemable"`
+	redeemable          bool     `json:"redeemable"`
 	Vacation            bool     `json:"vacation"`
 	Transfer            bool     `json:"transfer"`
-	RedemptionRate      float64  `json:"redemptionRate"`
+	redemptionRate      float64  `json:"redemptionRate"`
 	LinkedTransactionID *string  `json:"linkedTransactionId,omitempty"`
 	statementIDs        []string
 }
@@ -354,9 +354,19 @@ func (t *Transaction) SetRedeemable(redeemable bool, rate float64) error {
 	if !redeemable && rate != 0 {
 		return fmt.Errorf("non-redeemable transaction must have zero redemption rate")
 	}
-	t.Redeemable = redeemable
-	t.RedemptionRate = rate
+	t.redeemable = redeemable
+	t.redemptionRate = rate
 	return nil
+}
+
+// Redeemable returns whether the transaction is redeemable
+func (t *Transaction) Redeemable() bool {
+	return t.redeemable
+}
+
+// RedemptionRate returns the redemption rate for the transaction
+func (t *Transaction) RedemptionRate() float64 {
+	return t.redemptionRate
 }
 
 // AddStatementID adds a statement ID with validation
@@ -396,28 +406,53 @@ func (t *Transaction) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements custom JSON unmarshaling for Transaction
 func (t *Transaction) UnmarshalJSON(data []byte) error {
-	type Alias Transaction
+	// Use temporary struct with exported fields for JSON unmarshaling
 	aux := &struct {
-		*Alias
-		StatementIDs []string `json:"statementIds"`
-	}{
-		Alias: (*Alias)(t),
-	}
+		ID                  string   `json:"id"`
+		Date                string   `json:"date"`
+		Description         string   `json:"description"`
+		Amount              float64  `json:"amount"`
+		Category            Category `json:"category"`
+		Redeemable          bool     `json:"redeemable"`
+		Vacation            bool     `json:"vacation"`
+		Transfer            bool     `json:"transfer"`
+		RedemptionRate      float64  `json:"redemptionRate"`
+		LinkedTransactionID *string  `json:"linkedTransactionId,omitempty"`
+		StatementIDs        []string `json:"statementIds"`
+	}{}
+
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
+
+	// Copy to struct fields
+	t.ID = aux.ID
+	t.Date = aux.Date
+	t.Description = aux.Description
+	t.Amount = aux.Amount
+	t.Category = aux.Category
+	t.Vacation = aux.Vacation
+	t.Transfer = aux.Transfer
+	t.LinkedTransactionID = aux.LinkedTransactionID
 	t.statementIDs = aux.StatementIDs
-	// Validate redemption rate
-	if t.RedemptionRate < 0 || t.RedemptionRate > 1 {
-		return fmt.Errorf("redemption rate must be in [0,1], got %f", t.RedemptionRate)
+
+	// Validate redemption rate bounds
+	if aux.RedemptionRate < 0 || aux.RedemptionRate > 1 {
+		return fmt.Errorf("redemption rate must be in [0,1], got %f", aux.RedemptionRate)
 	}
+
 	// Validate consistency between Redeemable and RedemptionRate
-	if t.Redeemable && t.RedemptionRate == 0 {
+	if aux.Redeemable && aux.RedemptionRate == 0 {
 		return fmt.Errorf("redeemable transaction must have non-zero redemption rate")
 	}
-	if !t.Redeemable && t.RedemptionRate != 0 {
+	if !aux.Redeemable && aux.RedemptionRate != 0 {
 		return fmt.Errorf("non-redeemable transaction must have zero redemption rate")
 	}
+
+	// Only assign private fields after validation
+	t.redeemable = aux.Redeemable
+	t.redemptionRate = aux.RedemptionRate
+
 	return nil
 }
 

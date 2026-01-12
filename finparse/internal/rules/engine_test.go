@@ -428,6 +428,144 @@ rules:
 	}
 }
 
+func TestMatch_PreparationForDateBasedVacation(t *testing.T) {
+	// This test verifies current behavior and establishes contract for future date-based vacation
+	rulesYAML := `
+rules:
+  - name: "Regular Dining"
+    pattern: "STARBUCKS"
+    match_type: "contains"
+    priority: 400
+    category: "dining"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Current behavior: Match() doesn't accept date parameter
+	result, matched, err := engine.Match("STARBUCKS")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if !matched {
+		t.Fatal("Expected match for STARBUCKS")
+	}
+
+	// Document current limitation
+	if result.Vacation {
+		t.Error("STARBUCKS should not be vacation (no date context)")
+	}
+
+	// TODO(#1407): When date-based vacation is implemented, add:
+	// result := engine.MatchWithDate("STARBUCKS", "2025-12-25", vacationPeriods)
+	// if !result.Vacation {
+	//     t.Error("STARBUCKS during vacation period should have vacation=true")
+	// }
+
+	t.Log("Current Match() API does not support date-based vacation detection")
+	t.Log("Future API: MatchWithDate(description, date, vacationPeriods) or Match returns raw result for post-processing")
+}
+
+func TestMatch_VacationPeriodOverridesPatternFlag(t *testing.T) {
+	t.Skip("TODO(#1407): Date-based vacation detection not yet implemented")
+
+	// When implemented, this test should verify:
+	// - Transaction with vacation=false pattern during vacation period becomes vacation=true
+	// - Transaction with vacation=true pattern outside vacation period remains vacation=true
+	// - Vacation periods are inclusive of start/end dates
+
+	// Expected behavior:
+	// vacationPeriods := []VacationPeriod{{Start: "2025-12-20", End: "2025-12-30"}}
+	// result1 := engine.MatchWithDate("STARBUCKS", "2025-12-25", vacationPeriods)
+	// // Should be vacation=true (pattern=false but date overrides)
+	//
+	// result2 := engine.MatchWithDate("STARBUCKS", "2026-01-05", vacationPeriods)
+	// // Should be vacation=false (pattern=false, date doesn't override)
+}
+
+func TestMatch_MultiplePatternsHighestPriorityWins(t *testing.T) {
+	rulesYAML := `
+rules:
+  - name: "Generic Transportation"
+    pattern: "UBER"
+    match_type: "contains"
+    priority: 500
+    category: "transportation"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+  - name: "Food Delivery"
+    pattern: "EATS"
+    match_type: "contains"
+    priority: 600
+    category: "dining"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+  - name: "Specific Uber Eats"
+    pattern: "UBER EATS"
+    match_type: "contains"
+    priority: 700
+    category: "dining"
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	// Test that highest priority match wins, regardless of pattern specificity
+	result, matched, err := engine.Match("UBER EATS DELIVERY")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if !matched {
+		t.Fatal("Expected match for UBER EATS DELIVERY")
+	}
+
+	// Should match "Specific Uber Eats" (priority 700), not "EATS" (600) or "UBER" (500)
+	if result.RuleName != "Specific Uber Eats" {
+		t.Errorf("Expected 'Specific Uber Eats' (priority 700) to match, got %q", result.RuleName)
+	}
+	if result.Category != domain.CategoryDining {
+		t.Errorf("Expected category 'dining', got %q", result.Category)
+	}
+	if !result.Redeemable {
+		t.Error("Expected redeemable=true from highest priority rule")
+	}
+
+	// Test with transaction that only matches lower priority rules
+	result2, matched2, err := engine.Match("UBER FREIGHT")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if !matched2 {
+		t.Fatal("Expected match for UBER FREIGHT")
+	}
+
+	// Should match "Generic Transportation" (priority 500) since higher priority rules don't match
+	if result2.RuleName != "Generic Transportation" {
+		t.Errorf("Expected 'Generic Transportation' to match, got %q", result2.RuleName)
+	}
+	if result2.Category != domain.CategoryTransportation {
+		t.Errorf("Expected category 'transportation', got %q", result2.Category)
+	}
+}
+
 func TestMatch_NoMatch(t *testing.T) {
 	rulesYAML := `
 rules:

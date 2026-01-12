@@ -171,8 +171,8 @@ func TestNewTransaction_Validation(t *testing.T) {
 			if len(tx.GetStatementIDs()) != 0 {
 				t.Errorf("Expected StatementIDs length 0, got %d", len(tx.GetStatementIDs()))
 			}
-			if tx.RedemptionRate != 0.0 {
-				t.Errorf("Expected RedemptionRate 0.0, got %f", tx.RedemptionRate)
+			if tx.RedemptionRate() != 0.0 {
+				t.Errorf("Expected RedemptionRate 0.0, got %f", tx.RedemptionRate())
 			}
 		}
 	})
@@ -217,11 +217,11 @@ func TestTransaction_SetRedeemable(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if !tx.Redeemable {
+		if !tx.Redeemable() {
 			t.Error("Expected Redeemable=true")
 		}
-		if tx.RedemptionRate != 0.5 {
-			t.Errorf("Expected RedemptionRate 0.5, got %f", tx.RedemptionRate)
+		if tx.RedemptionRate() != 0.5 {
+			t.Errorf("Expected RedemptionRate 0.5, got %f", tx.RedemptionRate())
 		}
 	})
 
@@ -231,11 +231,11 @@ func TestTransaction_SetRedeemable(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if tx.Redeemable {
+		if tx.Redeemable() {
 			t.Error("Expected Redeemable=false")
 		}
-		if tx.RedemptionRate != 0.0 {
-			t.Errorf("Expected RedemptionRate 0.0, got %f", tx.RedemptionRate)
+		if tx.RedemptionRate() != 0.0 {
+			t.Errorf("Expected RedemptionRate 0.0, got %f", tx.RedemptionRate())
 		}
 	})
 }

@@ -205,8 +205,8 @@ func TestTransformTransaction(t *testing.T) {
 		t.Errorf("expected Category %q, got %q", domain.CategoryOther, txn.Category)
 	}
 
-	if txn.Redeemable != false {
-		t.Errorf("expected Redeemable false, got %v", txn.Redeemable)
+	if txn.Redeemable() != false {
+		t.Errorf("expected Redeemable false, got %v", txn.Redeemable())
 	}
 
 	if txn.Vacation != false {
@@ -217,8 +217,8 @@ func TestTransformTransaction(t *testing.T) {
 		t.Errorf("expected Transfer false, got %v", txn.Transfer)
 	}
 
-	if txn.RedemptionRate != 0.0 {
-		t.Errorf("expected RedemptionRate 0.0, got %f", txn.RedemptionRate)
+	if txn.RedemptionRate() != 0.0 {
+		t.Errorf("expected RedemptionRate 0.0, got %f", txn.RedemptionRate())
 	}
 
 	if txn.LinkedTransactionID != nil {
@@ -639,8 +639,8 @@ func TestTransformTransaction_UnmatchedDefaultsToOther(t *testing.T) {
 		t.Errorf("expected Category %q, got %q", domain.CategoryOther, txn.Category)
 	}
 
-	if txn.Redeemable != false {
-		t.Errorf("expected Redeemable false, got %v", txn.Redeemable)
+	if txn.Redeemable() != false {
+		t.Errorf("expected Redeemable false, got %v", txn.Redeemable())
 	}
 
 	if txn.Vacation != false {
@@ -651,8 +651,8 @@ func TestTransformTransaction_UnmatchedDefaultsToOther(t *testing.T) {
 		t.Errorf("expected Transfer false, got %v", txn.Transfer)
 	}
 
-	if txn.RedemptionRate != 0.0 {
-		t.Errorf("expected RedemptionRate 0.0, got %f", txn.RedemptionRate)
+	if txn.RedemptionRate() != 0.0 {
+		t.Errorf("expected RedemptionRate 0.0, got %f", txn.RedemptionRate())
 	}
 }
 

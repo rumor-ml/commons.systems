@@ -6,6 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
@@ -90,8 +93,9 @@ Examples:
 func run() error {
 	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling.
 	// Currently uses Background() which ignores cancellation signals. Should use
-	// context.WithCancel and signal.NotifyContext to allow in-progress parsing to
-	// complete when user presses Ctrl+C.
+	// signal.NotifyContext to detect Ctrl+C, then finish parsing the current file
+	// before exiting (allowing state file to be saved consistently). Files not yet
+	// started should be skipped.
 	ctx := context.Background()
 
 	// Create scanner
@@ -164,23 +168,40 @@ func run() error {
 					fmt.Fprintf(os.Stderr, "State file not found, creating new state\n")
 				}
 			} else {
-				// CRITICAL: State file exists but can't be loaded - DO NOT OVERWRITE
+				// CRITICAL: State file exists but can't be loaded - return error to prevent data loss.
+				// Stopping here ensures SaveState() won't overwrite the problematic file during this run.
 				// Check if this is a permission error to provide specific guidance
 				var pathErr *os.PathError
 				if errors.As(err, &pathErr) && errors.Is(pathErr.Err, os.ErrPermission) {
-					return fmt.Errorf("failed to load state file %q: permission denied: %w\n\nThe state file exists but cannot be read.\nOptions:\n  1. Check file permissions: ls -la %q\n  2. Check ownership: stat %q\n  3. Reset state (loses deduplication): rm %q",
-						*stateFile, err, *stateFile, *stateFile, *stateFile)
+					return fmt.Errorf("failed to load state file %q: permission denied: %w\n\nCRITICAL: The state file exists but cannot be read.\nDeleting it will cause all transactions to be reprocessed as NEW (creating duplicates).\n\nOptions:\n  1. Check file permissions: ls -la %q\n  2. Check ownership: stat %q\n  3. Backup and reset (will reprocess ALL transactions): cp %q %q.backup && rm %q",
+						*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile, *stateFile)
 				}
 
 				// Generic load failure (corruption, format error, etc)
-				return fmt.Errorf("failed to load existing state file %q: %w\n\nThe state file exists but cannot be loaded.\nOptions:\n  1. Check file integrity: file %q\n  2. Backup and reset: cp %q %q.backup && rm %q",
-					*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile)
+				return fmt.Errorf("failed to load existing state file %q: %w\n\nCRITICAL: The state file exists but cannot be loaded.\nDeleting it will cause all transactions to be reprocessed as NEW (creating duplicates).\n\nOptions:\n  1. Check file integrity: file %q\n  2. Backup the file: cp %q %q.backup\n  3. Try to recover: inspect JSON structure in %q\n  4. Reset (will reprocess ALL transactions): rm %q after backing up",
+					*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile, *stateFile)
 			}
 		} else {
 			state = loadedState
+
+			// Validate loaded state integrity
+			if state.Version != dedup.CurrentVersion {
+				return fmt.Errorf("state file version mismatch: got %d, expected %d",
+					state.Version, dedup.CurrentVersion)
+			}
+
+			if state.TotalFingerprints() == 0 {
+				fmt.Fprintf(os.Stderr, "WARNING: State file loaded but contains 0 fingerprints\n")
+				fmt.Fprintf(os.Stderr, "         This is normal for first run, but unexpected if you've processed statements before\n")
+			}
+
 			if *verbose {
 				fmt.Fprintf(os.Stderr, "Loaded state with %d fingerprints\n",
 					state.TotalFingerprints())
+				if !state.Metadata.LastUpdated.IsZero() {
+					fmt.Fprintf(os.Stderr, "  Last updated: %s\n",
+						state.Metadata.LastUpdated.Format(time.RFC3339))
+				}
 			}
 		}
 	}
@@ -251,31 +272,22 @@ func run() error {
 			return fmt.Errorf("failed to open %s: %w", file.Path, err)
 		}
 
-		// Defer close to ensure cleanup even on panic or early return
-		defer func() {
-			if closeErr := f.Close(); closeErr != nil {
-				fmt.Fprintf(os.Stderr, "WARNING: failed to close %s: %v (possible file descriptor leak)\n",
-					file.Path, closeErr)
-			}
-		}()
-
 		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+
+		// Close file immediately after parsing (not deferred) to avoid file descriptor accumulation
+		closeErr := f.Close()
+		if closeErr != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: failed to close %s: %v\n",
+				file.Path, closeErr)
+		}
+
 		if err != nil {
 			return fmt.Errorf("parse failed for file %d of %d (%s): %w",
 				i+1, len(files), file.Path, err)
 		}
 
 		// Verify parser contract: if no error, rawStmt must not be nil
-		// Check this BEFORE file closes (via defer) so we can extract debug info
 		if rawStmt == nil {
-			// Try to extract file sample for debugging
-			if _, seekErr := f.Seek(0, 0); seekErr == nil {
-				sample := make([]byte, 200)
-				if n, _ := f.Read(sample); n > 0 {
-					return fmt.Errorf("parser %s returned nil statement without error for %s (parser bug) - file sample: %q",
-						parser.Name(), file.Path, string(sample[:n]))
-				}
-			}
 			return fmt.Errorf("parser %s returned nil statement without error for %s (parser bug)",
 				parser.Name(), file.Path)
 		}
@@ -383,10 +395,37 @@ func run() error {
 	// Phase 5: Save state before writing output (transactional ordering)
 	if state != nil && *stateFile != "" {
 		if err := dedup.SaveState(state, *stateFile); err != nil {
-			return fmt.Errorf("failed to save state file %q before writing output: %w (output not written to maintain consistency)", *stateFile, err)
-		}
+			// State save failed - provide detailed diagnostics
+			fmt.Fprintf(os.Stderr, "\nERROR: Failed to save deduplication state: %v\n", err)
+			fmt.Fprintf(os.Stderr, "\nThis means:\n")
+			fmt.Fprintf(os.Stderr, "  - All parsing work for this run will be lost\n")
+			fmt.Fprintf(os.Stderr, "  - Transactions will be reprocessed as NEW on next run\n")
+			fmt.Fprintf(os.Stderr, "  - Output file will NOT be written to prevent inconsistency\n")
+			fmt.Fprintf(os.Stderr, "\nRecovery options:\n")
+			fmt.Fprintf(os.Stderr, "  1. Fix the error and retry (recommended)\n")
+			fmt.Fprintf(os.Stderr, "  2. Try different state file location: --state /different/path\n")
+			fmt.Fprintf(os.Stderr, "  3. Write output without state: FINPARSE_SKIP_STATE_SAVE=1 finparse ...\n")
+			fmt.Fprintf(os.Stderr, "     (WARNING: duplicates will be reprocessed on next run)\n\n")
 
-		if *verbose {
+			// Check for common errors
+			if strings.Contains(err.Error(), "permission denied") {
+				stateDir := filepath.Dir(*stateFile)
+				fmt.Fprintf(os.Stderr, "Permission denied - check directory permissions:\n")
+				fmt.Fprintf(os.Stderr, "  ls -la %q\n", stateDir)
+			} else if strings.Contains(err.Error(), "no space left") {
+				fmt.Fprintf(os.Stderr, "Disk full - check available space:\n")
+				fmt.Fprintf(os.Stderr, "  df -h\n")
+			}
+
+			// Check for environment variable override
+			if os.Getenv("FINPARSE_SKIP_STATE_SAVE") == "1" {
+				fmt.Fprintf(os.Stderr, "\nWARNING: Continuing without saving state due to FINPARSE_SKIP_STATE_SAVE=1\n")
+				fmt.Fprintf(os.Stderr, "         All transactions will be reprocessed on next run\n\n")
+			} else {
+				return fmt.Errorf("failed to save state file %q before writing output: %w\n\nOutput not written to maintain consistency.\nUse FINPARSE_SKIP_STATE_SAVE=1 to write output anyway (will reprocess transactions on next run).",
+					*stateFile, err)
+			}
+		} else if *verbose {
 			fmt.Fprintf(os.Stderr, "Saved state with %d fingerprints to %s\n",
 				state.TotalFingerprints(), *stateFile)
 		}

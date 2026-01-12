@@ -13,9 +13,9 @@ import (
 )
 
 // State represents the deduplication state with fingerprint history.
-// IMPORTANT: State should always be passed by pointer (*State), never by value.
-// Copying State by value creates a shallow copy that shares the underlying
-// fingerprints map, which can lead to unexpected behavior.
+// IMPORTANT: State must be passed by pointer (*State), never by value.
+// The fingerprints map is a reference type - copying State by value creates
+// aliasing where both copies share the same underlying map.
 type State struct {
 	Version      int                           `json:"version"`
 	fingerprints map[string]*FingerprintRecord `json:"fingerprints"`
@@ -51,8 +51,8 @@ func NewFingerprintRecord(transactionID string, timestamp time.Time) (*Fingerpri
 // Update updates the record for a new observation.
 // Returns error if timestamp is strictly before the first seen time.
 // Timestamps equal to FirstSeen are allowed (same transaction re-parsed).
-// Count is incremented on every call to track the total number of observations,
-// even if timestamp equals FirstSeen or LastSeen (idempotent re-parsing).
+// Count is incremented on every call to track total observations, even when
+// re-parsing the same transaction at the same timestamp (Count increases on every observation).
 func (r *FingerprintRecord) Update(timestamp time.Time) error {
 	if timestamp.Before(r.FirstSeen) {
 		return fmt.Errorf("timestamp %v is before first seen %v", timestamp, r.FirstSeen)
@@ -65,11 +65,9 @@ func (r *FingerprintRecord) Update(timestamp time.Time) error {
 // MarshalJSON implements json.Marshaler for State
 func (s *State) MarshalJSON() ([]byte, error) {
 	type Alias State
-	// Create defensive copy to prevent exposing internal pointers.
-	// Without this, the Alias cast exposes s.fingerprints directly, allowing
-	// external code to retain references to FingerprintRecord pointers from the
-	// JSON marshaling process. By deep copying each record, we ensure JSON
-	// marshaling operates on independent copies, protecting internal state.
+	// Create defensive copy for consistency with UnmarshalJSON defensive copying,
+	// ensuring symmetrical handling. Also ensures State's internal map is fully
+	// owned even if unmarshaled data structures are modified later.
 	fpCopy := make(map[string]*FingerprintRecord, len(s.fingerprints))
 	for k, v := range s.fingerprints {
 		recordCopy := *v
@@ -100,9 +98,8 @@ func (s *State) UnmarshalJSON(data []byte) error {
 	if aux.Fingerprints == nil {
 		s.fingerprints = make(map[string]*FingerprintRecord)
 	} else {
-		// Create defensive copy to prevent external mutation.
-		// Copy each FingerprintRecord to ensure the State's internal map is independent
-		// from any external references to the unmarshaled data.
+		// Copy each FingerprintRecord to ensure State's internal map is fully independent.
+		// Maintains defensive encapsulation pattern used throughout the State API.
 		s.fingerprints = make(map[string]*FingerprintRecord, len(aux.Fingerprints))
 		for k, v := range aux.Fingerprints {
 			recordCopy := *v
@@ -203,10 +200,20 @@ func SaveState(state *State, filePath string) error {
 		// Clean up temp file on error
 		if removeErr := os.Remove(tempFile); removeErr != nil {
 			// CRITICAL: Both rename and cleanup failed - temp file orphaned
-			// Log explicitly to stderr to ensure visibility even if error is swallowed
-			fmt.Fprintf(os.Stderr, "CRITICAL: Failed to cleanup temp file %s after rename failure. Manual cleanup required.\n", tempFile)
-			return fmt.Errorf("failed to rename temp file to %s: %w (CRITICAL: failed to cleanup temp file %s: %v - manual cleanup required)",
-				filePath, err, tempFile, removeErr)
+			// This is a serious issue that requires manual intervention
+			separator := strings.Repeat("=", 80)
+			fmt.Fprintf(os.Stderr, "\n%s\n", separator)
+			fmt.Fprintf(os.Stderr, "CRITICAL ERROR: State file save failed AND temp file cleanup failed\n")
+			fmt.Fprintf(os.Stderr, "Orphaned temp file: %s\n", tempFile)
+			fmt.Fprintf(os.Stderr, "\nManual cleanup required:\n")
+			fmt.Fprintf(os.Stderr, "  1. Check disk space: df -h\n")
+			fmt.Fprintf(os.Stderr, "  2. Check permissions: ls -la %q\n", filepath.Dir(filePath))
+			fmt.Fprintf(os.Stderr, "  3. Manually remove: rm %q\n", tempFile)
+			fmt.Fprintf(os.Stderr, "  4. Fix underlying issue before retrying\n")
+			fmt.Fprintf(os.Stderr, "%s\n\n", separator)
+
+			return fmt.Errorf("failed to save state file %q: rename failed (%w) AND cleanup failed (%v)\nCRITICAL: Orphaned temp file at %q requires manual removal - see stderr output above for instructions",
+				filePath, err, removeErr, tempFile)
 		}
 		return fmt.Errorf("failed to rename temp file to %s: %w (temp file cleanup successful)",
 			filePath, err)

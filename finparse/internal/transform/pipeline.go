@@ -60,7 +60,9 @@ func (s *TransformStats) addDuplicateExample(example string) {
 }
 
 // TransformStatement converts RawStatement to domain types and adds to Budget.
-// Institutions and accounts are added idempotently (duplicates are silently skipped).
+// Institutions and accounts are added idempotently (duplicates are silently skipped,
+// which is expected when processing multiple statements from the same institution/account).
+// Duplicate counts are tracked in stats for debugging.
 // Statements and transactions will fail on duplicates (data quality issue).
 // Optional state parameter enables deduplication (nil to disable).
 // Optional engine parameter enables rule-based categorization (nil to disable).
@@ -90,7 +92,9 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		}
 		// TODO(#1424): Consider caching strategy
 		// Duplicate institutions are expected when processing multiple statements
-		// from the same institution. Tracked for debugging but not logged in normal operation.
+		// from the same institution. Silently skipped (tracked for debugging).
+		// Different institution names mapping to the same slug will also be skipped
+		// (e.g., "Chase Bank" and "Chase" → same slug), preserving first occurrence.
 		stats.DuplicateInstitutionsSkipped++
 	}
 
@@ -106,7 +110,9 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		}
 		// TODO(#1424): Consider caching strategy
 		// Duplicate accounts are expected when processing multiple statements
-		// from the same account. Tracked for debugging but not logged in normal operation.
+		// from the same account. Silently skipped (tracked for debugging).
+		// Account metadata differences (type, name) between statements are ignored;
+		// only the first occurrence is preserved.
 		stats.DuplicateAccountsSkipped++
 	}
 
@@ -165,26 +171,29 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 			}
 		}
 
-		// Record in state if provided. Do this BEFORE adding to budget to prevent
-		// inconsistency if state recording fails. Better to skip a valid transaction
-		// than to process it twice. Uses time.Now() to track when we first/last observed
-		// this fingerprint during parsing, not the transaction date. This allows state file
-		// cleanup based on parsing recency (removing fingerprints not seen in N days of runs)
-		// rather than transaction date (which could be months old for valid transactions).
-		// Also enables auditing when transactions were processed vs when they occurred.
-		if state != nil {
-			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
-				return nil, fmt.Errorf("failed to record transaction fingerprint for %q before adding to budget: %w (transaction not added to prevent duplicate on retry)",
-					txn.ID, err)
-			}
+		// Add transaction to budget FIRST, before recording in state.
+		// This ordering prevents data loss: if budget.AddTransaction fails, the state
+		// is unchanged and the transaction can be retried. If we recorded in state first,
+		// a subsequent budget failure would mark the transaction as "seen" even though
+		// it wasn't added, causing permanent data loss on retry.
+		if err := budget.AddTransaction(*txn); err != nil {
+			return nil, fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w",
+				i+1, len(raw.Transactions), txn.ID, err)
 		}
 
-		// Add transaction to budget (state already updated)
-		if err := budget.AddTransaction(*txn); err != nil {
-			// State was updated but budget add failed - this is also inconsistent
-			// but less severe (transaction will be skipped as duplicate on retry)
-			return nil, fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w (WARNING: transaction recorded in state but not added to budget)",
-				i+1, len(raw.Transactions), txn.ID, err)
+		// Record in state AFTER successful budget add (if state provided).
+		// Trade-off: If state recording fails after budget succeeds, the transaction
+		// is in the budget but will be reprocessed on retry (duplicate in output).
+		// This is better than the reverse (transaction lost forever).
+		// Uses time.Now() to track when this fingerprint was observed during parsing
+		// (not the transaction date). The FirstSeen and LastSeen timestamps provide
+		// parsing history for each fingerprint, which could enable future cleanup
+		// strategies (removing fingerprints not seen in N days).
+		if state != nil {
+			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
+				return nil, fmt.Errorf("failed to record transaction fingerprint for %q after adding to budget: %w (WARNING: transaction is in budget but not in state, may be reprocessed as duplicate on retry)",
+					txn.ID, err)
+			}
 		}
 	}
 
@@ -275,7 +284,8 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 
 	description := raw.Description()
 	if description == "" {
-		return nil, false, fmt.Errorf("transaction description cannot be empty")
+		return nil, false, fmt.Errorf("transaction description cannot be empty (date: %s, amount: %.2f, ID: %s)",
+			raw.Date().Format("2006-01-02"), raw.Amount(), raw.ID())
 	}
 
 	amount := raw.Amount()

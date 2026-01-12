@@ -28,14 +28,13 @@ const (
 
 // Flags represent special boolean flags for transactions.
 //
-// Currently allows any combination of flags. Business logic may require certain
-// combinations to be invalid (e.g., Transfer=true with Redeemable=true makes no
-// sense because transfers between accounts shouldn't earn cashback rewards).
-// Before adding validation, clarify business rules for:
-//   - Can vacation transactions be transfers? (e.g., ATM withdrawal on vacation)
-//   - Can redeemable transactions be transfers? (e.g., credit card payment with rewards)
+// Currently validates that Transfer=true with Redeemable=true is invalid
+// (enforced in NewFlags and UnmarshalYAML). This prevents transfers between
+// accounts from earning cashback rewards.
 //
-// Tracked in TODO(#1405).
+// Future validation considerations tracked in TODO(#1405):
+//   - Can vacation transactions be transfers? (e.g., ATM withdrawal on vacation)
+//   - Should there be other invalid flag combinations?
 type Flags struct {
 	Redeemable bool `yaml:"redeemable"`
 	Vacation   bool `yaml:"vacation"`
@@ -58,6 +57,24 @@ func NewFlags(redeemable, vacation, transfer bool) (*Flags, error) {
 	}, nil
 }
 
+// UnmarshalYAML implements yaml.Unmarshaler to enforce validation during YAML loading.
+// Ensures all Flags instances are validated at construction time.
+func (f *Flags) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type rawFlags Flags
+	var raw rawFlags
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
+	validated, err := NewFlags(raw.Redeemable, raw.Vacation, raw.Transfer)
+	if err != nil {
+		return err
+	}
+
+	*f = *validated
+	return nil
+}
+
 // Rule represents a single categorization rule.
 //
 // Rules should be created via:
@@ -74,8 +91,8 @@ func NewFlags(redeemable, vacation, transfer bool) (*Flags, error) {
 //   - Category must be a valid domain.Category
 //
 // WARNING: Direct struct construction bypasses validation and can create invalid
-// rules. Fields are exported for YAML unmarshaling and testing. Always prefer
-// NewRule for programmatic construction or NewEngine for YAML loading.
+// rules. Fields are exported for YAML unmarshaling (which uses UnmarshalYAML for
+// validation) and testing. Always prefer NewRule for programmatic construction.
 type Rule struct {
 	Name           string    `yaml:"name"`
 	Pattern        string    `yaml:"pattern"`
@@ -157,19 +174,34 @@ func (r *Rule) Validate() error {
 	return err
 }
 
+// UnmarshalYAML implements yaml.Unmarshaler to enforce validation during YAML loading.
+// Ensures all Rule instances are validated at construction time, eliminating the
+// temporary invalid state window between unmarshal and post-validation in NewEngine.
+func (r *Rule) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type rawRule Rule
+	var raw rawRule
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
+	validated, err := NewRule(
+		raw.Name, raw.Pattern, raw.MatchType,
+		raw.Priority, raw.Category, raw.Flags,
+		raw.RedemptionRate,
+	)
+	if err != nil {
+		return fmt.Errorf("invalid rule %q: %w", raw.Name, err)
+	}
+
+	*r = *validated
+	return nil
+}
+
 // TODO(#1427): RuleSet is only used for YAML unmarshaling in NewEngine and could be unexported
 // RuleSet represents the top-level YAML structure
 type RuleSet struct {
 	Rules []Rule `yaml:"rules"`
 }
-
-// MatchResult is currently constructed inline in Engine.Match.
-// Since Match only constructs MatchResult from validated Rule structs, the
-// invariants (Redeemable/RedemptionRate consistency) are preserved transitively.
-//
-// Adding a NewMatchResult constructor would provide defense-in-depth but is not
-// critical since MatchResult is only created from already-validated Rules.
-// Tracked in TODO(#1401).
 
 // Engine performs rule matching on transaction descriptions
 type Engine struct {
@@ -237,7 +269,9 @@ func NewEngine(rulesData []byte) (*Engine, error) {
 	}
 
 	// Sort rules by priority (highest first). Use SliceStable to preserve YAML file
-	// order for rules with equal priority (guarantees deterministic matching).
+	// order for rules with equal priority. This guarantees deterministic first-match-wins
+	// behavior where the first rule in the YAML file wins when multiple equal-priority
+	// rules match the same transaction.
 	sort.SliceStable(validatedRules, func(i, j int) bool {
 		return validatedRules[i].Priority > validatedRules[j].Priority
 	})
@@ -300,8 +334,15 @@ func (e *Engine) Match(description string) (*MatchResult, bool, error) {
 				rule.Name,
 			)
 			if err != nil {
-				// Defense in depth: should never happen due to validation, but return error instead of crash
-				// Return true to indicate rule DID match (this is an internal error, not "no match")
+				// Defense in depth: validation should prevent this, but return error instead of panic.
+				// Return true because the rule matched - this is an internal error, not a match failure.
+
+				// Log full details to stderr for debugging
+				fmt.Fprintf(os.Stderr, "INTERNAL ERROR: Rule %q produced invalid MatchResult\n", rule.Name)
+				fmt.Fprintf(os.Stderr, "  Category: %s, Redeemable: %v, Vacation: %v, Transfer: %v, Rate: %.2f\n",
+					rule.Category, rule.Flags.Redeemable, rule.Flags.Vacation, rule.Flags.Transfer, rule.RedemptionRate)
+				fmt.Fprintf(os.Stderr, "  Validation error: %v\n", err)
+
 				return nil, true, fmt.Errorf("INTERNAL ERROR constructing match result from rule %q: %w (this indicates rule validation was bypassed or rules were modified after loading - please report this bug with rule definition)", rule.Name, err)
 			}
 			return result, true, nil
@@ -314,7 +355,7 @@ func (e *Engine) Match(description string) (*MatchResult, bool, error) {
 // GetRules returns a copy of the rules for inspection/debugging.
 //
 // Returns a new slice containing value copies of each Rule struct. Since Rule
-// struct fields are all value types (string, int, float64, bool, MatchType enum),
+// contains only value-type fields (no pointers, slices, or maps),
 // modifying returned rules will not affect the engine's internal state.
 // Rules are returned in priority order (highest first). For equal priorities,
 // rules appear in YAML file order (stable sort).
