@@ -28,8 +28,12 @@ const (
 // Flags represent special boolean flags for transactions.
 //
 // Currently allows any combination of flags. Business logic may require certain
-// combinations to be invalid (e.g., Transfer=true with Redeemable=true), but this
-// requires clarification of business rules before adding validation.
+// combinations to be invalid (e.g., Transfer=true with Redeemable=true makes no
+// sense because transfers between accounts shouldn't earn cashback rewards).
+// Before adding validation, clarify business rules for:
+//   - Can vacation transactions be transfers? (e.g., ATM withdrawal on vacation)
+//   - Can redeemable transactions be transfers? (e.g., credit card payment with rewards)
+//
 // Tracked in TODO(#1405).
 type Flags struct {
 	Redeemable bool `yaml:"redeemable"`
@@ -39,8 +43,11 @@ type Flags struct {
 
 // Rule represents a single categorization rule.
 //
-// Rules should be created via YAML loading (NewEngine, LoadEmbedded, LoadFromFile)
-// which provides comprehensive validation of all invariants:
+// Rules should be created via:
+//   - YAML loading: NewEngine, LoadEmbedded, LoadFromFile
+//   - Programmatic construction: NewRule constructor
+//
+// Both methods provide comprehensive validation of all invariants:
 //   - Priority in range [0, 999]
 //   - RedemptionRate in range [0.0, 1.0]
 //   - Redeemable=true requires RedemptionRate > 0
@@ -50,8 +57,8 @@ type Flags struct {
 //   - Category must be a valid domain.Category
 //
 // WARNING: Direct struct construction bypasses validation and can create invalid
-// rules. Fields are exported for YAML unmarshaling and testing, but validation
-// is only enforced through NewEngine. Tracked in TODO(#1400).
+// rules. Fields are exported for YAML unmarshaling and testing. Always prefer
+// NewRule for programmatic construction or NewEngine for YAML loading.
 type Rule struct {
 	Name           string    `yaml:"name"`
 	Pattern        string    `yaml:"pattern"`
@@ -62,12 +69,62 @@ type Rule struct {
 	RedemptionRate float64   `yaml:"redemption_rate"`
 }
 
+// NewRule creates a validated rule. All invariants are checked.
+// This constructor should be used when constructing Rule instances programmatically.
+// YAML loading via NewEngine performs equivalent validation automatically.
+func NewRule(name, pattern string, matchType MatchType, priority int, category string, flags Flags, redemptionRate float64) (*Rule, error) {
+	// Validate category
+	if !domain.ValidateCategory(domain.Category(category)) {
+		return nil, fmt.Errorf("invalid category %q", category)
+	}
+
+	// Validate priority (0-999)
+	if priority < 0 || priority > 999 {
+		return nil, fmt.Errorf("priority must be in [0,999], got %d", priority)
+	}
+
+	// Validate redemption rate (0.0-1.0)
+	if redemptionRate < 0.0 || redemptionRate > 1.0 {
+		return nil, fmt.Errorf("redemption rate must be in [0,1], got %f", redemptionRate)
+	}
+
+	// Validate consistency: redeemable=true requires rate > 0
+	if flags.Redeemable && redemptionRate == 0 {
+		return nil, fmt.Errorf("redeemable=true requires redemption_rate > 0")
+	}
+
+	// Validate consistency: redeemable=false requires rate = 0
+	if !flags.Redeemable && redemptionRate != 0 {
+		return nil, fmt.Errorf("redeemable=false requires redemption_rate = 0")
+	}
+
+	// Validate match type
+	if matchType != MatchTypeExact && matchType != MatchTypeContains {
+		return nil, fmt.Errorf("invalid match_type %q (must be 'exact' or 'contains')", matchType)
+	}
+
+	// Validate pattern is not empty
+	if strings.TrimSpace(pattern) == "" {
+		return nil, fmt.Errorf("pattern cannot be empty")
+	}
+
+	return &Rule{
+		Name:           name,
+		Pattern:        pattern,
+		MatchType:      matchType,
+		Priority:       priority,
+		Category:       category,
+		Flags:          flags,
+		RedemptionRate: redemptionRate,
+	}, nil
+}
+
 // RuleSet represents the top-level YAML structure
 type RuleSet struct {
 	Rules []Rule `yaml:"rules"`
 }
 
-// MatchResult is currently constructed inline in Engine.Match (line 174-181).
+// MatchResult is currently constructed inline in Engine.Match.
 // Since Match only constructs MatchResult from validated Rule structs, the
 // invariants (Redeemable/RedemptionRate consistency) are preserved transitively.
 //
@@ -97,6 +154,8 @@ func NewEngine(rulesData []byte) (*Engine, error) {
 		return nil, fmt.Errorf("failed to parse YAML rules (check syntax, indentation, and field names): %w", err)
 	}
 
+	// TODO(#1411): Consider adding a validationError helper function to ensure
+	// consistent error formatting with rule context (index + name) across all validation checks
 	// Validate and process rules
 	for i, rule := range ruleSet.Rules {
 		// Validate category
@@ -135,7 +194,8 @@ func NewEngine(rulesData []byte) (*Engine, error) {
 		}
 	}
 
-	// Sort rules by priority (highest first)
+	// Sort rules by priority (highest first). Use SliceStable to preserve YAML file
+	// order for rules with equal priority (guarantees deterministic matching).
 	sortedRules := make([]Rule, len(ruleSet.Rules))
 	copy(sortedRules, ruleSet.Rules)
 	sort.SliceStable(sortedRules, func(i, j int) bool {
@@ -171,8 +231,8 @@ func LoadFromFile(path string) (*Engine, error) {
 
 // Match applies rules to a transaction description and returns the first match.
 // Rules are evaluated in priority order (highest first). Rules with equal priority
-// are evaluated in their original YAML file order (sorting happens in NewEngine).
-// Returns (nil, false) if no rules match.
+// are evaluated in their original YAML file order (stable sort in NewEngine preserves
+// this ordering). Returns (nil, false) if no rules match.
 func (e *Engine) Match(description string) (*MatchResult, bool) {
 	// Normalize description: lowercase and trim
 	normalizedDesc := strings.ToLower(strings.TrimSpace(description))
@@ -208,10 +268,12 @@ func (e *Engine) Match(description string) (*MatchResult, bool) {
 // GetRules returns a copy of the rules for inspection/debugging.
 //
 // Returns a new slice containing value copies of each Rule struct. Since Rule
-// contains only value types (no pointers or slices), modifications to returned
-// rules will not affect the engine's internal state. Rules are returned in
-// priority order (highest first). For equal priorities, rules appear in YAML
-// file order (stable sort).
+// struct fields are all value types (string, int, float64, bool, MatchType enum),
+// modifying returned rules will not affect the engine's internal state.
+// WARNING: If Rule struct is extended with pointer/slice fields, this method must
+// be updated to perform deep copying to maintain this guarantee.
+// Rules are returned in priority order (highest first). For equal priorities,
+// rules appear in YAML file order (stable sort).
 func (e *Engine) GetRules() []Rule {
 	result := make([]Rule, len(e.rules))
 	copy(result, e.rules)

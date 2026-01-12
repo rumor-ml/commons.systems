@@ -60,7 +60,9 @@ func (r *FingerprintRecord) Update(timestamp time.Time) error {
 // MarshalJSON implements json.Marshaler for State
 func (s *State) MarshalJSON() ([]byte, error) {
 	type Alias State
-	// Create defensive copy to prevent external mutation
+	// Create defensive copy to prevent external mutation.
+	// Without this, callers could modify FingerprintRecord pointers after marshaling,
+	// affecting the internal state map since JSON marshaling doesn't deep copy.
 	fpCopy := make(map[string]*FingerprintRecord, len(s.fingerprints))
 	for k, v := range s.fingerprints {
 		recordCopy := *v
@@ -87,11 +89,16 @@ func (s *State) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return fmt.Errorf("failed to unmarshal State from JSON: %w", err)
 	}
-	// Create defensive copy to prevent external mutation
-	s.fingerprints = make(map[string]*FingerprintRecord, len(aux.Fingerprints))
-	for k, v := range aux.Fingerprints {
-		recordCopy := *v
-		s.fingerprints[k] = &recordCopy
+	// Ensure fingerprints is never nil - enforce invariant
+	if aux.Fingerprints == nil {
+		s.fingerprints = make(map[string]*FingerprintRecord)
+	} else {
+		// Create defensive copy to prevent external mutation
+		s.fingerprints = make(map[string]*FingerprintRecord, len(aux.Fingerprints))
+		for k, v := range aux.Fingerprints {
+			recordCopy := *v
+			s.fingerprints[k] = &recordCopy
+		}
 	}
 	return nil
 }
@@ -190,10 +197,12 @@ func SaveState(state *State, filePath string) error {
 	if err := os.Rename(tempFile, filePath); err != nil {
 		// Clean up temp file on error
 		if removeErr := os.Remove(tempFile); removeErr != nil {
-			// Report both errors: rename failure (primary) and cleanup failure (secondary)
-			return fmt.Errorf("failed to rename temp file: %w (also failed to cleanup temp file: %v)", err, removeErr)
+			// CRITICAL: Both rename and cleanup failed - temp file orphaned
+			return fmt.Errorf("failed to rename temp file to %s: %w (CRITICAL: failed to cleanup temp file %s: %v - manual cleanup required)",
+				filePath, err, tempFile, removeErr)
 		}
-		return fmt.Errorf("failed to rename temp file: %w", err)
+		return fmt.Errorf("failed to rename temp file to %s: %w (temp file cleanup successful)",
+			filePath, err)
 	}
 
 	return nil
@@ -212,8 +221,9 @@ func (s *State) TotalFingerprints() int {
 
 // RecordTransaction records a transaction fingerprint in the state.
 // If new: creates record with firstSeen=timestamp, count=1, transactionID=provided ID.
-// If exists: updates lastSeen=timestamp, increments count. The provided transactionID
-// parameter is ignored; the original TransactionID from the first occurrence is retained.
+// If exists: updates existing record (increments observation count, updates lastSeen).
+// The transactionID parameter is only used for new fingerprints; subsequent observations
+// retain the original TransactionID from first occurrence.
 func (s *State) RecordTransaction(fingerprint, transactionID string, timestamp time.Time) error {
 	if fingerprint == "" {
 		return fmt.Errorf("fingerprint cannot be empty")

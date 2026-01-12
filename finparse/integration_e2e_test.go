@@ -142,7 +142,9 @@ NEWFILEUID:NONE
 		}
 
 		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("failed to close file: %v", closeErr)
+		}
 
 		if err != nil {
 			t.Fatalf("parse failed: %v", err)
@@ -276,7 +278,9 @@ NEWFILEUID:NONE
 		}
 
 		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("failed to close file: %v", closeErr)
+		}
 
 		if err != nil {
 			t.Fatalf("parse failed (2nd pass): %v", err)
@@ -400,11 +404,30 @@ NEWFILEUID:NONE
 		budget := domain.NewBudget()
 
 		for _, file := range files {
-			parser, _ := reg.FindParser(file.Path)
-			f, _ := os.Open(file.Path)
-			rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
-			f.Close()
-			_, _ = transform.TransformStatement(rawStmt, budget, nil, nil)
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("FindParser failed for %s: %v", file.Path, err)
+			}
+			if parser == nil {
+				t.Fatalf("no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("failed to open %s: %v", file.Path, err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("failed to close %s: %v", file.Path, closeErr)
+			}
+			if err != nil {
+				t.Fatalf("parse failed for %s: %v", file.Path, err)
+			}
+
+			if _, err := transform.TransformStatement(rawStmt, budget, nil, nil); err != nil {
+				t.Fatalf("transform failed for %s: %v", file.Path, err)
+			}
 		}
 
 		transactions := budget.GetTransactions()
@@ -544,10 +567,27 @@ NEWFILEUID:NONE
 
 	// Parse and transform
 	for _, file := range files {
-		parser, _ := reg.FindParser(file.Path)
-		f, _ := os.Open(file.Path)
-		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
-		f.Close()
+		parser, err := reg.FindParser(file.Path)
+		if err != nil {
+			t.Fatalf("FindParser failed: %v", err)
+		}
+		if parser == nil {
+			t.Fatalf("no parser found for %s", file.Path)
+		}
+
+		f, err := os.Open(file.Path)
+		if err != nil {
+			t.Fatalf("failed to open file: %v", err)
+		}
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("failed to close file: %v", closeErr)
+		}
+		if err != nil {
+			t.Fatalf("parse failed: %v", err)
+		}
+
 		if _, err := transform.TransformStatement(rawStmt, budget1, state, engine); err != nil {
 			t.Fatalf("transform failed: %v", err)
 		}
@@ -600,12 +640,32 @@ NEWFILEUID:NONE
 	}
 
 	// Parse and transform again
-	files2, _ := s.Scan()
+	files2, err := s.Scan()
+	if err != nil {
+		t.Fatalf("second scan failed: %v", err)
+	}
 	for _, file := range files2 {
-		parser, _ := reg.FindParser(file.Path)
-		f, _ := os.Open(file.Path)
-		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
-		f.Close()
+		parser, err := reg.FindParser(file.Path)
+		if err != nil {
+			t.Fatalf("FindParser failed: %v", err)
+		}
+		if parser == nil {
+			t.Fatalf("no parser found for %s", file.Path)
+		}
+
+		f, err := os.Open(file.Path)
+		if err != nil {
+			t.Fatalf("failed to open file: %v", err)
+		}
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("failed to close file: %v", closeErr)
+		}
+		if err != nil {
+			t.Fatalf("parse failed: %v", err)
+		}
+
 		if _, err := transform.TransformStatement(rawStmt, budget2, loadedState, engine); err != nil {
 			t.Fatalf("transform failed: %v", err)
 		}
@@ -800,10 +860,27 @@ NEWFILEUID:NONE
 	// Parse only the first file
 	for _, file := range files {
 		if strings.Contains(file.Path, "2025-10.qfx") {
-			parser, _ := reg.FindParser(file.Path)
-			f, _ := os.Open(file.Path)
-			rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
-			f.Close()
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("FindParser failed: %v", err)
+			}
+			if parser == nil {
+				t.Fatalf("no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("failed to open file: %v", err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("failed to close file: %v", closeErr)
+			}
+			if err != nil {
+				t.Fatalf("parse failed for first statement: %v", err)
+			}
+
 			if _, err := transform.TransformStatement(rawStmt, budget, state, engine); err != nil {
 				t.Fatalf("transform failed for first statement: %v", err)
 			}
@@ -832,10 +909,27 @@ NEWFILEUID:NONE
 	// Parse second statement with overlapping transaction
 	for _, file := range files {
 		if strings.Contains(file.Path, "2025-11.qfx") {
-			parser, _ := reg.FindParser(file.Path)
-			f, _ := os.Open(file.Path)
-			rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
-			f.Close()
+			parser, err := reg.FindParser(file.Path)
+			if err != nil {
+				t.Fatalf("FindParser failed: %v", err)
+			}
+			if parser == nil {
+				t.Fatalf("no parser found for %s", file.Path)
+			}
+
+			f, err := os.Open(file.Path)
+			if err != nil {
+				t.Fatalf("failed to open file: %v", err)
+			}
+
+			rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+			if closeErr := f.Close(); closeErr != nil {
+				t.Errorf("failed to close file: %v", closeErr)
+			}
+			if err != nil {
+				t.Fatalf("parse failed for second statement: %v", err)
+			}
+
 			// Parse into new budget - deduplication should filter out TXN_OVERLAP
 			if _, err := transform.TransformStatement(rawStmt, budget2, loadedState, engine); err != nil {
 				t.Fatalf("transform failed for second statement: %v", err)
@@ -1016,10 +1110,27 @@ NEWFILEUID:NONE
 	}
 
 	for _, file := range files {
-		parser, _ := reg.FindParser(file.Path)
-		f, _ := os.Open(file.Path)
-		rawStmt, _ := parser.Parse(ctx, f, file.Metadata)
-		f.Close()
+		parser, err := reg.FindParser(file.Path)
+		if err != nil {
+			t.Fatalf("FindParser failed: %v", err)
+		}
+		if parser == nil {
+			t.Fatalf("no parser found for %s", file.Path)
+		}
+
+		f, err := os.Open(file.Path)
+		if err != nil {
+			t.Fatalf("failed to open file: %v", err)
+		}
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("failed to close file: %v", closeErr)
+		}
+		if err != nil {
+			t.Fatalf("parse failed: %v", err)
+		}
+
 		if _, err := transform.TransformStatement(rawStmt, budget, nil, engine); err != nil {
 			t.Fatalf("transform failed: %v", err)
 		}
@@ -1142,4 +1253,402 @@ func TestEndToEnd_StateFileSaveFailureDoesNotCorrupt(t *testing.T) {
 		t.Errorf("State was corrupted: expected 2 fingerprints, got %d",
 			loadedState.TotalFingerprints())
 	}
+}
+
+// TestEndToEnd_StatePersistenceAcrossRuns verifies state file enables true incremental parsing across CLI runs
+func TestEndToEnd_StatePersistenceAcrossRuns(t *testing.T) {
+	// This test validates acceptance criterion: "State file enables incremental parsing"
+	// Unlike TestEndToEnd_IncrementalDeduplication which loads state within same execution,
+	// this test simulates multiple separate CLI process runs with process exit between them.
+
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create directory structure
+	instDir := filepath.Join(tmpDir, "test_bank")
+	acctDir := filepath.Join(instDir, "checking")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatalf("failed to create directory structure: %v", err)
+	}
+
+	// Create OFX file with 3 transactions for Run 1
+	ofxContent1 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>123
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>checking
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001000000
+<DTEND>20251015235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251005120000
+<TRNAMT>-100.00
+<FITID>TXN_RUN1_A
+<NAME>Purchase A
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251010120000
+<TRNAMT>-50.00
+<FITID>TXN_RUN1_B
+<NAME>Purchase B
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251015120000
+<TRNAMT>-25.00
+<FITID>TXN_OVERLAP
+<NAME>Overlapping Transaction
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>825.00
+<DTASOF>20251015000000
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
+	// Create OFX file with overlapping + new transactions for Run 2
+	ofxContent2 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<DTSERVER>20251016120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TESTBANK
+<FID>123
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS>
+<CODE>0
+<SEVERITY>INFO
+</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456789
+<ACCTID>checking
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251015000000
+<DTEND>20251031235959
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251015120000
+<TRNAMT>-25.00
+<FITID>TXN_OVERLAP
+<NAME>Overlapping Transaction
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251020120000
+<TRNAMT>-75.00
+<FITID>TXN_RUN2_C
+<NAME>Purchase C
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20251025120000
+<TRNAMT>500.00
+<FITID>TXN_RUN2_D
+<NAME>Deposit
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>1250.00
+<DTASOF>20251031000000
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`
+
+	ofxFile1 := filepath.Join(acctDir, "statement1.ofx")
+	ofxFile2 := filepath.Join(acctDir, "statement2.ofx")
+
+	// ===== SIMULATE RUN 1: First CLI invocation =====
+	t.Log("Simulating CLI Run 1: Parse initial statement and save state")
+
+	if err := os.WriteFile(ofxFile1, []byte(ofxContent1), 0644); err != nil {
+		t.Fatalf("failed to write first OFX file: %v", err)
+	}
+
+	// Create fresh state for Run 1
+	state1 := dedup.NewState()
+	budget1 := domain.NewBudget()
+
+	s1 := scanner.New(tmpDir)
+	files1, err := s1.Scan()
+	if err != nil {
+		t.Fatalf("Run 1: scan failed: %v", err)
+	}
+
+	reg1, err := registry.New()
+	if err != nil {
+		t.Fatalf("Run 1: failed to create registry: %v", err)
+	}
+
+	engine1, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("Run 1: failed to load rules: %v", err)
+	}
+
+	ctx := context.Background()
+
+	for _, file := range files1 {
+		parser, err := reg1.FindParser(file.Path)
+		if err != nil {
+			t.Fatalf("Run 1: FindParser failed: %v", err)
+		}
+		if parser == nil {
+			t.Fatalf("Run 1: no parser found for %s", file.Path)
+		}
+
+		f, err := os.Open(file.Path)
+		if err != nil {
+			t.Fatalf("Run 1: failed to open file: %v", err)
+		}
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("Run 1: failed to close file: %v", closeErr)
+		}
+		if err != nil {
+			t.Fatalf("Run 1: parse failed: %v", err)
+		}
+
+		if _, err := transform.TransformStatement(rawStmt, budget1, state1, engine1); err != nil {
+			t.Fatalf("Run 1: transform failed: %v", err)
+		}
+	}
+
+	// Save state to disk (end of Run 1)
+	if err := dedup.SaveState(state1, stateFile); err != nil {
+		t.Fatalf("Run 1: failed to save state: %v", err)
+	}
+
+	// Verify Run 1 results
+	txns1 := budget1.GetTransactions()
+	if len(txns1) != 3 {
+		t.Fatalf("Run 1: expected 3 transactions, got %d", len(txns1))
+	}
+
+	// Verify state metadata
+	if state1.TotalFingerprints() != 3 {
+		t.Errorf("Run 1: expected 3 fingerprints in state, got %d", state1.TotalFingerprints())
+	}
+
+	// CRITICAL: Simulate process exit - clear all in-memory state
+	state1 = nil
+	budget1 = nil
+	reg1 = nil
+	engine1 = nil
+	s1 = nil
+
+	t.Log("Simulating process exit: cleared all in-memory state")
+
+	// ===== SIMULATE RUN 2: Second CLI invocation (fresh process) =====
+	t.Log("Simulating CLI Run 2: Load state from disk and parse overlapping statement")
+
+	// Delete first file, write second file (simulates user downloading new statement)
+	if err := os.Remove(ofxFile1); err != nil {
+		t.Fatalf("failed to remove first file: %v", err)
+	}
+	if err := os.WriteFile(ofxFile2, []byte(ofxContent2), 0644); err != nil {
+		t.Fatalf("failed to write second OFX file: %v", err)
+	}
+
+	// Load state from disk (fresh process start)
+	state2, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Run 2: failed to load state: %v", err)
+	}
+
+	// Verify state loaded correctly
+	if state2.TotalFingerprints() != 3 {
+		t.Errorf("Run 2: state should have 3 fingerprints from Run 1, got %d", state2.TotalFingerprints())
+	}
+
+	// Create fresh budget for Run 2
+	budget2 := domain.NewBudget()
+
+	s2 := scanner.New(tmpDir)
+	files2, err := s2.Scan()
+	if err != nil {
+		t.Fatalf("Run 2: scan failed: %v", err)
+	}
+
+	reg2, err := registry.New()
+	if err != nil {
+		t.Fatalf("Run 2: failed to create registry: %v", err)
+	}
+
+	engine2, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("Run 2: failed to load rules: %v", err)
+	}
+
+	for _, file := range files2 {
+		parser, err := reg2.FindParser(file.Path)
+		if err != nil {
+			t.Fatalf("Run 2: FindParser failed: %v", err)
+		}
+		if parser == nil {
+			t.Fatalf("Run 2: no parser found for %s", file.Path)
+		}
+
+		f, err := os.Open(file.Path)
+		if err != nil {
+			t.Fatalf("Run 2: failed to open file: %v", err)
+		}
+
+		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("Run 2: failed to close file: %v", closeErr)
+		}
+		if err != nil {
+			t.Fatalf("Run 2: parse failed: %v", err)
+		}
+
+		// Parse with loaded state - should deduplicate TXN_OVERLAP
+		if _, err := transform.TransformStatement(rawStmt, budget2, state2, engine2); err != nil {
+			t.Fatalf("Run 2: transform failed: %v", err)
+		}
+	}
+
+	// Save updated state (end of Run 2)
+	if err := dedup.SaveState(state2, stateFile); err != nil {
+		t.Fatalf("Run 2: failed to save state: %v", err)
+	}
+
+	// Verify Run 2 results: should only add 2 NEW transactions (TXN_OVERLAP filtered)
+	txns2 := budget2.GetTransactions()
+	if len(txns2) != 2 {
+		t.Errorf("Run 2: expected 2 new transactions (TXN_OVERLAP deduplicated), got %d", len(txns2))
+		for _, txn := range txns2 {
+			t.Logf("  Transaction: %s - %s", txn.ID, txn.Description)
+		}
+	}
+
+	// Verify TXN_OVERLAP was filtered
+	for _, txn := range txns2 {
+		if txn.ID == "TXN_OVERLAP" {
+			t.Errorf("Run 2: TXN_OVERLAP should have been deduplicated but was included")
+		}
+	}
+
+	// Verify we got the NEW transactions
+	foundC := false
+	foundD := false
+	for _, txn := range txns2 {
+		if txn.ID == "TXN_RUN2_C" {
+			foundC = true
+		}
+		if txn.ID == "TXN_RUN2_D" {
+			foundD = true
+		}
+	}
+	if !foundC || !foundD {
+		t.Errorf("Run 2: missing new transactions (C=%v, D=%v)", foundC, foundD)
+	}
+
+	// Verify state now has 5 total fingerprints (3 from Run 1 + 2 new from Run 2)
+	if state2.TotalFingerprints() != 5 {
+		t.Errorf("Run 2: expected 5 total fingerprints, got %d", state2.TotalFingerprints())
+	}
+
+	// Clear state again
+	state2 = nil
+	budget2 = nil
+
+	// ===== SIMULATE RUN 3: Third CLI invocation (verify cumulative state) =====
+	t.Log("Simulating CLI Run 3: Load cumulative state and verify all fingerprints present")
+
+	state3, err := dedup.LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Run 3: failed to load state: %v", err)
+	}
+
+	// Verify cumulative state
+	if state3.TotalFingerprints() != 5 {
+		t.Errorf("Run 3: expected 5 fingerprints from previous runs, got %d", state3.TotalFingerprints())
+	}
+
+	// Verify all 5 transactions are marked as duplicates
+	expectedFingerprints := []struct {
+		date   string
+		amount float64
+		desc   string
+	}{
+		{"2025-10-05", -100.00, "Purchase A"},
+		{"2025-10-10", -50.00, "Purchase B"},
+		{"2025-10-15", -25.00, "Overlapping Transaction"},
+		{"2025-10-20", -75.00, "Purchase C"},
+		{"2025-10-25", 500.00, "Deposit"},
+	}
+
+	for _, expected := range expectedFingerprints {
+		fp := dedup.GenerateFingerprint(expected.date, expected.amount, expected.desc)
+		if !state3.IsDuplicate(fp) {
+			t.Errorf("Run 3: fingerprint for %s should be in state", expected.desc)
+		}
+	}
+
+	t.Log("SUCCESS: State file persistence across CLI runs verified")
 }

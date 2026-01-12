@@ -23,7 +23,7 @@ var (
 	// Global flags
 	versionFlag = flag.Bool("version", false, "Show version")
 
-	// Phase 1 flags (currently used)
+	// Core CLI flags
 	inputDir = flag.String("input", "", "Input directory containing statements (required)")
 	dryRun   = flag.Bool("dry-run", false, "Show what would be parsed without writing")
 	verbose  = flag.Bool("verbose", false, "Show detailed parsing logs")
@@ -87,7 +87,10 @@ Examples:
 }
 
 func run() error {
-	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling
+	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling.
+	// Currently uses Background() which ignores cancellation signals. Should use
+	// context.WithCancel and signal.NotifyContext to allow in-progress parsing to
+	// complete when user presses Ctrl+C.
 	ctx := context.Background()
 
 	// Create scanner
@@ -203,6 +206,9 @@ func run() error {
 	var totalRulesMatched int
 	var totalRulesUnmatched int
 	unmatchedExamplesMap := make(map[string]bool) // Track unique unmatched descriptions
+	var totalDuplicateInstitutionsSkipped int
+	var totalDuplicateAccountsSkipped int
+	duplicateExamplesMap := make(map[string]bool) // Track unique duplicate examples
 
 	if *verbose {
 		fmt.Fprintln(os.Stderr, "\nParsing and transforming statements...")
@@ -231,16 +237,19 @@ func run() error {
 		// Close immediately after parsing
 		closeErr := f.Close()
 		if err != nil {
-			// Log close error if it also occurred (prevents masking file descriptor issues)
+			// If parse failed AND close also failed, warn about the close error to prevent
+			// masking potential file descriptor leaks (parse error is returned below)
 			if closeErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: file close also failed for %s: %v (parse error takes precedence)\n",
-					file.Path, closeErr)
+				// Both parse and close failed - this is critical for debugging.
+				// Could indicate filesystem issues, not just parse errors.
+				return fmt.Errorf("parse failed for file %d of %d (%s): %w (WARNING: file close also failed, possible file descriptor leak: %v)",
+					i+1, len(files), file.Path, err, closeErr)
 			}
 			return fmt.Errorf("parse failed for file %d of %d (%s): %w",
 				i+1, len(files), file.Path, err)
 		}
 		if closeErr != nil {
-			return fmt.Errorf("failed to close %s: %w", file.Path, closeErr)
+			return fmt.Errorf("failed to close %s after successful parse: %w", file.Path, closeErr)
 		}
 
 		// Verify parser contract: if no error, rawStmt must not be nil
@@ -266,6 +275,13 @@ func run() error {
 		totalRulesUnmatched += stats.RulesUnmatched
 		for _, desc := range stats.UnmatchedExamples {
 			unmatchedExamplesMap[desc] = true
+		}
+
+		// Track duplicate statistics
+		totalDuplicateInstitutionsSkipped += stats.DuplicateInstitutionsSkipped
+		totalDuplicateAccountsSkipped += stats.DuplicateAccountsSkipped
+		for _, example := range stats.DuplicateExamples {
+			duplicateExamplesMap[example] = true
 		}
 	}
 
@@ -297,6 +313,28 @@ func run() error {
 		if state != nil && totalDuplicatesSkipped > 0 {
 			fmt.Fprintf(os.Stderr, "\nDeduplication:\n")
 			fmt.Fprintf(os.Stderr, "  Skipped %d duplicate transactions\n", totalDuplicatesSkipped)
+
+			if *verbose && len(duplicateExamplesMap) > 0 {
+				fmt.Fprintf(os.Stderr, "  Example duplicates:\n")
+				count := 0
+				for desc := range duplicateExamplesMap {
+					if count >= 5 {
+						break
+					}
+					fmt.Fprintf(os.Stderr, "    - %s\n", desc)
+					count++
+				}
+			}
+		}
+
+		// Show duplicate institution/account statistics
+		if *verbose {
+			if totalDuplicateInstitutionsSkipped > 0 {
+				fmt.Fprintf(os.Stderr, "  Skipped %d duplicate institution(s)\n", totalDuplicateInstitutionsSkipped)
+			}
+			if totalDuplicateAccountsSkipped > 0 {
+				fmt.Fprintf(os.Stderr, "  Skipped %d duplicate account(s)\n", totalDuplicateAccountsSkipped)
+			}
 		}
 
 		// Show rule matching statistics

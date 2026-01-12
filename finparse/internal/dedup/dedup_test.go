@@ -1,9 +1,11 @@
 package dedup
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -237,7 +239,6 @@ func TestSaveAndLoadState(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "state.json")
 
 	// Create and populate state
-	// TODO(#1399): Consider testing state file size limits and performance with large fingerprint maps
 	original := NewState()
 	fp1 := "abc123"
 	fp2 := "def456"
@@ -411,6 +412,73 @@ func TestLoadState_UnsupportedVersion(t *testing.T) {
 	}
 }
 
+func TestLoadState_FutureVersionMigration(t *testing.T) {
+	// Test documents expected behavior when v2 state files are encountered
+	// Current behavior: reject any version != CurrentVersion
+	// Future consideration: implement migration path or provide upgrade tool
+	tmpDir := t.TempDir()
+
+	t.Run("v1 state file loads successfully", func(t *testing.T) {
+		stateFile := filepath.Join(tmpDir, "v1.json")
+		v1State := `{
+			"version": 1,
+			"fingerprints": {
+				"abc123": {
+					"firstSeen": "2025-01-15T10:30:00Z",
+					"lastSeen": "2025-01-15T10:30:00Z",
+					"count": 1,
+					"transactionId": "txn-001"
+				}
+			},
+			"metadata": {
+				"lastUpdated": "2025-01-15T10:30:00Z"
+			}
+		}`
+
+		err := os.WriteFile(stateFile, []byte(v1State), 0644)
+		if err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		state, err := LoadState(stateFile)
+		if err != nil {
+			t.Errorf("LoadState() should load v1 state file, got error: %v", err)
+		}
+		if state != nil && state.Version != 1 {
+			t.Errorf("LoadState() version = %d, want 1", state.Version)
+		}
+	})
+
+	t.Run("v2 state file is rejected with clear error", func(t *testing.T) {
+		stateFile := filepath.Join(tmpDir, "v2.json")
+		v2State := `{
+			"version": 2,
+			"fingerprints": {},
+			"metadata": {
+				"lastUpdated": "2025-01-15T10:30:00Z"
+			}
+		}`
+
+		err := os.WriteFile(stateFile, []byte(v2State), 0644)
+		if err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		_, err = LoadState(stateFile)
+		if err == nil {
+			t.Error("LoadState() should reject v2 state file")
+		}
+		if err != nil && !strings.Contains(err.Error(), "unsupported state file version") {
+			t.Errorf("LoadState() error should mention 'unsupported state file version', got: %v", err)
+		}
+	})
+
+	// TODO: When v2 is implemented, add tests for:
+	// - Automatic migration (if supported)
+	// - Manual migration tool (if provided)
+	// - Breaking changes that require state reset
+}
+
 func TestSaveState_CreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateFile := filepath.Join(tmpDir, "nested", "dir", "state.json")
@@ -564,6 +632,65 @@ func TestGenerateFingerprint_NormalizationCollisions(t *testing.T) {
 	})
 }
 
+func TestGenerateFingerprint_SimilarTransactionsCollision(t *testing.T) {
+	// Test behavior when different transactions produce same or similar fingerprints
+	// This validates the deduplication granularity and business logic
+
+	t.Run("different store numbers produce different fingerprints", func(t *testing.T) {
+		// Two different Whole Foods locations, same date/amount
+		fp1 := GenerateFingerprint("2025-01-15", -50.00, "Whole Foods Market #123")
+		fp2 := GenerateFingerprint("2025-01-15", -50.00, "Whole Foods Market #456")
+
+		// These should be different (internal spaces and numbers preserved)
+		if fp1 == fp2 {
+			t.Error("Different store numbers should produce different fingerprints")
+			t.Log("Business decision: This would cause false positives - two purchases at different stores on same day")
+		}
+	})
+
+	t.Run("similar descriptions with different suffixes", func(t *testing.T) {
+		// Same merchant, different transaction details
+		fp1 := GenerateFingerprint("2025-01-15", -50.00, "Amazon.com*ABC123")
+		fp2 := GenerateFingerprint("2025-01-15", -50.00, "Amazon.com*XYZ789")
+
+		// These should be different (order IDs preserved)
+		if fp1 == fp2 {
+			t.Error("Different order IDs should produce different fingerprints")
+		}
+	})
+
+	t.Run("identical date/amount/description are correctly flagged as duplicates", func(t *testing.T) {
+		// True duplicates: exact same transaction
+		fp1 := GenerateFingerprint("2025-01-15", -50.00, "Whole Foods")
+		fp2 := GenerateFingerprint("2025-01-15", -50.00, "Whole Foods")
+
+		// These MUST be identical (intentional dedup)
+		if fp1 != fp2 {
+			t.Error("Identical transactions should produce same fingerprint")
+		}
+	})
+
+	t.Run("edge case: very similar amounts on same day", func(t *testing.T) {
+		// Two transactions at same merchant, slightly different amounts
+		fp1 := GenerateFingerprint("2025-01-15", -50.00, "Starbucks")
+		fp2 := GenerateFingerprint("2025-01-15", -50.01, "Starbucks")
+
+		// These should be different (amounts differ)
+		if fp1 == fp2 {
+			t.Error("Different amounts should produce different fingerprints")
+		}
+	})
+
+	// Document current deduplication granularity:
+	// - Date: exact match required
+	// - Amount: rounded to 2 decimals
+	// - Description: case-insensitive, trimmed, internal spaces preserved
+	//
+	// Business decision: This granularity is acceptable for initial use case.
+	// If false positives occur (e.g., two purchases at different stores),
+	// consider adding transaction ID to fingerprint input.
+}
+
 func TestRecordTransaction_TimestampBeforeFirstSeen(t *testing.T) {
 	state := NewState()
 	fp := "abc123"
@@ -621,4 +748,216 @@ func TestSaveState_RenameFailsWithCleanupFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "failed to") {
 		t.Errorf("Error should be descriptive, got: %v", err)
 	}
+}
+
+func TestState_ConcurrentRecordTransaction(t *testing.T) {
+	t.Skip("State is NOT thread-safe by design. CLI uses sequential processing (main.go:211-270). This test documents the limitation and should be enabled when thread-safety is added.")
+
+	// Test concurrent RecordTransaction calls to verify thread-safety
+	// Run with: go test -race ./internal/dedup/...
+	state := NewState()
+	numGoroutines := 10
+	opsPerGoroutine := 100
+	var wg sync.WaitGroup
+
+	// Launch goroutines that all record transactions
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for j := 0; j < opsPerGoroutine; j++ {
+				// Each goroutine uses unique fingerprints to avoid contention
+				fp := GenerateFingerprint("2025-01-15", float64(-50.00-goroutineID*100-j), "Transaction")
+				txnID := fmt.Sprintf("txn-%d-%d", goroutineID, j)
+				ts := time.Now()
+				if err := state.RecordTransaction(fp, txnID, ts); err != nil {
+					t.Errorf("RecordTransaction failed: %v", err)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify total count
+	expectedCount := numGoroutines * opsPerGoroutine
+	if state.TotalFingerprints() != expectedCount {
+		t.Errorf("TotalFingerprints() = %d, want %d", state.TotalFingerprints(), expectedCount)
+	}
+}
+
+func TestState_ConcurrentReadWrite(t *testing.T) {
+	t.Skip("State is NOT thread-safe by design. CLI uses sequential processing (main.go:211-270). This test documents the limitation and should be enabled when thread-safety is added.")
+
+	// Test concurrent reads (IsDuplicate) and writes (RecordTransaction)
+	// This validates that read operations don't race with write operations
+	state := NewState()
+	numReaders := 5
+	numWriters := 5
+	opsPerGoroutine := 50
+	var wg sync.WaitGroup
+
+	// Pre-populate some fingerprints for readers to find
+	for i := 0; i < 100; i++ {
+		fp := GenerateFingerprint("2025-01-15", float64(-100.00-i), "Initial")
+		state.RecordTransaction(fp, fmt.Sprintf("init-%d", i), time.Now())
+	}
+
+	// Launch reader goroutines
+	for i := 0; i < numReaders; i++ {
+		wg.Add(1)
+		go func(readerID int) {
+			defer wg.Done()
+			for j := 0; j < opsPerGoroutine; j++ {
+				// Read existing fingerprints
+				fp := GenerateFingerprint("2025-01-15", float64(-100.00-j), "Initial")
+				_ = state.IsDuplicate(fp) // Should not panic
+			}
+		}(i)
+	}
+
+	// Launch writer goroutines
+	for i := 0; i < numWriters; i++ {
+		wg.Add(1)
+		go func(writerID int) {
+			defer wg.Done()
+			for j := 0; j < opsPerGoroutine; j++ {
+				// Write new fingerprints
+				fp := GenerateFingerprint("2025-01-15", float64(-200.00-writerID*100-j), "New")
+				txnID := fmt.Sprintf("txn-%d-%d", writerID, j)
+				ts := time.Now()
+				if err := state.RecordTransaction(fp, txnID, ts); err != nil {
+					t.Errorf("RecordTransaction failed: %v", err)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify state is consistent (no race detector warnings = success)
+	expectedTotal := 100 + (numWriters * opsPerGoroutine)
+	if state.TotalFingerprints() != expectedTotal {
+		t.Errorf("TotalFingerprints() = %d, want %d", state.TotalFingerprints(), expectedTotal)
+	}
+}
+
+func TestSaveState_NotConcurrentSafe(t *testing.T) {
+	// Document that SaveState is NOT thread-safe
+	// Current implementation assumes sequential processing (as in cmd/finparse/main.go)
+	// This test verifies the current limitation rather than testing for safety
+
+	// Note: We don't actually test concurrent SaveState calls here because:
+	// 1. It would require complex race condition triggering
+	// 2. Current CLI design doesn't call SaveState concurrently
+	// 3. Test would be flaky and platform-dependent
+
+	// Instead, we document the assumption:
+	t.Log("SaveState assumes sequential processing")
+	t.Log("CLI processes files one at a time (cmd/finparse/main.go:211-270)")
+	t.Log("If parallel processing is added, consider:")
+	t.Log("  - Adding mutex to SaveState")
+	t.Log("  - Using channel-based serialization")
+	t.Log("  - Implementing lock file mechanism")
+
+	// Simple test: verify SaveState works in single-threaded context
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+	state := NewState()
+	state.RecordTransaction("abc123", "txn-001", time.Now())
+
+	err := SaveState(state, stateFile)
+	if err != nil {
+		t.Errorf("SaveState failed in single-threaded context: %v", err)
+	}
+}
+
+func TestState_PerformanceWithLargeDataset(t *testing.T) {
+	// Test performance with realistic production dataset size
+	// Skip in short mode: go test -short ./internal/dedup/...
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "large-state.json")
+
+	// Create state with 10,000 fingerprints (simulates 5+ years of transactions)
+	state := NewState()
+	numFingerprints := 10000
+	baseTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Logf("Generating %d fingerprints...", numFingerprints)
+	for i := 0; i < numFingerprints; i++ {
+		// Generate unique fingerprints with realistic data distribution
+		date := baseTime.AddDate(0, 0, i%1825).Format("2006-01-02") // 5 years
+		amount := -50.00 - float64(i%1000)                          // Various amounts
+		description := fmt.Sprintf("Transaction %d", i)
+		fp := GenerateFingerprint(date, amount, description)
+		txnID := fmt.Sprintf("txn-%d", i)
+		ts := baseTime.AddDate(0, 0, i%1825)
+
+		if err := state.RecordTransaction(fp, txnID, ts); err != nil {
+			t.Fatalf("Failed to record transaction %d: %v", i, err)
+		}
+	}
+
+	// Measure save performance
+	t.Log("Measuring SaveState performance...")
+	saveStart := time.Now()
+	if err := SaveState(state, stateFile); err != nil {
+		t.Fatalf("SaveState failed: %v", err)
+	}
+	saveDuration := time.Since(saveStart)
+	t.Logf("SaveState took: %v", saveDuration)
+
+	// Generous timeout: 500ms (production should be faster, but CI may be slower)
+	if saveDuration > 500*time.Millisecond {
+		t.Errorf("SaveState too slow: %v (expected < 500ms)", saveDuration)
+	}
+
+	// Verify file size
+	fileInfo, err := os.Stat(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to stat state file: %v", err)
+	}
+	fileSize := fileInfo.Size()
+	t.Logf("State file size: %.2f MB", float64(fileSize)/(1024*1024))
+
+	// Expected: ~1.6 MB for 10,000 fingerprints with JSON indentation
+	// Allow up to 5 MB to account for metadata and formatting
+	maxSize := int64(5 * 1024 * 1024) // 5 MB
+	if fileSize > maxSize {
+		t.Errorf("State file too large: %d bytes (%.2f MB), expected < %d bytes (%.2f MB)",
+			fileSize, float64(fileSize)/(1024*1024),
+			maxSize, float64(maxSize)/(1024*1024))
+	}
+
+	// Measure load performance
+	t.Log("Measuring LoadState performance...")
+	loadStart := time.Now()
+	loadedState, err := LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("LoadState failed: %v", err)
+	}
+	loadDuration := time.Since(loadStart)
+	t.Logf("LoadState took: %v", loadDuration)
+
+	// Generous timeout: 250ms
+	if loadDuration > 250*time.Millisecond {
+		t.Errorf("LoadState too slow: %v (expected < 250ms)", loadDuration)
+	}
+
+	// Verify loaded state is correct
+	if loadedState.TotalFingerprints() != numFingerprints {
+		t.Errorf("LoadState fingerprints count = %d, want %d",
+			loadedState.TotalFingerprints(), numFingerprints)
+	}
+
+	// Performance optimization opportunities (if tests fail):
+	// 1. Remove JSON indentation for production (use json.Marshal instead of MarshalIndent)
+	// 2. Implement incremental writes (append-only log with periodic compaction)
+	// 3. Use binary format instead of JSON (protobuf, msgpack, gob)
+	// 4. Implement LRU eviction for old fingerprints
+	// 5. Add compression (gzip)
 }

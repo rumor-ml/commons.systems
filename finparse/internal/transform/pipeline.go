@@ -12,17 +12,24 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 )
 
+// TODO(#1409): TransformStats.UnmatchedExamples mutable slice allows external corruption
 // TransformStats contains statistics from transformation process.
 //
 // Design note: Fields are exported for simplicity since this is a data transfer object
-// used only within the transform package and main CLI. UnmatchedExamples has a soft
-// cap of 5 items enforced at append time (line 89). If external modification becomes
-// a concern, consider unexported fields with getters returning defensive copies.
+// used only within the transform package and main CLI. UnmatchedExamples and
+// DuplicateExamples are capped at 5 items (enforced during append) to limit CLI
+// output verbosity while still providing useful examples. The cap of 5 balances
+// providing helpful examples without overwhelming users with excessive output.
+// If external modification becomes a concern, consider unexported fields with
+// getters returning defensive copies.
 type TransformStats struct {
-	DuplicatesSkipped int
-	RulesMatched      int
-	RulesUnmatched    int
-	UnmatchedExamples []string // Capped at 5 items during population
+	DuplicatesSkipped            int
+	RulesMatched                 int
+	RulesUnmatched               int
+	UnmatchedExamples            []string // Capped at 5 items during population
+	DuplicateInstitutionsSkipped int
+	DuplicateAccountsSkipped     int
+	DuplicateExamples            []string // Capped at 5 items during population
 }
 
 // TransformStatement converts RawStatement to domain types and adds to Budget.
@@ -54,7 +61,8 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 			return nil, fmt.Errorf("failed to add institution: %w", err)
 		}
 		// Duplicate institutions are expected when processing multiple statements
-		// from the same institution. Not logged to avoid noise in normal operation.
+		// from the same institution. Tracked for debugging but not logged in normal operation.
+		stats.DuplicateInstitutionsSkipped++
 	}
 
 	account, err := transformAccount(&raw.Account, institution.ID)
@@ -68,7 +76,8 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 			return nil, fmt.Errorf("failed to add account: %w", err)
 		}
 		// Duplicate accounts are expected when processing multiple statements
-		// from the same account. Not logged to avoid noise in normal operation.
+		// from the same account. Tracked for debugging but not logged in normal operation.
+		stats.DuplicateAccountsSkipped++
 	}
 
 	statement, err := transformStatement(raw, account.ID)
@@ -112,6 +121,13 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 				// Individual duplicates not logged to avoid noise when processing
 				// overlapping statement date ranges.
 				stats.DuplicatesSkipped++
+
+				// Track first few duplicates for verbose mode debugging
+				if len(stats.DuplicateExamples) < 5 {
+					stats.DuplicateExamples = append(stats.DuplicateExamples,
+						fmt.Sprintf("%s: %s (%.2f)", txn.Date, txn.Description, txn.Amount))
+				}
+
 				continue
 			}
 		}
@@ -123,8 +139,10 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		}
 
 		// Record in state if provided. Uses time.Now() to track when we first/last observed
-		// this fingerprint during parsing, not the transaction date. This allows tracking
-		// when fingerprints were added to the state file for debugging and state management.
+		// this fingerprint during parsing, not the transaction date. This enables:
+		//   - Debugging when duplicate detection started (state file history)
+		//   - State file cleanup (remove fingerprints not seen in N days)
+		//   - Auditing when transactions were processed vs when they occurred
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
 				return nil, fmt.Errorf("failed to record transaction fingerprint: %w", err)
@@ -172,7 +190,10 @@ func transformAccount(raw *parser.RawAccount, institutionID string) (*domain.Acc
 
 	// Create display name from last 4 digits (e.g., "Account 2011")
 	// TODO(#1363): Support user-defined account nicknames (e.g., "Primary Checking")
-	// instead of generic names. Would require additional metadata storage.
+	// instead of generic "Account 2011" names. Would require:
+	//   - Config file mapping institution+account -> nickname
+	//   - OR extending Account domain model with optional nickname field
+	//   - OR external metadata store (separate from statement files)
 	accountName := fmt.Sprintf("Account %s", ExtractLast4(accountNumber))
 
 	account, err := domain.NewAccount(accountID, institutionID, accountName, accountType)
@@ -227,10 +248,9 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 		return nil, false, err
 	}
 
-	// Apply rules if engine provided and match found.
-	// Note: Match() is designed to never fail. Any invalid match types are caught during
-	// engine initialization (NewEngine). Future extensions requiring error handling should
-	// add error return to Match() signature.
+	// Apply rules if engine provided. Match() cannot fail because invalid match types
+	// are caught during engine initialization (NewEngine validation). The matched boolean
+	// indicates whether any rule matched the description.
 	var matched bool
 	var result *rules.MatchResult
 	if engine != nil {
