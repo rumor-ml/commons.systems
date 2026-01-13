@@ -303,19 +303,9 @@ export const test = base.extend<AuthFixtures>({
       // Navigate to page first so Firebase SDK is loaded
       await page.waitForLoadState('domcontentloaded');
 
-      // Firebase config - must use emulator's projectId for custom token auth to work
-      // Custom tokens are signed for the projectId used by Admin SDK (process.env.GCP_PROJECT_ID)
-      // so the browser-side Firebase app must also use the same projectId
-      const firebaseConfig = {
-        apiKey: 'AIzaSyBbugulRE4hhlFmSlYSDo22pwkPnZqWfrw',
-        authDomain: 'chalanding.firebaseapp.com',
-        projectId: process.env.GCP_PROJECT_ID || 'demo-test',
-        storageBucket: 'chalanding.firebasestorage.app',
-        messagingSenderId: '190604485916',
-        appId: '1:190604485916:web:abc123def456',
-      };
-
       // Step 3: Exchange token in browser (with retry via page.evaluate)
+      // Note: We use the page's existing auth instance from firebase.js,
+      // which is already configured with the correct projectId for the emulator
       await withRetry(
         async () => {
           await page.evaluate(
