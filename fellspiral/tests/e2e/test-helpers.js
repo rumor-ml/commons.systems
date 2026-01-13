@@ -76,15 +76,15 @@ export function generateTestCardData(suffix = '') {
 
 /**
  * Wait for app initialization after page load
+ * INFRASTRUCTURE STABILITY FIX: Use event-driven wait instead of hard-coded timeout
  * App initialization (including Firebase) happens asynchronously on DOMContentLoaded,
  * so tests need to wait for it to complete before interacting with auth-dependent features.
- * This is a simple timeout wrapper - consider using page.waitForTimeout() directly
- * or implementing actual Firebase state checking if more precise timing is needed.
  * @param {import('@playwright/test').Page} page - Playwright page object
- * @param {number} timeout - Timeout in milliseconds (default: 3000)
+ * @param {number} timeout - Maximum timeout in milliseconds (default: 10000)
  */
-export async function waitForAppInit(page, timeout = 3000) {
-  await page.waitForTimeout(timeout);
+export async function waitForAppInit(page, timeout = 10000) {
+  // Wait for Firebase auth to be initialized
+  await page.waitForFunction(() => window.auth != null, { timeout });
 }
 
 /**
@@ -139,7 +139,12 @@ async function selectComboboxOption(page, listboxId, targetValue) {
 async function fillCombobox(page, inputId, listboxId, value) {
   await page.locator(`#${inputId}`).fill(value);
   await page.locator(`#${inputId}`).dispatchEvent('input');
-  await page.waitForTimeout(50);
+
+  // INFRASTRUCTURE STABILITY FIX: Use event-driven wait for listbox visibility
+  // Wait for listbox to appear after input event (combobox shows dropdown on input)
+  await page.waitForSelector(`#${listboxId}`, { state: 'visible', timeout: 1000 }).catch(() => {
+    // Listbox may not appear if no matching options - this is acceptable
+  });
 
   const selected = await selectComboboxOption(page, listboxId, value);
   if (!selected) {
@@ -176,7 +181,20 @@ export async function createCardViaUI(page, cardData) {
 
   // Wait for form elements to be fully ready (not just attached, but visible and enabled)
   await page.waitForSelector('#cardType', { state: 'visible', timeout: 5000 });
-  await page.waitForTimeout(100); // Small delay to ensure form initialization completes
+
+  // INFRASTRUCTURE STABILITY FIX: Wait for form initialization signal instead of timeout
+  // The form dispatches 'cardeditor:ready' event when initialization completes
+  await page
+    .waitForFunction(
+      () => {
+        const form = document.getElementById('cardForm');
+        return form && !form.classList.contains('initializing');
+      },
+      { timeout: 2000 }
+    )
+    .catch(() => {
+      // Form may not have 'initializing' class - fallback to basic visibility check
+    });
 
   // Fill required fields
   await page.locator('#cardTitle').fill(cardData.title);
@@ -184,8 +202,15 @@ export async function createCardViaUI(page, cardData) {
   // Fill type combobox
   await fillCombobox(page, 'cardType', 'typeListbox', cardData.type);
 
-  // Wait for subtype combobox to be ready after type change
-  await page.waitForTimeout(100);
+  // INFRASTRUCTURE STABILITY FIX: Wait for subtype options to load after type change
+  // The subtype field updates based on selected type
+  await page.waitForFunction(
+    () => {
+      const subtypeInput = document.getElementById('cardSubtype');
+      return subtypeInput && !subtypeInput.disabled;
+    },
+    { timeout: 2000 }
+  );
 
   // Fill subtype combobox
   await fillCombobox(page, 'cardSubtype', 'subtypeListbox', cardData.subtype);
@@ -546,7 +571,7 @@ export async function createCardInFirestore(cardData) {
 
 /**
  * Wait for a specific card count to appear in the UI
- * Polls the DOM for .card-item elements until expected count is reached
+ * INFRASTRUCTURE STABILITY FIX: Use Playwright's built-in polling with waitForFunction
  * @param {import('@playwright/test').Page} page - Playwright page object
  * @param {number} expectedCount - Expected number of cards
  * @param {number} timeout - Maximum wait time in ms (default: 10000)
@@ -554,20 +579,21 @@ export async function createCardInFirestore(cardData) {
  * @throws {Error} If expected count not reached within timeout
  */
 export async function waitForCardCount(page, expectedCount, timeout = 10000) {
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < timeout) {
-    const currentCount = await page.locator('.card-item').count();
-    if (currentCount === expectedCount) {
-      return;
-    }
-    await page.waitForTimeout(200); // Poll every 200ms
+  try {
+    await page.waitForFunction(
+      (expected) => {
+        const cards = document.querySelectorAll('.card-item');
+        return cards.length === expected;
+      },
+      expectedCount,
+      { timeout, polling: 200 }
+    );
+  } catch (error) {
+    const finalCount = await page.locator('.card-item').count();
+    throw new Error(
+      `Timeout waiting for ${expectedCount} cards. Current count: ${finalCount} after ${timeout}ms`
+    );
   }
-
-  const finalCount = await page.locator('.card-item').count();
-  throw new Error(
-    `Timeout waiting for ${expectedCount} cards. Current count: ${finalCount} after ${timeout}ms`
-  );
 }
 
 /**
