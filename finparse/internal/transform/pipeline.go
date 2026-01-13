@@ -3,7 +3,6 @@ package transform
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -15,8 +14,9 @@ import (
 
 // TransformStats contains statistics from transformation process.
 //
-// Example slices are capped at 5 items to balance debugging context with CLI
-// output verbosity. Fields use defensive encapsulation: example slices are
+// Example slices are capped at 5 items to provide representative debugging samples
+// without overwhelming CLI output (5 fits comfortably in a terminal screen alongside
+// other statistics). Fields use defensive encapsulation: example slices are
 // unexported and accessed via methods that return defensive copies to prevent
 // external modification of internal state.
 type TransformStats struct {
@@ -27,7 +27,6 @@ type TransformStats struct {
 	DuplicateInstitutionsSkipped int
 	DuplicateAccountsSkipped     int
 	duplicateExamples            []string // unexported, capped at 5 items
-	StateRecordingErrors         int
 }
 
 // UnmatchedExamples returns a defensive copy of unmatched transaction examples (max 5 items).
@@ -59,11 +58,16 @@ func (s *TransformStats) addDuplicateExample(example string) {
 }
 
 // TransformStatement converts RawStatement to domain types and adds to Budget.
-// Institutions and accounts are added idempotently (duplicates are silently skipped,
-// which is expected when processing multiple statements from the same institution/account).
-// Duplicate counts are tracked in stats for debugging.
-// Statements and transactions will fail on duplicates (data quality issue).
-// Optional state parameter enables deduplication (nil to disable).
+//
+// Idempotent entities (expected when processing multiple statements from same source):
+//   - Institutions: duplicates silently skipped, tracked in stats
+//   - Accounts: duplicates silently skipped, tracked in stats
+//
+// Non-idempotent entities (duplicates indicate data quality issues):
+//   - Statements: duplicate causes error
+//   - Transactions: duplicate causes error (unless filtered by dedup.State)
+//
+// Optional state parameter enables transaction deduplication (nil to disable).
 // Optional engine parameter enables rule-based categorization (nil to disable).
 // Returns statistics about the transformation process.
 func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *dedup.State, engine *rules.Engine) (*TransformStats, error) {
@@ -92,8 +96,9 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// TODO(#1424): Consider caching strategy
 		// Duplicate institutions are expected when processing multiple statements
 		// from the same institution. Silently skipped (tracked for debugging).
-		// Different institution names mapping to the same slug will also be skipped
-		// (e.g., "Chase Bank" and "Chase" → same slug), preserving first occurrence.
+		// CAUTION: Different institution names mapping to the same slug will be merged
+		// (e.g., "Chase Bank" and "Chase" → same slug), preserving first occurrence only.
+		// This could incorrectly merge distinct institutions with similar names.
 		stats.DuplicateInstitutionsSkipped++
 		// TODO(#1431): Add verbose logging when verbose flag is accessible
 		// In verbose mode, log skipped duplicates to help users verify slugification
@@ -155,8 +160,8 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 			if state.IsDuplicate(fingerprint) {
 				// Skip duplicate transaction - already processed in a previous run.
 				// Duplicate count is tracked in stats for user visibility.
-				// Individual duplicates not logged to avoid noise when processing
-				// overlapping statement date ranges.
+				// Individual duplicates not logged to avoid overwhelming output when processing
+				// overlapping statement date ranges (could generate hundreds of duplicate messages).
 				stats.DuplicatesSkipped++
 
 				// Track first few duplicates for verbose mode debugging
@@ -175,10 +180,10 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		}
 
 		// Add transaction to budget FIRST, before recording in state.
-		// This ordering prevents data loss: if budget.AddTransaction fails, the state
-		// is unchanged and the transaction can be retried. If we recorded in state first,
-		// a subsequent budget failure would mark the transaction as "seen" even though
-		// it wasn't added, causing permanent data loss on retry.
+		// This ordering chooses duplicates over loss: if budget.AddTransaction fails, the
+		// state is unchanged and the transaction can be retried. If we recorded in state first,
+		// a subsequent budget failure would mark the transaction as "seen" even though it wasn't
+		// added, causing permanent loss on retry.
 		if err := budget.AddTransaction(*txn); err != nil {
 			return nil, fmt.Errorf("failed to add transaction %d/%d (ID: %q): %w",
 				i+1, len(raw.Transactions), txn.ID, err)
@@ -186,22 +191,17 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 
 		// Record in state AFTER successful budget add (if state provided).
 		// Trade-off: If state recording fails after budget succeeds, the transaction
-		// is in the budget but will be reprocessed on retry (duplicate in output).
-		// This is better than the reverse (transaction lost forever).
+		// is in the output but will be reprocessed on retry (creating a duplicate).
+		// This is better than the reverse (transaction lost forever with no way to recover).
 		// Uses time.Now() to track when this fingerprint was observed during parsing
 		// (not the transaction date). The FirstSeen and LastSeen timestamps provide
-		// parsing history for each fingerprint, which could enable future cleanup
-		// strategies (removing fingerprints not seen in N days).
+		// a parsing history audit trail for debugging. Could potentially enable future
+		// cleanup of very old fingerprints that are unlikely to appear again, though
+		// this requires careful consideration to avoid breaking deduplication.
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
-				// State recording failure is serious - always log details, not just in verbose mode.
-				// Transaction was added to budget (line 181) so it will be in output, but state is
-				// inconsistent and will be reprocessed as duplicate on retry.
-				fmt.Fprintf(os.Stderr, "ERROR: Failed to record transaction in state (will be reprocessed as duplicate on retry):\n")
-				fmt.Fprintf(os.Stderr, "  Transaction: %s - %s ($%.2f)\n", txn.Date, txn.Description, txn.Amount)
-				fmt.Fprintf(os.Stderr, "  Transaction ID: %s\n", txn.ID)
-				fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
-				stats.StateRecordingErrors++
+				return nil, fmt.Errorf("failed to record transaction in deduplication state (transaction: %s - %s, $%.2f): %w\n\nThis will cause duplicates on next run. Check filesystem health and permissions.",
+					txn.Date, txn.Description, txn.Amount, err)
 			}
 		}
 	}
@@ -305,9 +305,10 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 		return nil, false, err
 	}
 
-	// Apply rules if engine provided. Match() validates that rules produce valid MatchResults
-	// and returns an error if a validated rule produces an invalid result (engine initialization
-	// ensures this should never happen). The matched boolean indicates whether any rule matched.
+	// Apply rules if engine provided. Match() performs defensive re-validation when
+	// creating MatchResults (rules are already validated at load time, but this guards
+	// against memory corruption or concurrent modification). The matched boolean indicates
+	// whether any rule matched the description.
 	var matched bool
 	var result *rules.MatchResult
 	if engine != nil {
@@ -322,14 +323,18 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 		// Apply matched rule
 		txn.Category = result.Category
 		txn.SetVacation(result.Vacation)
-		txn.SetTransfer(result.Transfer)
+		if err := txn.SetTransfer(result.Transfer); err != nil {
+			return nil, false, fmt.Errorf("failed to set transfer flag: %w", err)
+		}
 		if err := txn.SetRedeemable(result.Redeemable, result.RedemptionRate); err != nil {
 			return nil, false, fmt.Errorf("failed to set redeemable from rule: %w", err)
 		}
 	} else {
 		// No match or no engine: use defaults
 		txn.SetVacation(false)
-		txn.SetTransfer(false)
+		if err := txn.SetTransfer(false); err != nil {
+			return nil, false, err
+		}
 		if err := txn.SetRedeemable(false, 0.0); err != nil {
 			return nil, false, err
 		}

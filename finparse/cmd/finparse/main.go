@@ -93,9 +93,10 @@ Examples:
 func run() error {
 	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling.
 	// Currently uses Background() which ignores cancellation signals. Should use
-	// signal.NotifyContext to detect Ctrl+C, then finish parsing the current file
-	// before exiting (allowing state file to be saved consistently). Files not yet
-	// started should be skipped.
+	// signal.NotifyContext to detect Ctrl+C. Graceful shutdown options:
+	//   1. Stop accepting new files, wait for current parser to complete (if parser supports context)
+	//   2. Save state with already-processed transactions before exiting
+	// Note: Current code saves state once at end (line 456), so would need incremental saves.
 	ctx := context.Background()
 
 	// Create scanner
@@ -135,7 +136,7 @@ func run() error {
 		return nil
 	}
 
-	// Always show summary of scan results for user feedback
+	// Show summary of scan results for user feedback (format varies by file count)
 	fmt.Printf("Scan complete: found %d statement files", len(files))
 	if len(files) > 0 {
 		// Show institution/account breakdown in summary
@@ -168,8 +169,9 @@ func run() error {
 					fmt.Fprintf(os.Stderr, "State file not found, creating new state\n")
 				}
 			} else {
-				// CRITICAL: State file exists but cannot be loaded. Return error to prevent data loss
-				// and avoid overwriting the problematic file.
+				// CRITICAL: State file exists but cannot be loaded. Return error to prevent:
+				// 1. Overwriting the corrupt state file with empty state
+				// 2. Reprocessing all transactions as new (creating duplicates in output)
 				// Check if this is a permission error to provide specific guidance
 				var pathErr *os.PathError
 				if errors.As(err, &pathErr) && errors.Is(pathErr.Err, os.ErrPermission) {
@@ -191,19 +193,16 @@ func run() error {
 			}
 
 			if state.TotalFingerprints() == 0 {
-				fmt.Fprintf(os.Stderr, "WARNING: State file loaded but contains 0 fingerprints\n")
 				if !state.Metadata.LastUpdated.IsZero() {
 					timeSinceUpdate := time.Since(state.Metadata.LastUpdated)
 					if timeSinceUpdate < 30*24*time.Hour {
-						fmt.Fprintf(os.Stderr, "         State was last updated %v ago but is now empty!\n", timeSinceUpdate)
-						fmt.Fprintf(os.Stderr, "         This likely indicates corruption or accidental reset.\n")
-						fmt.Fprintf(os.Stderr, "         ALL transactions will be reprocessed as NEW.\n")
-					} else {
-						fmt.Fprintf(os.Stderr, "         This is normal for first run\n")
+						// Likely corruption - state was recently used but is now empty
+						return fmt.Errorf("state file corruption detected: file was last updated %v ago but contains 0 fingerprints\n\nThis will cause ALL transactions to be reprocessed as duplicates.\n\nRecovery options:\n  1. Restore state from backup if available\n  2. Check filesystem integrity: fsck or disk utility\n  3. Delete state file and accept duplicates: rm %q\n\nCannot proceed with corrupted state.",
+							timeSinceUpdate, *stateFile)
 					}
-				} else {
-					fmt.Fprintf(os.Stderr, "         This is normal for first run\n")
 				}
+				// Empty state is OK for first run
+				fmt.Fprintf(os.Stderr, "State file is empty (first run) - all transactions will be processed as new\n")
 			}
 
 			if *verbose {
@@ -217,7 +216,7 @@ func run() error {
 		}
 	}
 
-	// Show deduplication status (always, not just verbose)
+	// Show deduplication status when enabled (regardless of verbose flag)
 	if state != nil && *stateFile != "" {
 		fmt.Fprintf(os.Stderr, "Deduplication enabled with state file: %s (%d existing fingerprints)\n",
 			*stateFile, state.TotalFingerprints())
@@ -250,9 +249,6 @@ func run() error {
 	// Phase 4: Transform and output
 	budget := domain.NewBudget()
 
-	// Track state save failures for final output message
-	var stateSaveFailed bool
-
 	// Aggregate statistics across all statements
 	var (
 		totalDuplicatesSkipped            int
@@ -260,7 +256,6 @@ func run() error {
 		totalRulesUnmatched               int
 		totalDuplicateInstitutionsSkipped int
 		totalDuplicateAccountsSkipped     int
-		totalStateRecordingErrors         int
 		closeErrorCount                   int
 		closeErrors                       = make(map[string][]string) // error type -> file paths
 	)
@@ -294,17 +289,20 @@ func run() error {
 		// Close file immediately after parsing (not deferred) to avoid file descriptor accumulation
 		closeErr := f.Close()
 		if closeErr != nil {
-			// Categorize error type for aggregation
+			// Detect error type by searching error message for aggregation
 			errType := "unknown"
 			errStr := closeErr.Error()
+
+			// Fail immediately on critical errors that indicate serious issues
 			if strings.Contains(errStr, "permission") || strings.Contains(errStr, "denied") {
-				errType = "permission_denied"
+				return fmt.Errorf("failed to close file %s (critical permission error, stopping): %w", file.Path, closeErr)
 			} else if strings.Contains(errStr, "no space") || strings.Contains(errStr, "disk full") {
-				errType = "disk_full"
-			} else if strings.Contains(errStr, "bad file") || strings.Contains(errStr, "stale") {
-				errType = "filesystem_corruption"
+				return fmt.Errorf("failed to close file %s (disk full, stopping): %w", file.Path, closeErr)
+			} else if strings.Contains(errStr, "bad file") || strings.Contains(errStr, "stale") || strings.Contains(errStr, "filesystem") {
+				return fmt.Errorf("failed to close file %s (filesystem corruption, stopping): %w", file.Path, closeErr)
 			}
 
+			// For less serious errors, aggregate and continue
 			closeErrors[errType] = append(closeErrors[errType], file.Path)
 			closeErrorCount++
 		}
@@ -342,7 +340,6 @@ func run() error {
 		// Track duplicate statistics
 		totalDuplicateInstitutionsSkipped += stats.DuplicateInstitutionsSkipped
 		totalDuplicateAccountsSkipped += stats.DuplicateAccountsSkipped
-		totalStateRecordingErrors += stats.StateRecordingErrors
 		for _, example := range stats.DuplicateExamples() {
 			duplicateExamplesMap[example] = true
 		}
@@ -365,7 +362,7 @@ func run() error {
 			}
 		}
 
-		// Always return error if ANY file failed to close (more conservative than 50% threshold)
+		// Return error if ANY file failed to close - conservative approach to detect filesystem issues early
 		return fmt.Errorf("%d file(s) failed to close - check filesystem health", closeErrorCount)
 	}
 
@@ -444,14 +441,9 @@ func run() error {
 		}
 	}
 
-	// Show state recording errors if any occurred
-	if state != nil && totalStateRecordingErrors > 0 {
-		fmt.Fprintf(os.Stderr, "\nWARNING: %d transaction(s) failed state recording\n", totalStateRecordingErrors)
-		fmt.Fprintf(os.Stderr, "         These transactions are in the output but will be reprocessed as duplicates on next run\n")
-		fmt.Fprintf(os.Stderr, "         This may indicate filesystem issues or state corruption\n")
-	}
-
-	// Phase 5: Save state before writing output (transactional ordering)
+	// Phase 5: Save state before writing output to prevent reprocessing on retry.
+	// If state saves but output fails, we can retry output without parsing again.
+	// If state save fails, we abort before output to maintain consistency.
 	if state != nil && *stateFile != "" {
 		if err := dedup.SaveState(state, *stateFile); err != nil {
 			// State save failed - provide detailed diagnostics
@@ -460,32 +452,18 @@ func run() error {
 			fmt.Fprintf(os.Stderr, "  - All parsing work for this run will be lost\n")
 			fmt.Fprintf(os.Stderr, "  - Transactions will be reprocessed as NEW on next run\n")
 			fmt.Fprintf(os.Stderr, "  - Output file will NOT be written to prevent inconsistency\n")
-			fmt.Fprintf(os.Stderr, "\nRecovery options:\n")
-			fmt.Fprintf(os.Stderr, "  1. Fix the error and retry (recommended)\n")
-			fmt.Fprintf(os.Stderr, "  2. Try different state file location: --state /different/path\n")
-			fmt.Fprintf(os.Stderr, "  3. Write output without state: FINPARSE_SKIP_STATE_SAVE=1 finparse ...\n")
-			fmt.Fprintf(os.Stderr, "     (WARNING: duplicates will be reprocessed on next run)\n\n")
 
-			// Check for common errors
+			// Provide actionable recovery steps based on error type
 			if strings.Contains(err.Error(), "permission denied") {
 				stateDir := filepath.Dir(*stateFile)
-				fmt.Fprintf(os.Stderr, "Permission denied - check directory permissions:\n")
+				fmt.Fprintf(os.Stderr, "\nPermission denied - check directory permissions:\n")
 				fmt.Fprintf(os.Stderr, "  ls -la %q\n", stateDir)
 			} else if strings.Contains(err.Error(), "no space left") {
-				fmt.Fprintf(os.Stderr, "Disk full - check available space:\n")
+				fmt.Fprintf(os.Stderr, "\nDisk full - check available space:\n")
 				fmt.Fprintf(os.Stderr, "  df -h\n")
 			}
 
-			// Check for environment variable override
-			if os.Getenv("FINPARSE_SKIP_STATE_SAVE") == "1" {
-				fmt.Fprintf(os.Stderr, "\nWARNING: Continuing without saving state due to FINPARSE_SKIP_STATE_SAVE=1\n")
-				fmt.Fprintf(os.Stderr, "         All transactions will be reprocessed on next run\n")
-				fmt.Fprintf(os.Stderr, "         This environment variable should only be used for debugging\n\n")
-				stateSaveFailed = true
-			} else {
-				return fmt.Errorf("failed to save state file %q before writing output: %w\n\nOutput not written to maintain consistency.\nUse FINPARSE_SKIP_STATE_SAVE=1 to write output anyway (will reprocess transactions on next run).",
-					*stateFile, err)
-			}
+			return fmt.Errorf("failed to save state file before writing output: %w", err)
 		} else if *verbose {
 			fmt.Fprintf(os.Stderr, "Saved state with %d fingerprints to %s\n",
 				state.TotalFingerprints(), *stateFile)
@@ -503,14 +481,6 @@ func run() error {
 
 	if *outputFile != "" {
 		fmt.Printf("\nOutput written to %s\n", *outputFile)
-	}
-
-	// Always exit with error if state save failed (regardless of output destination)
-	if stateSaveFailed {
-		fmt.Fprintf(os.Stderr, "\n⚠️  WARNING: State file was NOT saved - duplicates will be reprocessed on next run\n")
-		fmt.Fprintf(os.Stderr, "    Unset FINPARSE_SKIP_STATE_SAVE to restore normal operation\n")
-		// Exit with non-zero to signal partial failure
-		os.Exit(1)
 	}
 
 	return nil

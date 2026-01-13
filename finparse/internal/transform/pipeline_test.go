@@ -910,15 +910,12 @@ func TestTransformStatement_StateRecordingFailure(t *testing.T) {
 	state := dedup.NewState()
 
 	// First parse succeeds
-	stats1, err := TransformStatement(raw, budget, state, nil)
+	_, err := TransformStatement(raw, budget, state, nil)
 	if err != nil {
 		t.Fatalf("First parse failed: %v", err)
 	}
 	if len(budget.GetTransactions()) != 1 {
 		t.Errorf("Expected 1 transaction in budget, got %d", len(budget.GetTransactions()))
-	}
-	if stats1.StateRecordingErrors != 0 {
-		t.Errorf("Expected no state recording errors, got %d", stats1.StateRecordingErrors)
 	}
 
 	// Second parse should detect duplicate

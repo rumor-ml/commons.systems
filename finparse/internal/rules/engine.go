@@ -28,9 +28,9 @@ const (
 
 // Flags represent special boolean flags for transactions.
 //
-// Currently validates that Transfer=true with Redeemable=true is invalid
-// (enforced in NewFlags and UnmarshalYAML). This prevents transfers between
-// accounts from earning cashback rewards.
+// Validates that Transfer=true with Redeemable=true is invalid (enforced in
+// NewFlags and UnmarshalYAML). This prevents transfers between accounts from
+// earning cashback rewards, which would be incorrect.
 //
 // Future validation considerations tracked in TODO(#1405):
 //   - Can vacation transactions be transfers? (e.g., ATM withdrawal on vacation)
@@ -103,7 +103,11 @@ type Rule struct {
 	RedemptionRate float64   `yaml:"redemption_rate"`
 }
 
-// NewRule creates a validated rule. All invariants are checked.
+// NewRule creates a validated rule. Checks invariants:
+//   - Priority in [0,999], redemption rate in [0,1]
+//   - Redeemable=true requires rate > 0; Redeemable=false requires rate = 0
+//   - Pattern non-empty, match type valid, category valid, flags valid
+//
 // This constructor should be used when constructing Rule instances programmatically.
 // YAML loading via NewEngine performs equivalent validation automatically.
 func NewRule(name, pattern string, matchType MatchType, priority int, category string, flags Flags, redemptionRate float64) (*Rule, error) {
@@ -175,8 +179,8 @@ func (r *Rule) Validate() error {
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler to enforce validation during YAML loading.
-// Ensures all Rule instances are validated at construction time, eliminating the
-// temporary invalid state window between unmarshal and post-validation in NewEngine.
+// Validates immediately after unmarshaling, before returning the Rule to the caller.
+// This prevents NewEngine from receiving unvalidated Rules.
 func (r *Rule) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type rawRule Rule
 	var raw rawRule
@@ -250,7 +254,8 @@ func NewEngine(rulesData []byte) (*Engine, error) {
 		return nil, fmt.Errorf("failed to parse YAML rules (check syntax, indentation, and field names): %w", err)
 	}
 
-	// Validate rules by reconstructing them through NewRule constructor
+	// Reconstruct rules through NewRule to validate YAML data against all invariants.
+	// Provides line-specific error context for any invalid rules in the YAML file.
 	validatedRules := make([]Rule, len(ruleSet.Rules))
 	for i, rule := range ruleSet.Rules {
 		validatedRule, err := NewRule(
@@ -332,11 +337,10 @@ func (e *Engine) Match(description string) (*MatchResult, bool, error) {
 				rule.Name,
 			)
 			if err != nil {
-				// Defense in depth: validation should prevent this scenario.
-				// Return matched=true because the rule DID match the description (pattern matched
-				// successfully) - only the result construction failed due to invalid rule configuration.
-				// This distinguishes between 'no rules matched' (false, no error) and 'rule matched
-				// but was invalid' (true, with error).
+				// DEFENSIVE: This should be impossible - rules are validated in UnmarshalYAML and NewEngine.
+				// If this occurs, it indicates memory corruption, concurrent modification, or a validation bug.
+				// Return matched=true because the pattern DID match (distinguishing from 'no match' case),
+				// but report the validation error to alert operators of the serious issue.
 				return nil, true, fmt.Errorf("INTERNAL ERROR: rule %q produced invalid MatchResult with Category=%s, Redeemable=%v, Vacation=%v, Transfer=%v, Rate=%.2f (validation error: %w) - this indicates rule validation was bypassed or rules were modified after loading - please report this bug with rule definition",
 					rule.Name, rule.Category, rule.Flags.Redeemable, rule.Flags.Vacation,
 					rule.Flags.Transfer, rule.RedemptionRate, err)
@@ -350,9 +354,9 @@ func (e *Engine) Match(description string) (*MatchResult, bool, error) {
 
 // GetRules returns a copy of the rules for inspection/debugging.
 //
-// Returns a new slice containing value copies of each Rule struct. Since Rule
-// contains only value-type fields (no pointers, slices, or maps),
-// modifying returned rules will not affect the engine's internal state.
+// Returns a new slice containing copies of each Rule struct. Rule fields are
+// either value types or immutable (strings), so modifying returned rules will
+// not affect the engine's internal state.
 // Rules are returned in priority order (highest first). For equal priorities,
 // rules appear in YAML file order (stable sort).
 func (e *Engine) GetRules() []Rule {

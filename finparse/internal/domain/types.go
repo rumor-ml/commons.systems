@@ -344,6 +344,8 @@ func NewTransaction(id, date, description string, amount float64, category Categ
 // SetRedeemable sets both the Redeemable flag and RedemptionRate together
 // to maintain consistency. If redeemable is true, rate must be > 0.
 // If redeemable is false, rate must be 0.
+// Returns error if attempting to set redeemable=true on a transfer transaction
+// (transfers should not earn cashback).
 func (t *Transaction) SetRedeemable(redeemable bool, rate float64) error {
 	if rate < 0 || rate > 1 {
 		return fmt.Errorf("redemption rate must be in [0,1], got %f", rate)
@@ -353,6 +355,9 @@ func (t *Transaction) SetRedeemable(redeemable bool, rate float64) error {
 	}
 	if !redeemable && rate != 0 {
 		return fmt.Errorf("non-redeemable transaction must have zero redemption rate")
+	}
+	if redeemable && t.transfer {
+		return fmt.Errorf("cannot set redeemable=true when transaction is a transfer (transfers should not earn cashback)")
 	}
 	t.redeemable = redeemable
 	t.redemptionRate = rate
@@ -384,9 +389,15 @@ func (t *Transaction) Transfer() bool {
 	return t.transfer
 }
 
-// SetTransfer sets the transfer flag
-func (t *Transaction) SetTransfer(transfer bool) {
+// SetTransfer sets the transfer flag.
+// Returns error if attempting to set transfer=true on a redeemable transaction
+// (transfers should not earn cashback).
+func (t *Transaction) SetTransfer(transfer bool) error {
+	if transfer && t.redeemable {
+		return fmt.Errorf("cannot set transfer=true when transaction is redeemable (transfers should not earn cashback)")
+	}
 	t.transfer = transfer
+	return nil
 }
 
 // AddStatementID adds a statement ID with validation

@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-// noCopy prevents copying - detected by go vet
+// noCopy is a marker to prevent copying of State by value.
+// Requires go vet -copylocks or staticcheck to detect violations.
 type noCopy struct{}
 
 func (*noCopy) Lock()   {}
@@ -21,7 +22,8 @@ func (*noCopy) Unlock() {}
 // State represents the deduplication state with fingerprint history.
 // IMPORTANT: State must be passed by pointer (*State), never by value.
 // The fingerprints map is a reference type - copying State by value creates
-// aliasing where both copies share the same underlying map.
+// two State instances sharing the same underlying map. Modifying one would
+// affect the other, causing data corruption and race conditions.
 type State struct {
 	noCopy       noCopy                        // Prevents accidental copying
 	Version      int                           `json:"version"`
@@ -124,9 +126,9 @@ func (r *FingerprintRecord) UnmarshalJSON(data []byte) error {
 // MarshalJSON implements json.Marshaler for State
 func (s *State) MarshalJSON() ([]byte, error) {
 	type Alias State
-	// Create defensive copy to prevent external modification of State's internal
-	// map during JSON serialization. Also maintains symmetry with UnmarshalJSON
-	// which performs defensive copying on deserialization.
+	// Create defensive copy to maintain encapsulation - prevents any code that might
+	// access the marshaled representation from modifying State's internal map.
+	// Maintains symmetry with UnmarshalJSON which performs defensive copying on deserialization.
 	fpCopy := make(map[string]*FingerprintRecord, len(s.fingerprints))
 	for k, v := range s.fingerprints {
 		recordCopy := *v
@@ -210,7 +212,7 @@ func GenerateFingerprint(date string, amount float64, description string) string
 }
 
 // LoadState loads a state file from disk.
-// Returns os.IsNotExist error if file doesn't exist (caller should handle).
+// If file doesn't exist, returns an error for which os.IsNotExist(err) returns true.
 func LoadState(filePath string) (*State, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -256,21 +258,9 @@ func SaveState(state *State, filePath string) error {
 	}
 
 	if err := os.Rename(tempFile, filePath); err != nil {
-		// Clean up temp file on error
 		if removeErr := os.Remove(tempFile); removeErr != nil {
 			// CRITICAL: Rename failed and subsequent cleanup attempt also failed - temp file orphaned
 			// This is a serious issue that requires manual intervention
-			separator := strings.Repeat("=", 80)
-			fmt.Fprintf(os.Stderr, "\n%s\n", separator)
-			fmt.Fprintf(os.Stderr, "CRITICAL ERROR: State file save failed AND temp file cleanup failed\n")
-			fmt.Fprintf(os.Stderr, "Orphaned temp file: %s\n", tempFile)
-			fmt.Fprintf(os.Stderr, "\nManual cleanup required:\n")
-			fmt.Fprintf(os.Stderr, "  1. Check disk space: df -h\n")
-			fmt.Fprintf(os.Stderr, "  2. Check permissions: ls -la %q\n", filepath.Dir(filePath))
-			fmt.Fprintf(os.Stderr, "  3. Manually remove: rm %q\n", tempFile)
-			fmt.Fprintf(os.Stderr, "  4. Fix underlying issue before retrying\n")
-			fmt.Fprintf(os.Stderr, "%s\n\n", separator)
-
 			return fmt.Errorf("failed to save state file %q: rename failed (%w) AND cleanup failed (%v)\n"+
 				"CRITICAL: Orphaned temp file at %q requires manual removal\n\n"+
 				"Recovery steps:\n"+
@@ -299,7 +289,8 @@ func (s *State) TotalFingerprints() int {
 }
 
 // GetFingerprints returns a defensive copy of the fingerprints map.
-// Each FingerprintRecord is copied to prevent external mutation.
+// Each FingerprintRecord is copied to prevent callers from modifying State's
+// internal data structures, which would bypass validation and break invariants.
 // This maintains the encapsulation pattern used throughout the State API.
 func (s *State) GetFingerprints() map[string]FingerprintRecord {
 	result := make(map[string]FingerprintRecord, len(s.fingerprints))
@@ -311,9 +302,11 @@ func (s *State) GetFingerprints() map[string]FingerprintRecord {
 
 // RecordTransaction records a transaction fingerprint in the state.
 // If new: creates record with firstSeen=timestamp, count=1, transactionID=provided ID.
-// If exists: updates existing record (increments observation count, updates lastSeen).
-// The transactionID parameter is only used for new fingerprints; subsequent observations
-// retain the original TransactionID from first occurrence.
+// If exists: updates existing record (increments count, updates lastSeen) while preserving
+//
+//	the original TransactionID from first occurrence for reference stability.
+//
+// The transactionID parameter is required but only stored for new fingerprints.
 func (s *State) RecordTransaction(fingerprint, transactionID string, timestamp time.Time) error {
 	if fingerprint == "" {
 		return fmt.Errorf("fingerprint cannot be empty")

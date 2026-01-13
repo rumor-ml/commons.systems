@@ -1711,6 +1711,145 @@ func TestSaveState_ConcurrentCLIProcesses(t *testing.T) {
 	}
 }
 
+// TestLoadState_WhileBeingWritten verifies that LoadState handles concurrent writes safely.
+// When SaveState is writing to the temp file and renaming it, LoadState should either:
+// 1. Read the old (pre-write) state successfully, OR
+// 2. Read the new (post-write) state successfully, OR
+// 3. Fail with a clear error (file not found during brief rename window)
+// It should NEVER return partially-written/corrupted JSON.
+func TestLoadState_WhileBeingWritten(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create initial state with 100 fingerprints (large enough to have observable write time)
+	initialState := NewState()
+	for i := 0; i < 100; i++ {
+		fp := GenerateFingerprint("2025-01-15", -50.00-float64(i), fmt.Sprintf("Initial-Txn%d", i))
+		if err := initialState.RecordTransaction(fp, fmt.Sprintf("init-txn-%d", i), time.Now()); err != nil {
+			t.Fatalf("Failed to create initial state: %v", err)
+		}
+	}
+	if err := SaveState(initialState, stateFile); err != nil {
+		t.Fatalf("Failed to save initial state: %v", err)
+	}
+
+	initialCount := initialState.TotalFingerprints()
+
+	// Channel to coordinate timing
+	startReads := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Goroutine 1: Continuously save state with increasing fingerprints
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-startReads // Wait for signal
+
+		// Perform 10 saves with progressively larger states
+		for i := 0; i < 10; i++ {
+			state, err := LoadState(stateFile)
+			if err != nil {
+				t.Logf("Writer LoadState error (iteration %d): %v", i, err)
+				continue
+			}
+
+			// Add 10 more fingerprints
+			for j := 0; j < 10; j++ {
+				fp := GenerateFingerprint("2025-01-16", -100.00-float64(i*10+j), fmt.Sprintf("Writer-Txn%d-%d", i, j))
+				if err := state.RecordTransaction(fp, fmt.Sprintf("writer-txn-%d-%d", i, j), time.Now()); err != nil {
+					t.Logf("Writer RecordTransaction error: %v", err)
+				}
+			}
+
+			if err := SaveState(state, stateFile); err != nil {
+				t.Logf("Writer SaveState error (iteration %d): %v", i, err)
+			}
+
+			// Small delay between writes
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+
+	// Goroutines 2-11: Attempt reads during writes
+	readResults := make(chan int, 200) // Buffer for all read results (10 readers * 20 attempts)
+	for readerID := 0; readerID < 10; readerID++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-startReads // Wait for signal
+
+			// Attempt multiple reads to increase chance of catching a write
+			for attempt := 0; attempt < 20; attempt++ {
+				state, err := LoadState(stateFile)
+				if err != nil {
+					// Expected errors during rename window
+					if os.IsNotExist(err) {
+						t.Logf("Reader %d attempt %d: file not found (during rename)", id, attempt)
+						continue
+					}
+					// Unexpected error - should not be parse error on partial data
+					if strings.Contains(err.Error(), "failed to parse") {
+						t.Errorf("Reader %d attempt %d: CORRUPTED STATE DETECTED: %v", id, attempt, err)
+						readResults <- -1 // Signal corruption
+						return
+					}
+					t.Logf("Reader %d attempt %d: unexpected error: %v", id, attempt, err)
+					continue
+				}
+
+				// Successfully loaded - verify it's valid (not corrupted)
+				count := state.TotalFingerprints()
+				if count < initialCount {
+					t.Errorf("Reader %d attempt %d: fingerprint count went backwards (got %d, initial was %d)", id, attempt, count, initialCount)
+					readResults <- -1
+					return
+				}
+
+				readResults <- count
+				time.Sleep(time.Millisecond) // Brief pause between reads
+			}
+		}(readerID)
+	}
+
+	// Start all goroutines simultaneously
+	close(startReads)
+	wg.Wait()
+	close(readResults)
+
+	// Analyze results
+	var successfulReads, corruptedReads int
+	readCounts := make(map[int]int)
+	for count := range readResults {
+		if count == -1 {
+			corruptedReads++
+		} else {
+			successfulReads++
+			readCounts[count]++
+		}
+	}
+
+	t.Logf("Read results: %d successful, %d corrupted", successfulReads, corruptedReads)
+	t.Logf("Unique counts observed: %d", len(readCounts))
+
+	// Critical assertion: NO corrupted reads
+	if corruptedReads > 0 {
+		t.Fatalf("CRITICAL: %d corrupted reads detected (partial/invalid JSON)", corruptedReads)
+	}
+
+	// Verify final state
+	finalState, err := LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to load final state: %v", err)
+	}
+
+	finalCount := finalState.TotalFingerprints()
+	t.Logf("Final state: %d fingerprints", finalCount)
+
+	if finalCount < initialCount {
+		t.Errorf("Final count %d is less than initial count %d", finalCount, initialCount)
+	}
+}
+
 // TestGenerateFingerprint_IntentionalCollisions verifies that TRUE duplicates collide
 // while SIMILAR but distinct transactions do not.
 func TestGenerateFingerprint_IntentionalCollisions(t *testing.T) {
