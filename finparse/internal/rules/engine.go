@@ -268,10 +268,8 @@ func NewEngine(rulesData []byte) (*Engine, error) {
 		validatedRules[i] = *validatedRule
 	}
 
-	// Sort rules by priority (highest first). Use SliceStable to preserve YAML file
-	// order for rules with equal priority. This guarantees deterministic first-match-wins
-	// behavior where the first rule in the YAML file wins when multiple equal-priority
-	// rules match the same transaction.
+	// Sort rules by priority (highest first). SliceStable preserves YAML file order
+	// for equal-priority rules, ensuring deterministic first-match-wins behavior.
 	sort.SliceStable(validatedRules, func(i, j int) bool {
 		return validatedRules[i].Priority > validatedRules[j].Priority
 	})
@@ -334,16 +332,14 @@ func (e *Engine) Match(description string) (*MatchResult, bool, error) {
 				rule.Name,
 			)
 			if err != nil {
-				// Defense in depth: validation should prevent this, but return error instead of panic.
-				// Return true because the rule matched - this is an internal error, not a match failure.
-
-				// Log full details to stderr for debugging
-				fmt.Fprintf(os.Stderr, "INTERNAL ERROR: Rule %q produced invalid MatchResult\n", rule.Name)
-				fmt.Fprintf(os.Stderr, "  Category: %s, Redeemable: %v, Vacation: %v, Transfer: %v, Rate: %.2f\n",
-					rule.Category, rule.Flags.Redeemable, rule.Flags.Vacation, rule.Flags.Transfer, rule.RedemptionRate)
-				fmt.Fprintf(os.Stderr, "  Validation error: %v\n", err)
-
-				return nil, true, fmt.Errorf("INTERNAL ERROR constructing match result from rule %q: %w (this indicates rule validation was bypassed or rules were modified after loading - please report this bug with rule definition)", rule.Name, err)
+				// Defense in depth: validation should prevent this scenario.
+				// Return matched=true because the rule DID match the description (pattern matched
+				// successfully) - only the result construction failed due to invalid rule configuration.
+				// This distinguishes between 'no rules matched' (false, no error) and 'rule matched
+				// but was invalid' (true, with error).
+				return nil, true, fmt.Errorf("INTERNAL ERROR: rule %q produced invalid MatchResult with Category=%s, Redeemable=%v, Vacation=%v, Transfer=%v, Rate=%.2f (validation error: %w) - this indicates rule validation was bypassed or rules were modified after loading - please report this bug with rule definition",
+					rule.Name, rule.Category, rule.Flags.Redeemable, rule.Flags.Vacation,
+					rule.Flags.Transfer, rule.RedemptionRate, err)
 			}
 			return result, true, nil
 		}

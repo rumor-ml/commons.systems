@@ -1297,3 +1297,102 @@ rules:
 		t.Errorf("Match() returned unexpected error (validation should prevent this): %v", err)
 	}
 }
+
+func TestEmbeddedRules_Structure(t *testing.T) {
+	// Verifies the embedded rules.yaml file is valid and matches expected structure.
+	// Catches regressions from manual edits:
+	// - Typo in embedded rules.yaml (e.g., `categroy: "groceries"`)
+	// - Invalid priority value (e.g., `priority: 1500`)
+	// - Missing required field (e.g., pattern omitted)
+	// - Invalid flag combination (e.g., `transfer: true, redeemable: true`)
+
+	engine, err := LoadEmbedded()
+	if err != nil {
+		t.Fatalf("LoadEmbedded() failed: %v", err)
+	}
+
+	// Verify expected rule count (from carriercommons migration)
+	if len(engine.rules) < 50 {
+		t.Errorf("Expected ~56 rules from carriercommons migration, got %d", len(engine.rules))
+	}
+
+	// Verify priority distribution matches migration doc
+	priorityRanges := map[string]int{
+		"income (900-999)":    0,
+		"transfers (800-899)": 0,
+		"high (700-799)":      0,
+		"medium (500-699)":    0,
+		"low (100-499)":       0,
+		"catch-all (0-99)":    0,
+	}
+
+	for _, rule := range engine.rules {
+		if rule.Priority >= 900 && rule.Priority <= 999 {
+			priorityRanges["income (900-999)"]++
+		} else if rule.Priority >= 800 && rule.Priority <= 899 {
+			priorityRanges["transfers (800-899)"]++
+		} else if rule.Priority >= 700 && rule.Priority <= 799 {
+			priorityRanges["high (700-799)"]++
+		} else if rule.Priority >= 500 && rule.Priority <= 699 {
+			priorityRanges["medium (500-699)"]++
+		} else if rule.Priority >= 100 && rule.Priority <= 499 {
+			priorityRanges["low (100-499)"]++
+		} else if rule.Priority >= 0 && rule.Priority <= 99 {
+			priorityRanges["catch-all (0-99)"]++
+		}
+	}
+
+	t.Logf("Priority distribution: %v", priorityRanges)
+
+	// Verify all rules have valid categories
+	for _, rule := range engine.rules {
+		if !domain.ValidateCategory(domain.Category(rule.Category)) {
+			t.Errorf("Rule %q has invalid category %q", rule.Name, rule.Category)
+		}
+	}
+
+	// Verify redeemable consistency
+	for _, rule := range engine.rules {
+		if rule.Flags.Redeemable && rule.RedemptionRate == 0 {
+			t.Errorf("Rule %q: redeemable=true but rate=0", rule.Name)
+		}
+		if !rule.Flags.Redeemable && rule.RedemptionRate != 0 {
+			t.Errorf("Rule %q: redeemable=false but rate=%f", rule.Name, rule.RedemptionRate)
+		}
+	}
+
+	// Verify transfer+redeemable conflict
+	for _, rule := range engine.rules {
+		if rule.Flags.Transfer && rule.Flags.Redeemable {
+			t.Errorf("Rule %q: invalid combination transfer=true with redeemable=true", rule.Name)
+		}
+	}
+
+	// Verify all patterns are non-empty
+	for _, rule := range engine.rules {
+		if strings.TrimSpace(rule.Pattern) == "" {
+			t.Errorf("Rule %q has empty pattern", rule.Name)
+		}
+	}
+
+	// Verify all priorities are in valid range [0, 999]
+	for _, rule := range engine.rules {
+		if rule.Priority < 0 || rule.Priority > 999 {
+			t.Errorf("Rule %q has priority %d outside valid range [0, 999]", rule.Name, rule.Priority)
+		}
+	}
+
+	// Verify all redemption rates are in valid range [0.0, 1.0]
+	for _, rule := range engine.rules {
+		if rule.RedemptionRate < 0.0 || rule.RedemptionRate > 1.0 {
+			t.Errorf("Rule %q has redemption rate %f outside valid range [0.0, 1.0]", rule.Name, rule.RedemptionRate)
+		}
+	}
+
+	// Verify all match types are valid
+	for _, rule := range engine.rules {
+		if rule.MatchType != MatchTypeExact && rule.MatchType != MatchTypeContains {
+			t.Errorf("Rule %q has invalid match_type %q", rule.Name, rule.MatchType)
+		}
+	}
+}

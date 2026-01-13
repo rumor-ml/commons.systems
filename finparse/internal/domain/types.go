@@ -390,17 +390,34 @@ func (t *Transaction) GetStatementIDs() []string {
 
 // MarshalJSON implements custom JSON marshaling for Transaction
 func (t *Transaction) MarshalJSON() ([]byte, error) {
-	type Alias Transaction
 	// Create defensive copy for marshaling
 	statementIDsCopy := make([]string, len(t.statementIDs))
 	copy(statementIDsCopy, t.statementIDs)
 
 	return json.Marshal(&struct {
-		*Alias
-		StatementIDs []string `json:"statementIds"`
+		ID                  string   `json:"id"`
+		Date                string   `json:"date"`
+		Description         string   `json:"description"`
+		Amount              float64  `json:"amount"`
+		Category            Category `json:"category"`
+		Redeemable          bool     `json:"redeemable"`
+		Vacation            bool     `json:"vacation"`
+		Transfer            bool     `json:"transfer"`
+		RedemptionRate      float64  `json:"redemptionRate"`
+		LinkedTransactionID *string  `json:"linkedTransactionId,omitempty"`
+		StatementIDs        []string `json:"statementIds"`
 	}{
-		Alias:        (*Alias)(t),
-		StatementIDs: statementIDsCopy,
+		ID:                  t.ID,
+		Date:                t.Date,
+		Description:         t.Description,
+		Amount:              t.Amount,
+		Category:            t.Category,
+		Redeemable:          t.redeemable,
+		Vacation:            t.Vacation,
+		Transfer:            t.Transfer,
+		RedemptionRate:      t.redemptionRate,
+		LinkedTransactionID: t.LinkedTransactionID,
+		StatementIDs:        statementIDsCopy,
 	})
 }
 

@@ -1,7 +1,9 @@
 package transform
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -841,6 +843,101 @@ func TestTransformStatement_DedupWithoutRules(t *testing.T) {
 	// Verify duplicate examples captured
 	if len(stats2.DuplicateExamples()) == 0 {
 		t.Error("Expected duplicate examples to be captured")
+	}
+}
+
+func TestTransformStatement_ConcurrentStateAccess(t *testing.T) {
+	// Create shared state
+	state := dedup.NewState()
+
+	// Create identical raw statement for concurrent processing
+	account := mustNewRawAccount(t, "TEST", "Test Bank", "1234", "checking")
+	period := mustNewPeriod(t, time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 31, 0, 0, 0, 0, time.UTC))
+
+	txn := mustNewRawTransaction(t, "txn-test-001", time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), "Test Transaction", -50.00)
+
+	raw := &parser.RawStatement{
+		Account:      *account,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn},
+	}
+
+	var wg sync.WaitGroup
+	errors := make(chan error, 10)
+
+	// Launch 10 goroutines transforming identical transactions
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			budget := domain.NewBudget()
+			_, err := TransformStatement(raw, budget, state, nil)
+			if err != nil {
+				errors <- fmt.Errorf("goroutine %d failed: %w", id, err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Check for errors
+	for err := range errors {
+		t.Errorf("Concurrent access error: %v", err)
+	}
+
+	// Verify state consistency: should have exactly 1 fingerprint
+	// (not 0 from race, not 10 from missing dedup)
+	if state.TotalFingerprints() != 1 {
+		t.Errorf("Race condition detected: expected 1 fingerprint, got %d", state.TotalFingerprints())
+	}
+}
+
+func TestTransformStatement_StateRecordingFailure(t *testing.T) {
+	// Create raw statement
+	account := mustNewRawAccount(t, "TEST", "Test Bank", "1234", "checking")
+	period := mustNewPeriod(t, time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 31, 0, 0, 0, 0, time.UTC))
+
+	txn := mustNewRawTransaction(t, "txn-test-001", time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), "Test Transaction", -50.00)
+
+	raw := &parser.RawStatement{
+		Account:      *account,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn},
+	}
+
+	budget := domain.NewBudget()
+	state := dedup.NewState()
+
+	// First parse succeeds
+	stats1, err := TransformStatement(raw, budget, state, nil)
+	if err != nil {
+		t.Fatalf("First parse failed: %v", err)
+	}
+	if len(budget.GetTransactions()) != 1 {
+		t.Errorf("Expected 1 transaction in budget, got %d", len(budget.GetTransactions()))
+	}
+	if stats1.StateRecordingErrors != 0 {
+		t.Errorf("Expected no state recording errors, got %d", stats1.StateRecordingErrors)
+	}
+
+	// Second parse should detect duplicate
+	budget2 := domain.NewBudget()
+	stats2, err := TransformStatement(raw, budget2, state, nil)
+	if err != nil {
+		t.Fatalf("Second parse failed: %v", err)
+	}
+	if len(budget2.GetTransactions()) != 0 {
+		t.Errorf("Expected 0 transactions (duplicate skipped), got %d", len(budget2.GetTransactions()))
+	}
+	if stats2.DuplicatesSkipped != 1 {
+		t.Errorf("Expected 1 duplicate skipped, got %d", stats2.DuplicatesSkipped)
+	}
+
+	// Verify the transaction is marked as duplicate in state
+	fingerprint := dedup.GenerateFingerprint("2025-10-15", -50.00, "Test Transaction")
+	if !state.IsDuplicate(fingerprint) {
+		t.Error("Expected transaction to be marked as duplicate in state")
 	}
 }
 

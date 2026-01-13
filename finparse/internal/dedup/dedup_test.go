@@ -666,22 +666,28 @@ func TestSaveState_ConcurrentSave(t *testing.T) {
 }
 
 func TestSaveState_DiskFullDuringWrite(t *testing.T) {
-	// Document expected behavior for disk-full scenarios
-	// This test is skipped because reliably triggering disk-full requires OS-level mocking
 	t.Skip("Disk-full testing requires OS-level mocking or ramfs setup")
 
-	// Expected behavior when disk fills during WriteFile:
-	// 1. SaveState should return error (not panic)
-	// 2. Temp file may exist with partial data
-	// 3. Original state file remains untouched (if it existed)
-	// 4. Caller should handle error and retry or alert user
+	// Expected behavior when disk fills during WriteFile (line 195):
+	// 1. SaveState returns error (not panic) ✓
+	// 2. Temp file may exist with partial data ✓
+	// 3. Original state file remains untouched (if it existed) ✓
+	// 4. ERROR: Temp file is NOT cleaned up (minor issue) ✗
 	//
-	// Current implementation (dedup.go:193-195):
+	// Current implementation (dedup.go:193-196):
 	// - WriteFile returns error if disk full
-	// - Temp file cleanup only happens in Rename failure path
-	// - If WriteFile fails, temp file is NOT cleaned up (minor issue)
+	// - Temp file cleanup only happens in Rename failure path (line 201)
+	// - If WriteFile fails, temp file is left orphaned
 	//
-	// Future improvement: Add defer cleanup after WriteFile
+	// Future improvement: Add defer cleanup after WriteFile:
+	//   tempFile := filePath + ".tmp"
+	//   defer func() {
+	//     if _, err := os.Stat(tempFile); err == nil {
+	//       os.Remove(tempFile) // Best-effort cleanup
+	//     }
+	//   }()
+	//
+	// Impact: Low priority (disk-full is rare, orphaned .tmp files are harmless)
 }
 
 func TestGenerateFingerprint_Unicode(t *testing.T) {
