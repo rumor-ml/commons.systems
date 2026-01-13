@@ -86,8 +86,8 @@ type Transaction struct {
 	Amount              float64  `json:"amount"`
 	Category            Category `json:"category"`
 	redeemable          bool     `json:"redeemable"`
-	Vacation            bool     `json:"vacation"`
-	Transfer            bool     `json:"transfer"`
+	vacation            bool     `json:"vacation"`
+	transfer            bool     `json:"transfer"`
 	redemptionRate      float64  `json:"redemptionRate"`
 	LinkedTransactionID *string  `json:"linkedTransactionId,omitempty"`
 	statementIDs        []string
@@ -369,6 +369,26 @@ func (t *Transaction) RedemptionRate() float64 {
 	return t.redemptionRate
 }
 
+// Vacation returns whether the transaction is a vacation expense
+func (t *Transaction) Vacation() bool {
+	return t.vacation
+}
+
+// SetVacation sets the vacation flag
+func (t *Transaction) SetVacation(vacation bool) {
+	t.vacation = vacation
+}
+
+// Transfer returns whether the transaction is a transfer between accounts
+func (t *Transaction) Transfer() bool {
+	return t.transfer
+}
+
+// SetTransfer sets the transfer flag
+func (t *Transaction) SetTransfer(transfer bool) {
+	t.transfer = transfer
+}
+
 // AddStatementID adds a statement ID with validation
 func (t *Transaction) AddStatementID(id string) error {
 	if id == "" {
@@ -413,8 +433,8 @@ func (t *Transaction) MarshalJSON() ([]byte, error) {
 		Amount:              t.Amount,
 		Category:            t.Category,
 		Redeemable:          t.redeemable,
-		Vacation:            t.Vacation,
-		Transfer:            t.Transfer,
+		Vacation:            t.vacation,
+		Transfer:            t.transfer,
 		RedemptionRate:      t.redemptionRate,
 		LinkedTransactionID: t.LinkedTransactionID,
 		StatementIDs:        statementIDsCopy,
@@ -448,8 +468,8 @@ func (t *Transaction) UnmarshalJSON(data []byte) error {
 	t.Description = aux.Description
 	t.Amount = aux.Amount
 	t.Category = aux.Category
-	t.Vacation = aux.Vacation
-	t.Transfer = aux.Transfer
+	t.vacation = aux.Vacation
+	t.transfer = aux.Transfer
 	t.LinkedTransactionID = aux.LinkedTransactionID
 	t.statementIDs = aux.StatementIDs
 

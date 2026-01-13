@@ -262,6 +262,7 @@ func run() error {
 		totalDuplicateAccountsSkipped     int
 		totalStateRecordingErrors         int
 		closeErrorCount                   int
+		closeErrors                       = make(map[string][]string) // error type -> file paths
 	)
 	unmatchedExamplesMap := make(map[string]bool) // Track unique unmatched descriptions
 	duplicateExamplesMap := make(map[string]bool) // Track unique duplicate examples
@@ -293,7 +294,18 @@ func run() error {
 		// Close file immediately after parsing (not deferred) to avoid file descriptor accumulation
 		closeErr := f.Close()
 		if closeErr != nil {
-			fmt.Fprintf(os.Stderr, "WARNING: failed to close %s: %v\n", file.Path, closeErr)
+			// Categorize error type for aggregation
+			errType := "unknown"
+			errStr := closeErr.Error()
+			if strings.Contains(errStr, "permission") || strings.Contains(errStr, "denied") {
+				errType = "permission_denied"
+			} else if strings.Contains(errStr, "no space") || strings.Contains(errStr, "disk full") {
+				errType = "disk_full"
+			} else if strings.Contains(errStr, "bad file") || strings.Contains(errStr, "stale") {
+				errType = "filesystem_corruption"
+			}
+
+			closeErrors[errType] = append(closeErrors[errType], file.Path)
 			closeErrorCount++
 		}
 
@@ -336,13 +348,25 @@ func run() error {
 		}
 	}
 
-	// Check for systemic close failures
+	// Check for close failures and provide detailed diagnostics
 	if closeErrorCount > 0 {
-		fmt.Fprintf(os.Stderr, "\nWARNING: %d file(s) failed to close properly\n", closeErrorCount)
-		// If more than half the files failed to close, filesystem issue likely
-		if closeErrorCount > len(files)/2 {
-			return fmt.Errorf("%d of %d files failed to close (possible filesystem issue)", closeErrorCount, len(files))
+		fmt.Fprintf(os.Stderr, "\nERROR: %d file(s) failed to close properly\n", closeErrorCount)
+
+		// Show errors grouped by type
+		for errType, paths := range closeErrors {
+			fmt.Fprintf(os.Stderr, "  %s errors: %d file(s)\n", errType, len(paths))
+			// Show first 3 examples of each type
+			for i, path := range paths {
+				if i >= 3 {
+					fmt.Fprintf(os.Stderr, "    ... and %d more\n", len(paths)-3)
+					break
+				}
+				fmt.Fprintf(os.Stderr, "    - %s\n", path)
+			}
 		}
+
+		// Always return error if ANY file failed to close (more conservative than 50% threshold)
+		return fmt.Errorf("%d file(s) failed to close - check filesystem health", closeErrorCount)
 	}
 
 	if *verbose {
@@ -378,13 +402,11 @@ func run() error {
 		}
 
 		// Show duplicate institution/account statistics
-		if *verbose {
-			if totalDuplicateInstitutionsSkipped > 0 {
-				fmt.Fprintf(os.Stderr, "  Skipped %d duplicate institution(s)\n", totalDuplicateInstitutionsSkipped)
-			}
-			if totalDuplicateAccountsSkipped > 0 {
-				fmt.Fprintf(os.Stderr, "  Skipped %d duplicate account(s)\n", totalDuplicateAccountsSkipped)
-			}
+		if totalDuplicateInstitutionsSkipped > 0 {
+			fmt.Fprintf(os.Stderr, "  Skipped %d duplicate institution(s)\n", totalDuplicateInstitutionsSkipped)
+		}
+		if totalDuplicateAccountsSkipped > 0 {
+			fmt.Fprintf(os.Stderr, "  Skipped %d duplicate account(s)\n", totalDuplicateAccountsSkipped)
 		}
 
 	}
@@ -481,12 +503,14 @@ func run() error {
 
 	if *outputFile != "" {
 		fmt.Printf("\nOutput written to %s\n", *outputFile)
-		if stateSaveFailed {
-			fmt.Fprintf(os.Stderr, "\n⚠️  WARNING: State file was NOT saved - duplicates will be reprocessed on next run\n")
-			fmt.Fprintf(os.Stderr, "    Unset FINPARSE_SKIP_STATE_SAVE to restore normal operation\n")
-			// Exit with non-zero to signal partial failure
-			os.Exit(1)
-		}
+	}
+
+	// Always exit with error if state save failed (regardless of output destination)
+	if stateSaveFailed {
+		fmt.Fprintf(os.Stderr, "\n⚠️  WARNING: State file was NOT saved - duplicates will be reprocessed on next run\n")
+		fmt.Fprintf(os.Stderr, "    Unset FINPARSE_SKIP_STATE_SAVE to restore normal operation\n")
+		// Exit with non-zero to signal partial failure
+		os.Exit(1)
 	}
 
 	return nil

@@ -121,12 +121,8 @@ func TestIsDuplicate(t *testing.T) {
 	}
 
 	// Add fingerprint
-	state.fingerprints[fp] = &FingerprintRecord{
-		FirstSeen:     time.Now(),
-		LastSeen:      time.Now(),
-		Count:         1,
-		TransactionID: "txn-001",
-	}
+	record, _ := NewFingerprintRecord("txn-001", time.Now())
+	state.fingerprints[fp] = record
 
 	// Should be duplicate now
 	if !state.IsDuplicate(fp) {
@@ -151,20 +147,20 @@ func TestRecordTransaction(t *testing.T) {
 		t.Fatal("RecordTransaction() did not create record")
 	}
 
-	if record.Count != 1 {
-		t.Errorf("RecordTransaction() count = %d, want 1", record.Count)
+	if record.Count() != 1 {
+		t.Errorf("RecordTransaction() count = %d, want 1", record.Count())
 	}
 
-	if !record.FirstSeen.Equal(ts) {
-		t.Errorf("RecordTransaction() firstSeen = %v, want %v", record.FirstSeen, ts)
+	if !record.FirstSeen().Equal(ts) {
+		t.Errorf("RecordTransaction() firstSeen = %v, want %v", record.FirstSeen(), ts)
 	}
 
-	if !record.LastSeen.Equal(ts) {
-		t.Errorf("RecordTransaction() lastSeen = %v, want %v", record.LastSeen, ts)
+	if !record.LastSeen().Equal(ts) {
+		t.Errorf("RecordTransaction() lastSeen = %v, want %v", record.LastSeen(), ts)
 	}
 
-	if record.TransactionID != txnID {
-		t.Errorf("RecordTransaction() transactionID = %s, want %s", record.TransactionID, txnID)
+	if record.TransactionID() != txnID {
+		t.Errorf("RecordTransaction() transactionID = %s, want %s", record.TransactionID(), txnID)
 	}
 
 	// Second record (duplicate)
@@ -175,21 +171,21 @@ func TestRecordTransaction(t *testing.T) {
 	}
 
 	record = state.fingerprints[fp]
-	if record.Count != 2 {
-		t.Errorf("RecordTransaction() count after duplicate = %d, want 2", record.Count)
+	if record.Count() != 2 {
+		t.Errorf("RecordTransaction() count after duplicate = %d, want 2", record.Count())
 	}
 
-	if !record.FirstSeen.Equal(ts) {
-		t.Errorf("RecordTransaction() firstSeen changed = %v, want %v", record.FirstSeen, ts)
+	if !record.FirstSeen().Equal(ts) {
+		t.Errorf("RecordTransaction() firstSeen changed = %v, want %v", record.FirstSeen(), ts)
 	}
 
-	if !record.LastSeen.Equal(ts2) {
-		t.Errorf("RecordTransaction() lastSeen = %v, want %v", record.LastSeen, ts2)
+	if !record.LastSeen().Equal(ts2) {
+		t.Errorf("RecordTransaction() lastSeen = %v, want %v", record.LastSeen(), ts2)
 	}
 
 	// TransactionID should remain from first record
-	if record.TransactionID != txnID {
-		t.Errorf("RecordTransaction() transactionID changed = %s, want %s", record.TransactionID, txnID)
+	if record.TransactionID() != txnID {
+		t.Errorf("RecordTransaction() transactionID changed = %s, want %s", record.TransactionID(), txnID)
 	}
 }
 
@@ -280,12 +276,12 @@ func TestSaveAndLoadState(t *testing.T) {
 		t.Fatal("LoadState() missing fingerprint abc123")
 	}
 
-	if record.Count != 1 {
-		t.Errorf("LoadState() record.Count = %d, want 1", record.Count)
+	if record.Count() != 1 {
+		t.Errorf("LoadState() record.Count() = %d, want 1", record.Count())
 	}
 
-	if record.TransactionID != "txn-001" {
-		t.Errorf("LoadState() record.TransactionID = %s, want txn-001", record.TransactionID)
+	if record.TransactionID() != "txn-001" {
+		t.Errorf("LoadState() record.TransactionID() = %s, want txn-001", record.TransactionID())
 	}
 
 	// Verify metadata was updated during save
@@ -544,6 +540,161 @@ func TestLoadState_FutureVersionMigration(t *testing.T) {
 	// - Automatic migration (if supported)
 	// - Manual migration tool (if provided)
 	// - Breaking changes that require state reset
+}
+
+// TestLoadState_BackwardCompatibleOptionalFields verifies that adding optional fields
+// to the v1 state format maintains backward compatibility. This documents the guarantee
+// that newer finparse versions can read older state files, and vice versa.
+func TestLoadState_BackwardCompatibleOptionalFields(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Run("newer state with extra field loads in current code", func(t *testing.T) {
+		// Simulate: newer finparse version added "source" field to FingerprintRecord
+		stateFile := filepath.Join(tmpDir, "v1-enhanced.json")
+		enhancedState := `{
+			"version": 1,
+			"fingerprints": {
+				"abc123": {
+					"firstSeen": "2025-01-15T10:30:00Z",
+					"lastSeen": "2025-01-15T10:30:00Z",
+					"count": 1,
+					"transactionId": "txn-001",
+					"source": "ofx"
+				}
+			},
+			"metadata": {
+				"lastUpdated": "2025-01-15T10:30:00Z"
+			}
+		}`
+
+		if err := os.WriteFile(stateFile, []byte(enhancedState), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		// Current code should load successfully (JSON unmarshaling ignores unknown fields)
+		state, err := LoadState(stateFile)
+		if err != nil {
+			t.Errorf("LoadState should handle unknown fields gracefully, got error: %v", err)
+		}
+
+		// Verify state loaded correctly
+		if state == nil {
+			t.Fatal("LoadState returned nil state")
+		}
+		if state.Version != 1 {
+			t.Errorf("Version = %d, want 1", state.Version)
+		}
+		if state.TotalFingerprints() != 1 {
+			t.Errorf("TotalFingerprints = %d, want 1", state.TotalFingerprints())
+		}
+
+		// Verify fingerprint data preserved (unknown "source" field ignored)
+		fps := state.GetFingerprints()
+		record, exists := fps["abc123"]
+		if !exists {
+			t.Fatal("Fingerprint abc123 not found")
+		}
+		if record.TransactionID() != "txn-001" {
+			t.Errorf("TransactionID = %q, want 'txn-001'", record.TransactionID())
+		}
+
+		t.Log("✓ Current code successfully ignores unknown field 'source'")
+	})
+
+	t.Run("older state without optional field loads in newer code", func(t *testing.T) {
+		// Simulate: older finparse version created state without "source" field
+		stateFile := filepath.Join(tmpDir, "v1-original.json")
+		originalState := `{
+			"version": 1,
+			"fingerprints": {
+				"def456": {
+					"firstSeen": "2025-01-16T11:00:00Z",
+					"lastSeen": "2025-01-16T11:00:00Z",
+					"count": 1,
+					"transactionId": "txn-002"
+				}
+			},
+			"metadata": {
+				"lastUpdated": "2025-01-16T11:00:00Z"
+			}
+		}`
+
+		if err := os.WriteFile(stateFile, []byte(originalState), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		// Current code should load successfully (missing fields get zero values)
+		state, err := LoadState(stateFile)
+		if err != nil {
+			t.Errorf("LoadState should handle missing optional fields, got error: %v", err)
+		}
+
+		// Verify state loaded correctly
+		if state == nil {
+			t.Fatal("LoadState returned nil state")
+		}
+		if state.TotalFingerprints() != 1 {
+			t.Errorf("TotalFingerprints = %d, want 1", state.TotalFingerprints())
+		}
+
+		// Verify fingerprint data preserved
+		fps := state.GetFingerprints()
+		record, exists := fps["def456"]
+		if !exists {
+			t.Fatal("Fingerprint def456 not found")
+		}
+		if record.TransactionID() != "txn-002" {
+			t.Errorf("TransactionID = %q, want 'txn-002'", record.TransactionID())
+		}
+
+		// If "source" field existed, it would be zero value (empty string)
+		// This is correct behavior for optional fields
+
+		t.Log("✓ Current code successfully handles missing optional fields (zero values)")
+	})
+
+	t.Run("round-trip preserves data without optional fields", func(t *testing.T) {
+		// Verify that loading and saving doesn't add unwanted fields
+		stateFile := filepath.Join(tmpDir, "roundtrip.json")
+
+		// Create state using current code
+		state := NewState()
+		fp := GenerateFingerprint("2025-01-17", -100.00, "Test Transaction")
+		if err := state.RecordTransaction(fp, "txn-003", time.Now()); err != nil {
+			t.Fatalf("RecordTransaction failed: %v", err)
+		}
+
+		// Save and reload
+		if err := SaveState(state, stateFile); err != nil {
+			t.Fatalf("SaveState failed: %v", err)
+		}
+
+		reloaded, err := LoadState(stateFile)
+		if err != nil {
+			t.Fatalf("LoadState failed: %v", err)
+		}
+
+		// Verify data integrity
+		if reloaded.TotalFingerprints() != 1 {
+			t.Errorf("Round-trip changed fingerprint count: got %d, want 1", reloaded.TotalFingerprints())
+		}
+
+		fps := reloaded.GetFingerprints()
+		if record, exists := fps[fp]; !exists {
+			t.Error("Round-trip lost fingerprint")
+		} else if record.TransactionID() != "txn-003" {
+			t.Errorf("Round-trip changed TransactionID: got %q, want 'txn-003'", record.TransactionID())
+		}
+
+		t.Log("✓ Round-trip load/save preserves data integrity")
+	})
+
+	t.Log("")
+	t.Log("BACKWARD COMPATIBILITY GUARANTEES:")
+	t.Log("  1. Newer finparse reading older state: Missing optional fields get zero values (correct)")
+	t.Log("  2. Older finparse reading newer state: Unknown fields are ignored (correct)")
+	t.Log("  3. Version field prevents breaking changes: Incompatible formats increment version")
+	t.Log("  4. Optional field additions: Safe within same version (Go JSON behavior)")
 }
 
 func TestSaveState_CreatesDirectory(t *testing.T) {
@@ -931,10 +1082,10 @@ func TestRecordTransaction_ZeroFirstSeenTimestamp(t *testing.T) {
 
 	// Manually create a corrupted record (simulates file corruption or manual edit)
 	state.fingerprints[fp] = &FingerprintRecord{
-		FirstSeen:     time.Time{}, // Zero time
-		LastSeen:      time.Time{},
-		Count:         1,
-		TransactionID: "txn-001",
+		firstSeen:     time.Time{}, // Zero time
+		lastSeen:      time.Time{},
+		count:         1,
+		transactionID: "txn-001",
 	}
 
 	// Attempt to record with valid timestamp
@@ -949,18 +1100,18 @@ func TestRecordTransaction_ZeroFirstSeenTimestamp(t *testing.T) {
 
 	// Verify the zero FirstSeen is NOT fixed (current behavior)
 	record := state.fingerprints[fp]
-	if !record.FirstSeen.IsZero() {
+	if !record.FirstSeen().IsZero() {
 		t.Error("Expected FirstSeen to remain zero (current implementation behavior)")
 	}
 
 	// Verify LastSeen is updated correctly
-	if !record.LastSeen.Equal(ts) {
-		t.Errorf("LastSeen should be updated to %v, got %v", ts, record.LastSeen)
+	if !record.LastSeen().Equal(ts) {
+		t.Errorf("LastSeen should be updated to %v, got %v", ts, record.LastSeen())
 	}
 
 	// Verify Count is incremented
-	if record.Count != 2 {
-		t.Errorf("Count should be 2, got %d", record.Count)
+	if record.Count() != 2 {
+		t.Errorf("Count should be 2, got %d", record.Count())
 	}
 }
 
@@ -983,14 +1134,14 @@ func TestRecordTransaction_MultipleRunsWithDifferentTimestamps(t *testing.T) {
 	}
 
 	record := state.fingerprints[fp]
-	if !record.LastSeen.Equal(ts2) {
-		t.Errorf("LastSeen not updated to later timestamp: got %v, want %v", record.LastSeen, ts2)
+	if !record.LastSeen().Equal(ts2) {
+		t.Errorf("LastSeen not updated to later timestamp: got %v, want %v", record.LastSeen(), ts2)
 	}
-	if record.Count != 2 {
-		t.Errorf("Count should be 2 for re-processing, got %d", record.Count)
+	if record.Count() != 2 {
+		t.Errorf("Count should be 2 for re-processing, got %d", record.Count())
 	}
-	if !record.FirstSeen.Equal(ts1) {
-		t.Errorf("FirstSeen should remain %v, got %v", ts1, record.FirstSeen)
+	if !record.FirstSeen().Equal(ts1) {
+		t.Errorf("FirstSeen should remain %v, got %v", ts1, record.FirstSeen())
 	}
 }
 
@@ -1017,16 +1168,16 @@ func TestFingerprintRecord_UpdateWithEqualTimestamp(t *testing.T) {
 		t.Errorf("Update with equal timestamp should succeed, got error: %v", err)
 	}
 
-	if record.Count != 2 {
-		t.Errorf("Count should increment to 2, got %d", record.Count)
+	if record.Count() != 2 {
+		t.Errorf("Count should increment to 2, got %d", record.Count())
 	}
 
 	// FirstSeen and LastSeen should both equal original timestamp
-	if !record.FirstSeen.Equal(ts) {
-		t.Errorf("FirstSeen should remain %v, got %v", ts, record.FirstSeen)
+	if !record.FirstSeen().Equal(ts) {
+		t.Errorf("FirstSeen should remain %v, got %v", ts, record.FirstSeen())
 	}
-	if !record.LastSeen.Equal(ts) {
-		t.Errorf("LastSeen should equal %v, got %v", ts, record.LastSeen)
+	if !record.LastSeen().Equal(ts) {
+		t.Errorf("LastSeen should equal %v, got %v", ts, record.LastSeen())
 	}
 }
 
@@ -1436,6 +1587,130 @@ func TestSaveState_ConcurrentWriteSafety(t *testing.T) {
 	}
 }
 
+// TestSaveState_ConcurrentCLIProcesses simulates multiple finparse CLI invocations
+// running simultaneously and updating the shared state file at ~/.finparse/state.json.
+// Validates behavior when two processes load state, modify it, and save back.
+func TestSaveState_ConcurrentCLIProcesses(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create initial state with some fingerprints
+	initialState := NewState()
+	initialState.RecordTransaction("existing-fp-1", "txn-000", time.Now())
+	if err := SaveState(initialState, stateFile); err != nil {
+		t.Fatalf("Failed to create initial state: %v", err)
+	}
+
+	// Simulate two concurrent CLI processes
+	var wg sync.WaitGroup
+	errors := make(chan error, 2)
+
+	// Process 1: Load state, add 3 fingerprints, save
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// Simulate: finparse process 1 loads state
+		state1, err := LoadState(stateFile)
+		if err != nil {
+			errors <- fmt.Errorf("process 1 load failed: %w", err)
+			return
+		}
+
+		// Simulate processing delay (to allow race condition)
+		time.Sleep(10 * time.Millisecond)
+
+		// Process 1 adds 3 fingerprints
+		for i := 0; i < 3; i++ {
+			fp := GenerateFingerprint("2025-01-15", -50.00-float64(i), fmt.Sprintf("Process1-Txn%d", i))
+			if err := state1.RecordTransaction(fp, fmt.Sprintf("p1-txn-%d", i), time.Now()); err != nil {
+				errors <- fmt.Errorf("process 1 record failed: %w", err)
+				return
+			}
+		}
+
+		// Process 1 saves state
+		if err := SaveState(state1, stateFile); err != nil {
+			errors <- fmt.Errorf("process 1 save failed: %w", err)
+			return
+		}
+	}()
+
+	// Process 2: Load state, add 5 fingerprints, save
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// Simulate: finparse process 2 loads state
+		state2, err := LoadState(stateFile)
+		if err != nil {
+			errors <- fmt.Errorf("process 2 load failed: %w", err)
+			return
+		}
+
+		// Simulate processing delay (to allow race condition)
+		time.Sleep(10 * time.Millisecond)
+
+		// Process 2 adds 5 fingerprints
+		for i := 0; i < 5; i++ {
+			fp := GenerateFingerprint("2025-01-16", -75.00-float64(i), fmt.Sprintf("Process2-Txn%d", i))
+			if err := state2.RecordTransaction(fp, fmt.Sprintf("p2-txn-%d", i), time.Now()); err != nil {
+				errors <- fmt.Errorf("process 2 record failed: %w", err)
+				return
+			}
+		}
+
+		// Process 2 saves state
+		if err := SaveState(state2, stateFile); err != nil {
+			errors <- fmt.Errorf("process 2 save failed: %w", err)
+			return
+		}
+	}()
+
+	wg.Wait()
+	close(errors)
+
+	// Check for errors (save errors are expected in race conditions due to last-write-wins)
+	for err := range errors {
+		t.Logf("Concurrent process error (expected in race condition): %v", err)
+	}
+
+	// Load final state and analyze result
+	finalState, err := LoadState(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to load final state: %v", err)
+	}
+
+	total := finalState.TotalFingerprints()
+	t.Logf("Final state has %d fingerprints", total)
+
+	// CURRENT BEHAVIOR: Last write wins (no locking)
+	// One process's save will overwrite the other's updates
+	// Expected: 4 fingerprints (1 initial + 3 from process 1) OR 6 fingerprints (1 initial + 5 from process 2)
+	// NOT expected: 9 fingerprints (1 initial + 3 + 5) - would indicate proper locking
+
+	if total == 9 {
+		t.Log("SUCCESS: Both saves preserved (file locking implemented)")
+	} else if total == 4 || total == 6 {
+		t.Logf("CURRENT BEHAVIOR: Last write wins - %d fingerprints lost to race condition", 9-total)
+		t.Log("This is acceptable for current single-user CLI use case")
+		t.Log("Future enhancement: Implement file locking for multi-process safety")
+	} else {
+		t.Errorf("Unexpected fingerprint count: %d (expected 4, 6, or 9)", total)
+	}
+
+	// Verify no temp files remain (atomic write cleanup)
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to read temp dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Errorf("Orphaned temp file: %s", entry.Name())
+		}
+	}
+}
+
 // TestGenerateFingerprint_IntentionalCollisions verifies that TRUE duplicates collide
 // while SIMILAR but distinct transactions do not.
 func TestGenerateFingerprint_IntentionalCollisions(t *testing.T) {
@@ -1514,4 +1789,64 @@ func TestGenerateFingerprint_SameTransactionMultipleTimes(t *testing.T) {
 	t.Log("treated as duplicates. This is expected behavior for overlapping statement")
 	t.Log("parsing (Phase 5 requirement). Users should avoid parsing same statement twice.")
 	t.Log("Future enhancement: Add transaction IDs or sequence numbers to fingerprint.")
+}
+
+// TestGenerateFingerprint_SameFingerprintDifferentFITID documents the behavior when
+// the same transaction fingerprint is recorded with different FITIDs (e.g., pending vs posted).
+// This is a known edge case: TransactionID from first occurrence is retained.
+func TestGenerateFingerprint_SameFingerprintDifferentFITID(t *testing.T) {
+	state := NewState()
+
+	// Same transaction fingerprint
+	fp := GenerateFingerprint("2025-10-15", -50.00, "Starbucks")
+
+	// First occurrence: pending transaction
+	ts1 := time.Date(2025, 10, 15, 10, 0, 0, 0, time.UTC)
+	err := state.RecordTransaction(fp, "PENDING_123", ts1)
+	if err != nil {
+		t.Fatalf("Failed to record first transaction: %v", err)
+	}
+
+	// Second occurrence: posted transaction (same fingerprint, different FITID)
+	ts2 := time.Date(2025, 10, 15, 12, 0, 0, 0, time.UTC)
+	err = state.RecordTransaction(fp, "POSTED_456", ts2)
+	if err != nil {
+		t.Fatalf("Failed to record second transaction: %v", err)
+	}
+
+	// Verify state behavior
+	fps := state.GetFingerprints()
+	record, exists := fps[fp]
+	if !exists {
+		t.Fatal("Fingerprint not found in state")
+	}
+
+	// Document: TransactionID remains from first occurrence
+	if record.TransactionID() != "PENDING_123" {
+		t.Errorf("Expected TransactionID to remain 'PENDING_123' (first wins), got %q", record.TransactionID())
+	}
+
+	// Verify duplicate count
+	if record.Count() != 2 {
+		t.Errorf("Expected Count=2 (two observations), got %d", record.Count())
+	}
+
+	// Verify timestamps updated correctly
+	if !record.FirstSeen().Equal(ts1) {
+		t.Errorf("FirstSeen should be %v, got %v", ts1, record.FirstSeen())
+	}
+	if !record.LastSeen().Equal(ts2) {
+		t.Errorf("LastSeen should be %v, got %v", ts2, record.LastSeen())
+	}
+
+	t.Log("DOCUMENTED BEHAVIOR: When same fingerprint has different FITIDs,")
+	t.Log("the TransactionID from first occurrence is retained.")
+	t.Log("This is expected for overlapping statement imports (Phase 5 requirement).")
+	t.Log("")
+	t.Log("Example scenario:")
+	t.Log("  1. Import pending transactions: FITID=PENDING_123")
+	t.Log("  2. Import posted transactions: FITID=POSTED_456")
+	t.Log("  3. State retains PENDING_123 (first wins)")
+	t.Log("")
+	t.Log("Impact: Minimal - deduplication works correctly. FITID mismatch is cosmetic.")
 }

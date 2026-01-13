@@ -3,6 +3,7 @@ package transform
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -193,11 +194,14 @@ func TransformStatement(raw *parser.RawStatement, budget *domain.Budget, state *
 		// strategies (removing fingerprints not seen in N days).
 		if state != nil {
 			if err := state.RecordTransaction(fingerprint, txn.ID, time.Now()); err != nil {
-				// Log error but continue - prefer duplicate on retry over losing all progress
-				// Transaction is in budget, will be reprocessed as duplicate on retry
+				// State recording failure is serious - always log details, not just in verbose mode.
+				// Transaction was added to budget (line 181) so it will be in output, but state is
+				// inconsistent and will be reprocessed as duplicate on retry.
+				fmt.Fprintf(os.Stderr, "ERROR: Failed to record transaction in state (will be reprocessed as duplicate on retry):\n")
+				fmt.Fprintf(os.Stderr, "  Transaction: %s - %s ($%.2f)\n", txn.Date, txn.Description, txn.Amount)
+				fmt.Fprintf(os.Stderr, "  Transaction ID: %s\n", txn.ID)
+				fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
 				stats.StateRecordingErrors++
-				// TODO(#1431): Add verbose logging when verbose flag is accessible
-				// In verbose mode, log the specific error to help diagnose state issues
 			}
 		}
 	}
@@ -317,15 +321,15 @@ func transformTransaction(raw *parser.RawTransaction, statementID string, engine
 	if matched {
 		// Apply matched rule
 		txn.Category = result.Category
-		txn.Vacation = result.Vacation
-		txn.Transfer = result.Transfer
+		txn.SetVacation(result.Vacation)
+		txn.SetTransfer(result.Transfer)
 		if err := txn.SetRedeemable(result.Redeemable, result.RedemptionRate); err != nil {
 			return nil, false, fmt.Errorf("failed to set redeemable from rule: %w", err)
 		}
 	} else {
 		// No match or no engine: use defaults
-		txn.Vacation = false
-		txn.Transfer = false
+		txn.SetVacation(false)
+		txn.SetTransfer(false)
 		if err := txn.SetRedeemable(false, 0.0); err != nil {
 			return nil, false, err
 		}

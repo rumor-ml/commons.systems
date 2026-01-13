@@ -13,6 +13,7 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/output"
+	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
 	"github.com/rumor-ml/commons.systems/finparse/internal/registry"
 	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
@@ -1584,8 +1585,8 @@ NEWFILEUID:NONE
 			if txn.RedemptionRate() != 0.0 {
 				t.Errorf("CAPITAL ONE PAYMENT should have redemption_rate=0.0, got %f", txn.RedemptionRate())
 			}
-			if !txn.Transfer {
-				t.Errorf("CAPITAL ONE PAYMENT should be marked as transfer, got transfer=%v", txn.Transfer)
+			if !txn.Transfer() {
+				t.Errorf("CAPITAL ONE PAYMENT should be marked as transfer, got transfer=%v", txn.Transfer())
 			}
 
 		case strings.Contains(txn.Description, "ATM WITHDRAWAL"):
@@ -1596,8 +1597,8 @@ NEWFILEUID:NONE
 			if txn.RedemptionRate() != 0.0 {
 				t.Errorf("ATM WITHDRAWAL should have redemption_rate=0.0, got %f", txn.RedemptionRate())
 			}
-			if !txn.Transfer {
-				t.Errorf("ATM WITHDRAWAL should be marked as transfer, got transfer=%v", txn.Transfer)
+			if !txn.Transfer() {
+				t.Errorf("ATM WITHDRAWAL should be marked as transfer, got transfer=%v", txn.Transfer())
 			}
 
 		case strings.Contains(txn.Description, "LATE FEE"):
@@ -1684,6 +1685,164 @@ func TestEndToEnd_StateFileSaveFailureDoesNotCorrupt(t *testing.T) {
 		t.Errorf("State was corrupted: expected 2 fingerprints, got %d",
 			loadedState.TotalFingerprints())
 	}
+}
+
+// TestEndToEnd_StateCorruptionDuringParsing verifies graceful failure when state file is corrupted between parsing runs
+func TestEndToEnd_StateCorruptionDuringParsing(t *testing.T) {
+	// This test validates that if the state file becomes corrupted (disk error, crash, manual edit),
+	// the next parse operation fails gracefully with a clear error message rather than:
+	// - Panicking
+	// - Silently creating new state (which would cause duplicate transactions)
+	// - Writing partial/incorrect output
+
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.json")
+
+	// Create directory structure matching expected pattern: {institution}/{account}
+	instDir := filepath.Join(tmpDir, "test_bank")
+	acctDir := filepath.Join(instDir, "checking001")
+	if err := os.MkdirAll(acctDir, 0755); err != nil {
+		t.Fatalf("failed to create directory structure: %v", err)
+	}
+
+	// Create first OFX statement
+	ofxFile1 := filepath.Join(acctDir, "statement1.ofx")
+	ofxContent1 := `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+<SONRS>
+<STATUS><CODE>0<SEVERITY>INFO</STATUS>
+<DTSERVER>20251001120000
+<LANGUAGE>ENG
+<FI>
+<ORG>TEST BANK
+<FID>12345
+</FI>
+</SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<TRNUID>1
+<STATUS><CODE>0<SEVERITY>INFO</STATUS>
+<STMTRS>
+<CURDEF>USD
+<BANKACCTFROM>
+<BANKID>123456
+<ACCTID>789012
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20251001
+<DTEND>20251031
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20251015
+<TRNAMT>-50.00
+<FITID>TXN001
+<NAME>GROCERY STORE
+</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>1000.00<DTASOF>20251031</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>
+`
+	if err := os.WriteFile(ofxFile1, []byte(ofxContent1), 0644); err != nil {
+		t.Fatalf("failed to write first OFX file: %v", err)
+	}
+
+	// Parse first statement successfully with state tracking
+	state1 := dedup.NewState()
+	reg, err := registry.New()
+	if err != nil {
+		t.Fatalf("failed to create registry: %v", err)
+	}
+
+	ctx := context.Background()
+	budget1 := domain.NewBudget()
+
+	ofxParser, err := reg.FindParser(ofxFile1)
+	if err != nil {
+		t.Fatalf("FindParser failed: %v", err)
+	}
+
+	f1, err := os.Open(ofxFile1)
+	if err != nil {
+		t.Fatalf("failed to open first file: %v", err)
+	}
+
+	md1, err := parser.NewMetadata(ofxFile1, time.Now())
+	if err != nil {
+		t.Fatalf("failed to create metadata: %v", err)
+	}
+	md1.SetInstitution("test_bank")
+	md1.SetAccountNumber("checking001")
+
+	rawStmt1, err := ofxParser.Parse(ctx, f1, md1)
+	f1.Close()
+	if err != nil {
+		t.Fatalf("parse failed for first file: %v", err)
+	}
+
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+	if _, err := transform.TransformStatement(rawStmt1, budget1, state1, engine); err != nil {
+		t.Fatalf("transform failed for first file: %v", err)
+	}
+
+	// Save state
+	if err := dedup.SaveState(state1, stateFile); err != nil {
+		t.Fatalf("failed to save state: %v", err)
+	}
+
+	// Verify state file exists and has content
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		t.Fatal("state file should exist after first parse")
+	}
+
+	// Corrupt the state file (simulate disk error, crash, or manual edit)
+	// Truncate JSON mid-object to create invalid JSON
+	if err := os.WriteFile(stateFile, []byte(`{"fingerprints":{`), 0644); err != nil {
+		t.Fatalf("failed to corrupt state file: %v", err)
+	}
+
+	// Attempt to load corrupted state
+	_, loadErr := dedup.LoadState(stateFile)
+	if loadErr == nil {
+		t.Fatal("expected LoadState to fail with corrupted state file")
+	}
+
+	// Verify error message is informative
+	errMsg := loadErr.Error()
+	if !strings.Contains(errMsg, "state") && !strings.Contains(errMsg, "invalid") {
+		t.Errorf("error message should mention 'state' or 'invalid', got: %v", errMsg)
+	}
+
+	// Verify that attempting to load corrupted state before next parse will fail
+	corruptedState, loadErr := dedup.LoadState(stateFile)
+	if loadErr == nil {
+		t.Error("expected error when loading corrupted state")
+	}
+
+	// Verify that corrupted state returns error (not nil state)
+	if corruptedState != nil {
+		t.Error("corrupted state should not be loaded successfully")
+	}
+
+	// The test demonstrates that LoadState correctly detects corruption
+	// In real usage, the CLI would fail fast on this error before attempting to parse
 }
 
 // TestEndToEnd_StatePersistenceAcrossRuns verifies state file enables true incremental parsing across CLI runs

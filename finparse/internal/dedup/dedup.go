@@ -12,11 +12,18 @@ import (
 	"time"
 )
 
+// noCopy prevents copying - detected by go vet
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
+
 // State represents the deduplication state with fingerprint history.
 // IMPORTANT: State must be passed by pointer (*State), never by value.
 // The fingerprints map is a reference type - copying State by value creates
 // aliasing where both copies share the same underlying map.
 type State struct {
+	noCopy       noCopy                        // Prevents accidental copying
 	Version      int                           `json:"version"`
 	fingerprints map[string]*FingerprintRecord `json:"fingerprints"`
 	Metadata     StateMetadata                 `json:"metadata"`
@@ -24,10 +31,10 @@ type State struct {
 
 // FingerprintRecord tracks a transaction fingerprint across multiple observations.
 type FingerprintRecord struct {
-	FirstSeen     time.Time `json:"firstSeen"`
-	LastSeen      time.Time `json:"lastSeen"`
-	Count         int       `json:"count"`
-	TransactionID string    `json:"transactionId"`
+	firstSeen     time.Time `json:"firstSeen"`
+	lastSeen      time.Time `json:"lastSeen"`
+	count         int       `json:"count"`
+	transactionID string    `json:"transactionId"`
 }
 
 // NewFingerprintRecord creates a new fingerprint record with validation.
@@ -41,10 +48,10 @@ func NewFingerprintRecord(transactionID string, timestamp time.Time) (*Fingerpri
 	}
 
 	return &FingerprintRecord{
-		FirstSeen:     timestamp,
-		LastSeen:      timestamp,
-		Count:         1,
-		TransactionID: transactionID,
+		firstSeen:     timestamp,
+		lastSeen:      timestamp,
+		count:         1,
+		transactionID: transactionID,
 	}, nil
 }
 
@@ -53,11 +60,64 @@ func NewFingerprintRecord(transactionID string, timestamp time.Time) (*Fingerpri
 // Timestamps equal to FirstSeen are allowed (re-parsing same transaction).
 // Count is incremented on every call to track total observations.
 func (r *FingerprintRecord) Update(timestamp time.Time) error {
-	if timestamp.Before(r.FirstSeen) {
-		return fmt.Errorf("timestamp %v is before first seen %v", timestamp, r.FirstSeen)
+	if timestamp.Before(r.firstSeen) {
+		return fmt.Errorf("timestamp %v is before first seen %v", timestamp, r.firstSeen)
 	}
-	r.LastSeen = timestamp
-	r.Count++
+	r.lastSeen = timestamp
+	r.count++
+	return nil
+}
+
+// FirstSeen returns when the fingerprint was first observed.
+func (r *FingerprintRecord) FirstSeen() time.Time {
+	return r.firstSeen
+}
+
+// LastSeen returns when the fingerprint was most recently observed.
+func (r *FingerprintRecord) LastSeen() time.Time {
+	return r.lastSeen
+}
+
+// Count returns the total number of observations.
+func (r *FingerprintRecord) Count() int {
+	return r.count
+}
+
+// TransactionID returns the ID from the first observed transaction.
+func (r *FingerprintRecord) TransactionID() string {
+	return r.transactionID
+}
+
+// MarshalJSON implements json.Marshaler for FingerprintRecord
+func (r *FingerprintRecord) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		FirstSeen     time.Time `json:"firstSeen"`
+		LastSeen      time.Time `json:"lastSeen"`
+		Count         int       `json:"count"`
+		TransactionID string    `json:"transactionId"`
+	}{
+		FirstSeen:     r.firstSeen,
+		LastSeen:      r.lastSeen,
+		Count:         r.count,
+		TransactionID: r.transactionID,
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler for FingerprintRecord
+func (r *FingerprintRecord) UnmarshalJSON(data []byte) error {
+	aux := &struct {
+		FirstSeen     time.Time `json:"firstSeen"`
+		LastSeen      time.Time `json:"lastSeen"`
+		Count         int       `json:"count"`
+		TransactionID string    `json:"transactionId"`
+	}{}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return fmt.Errorf("failed to unmarshal FingerprintRecord from JSON: %w", err)
+	}
+	r.firstSeen = aux.FirstSeen
+	r.lastSeen = aux.LastSeen
+	r.count = aux.Count
+	r.transactionID = aux.TransactionID
 	return nil
 }
 
@@ -98,7 +158,7 @@ func (s *State) UnmarshalJSON(data []byte) error {
 		s.fingerprints = make(map[string]*FingerprintRecord)
 	} else {
 		// Copy each FingerprintRecord to ensure State's internal map is fully independent.
-		// Maintains defensive encapsulation pattern used throughout the State API.
+		// Maintains symmetry with MarshalJSON's defensive copying for encapsulation.
 		s.fingerprints = make(map[string]*FingerprintRecord, len(aux.Fingerprints))
 		for k, v := range aux.Fingerprints {
 			recordCopy := *v
@@ -198,7 +258,7 @@ func SaveState(state *State, filePath string) error {
 	if err := os.Rename(tempFile, filePath); err != nil {
 		// Clean up temp file on error
 		if removeErr := os.Remove(tempFile); removeErr != nil {
-			// CRITICAL: Both rename and cleanup failed - temp file orphaned
+			// CRITICAL: Rename failed and subsequent cleanup attempt also failed - temp file orphaned
 			// This is a serious issue that requires manual intervention
 			separator := strings.Repeat("=", 80)
 			fmt.Fprintf(os.Stderr, "\n%s\n", separator)

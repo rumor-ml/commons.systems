@@ -211,12 +211,12 @@ func TestTransformTransaction(t *testing.T) {
 		t.Errorf("expected Redeemable false, got %v", txn.Redeemable())
 	}
 
-	if txn.Vacation != false {
-		t.Errorf("expected Vacation false, got %v", txn.Vacation)
+	if txn.Vacation() != false {
+		t.Errorf("expected Vacation false, got %v", txn.Vacation())
 	}
 
-	if txn.Transfer != false {
-		t.Errorf("expected Transfer false, got %v", txn.Transfer)
+	if txn.Transfer() != false {
+		t.Errorf("expected Transfer false, got %v", txn.Transfer())
 	}
 
 	if txn.RedemptionRate() != 0.0 {
@@ -645,12 +645,12 @@ func TestTransformTransaction_UnmatchedDefaultsToOther(t *testing.T) {
 		t.Errorf("expected Redeemable false, got %v", txn.Redeemable())
 	}
 
-	if txn.Vacation != false {
-		t.Errorf("expected Vacation false, got %v", txn.Vacation)
+	if txn.Vacation() != false {
+		t.Errorf("expected Vacation false, got %v", txn.Vacation())
 	}
 
-	if txn.Transfer != false {
-		t.Errorf("expected Transfer false, got %v", txn.Transfer)
+	if txn.Transfer() != false {
+		t.Errorf("expected Transfer false, got %v", txn.Transfer())
 	}
 
 	if txn.RedemptionRate() != 0.0 {
