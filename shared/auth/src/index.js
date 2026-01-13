@@ -26,6 +26,7 @@ export {
   signInWithGitHub,
   signOutUser,
   onAuthStateChange,
+  onAuthReady,
   getCurrentUser,
   isAuthenticated,
   getGitHubToken,

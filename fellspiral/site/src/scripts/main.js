@@ -1074,9 +1074,9 @@ function simulateAttack(attacker, defender, log) {
 }
 
 // Initialize the app
-document.addEventListener('DOMContentLoaded', () => {
-  // Initialize authentication
-  initializeAuth();
+document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize authentication and wait for it to complete
+  await initializeAuth();
 
   // Initialize shared sidebar navigation (generates nav DOM)
   initSidebarNav();

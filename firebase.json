@@ -168,12 +168,14 @@
     }
   ],
   "firestore": {
-    "rules": "fellspiral/firestore.rules"
+    "rules": "fellspiral/firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "storage": {
     "rules": "shared/storage.rules"
   },
   "emulators": {
+    "singleProjectMode": false,
     "auth": {
       "port": 9099
     },

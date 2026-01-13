@@ -1,6 +1,6 @@
 {
   "type": "module",
   "scripts": {
-    "test": "node test-scripts.js"
+    "test": "node test-scripts.js && node migrate-ispublic.test.js"
   }
 }

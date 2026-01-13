@@ -20,20 +20,77 @@ APP_NAME="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/port-utils.sh"
+
+# Check sandbox requirement BEFORE any emulator operations
+check_sandbox_requirement "Starting Firebase emulators" || exit 1
+
 source "${SCRIPT_DIR}/allocate-test-ports.sh"
 
 # Configuration
-MAX_RETRIES=30
+MAX_RETRIES=120  # Increased to handle system overload (2 minutes total)
 RETRY_INTERVAL=1
 
+# Shared directory for backend emulator state (shared across all worktrees)
+SHARED_EMULATOR_DIR="${HOME}/.firebase-emulators"
+mkdir -p "${SHARED_EMULATOR_DIR}"
+
 # PID and log files
-BACKEND_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.pid"
-BACKEND_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-backend-emulators.log"
+# Backend emulator is SHARED across worktrees - use shared location
+BACKEND_PID_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.pid"
+BACKEND_LOG_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.log"
+BACKEND_LOCK_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.lock"
+
+# Hosting emulator is PER-WORKTREE - use worktree-local location
 HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.pid"
 HOSTING_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.log"
 
-# Ensure temp directory exists
+# Ensure temp directory exists (for hosting emulator files)
 mkdir -p "${PROJECT_ROOT}/tmp/infrastructure"
+
+# ============================================================================
+# STARTUP CLEANUP PHASE - Remove orphaned temp configs from previous runs
+# ============================================================================
+
+cleanup_orphaned_configs() {
+  local cleaned_count=0
+
+  # Find all .firebase-*.json files in project root
+  for config_file in "${PROJECT_ROOT}"/.firebase-*.json; do
+    # Check if glob matched any files
+    [ -e "$config_file" ] || continue
+
+    # Extract project ID from filename (.firebase-PROJECT_ID.json)
+    local filename=$(basename "$config_file")
+    local config_project_id="${filename#.firebase-}"
+    config_project_id="${config_project_id%.json}"
+
+    # Check if there's a corresponding active hosting emulator
+    local hosting_pid_file="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${config_project_id}.pid"
+
+    if [ -f "$hosting_pid_file" ]; then
+      # PID file exists - check if process is alive
+      local pid pgid
+      if IFS=':' read -r pid pgid < "$hosting_pid_file" 2>/dev/null; then
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          # Process is alive, config is in use
+          continue
+        fi
+      fi
+    fi
+
+    # No active process - safe to remove
+    echo "Cleaning orphaned config: $filename" >&2
+    rm -f "$config_file"
+    cleaned_count=$((cleaned_count + 1))
+  done
+
+  if [ $cleaned_count -gt 0 ]; then
+    echo "✓ Cleaned $cleaned_count orphaned temp config(s)"
+  fi
+}
+
+# Run cleanup before starting emulators
+cleanup_orphaned_configs
 
 echo "========================================="
 echo "Firebase Emulators - Multi-Worktree Mode"
@@ -54,7 +111,91 @@ echo ""
 # PHASE 1: Start Shared Backend Emulators (if not already running)
 # ============================================================================
 
-if nc -z localhost $AUTH_PORT 2>/dev/null; then
+# Acquire lock to coordinate backend emulator startup across worktrees
+# This prevents race conditions when multiple worktrees try to start simultaneously
+# Uses cross-platform file-based locking with atomic operations
+
+LOCK_MAX_WAIT=180  # Maximum seconds to wait for lock (increased for system overload)
+LOCK_RETRY_INTERVAL=0.5  # Seconds between lock attempts
+
+echo "Acquiring backend emulator lock..."
+
+# Check for stale lock BEFORE attempting acquisition
+if is_lock_stale "$BACKEND_LOCK_FILE" 180; then
+  echo "✓ Removed stale lock from previous crashed process"
+fi
+
+# Try to acquire lock with timeout
+LOCK_ACQUIRED=0
+LOCK_START_TIME=$(date +%s)
+
+while [ $LOCK_ACQUIRED -eq 0 ]; do
+  # Try to create lock file atomically using mkdir (portable across Linux/macOS)
+  # mkdir is atomic - either succeeds or fails, no race condition
+  if mkdir "$BACKEND_LOCK_FILE" 2>/dev/null; then
+    LOCK_ACQUIRED=1
+
+    # Store our PID in the lock directory for debugging
+    echo $$ > "$BACKEND_LOCK_FILE/pid"
+
+    # Store timestamp for age-based staleness detection
+    date +%s > "$BACKEND_LOCK_FILE/timestamp"
+
+    # Restrict permissions to user-only (security hardening)
+    chmod 700 "$BACKEND_LOCK_FILE" 2>/dev/null || true
+    chmod 600 "$BACKEND_LOCK_FILE/pid" 2>/dev/null || true
+
+    break
+  fi
+
+  # Check if we've exceeded max wait time
+  CURRENT_TIME=$(date +%s)
+  ELAPSED=$((CURRENT_TIME - LOCK_START_TIME))
+
+  # Check for stale lock every 10 seconds during wait
+  if [ $((ELAPSED % 10)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+    if is_lock_stale "$BACKEND_LOCK_FILE" 180; then
+      echo "✓ Removed stale lock during acquisition"
+      # Retry immediately
+      continue
+    fi
+  fi
+
+  if [ $ELAPSED -ge $LOCK_MAX_WAIT ]; then
+    echo "ERROR: Failed to acquire backend emulator lock after ${LOCK_MAX_WAIT} seconds" >&2
+    echo "Lock holder PID: $(cat "$BACKEND_LOCK_FILE/pid" 2>/dev/null || echo 'unknown')" >&2
+
+    # Final staleness check before giving up
+    if is_lock_stale "$BACKEND_LOCK_FILE" 60; then
+      echo "✓ Removed stale lock on final check, retrying..." >&2
+      LOCK_START_TIME=$(date +%s)
+      continue
+    fi
+
+    echo "If you're sure no other emulator startup is in progress, remove:" >&2
+    echo "  rm -rf \"$BACKEND_LOCK_FILE\"" >&2
+    exit 1
+  fi
+
+  # Wait before retrying
+  sleep $LOCK_RETRY_INTERVAL
+done
+
+echo "✓ Backend emulator lock acquired"
+
+# Cleanup function to release lock on exit
+cleanup_backend_lock() {
+  if [ -d "$BACKEND_LOCK_FILE" ]; then
+    rm -rf "$BACKEND_LOCK_FILE"
+    echo "✓ Backend emulator lock released"
+  fi
+}
+
+# Register cleanup on exit (trap fires even on early exits/errors)
+trap cleanup_backend_lock EXIT
+
+# Lock acquired - check if backend is already running
+if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"
   echo "  Multiple worktrees can connect to the same backend"
 else
@@ -64,9 +205,11 @@ else
   cd "${PROJECT_ROOT}"
 
   # Start ONLY backend emulators (shared)
+  # Import seed data from fellspiral/emulator-data (includes QA test user)
   npx firebase-tools emulators:start \
     --only auth,firestore,storage \
     --project="${PROJECT_ID}" \
+    --import="${PROJECT_ROOT}/fellspiral/emulator-data" \
     > "$BACKEND_LOG_FILE" 2>&1 &
 
   BACKEND_PID=$!
@@ -95,8 +238,18 @@ else
     rm -f "$BACKEND_PID_FILE"
     exit 1
   }
+
+  # INFRASTRUCTURE STABILITY FIX: Perform deep health check after startup
+  # This verifies actual functionality, not just port availability
+  echo ""
+  if ! deep_health_check "127.0.0.1" "${AUTH_PORT}" "127.0.0.1" "${FIRESTORE_PORT}" "${PROJECT_ID}"; then
+    echo "⚠️  Deep health check failed - emulators may not be fully functional" >&2
+    # Don't fail startup, but warn user
+  fi
   echo ""
 fi
+
+# Lock will be automatically released by trap on exit
 
 # ============================================================================
 # PHASE 2: Start Per-Worktree Hosting Emulator (ALWAYS start unless SKIP_HOSTING=1)
@@ -126,32 +279,68 @@ if [ "${SKIP_HOSTING:-0}" = "1" ]; then
 fi
 
 echo "Starting per-worktree hosting emulator..."
-echo "  Port: ${HOSTING_PORT}"
-echo "  Project: ${PROJECT_ID}"
-echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
 
-# Validate port availability
-# allocate-test-ports.sh found an available port, but verify it's still free
-# (race condition possible if another process claimed it between allocation and startup)
-if ! is_port_available ${HOSTING_PORT}; then
-  echo "ERROR: Allocated port ${HOSTING_PORT} is not available" >&2
-  echo "Port allocation race condition detected!" >&2
-  echo "" >&2
-  echo "Port owner details:" >&2
-  if ! get_port_owner ${HOSTING_PORT} >&2; then
-    echo "  (Unable to determine port owner - port may have been freed)" >&2
+# ============================================================================
+# PORT RETRY LOOP - Handle port allocation race conditions
+# ============================================================================
+# Port conflicts can occur between allocation check and emulator binding.
+# Retry with exponential backoff and automatic port reallocation on failure.
+
+# INFRASTRUCTURE STABILITY FIX: Increase retry attempts from 3 to 5
+# This reduces race conditions during parallel test runs and CI overload
+MAX_PORT_RETRIES=5
+PORT_RETRY_COUNT=0
+HOSTING_STARTED=false
+ORIGINAL_HOSTING_PORT="${HOSTING_PORT}"  # Save for error messages
+
+while [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ] && [ "$HOSTING_STARTED" = "false" ]; do
+  if [ $PORT_RETRY_COUNT -gt 0 ]; then
+    # Calculate backoff delay: 2^retry (1s, 2s, 4s)
+    BACKOFF_DELAY=$((2 ** PORT_RETRY_COUNT))
+    echo "Retrying in ${BACKOFF_DELAY}s... (attempt $((PORT_RETRY_COUNT + 1))/${MAX_PORT_RETRIES})"
+    sleep $BACKOFF_DELAY
   fi
-  echo "" >&2
-  echo "This can happen when:" >&2
-  echo "  1. Another process claimed the port between allocation and startup" >&2
-  echo "  2. A previous emulator instance is still running" >&2
-  echo "" >&2
-  echo "Solutions:" >&2
-  echo "  - Try running the script again (port allocation will find a different port)" >&2
-  echo "  - Run: infrastructure/scripts/stop-emulators.sh to stop all emulators" >&2
-  echo "  - Check for processes holding ports: lsof -i :5000-5990" >&2
-  exit 1
-fi
+
+  echo "  Port: ${HOSTING_PORT}"
+  echo "  Project: ${PROJECT_ID}"
+  echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
+
+  # Validate port availability
+  # allocate-test-ports.sh found an available port, but verify it's still free
+  # (race condition possible if another process claimed it between allocation and startup)
+  if ! is_port_available ${HOSTING_PORT}; then
+    echo "WARNING: Allocated port ${HOSTING_PORT} is not available" >&2
+    echo "Port allocation race condition detected!" >&2
+    echo "" >&2
+    echo "Port owner details:" >&2
+    if ! get_port_owner ${HOSTING_PORT} >&2; then
+      echo "  (Unable to determine port owner - port may have been freed)" >&2
+    fi
+    echo "" >&2
+
+    # Try to find a new port
+    PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
+    if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
+      # Find next available port (start 10 ports higher)
+      NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
+      if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
+        echo "Found alternative port: ${NEW_PORT}" >&2
+        HOSTING_PORT=$NEW_PORT
+        continue
+      else
+        echo "ERROR: Could not find alternative port" >&2
+      fi
+    fi
+
+    # All retries exhausted
+    echo "ERROR: Failed to allocate hosting port after ${MAX_PORT_RETRIES} attempts" >&2
+    echo "Original port: ${ORIGINAL_HOSTING_PORT}" >&2
+    echo "" >&2
+    echo "Solutions:" >&2
+    echo "  - Run: infrastructure/scripts/stop-emulators.sh to stop all emulators" >&2
+    echo "  - Check for processes holding ports: lsof -i :5000-5990" >&2
+    exit 1
+  fi
 
 # Change to repository root
 cd "${PROJECT_ROOT}"
@@ -292,102 +481,170 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 # Start hosting emulator in new process group (for proper cleanup)
-set -m  # Enable job control
-npx firebase-tools emulators:start \
-  --only hosting \
-  --project="${PROJECT_ID}" \
-  --config "${TEMP_CONFIG}" \
-  > "$HOSTING_LOG_FILE" 2>&1 &
+# Use setsid to create new session where PGID == PID (no parsing needed)
+if command -v setsid >/dev/null 2>&1; then
+  # setsid available - use it for reliable process group creation
+  setsid npx firebase-tools emulators:start \
+    --only hosting \
+    --project="${PROJECT_ID}" \
+    --config "${TEMP_CONFIG}" \
+    > "$HOSTING_LOG_FILE" 2>&1 &
 
-HOSTING_PID=$!
+  HOSTING_PID=$!
+  # With setsid, PGID == PID (process is session leader)
+  HOSTING_PGID=$HOSTING_PID
 
-# Extract PGID with error handling
-PS_OUTPUT=$(ps -o pgid= -p $HOSTING_PID 2>&1)
-PS_EXIT=$?
+  echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID} (setsid)"
+else
+  # setsid not available - fall back to bash job control with ps parsing
+  set -m  # Enable job control
+  npx firebase-tools emulators:start \
+    --only hosting \
+    --project="${PROJECT_ID}" \
+    --config "${TEMP_CONFIG}" \
+    > "$HOSTING_LOG_FILE" 2>&1 &
 
-if [ $PS_EXIT -ne 0 ]; then
-  echo "ERROR: ps command failed to extract PGID for PID ${HOSTING_PID}" >&2
-  echo "ps exit code: $PS_EXIT" >&2
-  echo "ps output: $PS_OUTPUT" >&2
+  HOSTING_PID=$!
 
-  # Check if process actually exists
+  # Extract PGID using ps (fallback method)
+  if HOSTING_PGID=$(ps -o pgid= -p $HOSTING_PID 2>/dev/null | tr -d ' ') && \
+     [ -n "$HOSTING_PGID" ] && [[ "$HOSTING_PGID" =~ ^[0-9]+$ ]]; then
+    echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID} (job control)"
+  else
+    echo "WARNING: Could not extract PGID, using PID-only tracking" >&2
+    HOSTING_PGID=""
+    echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID unavailable)"
+  fi
+fi
+
+# Save both PID and PGID for cleanup (format: PID:PGID or PID: if no PGID)
+if [ -n "$HOSTING_PGID" ]; then
+  echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
+else
+  echo "${HOSTING_PID}:" > "$HOSTING_PID_FILE"
+fi
+
+echo "Log file: $HOSTING_LOG_FILE"
+
+  # Brief delay to let emulator initialize and write any immediate errors
+  sleep 1
+
+  # Check if process crashed immediately (port conflict or other startup error)
   if ! kill -0 $HOSTING_PID 2>/dev/null; then
-    echo "ERROR: Process ${HOSTING_PID} does not exist - emulator failed to start!" >&2
-    echo "Last 50 lines of log:" >&2
-    tail -n 50 "$HOSTING_LOG_FILE" >&2
-    rm -f "$HOSTING_PID_FILE"
-    rm -f "$TEMP_CONFIG"
-    exit 1
+    echo "WARNING: Hosting emulator process crashed during startup" >&2
+
+    # Check for port conflict in logs
+    if grep -q "EADDRINUSE\|address already in use\|port.*already in use" "$HOSTING_LOG_FILE" 2>/dev/null; then
+      echo "Port conflict detected in emulator logs" >&2
+      PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
+
+      # Cleanup failed emulator
+      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+
+      if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
+        # Find new port and retry
+        NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
+        if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
+          echo "Found alternative port: ${NEW_PORT}" >&2
+          HOSTING_PORT=$NEW_PORT
+          continue
+        else
+          echo "ERROR: Could not find alternative port" >&2
+          exit 1
+        fi
+      else
+        echo "ERROR: Failed to start hosting emulator after ${MAX_PORT_RETRIES} port allocation attempts" >&2
+        echo "Last 20 lines of emulator log:" >&2
+        tail -n 20 "$HOSTING_LOG_FILE" >&2
+        exit 1
+      fi
+    else
+      # Non-port-related crash
+      echo "ERROR: Hosting emulator crashed with non-port error" >&2
+      echo "Last 20 lines of emulator log:" >&2
+      tail -n 20 "$HOSTING_LOG_FILE" >&2
+      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+      exit 1
+    fi
   fi
 
-  # Process exists but ps command failed (platform incompatibility)
-  echo "Platform: $(uname -s)" >&2
-  echo "WARNING: PGID extraction failed - cleanup will be incomplete!" >&2
-  echo "Child processes may continue running after script exits." >&2
-  echo "Falling back to PID-only tracking" >&2
-  echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
-  echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID unavailable)"
-else
-  # Parse PGID from ps output (remove whitespace)
-  HOSTING_PGID=$(echo "$PS_OUTPUT" | tr -d ' ')
-
-  if [ -z "$HOSTING_PGID" ]; then
-    echo "ERROR: ps returned empty PGID for PID ${HOSTING_PID}" >&2
-    echo "ps output: '$PS_OUTPUT'" >&2
-
-    # Check if process actually exists
+  # Wait for hosting to be ready (check the assigned port)
+  echo "Waiting for hosting emulator on port ${HOSTING_PORT}..."
+  RETRY_COUNT=0
+  MAX_HOSTING_RETRIES=120  # Increased to handle system overload (matches backend timeout)
+  RETRY_DELAY=0.1          # Start with 100ms, exponential backoff
+  MAX_RETRY_DELAY=5        # Cap at 5 seconds
+  ELAPSED_TIME=0
+  while ! nc -z 127.0.0.1 ${HOSTING_PORT} 2>/dev/null; do
+    # Check if process is still alive during wait
     if ! kill -0 $HOSTING_PID 2>/dev/null; then
-      echo "ERROR: Process ${HOSTING_PID} does not exist - emulator failed to start!" >&2
-      echo "Last 50 lines of log:" >&2
-      tail -n 50 "$HOSTING_LOG_FILE" >&2
+      echo "ERROR: Hosting emulator process died during startup wait" >&2
+
+      # Check for port conflict in logs
+      if grep -q "EADDRINUSE\|address already in use\|port.*already in use" "$HOSTING_LOG_FILE" 2>/dev/null; then
+        echo "Port conflict detected in emulator logs" >&2
+        PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
+
+        # Cleanup failed emulator
+        rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+
+        if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
+          # Find new port and retry
+          NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
+          if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
+            echo "Found alternative port: ${NEW_PORT}" >&2
+            HOSTING_PORT=$NEW_PORT
+            continue 2  # Continue outer port retry loop
+          else
+            echo "ERROR: Could not find alternative port" >&2
+            exit 1
+          fi
+        else
+          echo "ERROR: Failed to start hosting emulator after ${MAX_PORT_RETRIES} port allocation attempts" >&2
+          echo "Last 20 lines of emulator log:" >&2
+          tail -n 20 "$HOSTING_LOG_FILE" >&2
+          exit 1
+        fi
+      else
+        # Non-port-related crash
+        echo "ERROR: Hosting emulator crashed during health check" >&2
+        echo "Last 20 lines of emulator log:" >&2
+        tail -n 20 "$HOSTING_LOG_FILE" >&2
+        rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+        exit 1
+      fi
+    fi
+
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_HOSTING_RETRIES ]; then
+      echo "ERROR: Hosting emulator failed to start after ${MAX_HOSTING_RETRIES} retries (~${ELAPSED_TIME}s elapsed)"
+      echo "Last 20 lines of emulator log:"
+      tail -n 20 "$HOSTING_LOG_FILE"
+      kill $HOSTING_PID 2>/dev/null || true
       rm -f "$HOSTING_PID_FILE"
       rm -f "$TEMP_CONFIG"
       exit 1
     fi
 
-    # Process exists but PGID is empty string
-    echo "Platform: $(uname -s)" >&2
-    echo "WARNING: PGID extraction returned empty value - cleanup will be incomplete!" >&2
-    echo "Child processes may continue running after script exits." >&2
-    echo "Falling back to PID-only tracking" >&2
-    echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
-    echo "Hosting emulator started with PID: ${HOSTING_PID} (PGID empty)"
-  else
-    # Validate PGID is numeric
-    if ! [[ "$HOSTING_PGID" =~ ^[0-9]+$ ]]; then
-      echo "ERROR: Extracted PGID is not numeric: '$HOSTING_PGID'" >&2
-      echo "ps output: '$PS_OUTPUT'" >&2
-      echo "WARNING: Using PID-only tracking - cleanup will be incomplete!" >&2
-      echo "${HOSTING_PID}" > "$HOSTING_PID_FILE"
-      echo "Hosting emulator started with PID: ${HOSTING_PID} (invalid PGID)"
-    else
-      # Save both PID and PGID for cleanup (format: PID:PGID)
-      echo "${HOSTING_PID}:${HOSTING_PGID}" > "$HOSTING_PID_FILE"
-      echo "Hosting emulator started with PID: ${HOSTING_PID}, PGID: ${HOSTING_PGID}"
-    fi
-  fi
+    # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s, 3.2s, then capped at 5s
+    sleep $RETRY_DELAY
+    ELAPSED_TIME=$(awk "BEGIN {print $ELAPSED_TIME + $RETRY_DELAY}")
+
+    # Double the delay for next iteration, but cap at max_delay
+    RETRY_DELAY=$(awk "BEGIN {d = $RETRY_DELAY * 2; print (d > $MAX_RETRY_DELAY) ? $MAX_RETRY_DELAY : d}")
+  done
+
+  # Health check passed - mark as successfully started
+  HOSTING_STARTED=true
+  echo "✓ Hosting emulator ready on port ${HOSTING_PORT}"
+done  # End of port retry loop
+
+# If we got here after retries, report the recovery
+if [ $PORT_RETRY_COUNT -gt 0 ]; then
+  echo "✓ Successfully started hosting emulator after ${PORT_RETRY_COUNT} port conflict(s)"
+  echo "  Original port: ${ORIGINAL_HOSTING_PORT}"
+  echo "  Final port: ${HOSTING_PORT}"
 fi
-
-echo "Log file: $HOSTING_LOG_FILE"
-
-# Wait for hosting to be ready (check the assigned port)
-echo "Waiting for hosting emulator on port ${HOSTING_PORT}..."
-RETRY_COUNT=0
-MAX_HOSTING_RETRIES=15  # Hosting starts faster than backend
-while ! nc -z localhost ${HOSTING_PORT} 2>/dev/null; do
-  RETRY_COUNT=$((RETRY_COUNT + 1))
-  if [ $RETRY_COUNT -ge $MAX_HOSTING_RETRIES ]; then
-    echo "ERROR: Hosting emulator failed to start after ${MAX_HOSTING_RETRIES} seconds"
-    echo "Last 20 lines of emulator log:"
-    tail -n 20 "$HOSTING_LOG_FILE"
-    kill $HOSTING_PID 2>/dev/null || true
-    rm -f "$HOSTING_PID_FILE"
-    rm -f "$TEMP_CONFIG"
-    exit 1
-  fi
-  sleep $RETRY_INTERVAL
-done
-echo "✓ Hosting emulator ready on port ${HOSTING_PORT}"
 
 # ============================================================================
 # Summary
