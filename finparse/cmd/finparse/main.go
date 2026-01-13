@@ -17,6 +17,8 @@ import (
 	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
 	"github.com/rumor-ml/commons.systems/finparse/internal/transform"
+	"github.com/rumor-ml/commons.systems/finparse/internal/ui"
+	"github.com/rumor-ml/commons.systems/finparse/internal/validate"
 )
 
 const (
@@ -103,7 +105,10 @@ func run() error {
 	s := scanner.New(*inputDir)
 
 	// Scan for files
-	if *verbose {
+	if !*verbose {
+		ui.Header("Parsing Financial Statements")
+		ui.Step(1, 4, "Scanning directory")
+	} else {
 		fmt.Fprintf(os.Stderr, "Scanning directory: %s\n", *inputDir)
 	}
 
@@ -118,6 +123,8 @@ func run() error {
 			fmt.Fprintf(os.Stderr, "  - %s (institution: %s, account: %s)\n",
 				f.Path, f.Metadata.Institution(), f.Metadata.AccountNumber())
 		}
+	} else {
+		ui.Success(fmt.Sprintf("Found %d statement files", len(files)))
 	}
 
 	// Create parser registry
@@ -158,6 +165,9 @@ func run() error {
 	}
 
 	// Phase 5: Load dedup state if provided
+	if !*verbose && *stateFile != "" {
+		ui.Step(2, 4, "Loading deduplication state")
+	}
 	var state *dedup.State
 	if *stateFile != "" {
 		loadedState, err := dedup.LoadState(*stateFile)
@@ -223,6 +233,9 @@ func run() error {
 	}
 
 	// Phase 5: Load rules engine
+	if !*verbose {
+		ui.Step(3, 4, "Loading category rules")
+	}
 	var engine *rules.Engine
 	if *rulesFile != "" {
 		// Custom rules from file
@@ -264,6 +277,8 @@ func run() error {
 
 	if *verbose {
 		fmt.Fprintln(os.Stderr, "\nParsing and transforming statements...")
+	} else {
+		ui.Step(4, 4, "Parsing and transforming statements")
 	}
 
 	for i, file := range files {
@@ -277,6 +292,10 @@ func run() error {
 
 		if *verbose {
 			fmt.Fprintf(os.Stderr, "  Parsing %s with %s parser\n", file.Path, parser.Name())
+		} else if len(files) > 0 {
+			// Show simple progress indicator for non-verbose mode
+			percentage := float64(i+1) / float64(len(files)) * 100
+			fmt.Fprintf(os.Stderr, "\r  Progress: %d/%d files (%.0f%%)...", i+1, len(files), percentage)
 		}
 
 		f, err := os.Open(file.Path)
@@ -343,6 +362,11 @@ func run() error {
 		for _, example := range stats.DuplicateExamples() {
 			duplicateExamplesMap[example] = true
 		}
+	}
+
+	// Clear progress indicator in non-verbose mode
+	if !*verbose && len(files) > 0 {
+		fmt.Fprintf(os.Stderr, "\r  Progress: %d/%d files (100%%) - Complete!\n", len(files), len(files))
 	}
 
 	// Check for close failures and provide detailed diagnostics
@@ -413,16 +437,25 @@ func run() error {
 		totalProcessed := totalRulesMatched + totalRulesUnmatched
 		if totalProcessed > 0 {
 			coverage := float64(totalRulesMatched) / float64(totalProcessed) * 100
-			fmt.Fprintf(os.Stderr, "\nRule matching statistics:\n")
-			fmt.Fprintf(os.Stderr, "  Matched: %d (%.1f%%)\n", totalRulesMatched, coverage)
-			fmt.Fprintf(os.Stderr, "  Unmatched: %d\n", totalRulesUnmatched)
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "\nRule matching statistics:\n")
+				fmt.Fprintf(os.Stderr, "  Matched: %d (%.1f%%)\n", totalRulesMatched, coverage)
+				fmt.Fprintf(os.Stderr, "  Unmatched: %d\n", totalRulesUnmatched)
+			} else {
+				fmt.Fprintf(os.Stderr, "\n")
+				ui.Info(fmt.Sprintf("Rule coverage: %.1f%% (%d/%d matched)", coverage, totalRulesMatched, totalProcessed))
+			}
 
 			// Warn if coverage is low
 			if coverage < 80.0 {
-				fmt.Fprintf(os.Stderr, "  WARNING: Rule coverage is %.1f%% (below 80%% target)\n", coverage)
-				fmt.Fprintf(os.Stderr, "           %d transactions categorized as 'other' need rules\n", totalRulesUnmatched)
+				if *verbose {
+					fmt.Fprintf(os.Stderr, "  WARNING: Rule coverage is %.1f%% (below 80%% target)\n", coverage)
+					fmt.Fprintf(os.Stderr, "           %d transactions categorized as 'other' need rules\n", totalRulesUnmatched)
+				} else {
+					ui.Warning(fmt.Sprintf("Rule coverage %.1f%% below 80%% target (%d unmatched)", coverage, totalRulesUnmatched))
+				}
 				if !*verbose {
-					fmt.Fprintf(os.Stderr, "           Run with -verbose to see example unmatched transactions\n")
+					ui.Info("Run with -verbose to see example unmatched transactions")
 				}
 			}
 		}
@@ -438,6 +471,52 @@ func run() error {
 			}
 			fmt.Fprintf(os.Stderr, "    - %s\n", desc)
 			count++
+		}
+	}
+
+	// Phase 6: Validate budget before saving
+	if !*verbose {
+		fmt.Fprintf(os.Stderr, "\n")
+		ui.Info("Validating budget...")
+	} else {
+		fmt.Fprintf(os.Stderr, "\nValidating budget...\n")
+	}
+
+	validationResult := validate.ValidateBudget(budget)
+	if len(validationResult.Errors) > 0 {
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "\nValidation failed with %d errors:\n", len(validationResult.Errors))
+			for _, e := range validationResult.Errors {
+				fmt.Fprintf(os.Stderr, "  - %s %s [%s]: %s\n", e.Entity, e.ID, e.Field, e.Message)
+			}
+		} else {
+			ui.Error(fmt.Sprintf("Validation failed with %d errors", len(validationResult.Errors)))
+			// Show first 5 errors
+			for i, e := range validationResult.Errors {
+				if i >= 5 {
+					ui.Error(fmt.Sprintf("... and %d more errors", len(validationResult.Errors)-5))
+					break
+				}
+				ui.Error(fmt.Sprintf("%s %s [%s]: %s", e.Entity, e.ID, e.Field, e.Message))
+			}
+		}
+		return fmt.Errorf("validation failed with %d errors", len(validationResult.Errors))
+	}
+
+	if len(validationResult.Warnings) > 0 {
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "Validation warnings (%d):\n", len(validationResult.Warnings))
+			for _, w := range validationResult.Warnings {
+				fmt.Fprintf(os.Stderr, "  - %s %s [%s]: %s\n", w.Entity, w.ID, w.Field, w.Message)
+			}
+		} else {
+			ui.Warning(fmt.Sprintf("Validation produced %d warnings", len(validationResult.Warnings)))
+		}
+	} else {
+		if !*verbose {
+			ui.Success("Validation passed")
+		} else {
+			fmt.Fprintf(os.Stderr, "Validation passed\n")
 		}
 	}
 
@@ -480,7 +559,12 @@ func run() error {
 	}
 
 	if *outputFile != "" {
-		fmt.Printf("\nOutput written to %s\n", *outputFile)
+		if *verbose {
+			fmt.Printf("\nOutput written to %s\n", *outputFile)
+		} else {
+			fmt.Fprintf(os.Stderr, "\n")
+			ui.Success(fmt.Sprintf("Output written to %s", *outputFile))
+		}
 	}
 
 	return nil
