@@ -113,6 +113,19 @@ if [ "$REUSE_EMULATORS" = "false" ]; then
     echo "This indicates a bug in the port allocation script" >&2
     exit 1
   fi
+else
+  # INFRASTRUCTURE STABILITY FIX: Clear Firestore data when reusing emulators
+  # This ensures test isolation and prevents stale data from affecting tests
+  FIRESTORE_PORT="${FIRESTORE_EMULATOR_HOST##*:}"
+  FIRESTORE_HOST="${FIRESTORE_EMULATOR_HOST%%:*}"
+
+  echo ""
+  echo "=== Clearing Firestore Data (Reused Emulators) ==="
+  clear_firestore_data "$FIRESTORE_HOST" "$FIRESTORE_PORT" "$GCP_PROJECT_ID" || {
+    echo "⚠️  Data clearing failed, but continuing with tests..." >&2
+  }
+  echo "===================================================="
+  echo ""
 fi
 
 echo "Using ports: App=${TEST_PORT:-$HOSTING_PORT}, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestore=${FIRESTORE_EMULATOR_HOST}, Storage=${STORAGE_EMULATOR_HOST}"

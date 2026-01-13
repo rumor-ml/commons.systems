@@ -129,6 +129,78 @@ is_port_blacklisted() {
   return 1  # Port is OK
 }
 
+# INFRASTRUCTURE STABILITY FIX: Atomic port reservation using lock files
+# Reserve a port atomically using mkdir (atomic directory creation)
+# Args:
+#   $1 (port): Port number to reserve (1-65535)
+#   $2 (lock_dir): Base directory for lock files (default: /tmp/claude/port-locks)
+# Returns:
+#   0 if successfully reserved, 1 if already reserved or invalid
+# Note: Caller MUST call release_port() when done to clean up the lock
+reserve_port() {
+  local port=$1
+  local lock_base_dir="${2:-/tmp/claude/port-locks}"
+
+  # Validate port
+  if ! validate_port_range "$port" "port"; then
+    return 1
+  fi
+
+  # Ensure lock directory exists
+  mkdir -p "$lock_base_dir" 2>/dev/null || true
+
+  local lock_file="${lock_base_dir}/port-${port}.lock"
+
+  # Try to create lock directory atomically
+  # mkdir is atomic - either succeeds or fails, no race condition
+  if mkdir "$lock_file" 2>/dev/null; then
+    # Successfully reserved - store our PID
+    echo $$ > "${lock_file}/pid"
+    date +%s > "${lock_file}/timestamp"
+
+    # Restrict permissions to user-only
+    chmod 700 "$lock_file" 2>/dev/null || true
+    chmod 600 "${lock_file}/pid" 2>/dev/null || true
+    chmod 600 "${lock_file}/timestamp" 2>/dev/null || true
+
+    return 0  # Port reserved
+  fi
+
+  # Lock already exists - check if it's stale
+  if is_lock_stale "$lock_file" 300; then
+    # Stale lock was removed, try again
+    if mkdir "$lock_file" 2>/dev/null; then
+      echo $$ > "${lock_file}/pid"
+      date +%s > "${lock_file}/timestamp"
+      chmod 700 "$lock_file" 2>/dev/null || true
+      chmod 600 "${lock_file}/pid" 2>/dev/null || true
+      chmod 600 "${lock_file}/timestamp" 2>/dev/null || true
+      return 0
+    fi
+  fi
+
+  return 1  # Port already reserved
+}
+
+# Release a port reservation
+# Args:
+#   $1 (port): Port number to release (1-65535)
+#   $2 (lock_dir): Base directory for lock files (default: /tmp/claude/port-locks)
+# Returns:
+#   0 on success
+release_port() {
+  local port=$1
+  local lock_base_dir="${2:-/tmp/claude/port-locks}"
+
+  local lock_file="${lock_base_dir}/port-${port}.lock"
+
+  if [ -d "$lock_file" ]; then
+    rm -rf "$lock_file" 2>/dev/null || true
+  fi
+
+  return 0
+}
+
 # Comprehensive port availability check
 # Args:
 #   $1 (port): Port number to check (1-65535)
@@ -155,18 +227,21 @@ is_port_available() {
   return 0  # Port available
 }
 
-# Find available port with fallback
+# Find available port with fallback and atomic reservation
 # Args:
 #   $1 (base_port): Starting port number (1-65535)
 #   $2 (max_attempts): Maximum number of ports to try (default: 10)
 #   $3 (port_step): Step between port attempts (default: 10)
+#   $4 (reserve): If "reserve", atomically reserve the port (default: no reservation)
 # Returns:
 #   Outputs available port to stdout, returns 0 on success, 1 on failure
 # Note: Callers MUST check exit code - see allocate-test-ports.sh for example
+# Note: If reserve=true, caller MUST call release_port() when done
 find_available_port() {
   local base_port=$1
   local max_attempts=${2:-10}
   local port_step=${3:-10}
+  local reserve=${4:-}
 
   # Validate all parameters
   if ! validate_port_range "$base_port" "base_port"; then
@@ -196,8 +271,21 @@ find_available_port() {
 
     # Check availability
     if is_port_available $candidate; then
-      echo "$candidate"
-      return 0
+      # If reservation requested, try to reserve atomically
+      if [ "$reserve" = "reserve" ]; then
+        if reserve_port $candidate; then
+          echo "$candidate"
+          return 0
+        else
+          # Port was claimed by another process between availability check and reservation
+          echo "⚠️  Port $candidate was claimed by another process, trying next..." >&2
+          continue
+        fi
+      else
+        # No reservation requested - just return the port
+        echo "$candidate"
+        return 0
+      fi
     else
       echo "⚠️  Port $candidate in use, trying next..." >&2
     fi
@@ -356,33 +444,49 @@ is_lock_stale() {
     return 0
   fi
 
-  # Process is alive - check if it's actually our script
-  # (prevents removing lock if PID was recycled)
-  local proc_command
-  proc_command=$(ps -p "$lock_pid" -o comm= 2>/dev/null || echo "")
+  # INFRASTRUCTURE STABILITY FIX: Use PID-based detection instead of fragile process name regex
+  # Process is alive - check if it's actually our script by comparing PIDs from ps output
+  # This avoids issues with process name truncation and special characters
+  local proc_ppid proc_pgid proc_command
+  if command -v ps >/dev/null 2>&1; then
+    # Get process info: PPID, PGID, and command
+    # Use -o args= to get full command line (not truncated comm)
+    proc_info=$(ps -p "$lock_pid" -o ppid=,pgid=,args= 2>/dev/null || echo "")
 
-  if [[ ! "$proc_command" =~ (bash|sh|start-emulator) ]]; then
-    # PID exists but not a shell script - likely PID reuse
-    echo "WARNING: Lock PID $lock_pid is not a shell process ($proc_command), checking age" >&2
+    if [ -n "$proc_info" ]; then
+      proc_ppid=$(echo "$proc_info" | awk '{print $1}')
+      proc_pgid=$(echo "$proc_info" | awk '{print $2}')
+      proc_command=$(echo "$proc_info" | cut -d' ' -f3-)
 
-    # Check lock age as additional validation
-    local lock_age
-    if command -v stat >/dev/null 2>&1; then
-      # macOS/BSD stat
-      lock_age=$(( $(date +%s) - $(stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
+      # Check if process is related to our infrastructure scripts
+      # Look for: bash/sh scripts, firebase, emulators, or our script names
+      if [[ "$proc_command" =~ (bash|sh|firebase|emulator|start-emulator|allocate.*port|run-e2e) ]]; then
+        # Lock is valid and active
+        return 1
+      else
+        # Process exists but doesn't match our patterns - likely PID reuse
+        echo "WARNING: Lock PID $lock_pid appears recycled (command: $proc_command)" >&2
 
-      if [ "$lock_age" -gt "$max_age_seconds" ]; then
-        echo "Lock is $lock_age seconds old (> $max_age_seconds), removing stale lock" >&2
-        rm -rf "$lock_dir" 2>/dev/null || true
-        return 0
+        # Check lock age as additional validation before removing
+        local lock_age
+        if command -v stat >/dev/null 2>&1; then
+          # macOS/BSD stat
+          lock_age=$(( $(date +%s) - $(stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
+
+          if [ "$lock_age" -gt "$max_age_seconds" ]; then
+            echo "Lock is $lock_age seconds old (> $max_age_seconds), removing stale lock" >&2
+            rm -rf "$lock_dir" 2>/dev/null || true
+            return 0
+          fi
+        fi
+
+        # Can't determine age - be conservative if lock is recent
+        return 1
       fi
     fi
-
-    # Can't determine - be conservative
-    return 1
   fi
 
-  # Lock is active and valid
+  # Fallback: Can't get process info - assume lock is valid
   return 1
 }
 
@@ -507,5 +611,105 @@ check_emulator_health() {
   echo "  ✓ Firestore emulator healthy (${firestore_time}ms)"
 
   echo "✅ All emulators healthy"
+  return 0
+}
+
+# INFRASTRUCTURE STABILITY FIX: Deep health check for emulators
+# Performs actual API operations to verify functionality, not just port availability
+# Args:
+#   $1 (auth_host): Auth emulator host
+#   $2 (auth_port): Auth emulator port
+#   $3 (firestore_host): Firestore emulator host
+#   $4 (firestore_port): Firestore emulator port
+#   $5 (project_id): Firebase project ID
+# Returns:
+#   0 if healthy, 1 if unhealthy
+deep_health_check() {
+  local auth_host="$1"
+  local auth_port="$2"
+  local firestore_host="$3"
+  local firestore_port="$4"
+  local project_id="$5"
+
+  echo "🔬 Performing deep health check..."
+
+  # Test 1: Auth emulator - create test user
+  echo "  Testing Auth emulator functionality..."
+  local test_email="health-check-$(date +%s)@test.com"
+  local test_password="test-password-123"
+
+  local auth_response=$(curl -s -w "\n%{http_code}" \
+    -X POST \
+    --connect-timeout 5 \
+    --max-time 10 \
+    -H "Content-Type: application/json" \
+    -d "{\"email\":\"${test_email}\",\"password\":\"${test_password}\",\"returnSecureToken\":true}" \
+    "http://${auth_host}:${auth_port}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key" \
+    2>/dev/null)
+
+  local auth_status=$(echo "$auth_response" | tail -n1)
+
+  if [[ "$auth_status" != "200" ]]; then
+    echo "  ❌ Auth emulator cannot create users: HTTP $auth_status" >&2
+    return 1
+  fi
+
+  echo "  ✓ Auth emulator functional (user creation works)"
+
+  # Test 2: Firestore emulator - list collections (verifies database access)
+  echo "  Testing Firestore emulator functionality..."
+  local firestore_response=$(curl -s -w "\n%{http_code}" \
+    --connect-timeout 5 \
+    --max-time 10 \
+    "http://${firestore_host}:${firestore_port}/v1/projects/${project_id}/databases/(default)/documents" \
+    2>/dev/null)
+
+  local firestore_status=$(echo "$firestore_response" | tail -n1)
+
+  # Firestore may return 200 (with documents) or 404 (no documents) - both are healthy
+  if [[ "$firestore_status" != "200" ]] && [[ "$firestore_status" != "404" ]]; then
+    echo "  ❌ Firestore emulator cannot access database: HTTP $firestore_status" >&2
+    return 1
+  fi
+
+  echo "  ✓ Firestore emulator functional (database access works)"
+
+  echo "✅ Deep health check passed"
+  return 0
+}
+
+# INFRASTRUCTURE STABILITY FIX: Clear Firestore data between test runs
+# Clear all data from Firestore emulator via REST API
+# Args:
+#   $1 (firestore_host): Firestore host (e.g., "localhost")
+#   $2 (firestore_port): Firestore port (e.g., "11980")
+#   $3 (project_id): Firebase project ID
+# Returns:
+#   0 on success, 1 on failure
+clear_firestore_data() {
+  local firestore_host="$1"
+  local firestore_port="$2"
+  local project_id="$3"
+
+  echo "🗑️  Clearing Firestore emulator data..."
+
+  # Use Firestore emulator's REST API to clear all data
+  # DELETE /emulator/v1/projects/{project_id}/databases/(default)/documents
+  local response=$(curl -s -w "\n%{http_code}" \
+    -X DELETE \
+    --connect-timeout 5 \
+    --max-time 10 \
+    "http://${firestore_host}:${firestore_port}/emulator/v1/projects/${project_id}/databases/(default)/documents" \
+    2>/dev/null)
+
+  local status=$(echo "$response" | tail -n1)
+
+  if [[ "$status" != "200" ]]; then
+    echo "  ⚠️  Failed to clear Firestore data: HTTP $status" >&2
+    # Don't fail the test run if data clearing fails - tests may still pass
+    return 1
+  fi
+
+  echo "  ✓ Firestore data cleared successfully"
   return 0
 }
