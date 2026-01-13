@@ -28,7 +28,7 @@ import {
   serverTimestamp,
   connectFirestoreEmulator,
 } from 'firebase/firestore';
-import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getAuth, connectAuthEmulator, signInWithCustomToken } from 'firebase/auth';
 import { firebaseConfig } from '../firebase-config.js';
 import { getCardsCollectionName } from '../lib/firestore-collections.js';
 import { FIREBASE_PORTS } from '../../../../shared/config/firebase-ports.ts';
@@ -179,9 +179,11 @@ export async function initFirebase() {
     // Previously cached at init time, but that became stale when worker context changed
     getCardsCollection = () => collection(db, getCardsCollectionName());
 
-    // Expose auth on window for test fixtures
+    // Expose auth and auth functions on window for test fixtures
+    // This avoids CDN imports in tests which can cause network timeouts
     if (typeof window !== 'undefined') {
       window.auth = auth;
+      window.signInWithCustomToken = signInWithCustomToken;
 
       // Emit ready event for tests to wait on
       const event = new CustomEvent('firebase:ready', {

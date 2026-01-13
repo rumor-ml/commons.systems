@@ -238,6 +238,14 @@ else
     rm -f "$BACKEND_PID_FILE"
     exit 1
   }
+
+  # INFRASTRUCTURE STABILITY FIX: Perform deep health check after startup
+  # This verifies actual functionality, not just port availability
+  echo ""
+  if ! deep_health_check "127.0.0.1" "${AUTH_PORT}" "127.0.0.1" "${FIRESTORE_PORT}" "${PROJECT_ID}"; then
+    echo "⚠️  Deep health check failed - emulators may not be fully functional" >&2
+    # Don't fail startup, but warn user
+  fi
   echo ""
 fi
 
@@ -278,7 +286,9 @@ echo "Starting per-worktree hosting emulator..."
 # Port conflicts can occur between allocation check and emulator binding.
 # Retry with exponential backoff and automatic port reallocation on failure.
 
-MAX_PORT_RETRIES=3
+# INFRASTRUCTURE STABILITY FIX: Increase retry attempts from 3 to 5
+# This reduces race conditions during parallel test runs and CI overload
+MAX_PORT_RETRIES=5
 PORT_RETRY_COUNT=0
 HOSTING_STARTED=false
 ORIGINAL_HOSTING_PORT="${HOSTING_PORT}"  # Save for error messages

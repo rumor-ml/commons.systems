@@ -310,11 +310,6 @@ export const test = base.extend<AuthFixtures>({
         async () => {
           await page.evaluate(
             async ({ token }) => {
-              // Import Firebase SDK
-              const { signInWithCustomToken } = await import(
-                'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
-              );
-
               // Wait for auth to be initialized (event-driven with timeout)
               const waitForAuth = async (timeout = 10000) => {
                 return new Promise((resolve, reject) => {
@@ -345,9 +340,20 @@ export const test = base.extend<AuthFixtures>({
               // The page already connects to the emulator, so we just need to sign in
               const auth = await waitForAuth();
 
-              // Sign in with custom token
-              // The auth instance is already connected to the emulator by firebase.js
-              await signInWithCustomToken(auth, token);
+              // CRITICAL FIX (Issue #244 infrastructure stability):
+              // Use page's exposed signInWithCustomToken instead of importing from CDN
+              // The page already has firebase/auth loaded and configured for emulator mode
+              // firebase.js exposes signInWithCustomToken on window to avoid CDN timeouts
+              if (!window.signInWithCustomToken) {
+                throw new Error(
+                  'signInWithCustomToken not available on window. ' +
+                    'Ensure firebase.js loaded correctly.'
+                );
+              }
+
+              // Sign in with custom token using page's loaded Firebase SDK
+              // This avoids CDN network requests during tests which can cause timeouts
+              await window.signInWithCustomToken(auth, token);
 
               // Set window.__testAuth for test helpers
               window.__testAuth = auth;
