@@ -2,13 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
 	"github.com/rumor-ml/commons.systems/finparse/internal/output"
 	"github.com/rumor-ml/commons.systems/finparse/internal/registry"
+	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
 	"github.com/rumor-ml/commons.systems/finparse/internal/scanner"
 	"github.com/rumor-ml/commons.systems/finparse/internal/transform"
 )
@@ -21,7 +27,7 @@ var (
 	// Global flags
 	versionFlag = flag.Bool("version", false, "Show version")
 
-	// Phase 1 flags (currently used)
+	// Core CLI flags
 	inputDir = flag.String("input", "", "Input directory containing statements (required)")
 	dryRun   = flag.Bool("dry-run", false, "Show what would be parsed without writing")
 	verbose  = flag.Bool("verbose", false, "Show detailed parsing logs")
@@ -30,7 +36,7 @@ var (
 	outputFile = flag.String("output", "", "Output JSON file (default: stdout)")
 	mergeMode  = flag.Bool("merge", false, "Merge with existing output file")
 
-	// Future phase flags (Phase 5+, not yet implemented)
+	// Phase 5 flags (deduplication and rules)
 	stateFile         = flag.String("state", "", "Deduplication state file")
 	rulesFile         = flag.String("rules", "", "Category rules file")
 	formatFilter      = flag.String("format", "all", "Filter by format: ofx,csv,all")
@@ -85,7 +91,12 @@ Examples:
 }
 
 func run() error {
-	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling
+	// TODO(#1350): Add context cancellation support for graceful Ctrl+C handling.
+	// Currently uses Background() which ignores cancellation signals. Should use
+	// signal.NotifyContext to detect Ctrl+C. Graceful shutdown options:
+	//   1. Stop accepting new files, wait for current parser to complete (if parser supports context)
+	//   2. Save state with already-processed transactions before exiting
+	// Note: Current code saves state once at end (line 456), so would need incremental saves.
 	ctx := context.Background()
 
 	// Create scanner
@@ -125,7 +136,7 @@ func run() error {
 		return nil
 	}
 
-	// Always show summary of scan results for user feedback
+	// Show summary of scan results for user feedback (format varies by file count)
 	fmt.Printf("Scan complete: found %d statement files", len(files))
 	if len(files) > 0 {
 		// Show institution/account breakdown in summary
@@ -146,15 +157,116 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "Warning: No statement files found. Check directory path and ensure files have .qfx, .ofx, or .csv extensions.\n")
 	}
 
+	// Phase 5: Load dedup state if provided
+	var state *dedup.State
+	if *stateFile != "" {
+		loadedState, err := dedup.LoadState(*stateFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// State file doesn't exist, create new
+				state = dedup.NewState()
+				if *verbose {
+					fmt.Fprintf(os.Stderr, "State file not found, creating new state\n")
+				}
+			} else {
+				// CRITICAL: State file exists but cannot be loaded. Return error to prevent:
+				// 1. Overwriting the corrupt state file with empty state
+				// 2. Reprocessing all transactions as new (creating duplicates in output)
+				// Check if this is a permission error to provide specific guidance
+				var pathErr *os.PathError
+				if errors.As(err, &pathErr) && errors.Is(pathErr.Err, os.ErrPermission) {
+					return fmt.Errorf("failed to load state file %q: permission denied: %w\n\nCRITICAL: The state file exists but cannot be read.\nDeleting it will cause all transactions to be reprocessed as NEW (creating duplicates).\n\nOptions:\n  1. Check file permissions: ls -la %q\n  2. Check ownership: stat %q\n  3. Backup and reset (will reprocess ALL transactions): cp %q %q.backup && rm %q",
+						*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile, *stateFile)
+				}
+
+				// Generic load failure (corruption, format error, etc)
+				return fmt.Errorf("failed to load existing state file %q: %w\n\nCRITICAL: The state file exists but cannot be loaded.\nDeleting it will cause all transactions to be reprocessed as NEW (creating duplicates).\n\nOptions:\n  1. Check file integrity: file %q\n  2. Backup the file: cp %q %q.backup\n  3. Try to recover: inspect JSON structure in %q\n  4. Reset (will reprocess ALL transactions): rm %q after backing up",
+					*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile, *stateFile)
+			}
+		} else {
+			state = loadedState
+
+			// Validate loaded state integrity
+			if state.Version != dedup.CurrentVersion {
+				return fmt.Errorf("state file version mismatch: got %d, expected %d",
+					state.Version, dedup.CurrentVersion)
+			}
+
+			if state.TotalFingerprints() == 0 {
+				if !state.Metadata.LastUpdated.IsZero() {
+					timeSinceUpdate := time.Since(state.Metadata.LastUpdated)
+					if timeSinceUpdate < 30*24*time.Hour {
+						// Likely corruption - state was recently used but is now empty
+						return fmt.Errorf("state file corruption detected: file was last updated %v ago but contains 0 fingerprints\n\nThis will cause ALL transactions to be reprocessed as duplicates.\n\nRecovery options:\n  1. Restore state from backup if available\n  2. Check filesystem integrity: fsck or disk utility\n  3. Delete state file and accept duplicates: rm %q\n\nCannot proceed with corrupted state.",
+							timeSinceUpdate, *stateFile)
+					}
+				}
+				// Empty state is OK for first run
+				fmt.Fprintf(os.Stderr, "State file is empty (first run) - all transactions will be processed as new\n")
+			}
+
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "Loaded state with %d fingerprints\n",
+					state.TotalFingerprints())
+				if !state.Metadata.LastUpdated.IsZero() {
+					fmt.Fprintf(os.Stderr, "  Last updated: %s\n",
+						state.Metadata.LastUpdated.Format(time.RFC3339))
+				}
+			}
+		}
+	}
+
+	// Show deduplication status when enabled (regardless of verbose flag)
+	if state != nil && *stateFile != "" {
+		fmt.Fprintf(os.Stderr, "Deduplication enabled with state file: %s (%d existing fingerprints)\n",
+			*stateFile, state.TotalFingerprints())
+	}
+
+	// Phase 5: Load rules engine
+	var engine *rules.Engine
+	if *rulesFile != "" {
+		// Custom rules from file
+		loadedEngine, err := rules.LoadFromFile(*rulesFile)
+		if err != nil {
+			return fmt.Errorf("failed to load rules file: %w", err)
+		}
+		engine = loadedEngine
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "Loaded %d custom rules from %s\n", len(engine.GetRules()), *rulesFile)
+		}
+	} else {
+		// Use embedded rules
+		loadedEngine, err := rules.LoadEmbedded()
+		if err != nil {
+			return fmt.Errorf("failed to load embedded rules: %w", err)
+		}
+		engine = loadedEngine
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "Loaded %d embedded rules\n", len(engine.GetRules()))
+		}
+	}
+
 	// Phase 4: Transform and output
 	budget := domain.NewBudget()
+
+	// Aggregate statistics across all statements
+	var (
+		totalDuplicatesSkipped            int
+		totalRulesMatched                 int
+		totalRulesUnmatched               int
+		totalDuplicateInstitutionsSkipped int
+		totalDuplicateAccountsSkipped     int
+		closeErrorCount                   int
+		closeErrors                       = make(map[string][]string) // error type -> file paths
+	)
+	unmatchedExamplesMap := make(map[string]bool) // Track unique unmatched descriptions
+	duplicateExamplesMap := make(map[string]bool) // Track unique duplicate examples
 
 	if *verbose {
 		fmt.Fprintln(os.Stderr, "\nParsing and transforming statements...")
 	}
 
 	for i, file := range files {
-		// TODO(#1341): Consider removing numbered step comments in favor of descriptive prefixes
 		parser, err := reg.FindParser(file.Path)
 		if err != nil {
 			return fmt.Errorf("failed to find parser for %s: %w", file.Path, err)
@@ -174,14 +286,30 @@ func run() error {
 
 		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
 
-		// Close immediately after parsing
+		// Close file immediately after parsing (not deferred) to avoid file descriptor accumulation
 		closeErr := f.Close()
+		if closeErr != nil {
+			// Detect error type by searching error message for aggregation
+			errType := "unknown"
+			errStr := closeErr.Error()
+
+			// Fail immediately on critical errors that indicate serious issues
+			if strings.Contains(errStr, "permission") || strings.Contains(errStr, "denied") {
+				return fmt.Errorf("failed to close file %s (critical permission error, stopping): %w", file.Path, closeErr)
+			} else if strings.Contains(errStr, "no space") || strings.Contains(errStr, "disk full") {
+				return fmt.Errorf("failed to close file %s (disk full, stopping): %w", file.Path, closeErr)
+			} else if strings.Contains(errStr, "bad file") || strings.Contains(errStr, "stale") || strings.Contains(errStr, "filesystem") {
+				return fmt.Errorf("failed to close file %s (filesystem corruption, stopping): %w", file.Path, closeErr)
+			}
+
+			// For less serious errors, aggregate and continue
+			closeErrors[errType] = append(closeErrors[errType], file.Path)
+			closeErrorCount++
+		}
+
 		if err != nil {
 			return fmt.Errorf("parse failed for file %d of %d (%s): %w",
 				i+1, len(files), file.Path, err)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("failed to close %s: %w", file.Path, closeErr)
 		}
 
 		// Verify parser contract: if no error, rawStmt must not be nil
@@ -190,7 +318,8 @@ func run() error {
 				parser.Name(), file.Path)
 		}
 
-		if err := transform.TransformStatement(rawStmt, budget); err != nil {
+		stats, err := transform.TransformStatement(rawStmt, budget, state, engine)
+		if err != nil {
 			// Provide context about parsed data in error message
 			return fmt.Errorf("transform failed for file %d of %d (%s) with %d transactions from %s to %s: %w",
 				i+1, len(files), file.Path,
@@ -199,6 +328,42 @@ func run() error {
 				rawStmt.Period.End().Format("2006-01-02"),
 				err)
 		}
+
+		// Aggregate statistics
+		totalDuplicatesSkipped += stats.DuplicatesSkipped
+		totalRulesMatched += stats.RulesMatched
+		totalRulesUnmatched += stats.RulesUnmatched
+		for _, desc := range stats.UnmatchedExamples() {
+			unmatchedExamplesMap[desc] = true
+		}
+
+		// Track duplicate statistics
+		totalDuplicateInstitutionsSkipped += stats.DuplicateInstitutionsSkipped
+		totalDuplicateAccountsSkipped += stats.DuplicateAccountsSkipped
+		for _, example := range stats.DuplicateExamples() {
+			duplicateExamplesMap[example] = true
+		}
+	}
+
+	// Check for close failures and provide detailed diagnostics
+	if closeErrorCount > 0 {
+		fmt.Fprintf(os.Stderr, "\nERROR: %d file(s) failed to close properly\n", closeErrorCount)
+
+		// Show errors grouped by type
+		for errType, paths := range closeErrors {
+			fmt.Fprintf(os.Stderr, "  %s errors: %d file(s)\n", errType, len(paths))
+			// Show first 3 examples of each type
+			for i, path := range paths {
+				if i >= 3 {
+					fmt.Fprintf(os.Stderr, "    ... and %d more\n", len(paths)-3)
+					break
+				}
+				fmt.Fprintf(os.Stderr, "    - %s\n", path)
+			}
+		}
+
+		// Return error if ANY file failed to close - conservative approach to detect filesystem issues early
+		return fmt.Errorf("%d file(s) failed to close - check filesystem health", closeErrorCount)
 	}
 
 	if *verbose {
@@ -212,6 +377,97 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "  Accounts: %d\n", len(accounts))
 		fmt.Fprintf(os.Stderr, "  Statements: %d\n", len(statements))
 		fmt.Fprintf(os.Stderr, "  Transactions: %d\n", len(transactions))
+
+	}
+
+	// Show deduplication statistics (always, not just verbose)
+	if state != nil && totalDuplicatesSkipped > 0 {
+		fmt.Fprintf(os.Stderr, "\nDeduplication:\n")
+		fmt.Fprintf(os.Stderr, "  Skipped %d duplicate transactions\n", totalDuplicatesSkipped)
+	}
+
+	// Example duplicates only in verbose mode
+	if *verbose && state != nil && len(duplicateExamplesMap) > 0 {
+		fmt.Fprintf(os.Stderr, "  Example duplicates:\n")
+		count := 0
+		for desc := range duplicateExamplesMap {
+			if count >= 5 {
+				break
+			}
+			fmt.Fprintf(os.Stderr, "    - %s\n", desc)
+			count++
+		}
+
+		// Show duplicate institution/account statistics
+		if totalDuplicateInstitutionsSkipped > 0 {
+			fmt.Fprintf(os.Stderr, "  Skipped %d duplicate institution(s)\n", totalDuplicateInstitutionsSkipped)
+		}
+		if totalDuplicateAccountsSkipped > 0 {
+			fmt.Fprintf(os.Stderr, "  Skipped %d duplicate account(s)\n", totalDuplicateAccountsSkipped)
+		}
+
+	}
+
+	// Show rule matching statistics (always, not just verbose)
+	if engine != nil {
+		totalProcessed := totalRulesMatched + totalRulesUnmatched
+		if totalProcessed > 0 {
+			coverage := float64(totalRulesMatched) / float64(totalProcessed) * 100
+			fmt.Fprintf(os.Stderr, "\nRule matching statistics:\n")
+			fmt.Fprintf(os.Stderr, "  Matched: %d (%.1f%%)\n", totalRulesMatched, coverage)
+			fmt.Fprintf(os.Stderr, "  Unmatched: %d\n", totalRulesUnmatched)
+
+			// Warn if coverage is low
+			if coverage < 80.0 {
+				fmt.Fprintf(os.Stderr, "  WARNING: Rule coverage is %.1f%% (below 80%% target)\n", coverage)
+				fmt.Fprintf(os.Stderr, "           %d transactions categorized as 'other' need rules\n", totalRulesUnmatched)
+				if !*verbose {
+					fmt.Fprintf(os.Stderr, "           Run with -verbose to see example unmatched transactions\n")
+				}
+			}
+		}
+	}
+
+	// Show example unmatched transactions only in verbose mode
+	if *verbose && len(unmatchedExamplesMap) > 0 {
+		fmt.Fprintf(os.Stderr, "  Example unmatched transactions:\n")
+		count := 0
+		for desc := range unmatchedExamplesMap {
+			if count >= 5 {
+				break
+			}
+			fmt.Fprintf(os.Stderr, "    - %s\n", desc)
+			count++
+		}
+	}
+
+	// Phase 5: Save state before writing output to prevent reprocessing on retry.
+	// If state saves but output fails, we can retry output without parsing again.
+	// If state save fails, we abort before output to maintain consistency.
+	if state != nil && *stateFile != "" {
+		if err := dedup.SaveState(state, *stateFile); err != nil {
+			// State save failed - provide detailed diagnostics
+			fmt.Fprintf(os.Stderr, "\nERROR: Failed to save deduplication state: %v\n", err)
+			fmt.Fprintf(os.Stderr, "\nThis means:\n")
+			fmt.Fprintf(os.Stderr, "  - All parsing work for this run will be lost\n")
+			fmt.Fprintf(os.Stderr, "  - Transactions will be reprocessed as NEW on next run\n")
+			fmt.Fprintf(os.Stderr, "  - Output file will NOT be written to prevent inconsistency\n")
+
+			// Provide actionable recovery steps based on error type
+			if strings.Contains(err.Error(), "permission denied") {
+				stateDir := filepath.Dir(*stateFile)
+				fmt.Fprintf(os.Stderr, "\nPermission denied - check directory permissions:\n")
+				fmt.Fprintf(os.Stderr, "  ls -la %q\n", stateDir)
+			} else if strings.Contains(err.Error(), "no space left") {
+				fmt.Fprintf(os.Stderr, "\nDisk full - check available space:\n")
+				fmt.Fprintf(os.Stderr, "  df -h\n")
+			}
+
+			return fmt.Errorf("failed to save state file before writing output: %w", err)
+		} else if *verbose {
+			fmt.Fprintf(os.Stderr, "Saved state with %d fingerprints to %s\n",
+				state.TotalFingerprints(), *stateFile)
+		}
 	}
 
 	opts := output.WriteOptions{
