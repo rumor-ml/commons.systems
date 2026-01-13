@@ -15,6 +15,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/port-utils.sh"
 
+# PID tracking
+SUPERVISOR_PID_FILE="$HOME/.firebase-emulators/supervisor.pid"
+
 # Check sandbox requirement
 check_sandbox_requirement "Running emulator supervisor" || exit 1
 
@@ -32,6 +35,9 @@ cleanup() {
   echo ""
   echo "🛑 Shutting down emulators gracefully..."
 
+  # Clean up PID file
+  rm -f "$SUPERVISOR_PID_FILE"
+
   # Stop emulators
   "${SCRIPT_DIR}/stop-emulators.sh" 2>/dev/null || true
 
@@ -41,6 +47,10 @@ cleanup() {
 
 # Register cleanup handlers
 trap cleanup SIGTERM SIGINT EXIT
+
+# Write PID file for external supervisor detection
+mkdir -p "$HOME/.firebase-emulators"
+echo $$ > "$SUPERVISOR_PID_FILE"
 
 # Start emulators initially
 echo "🚀 Starting emulators with supervisor..."

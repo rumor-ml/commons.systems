@@ -43,6 +43,25 @@ source "$SCRIPT_DIR/port-utils.sh"
 check_sandbox_requirement "Running E2E tests with Firebase emulators" || exit 1
 
 # ============================================================================
+# SUPERVISOR DETECTION: Check if supervisor is managing emulators
+# ============================================================================
+SUPERVISOR_PID_FILE="$HOME/.firebase-emulators/supervisor.pid"
+
+# Check if supervisor is already running
+is_supervisor_running() {
+  if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+    local pid
+    pid=$(cat "$SUPERVISOR_PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "✓ Supervisor already running (PID: $pid)"
+      return 0
+    fi
+    rm -f "$SUPERVISOR_PID_FILE"
+  fi
+  return 1
+}
+
+# ============================================================================
 # EMULATOR REUSE: Check if emulators are already running before allocation
 # ============================================================================
 # If .test-env.json exists and emulators are healthy, reuse them instead of
@@ -144,8 +163,35 @@ case "$APP_TYPE" in
     if [ "$REUSE_EMULATORS" = "true" ]; then
       echo "✓ Skipping emulator startup - reusing existing emulators"
     else
-      echo "Starting Firebase emulators..."
-      source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh" "$APP_NAME"
+      # Start emulators under supervision if not already running
+      if ! is_supervisor_running; then
+        echo "🚀 Starting emulators with supervisor..."
+        mkdir -p "${ROOT_DIR}/tmp"
+        "$SCRIPT_DIR/emulator-supervisor.sh" "$APP_NAME" > "${ROOT_DIR}/tmp/supervisor.log" 2>&1 &
+
+        # Wait for emulators to be ready
+        echo "⏳ Waiting for emulators to start..."
+        max_wait=120
+        waited=0
+        AUTH_PORT_EXPECTED="${FIREBASE_AUTH_EMULATOR_HOST##*:}"
+        HOSTING_PORT_EXPECTED="${HOSTING_PORT}"
+        while [[ $waited -lt $max_wait ]]; do
+          if nc -z 127.0.0.1 ${AUTH_PORT_EXPECTED} 2>/dev/null && nc -z 127.0.0.1 ${HOSTING_PORT_EXPECTED} 2>/dev/null; then
+            break
+          fi
+          sleep 2
+          waited=$((waited + 2))
+        done
+
+        if [[ $waited -ge $max_wait ]]; then
+          echo "ERROR: Emulators failed to start within ${max_wait}s"
+          cat "${ROOT_DIR}/tmp/supervisor.log" 2>/dev/null || true
+          exit 1
+        fi
+        echo "✓ Emulators ready under supervision"
+      else
+        echo "ℹ️  Using existing supervised emulators"
+      fi
     fi
 
     # Export emulator env vars
@@ -204,8 +250,8 @@ EOF
     cat "$TEST_ENV_CONFIG"
     echo "================================"
 
-    # Set up cleanup trap (only when we started the emulators)
-    if [ "$REUSE_EMULATORS" = "false" ]; then
+    # Set up cleanup trap (only when we started the emulators AND supervisor is NOT managing them)
+    if [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
       cleanup() {
         echo "Stopping emulators..."
         "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
@@ -220,7 +266,7 @@ EOF
       }
       trap cleanup EXIT
     else
-      echo "✓ Emulator cleanup skipped - keeping reused emulators running"
+      echo "ℹ️  Emulators managed by supervisor - no cleanup on exit"
     fi
     ;;
 
@@ -231,8 +277,35 @@ EOF
     if [ "$REUSE_EMULATORS" = "true" ]; then
       echo "✓ Skipping emulator startup - reusing existing backend emulators"
     else
-      echo "Starting Firebase backend emulators..."
-      SKIP_HOSTING=1 source "${ROOT_DIR}/infrastructure/scripts/start-emulators.sh"
+      # Start backend emulators under supervision if not already running
+      if ! is_supervisor_running; then
+        echo "🚀 Starting backend emulators with supervisor..."
+        mkdir -p "${ROOT_DIR}/tmp"
+        SKIP_HOSTING=1 "$SCRIPT_DIR/emulator-supervisor.sh" > "${ROOT_DIR}/tmp/supervisor.log" 2>&1 &
+
+        # Wait for backend emulators to be ready
+        echo "⏳ Waiting for backend emulators to start..."
+        max_wait=120
+        waited=0
+        AUTH_PORT_EXPECTED="${FIREBASE_AUTH_EMULATOR_HOST##*:}"
+        FIRESTORE_PORT_EXPECTED="${FIRESTORE_EMULATOR_HOST##*:}"
+        while [[ $waited -lt $max_wait ]]; do
+          if nc -z 127.0.0.1 ${AUTH_PORT_EXPECTED} 2>/dev/null && nc -z 127.0.0.1 ${FIRESTORE_PORT_EXPECTED} 2>/dev/null; then
+            break
+          fi
+          sleep 2
+          waited=$((waited + 2))
+        done
+
+        if [[ $waited -ge $max_wait ]]; then
+          echo "ERROR: Backend emulators failed to start within ${max_wait}s"
+          cat "${ROOT_DIR}/tmp/supervisor.log" 2>/dev/null || true
+          exit 1
+        fi
+        echo "✓ Backend emulators ready under supervision"
+      else
+        echo "ℹ️  Using existing supervised backend emulators"
+      fi
     fi
 
     # Export emulator env vars
@@ -241,13 +314,15 @@ EOF
     export FIREBASE_AUTH_EMULATOR_HOST
     export GCP_PROJECT_ID
 
-    # Set up cleanup trap (only when we started the emulators)
-    if [ "$REUSE_EMULATORS" = "false" ]; then
+    # Set up cleanup trap (only when we started the emulators AND supervisor is NOT managing them)
+    if [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
       cleanup() {
         echo "Stopping emulators..."
         "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
       }
       trap cleanup EXIT
+    else
+      echo "ℹ️  Backend emulators managed by supervisor - no cleanup on exit"
     fi
 
     echo "Building..."
