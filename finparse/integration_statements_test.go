@@ -2,6 +2,7 @@ package finparse
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,6 +61,9 @@ func TestIntegration_RealStatements(t *testing.T) {
 
 	// Parse and transform all files
 	ctx := context.Background()
+	var parseSuccessCount, parseFailureCount int
+	var parseErrors []string
+
 	for i, file := range files {
 		parser, err := reg.FindParser(file.Path)
 		if err != nil {
@@ -79,12 +83,16 @@ func TestIntegration_RealStatements(t *testing.T) {
 		f.Close()
 
 		if err != nil {
+			parseFailureCount++
+			parseErrors = append(parseErrors, fmt.Sprintf("%s: %v", file.Path, err))
 			// Some parse errors are expected with real data (unsupported features, etc.)
 			// Log them but don't fail the test
 			t.Logf("Parse encountered issue for file %d of %d (%s): %v",
 				i+1, len(files), file.Path, err)
 			continue
 		}
+
+		parseSuccessCount++
 
 		if rawStmt == nil {
 			t.Fatalf("Parser returned nil statement for %s", file.Path)
@@ -97,6 +105,25 @@ func TestIntegration_RealStatements(t *testing.T) {
 			t.Logf("Transform encountered issue for file %d of %d (%s): %v",
 				i+1, len(files), file.Path, err)
 			continue
+		}
+	}
+
+	// Enforce failure threshold
+	totalFiles := parseSuccessCount + parseFailureCount
+	if totalFiles > 0 {
+		failureRate := float64(parseFailureCount) / float64(totalFiles) * 100
+
+		if parseSuccessCount == 0 {
+			t.Fatalf("CRITICAL: All %d files failed to parse", totalFiles)
+		}
+
+		if failureRate > 20.0 {
+			t.Errorf("Parse failure rate %.1f%% exceeds 20%% threshold (%d/%d failed)",
+				failureRate, parseFailureCount, totalFiles)
+			t.Logf("Failed files:")
+			for _, errMsg := range parseErrors {
+				t.Logf("  - %s", errMsg)
+			}
 		}
 	}
 

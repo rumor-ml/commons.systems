@@ -47,6 +47,7 @@ func Error(text string) {
 	red.Printf("Error: %s\n", text)
 }
 
+// TODO(#1434): Consider removing unused BlueText and YellowText functions
 // BlueText prints blue text
 func BlueText(text string) {
 	blue.Println(text)

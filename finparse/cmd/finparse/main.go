@@ -98,7 +98,7 @@ func run() error {
 	// signal.NotifyContext to detect Ctrl+C. Graceful shutdown options:
 	//   1. Stop accepting new files, wait for current parser to complete (if parser supports context)
 	//   2. Save state with already-processed transactions before exiting
-	// Note: Current code saves state once at end (line 456), so would need incremental saves.
+	// Note: Current code saves state once at end (in the state save section), so would need incremental saves.
 	ctx := context.Background()
 
 	// Create scanner
@@ -308,6 +308,11 @@ func run() error {
 		// Close file immediately after parsing (not deferred) to avoid file descriptor accumulation
 		closeErr := f.Close()
 		if closeErr != nil {
+			// Log immediately with full context in verbose mode
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "WARNING: Failed to close %s: %v\n", file.Path, closeErr)
+			}
+
 			// Detect error type by searching error message for aggregation
 			errType := "unknown"
 			errStr := closeErr.Error()
@@ -321,8 +326,8 @@ func run() error {
 				return fmt.Errorf("failed to close file %s (filesystem corruption, stopping): %w", file.Path, closeErr)
 			}
 
-			// For less serious errors, aggregate and continue
-			closeErrors[errType] = append(closeErrors[errType], file.Path)
+			// For less serious errors, store both path and error message
+			closeErrors[errType] = append(closeErrors[errType], fmt.Sprintf("%s: %v", file.Path, closeErr))
 			closeErrorCount++
 		}
 
@@ -374,15 +379,15 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "\nERROR: %d file(s) failed to close properly\n", closeErrorCount)
 
 		// Show errors grouped by type
-		for errType, paths := range closeErrors {
-			fmt.Fprintf(os.Stderr, "  %s errors: %d file(s)\n", errType, len(paths))
+		for errType, errorDetails := range closeErrors {
+			fmt.Fprintf(os.Stderr, "  %s errors: %d file(s)\n", errType, len(errorDetails))
 			// Show first 3 examples of each type
-			for i, path := range paths {
+			for i, detail := range errorDetails {
 				if i >= 3 {
-					fmt.Fprintf(os.Stderr, "    ... and %d more\n", len(paths)-3)
+					fmt.Fprintf(os.Stderr, "    ... and %d more\n", len(errorDetails)-3)
 					break
 				}
-				fmt.Fprintf(os.Stderr, "    - %s\n", path)
+				fmt.Fprintf(os.Stderr, "    - %s\n", detail)
 			}
 		}
 
@@ -520,7 +525,7 @@ func run() error {
 		}
 	}
 
-	// Phase 5: Save state before writing output to prevent reprocessing on retry.
+	// Phase 6: Save state before writing output to prevent reprocessing on retry.
 	// If state saves but output fails, we can retry output without parsing again.
 	// If state save fails, we abort before output to maintain consistency.
 	if state != nil && *stateFile != "" {

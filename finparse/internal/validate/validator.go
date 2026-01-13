@@ -35,6 +35,7 @@ type ValidationWarning struct {
 // checking both individual entity constraints and referential integrity.
 // Returns ValidationResult with all errors and warnings found.
 func ValidateBudget(b *domain.Budget) *ValidationResult {
+	// TODO(#1435): Validator doesn't check for empty institution/account/statement/transaction lists
 	result := &ValidationResult{
 		Errors:   []ValidationError{},
 		Warnings: []ValidationWarning{},
@@ -353,6 +354,9 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 				})
 			}
 			// Note: We defer checking if statementIDs exist until after we've built the complete map
+			// because transactions and statements can reference each other bidirectionally. A transaction
+			// may reference a statement that appears later in the list, so we must build the complete
+			// statementIDs map first before validating references.
 		}
 	}
 
