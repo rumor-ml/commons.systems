@@ -98,7 +98,8 @@ func run() error {
 	// signal.NotifyContext to detect Ctrl+C. Graceful shutdown options:
 	//   1. Stop accepting new files, wait for current parser to complete (if parser supports context)
 	//   2. Save state with already-processed transactions before exiting
-	// Note: Current code saves state once at end (in the state save section), so would need incremental saves.
+	// Note: State is currently saved once after all parsing completes but before output writing
+	// (see line 532). Graceful shutdown would require incremental state saves during parsing loop.
 	ctx := context.Background()
 
 	// Create scanner
@@ -143,25 +144,25 @@ func run() error {
 		return nil
 	}
 
+	// Return error if no files found (non-dry-run) - prevents silent failures in scripts/CI
+	if len(files) == 0 {
+		return fmt.Errorf("no statement files found in %s\n\nPlease check:\n  - Directory path is correct\n  - Files have supported extensions (.qfx, .ofx, .csv)\n  - You have read permissions on the directory and files\n\nRun with -verbose to see file discovery details", *inputDir)
+	}
+
 	// Show summary of scan results for user feedback (format varies by file count)
 	fmt.Printf("Scan complete: found %d statement files", len(files))
-	if len(files) > 0 {
-		// Show institution/account breakdown in summary
-		institutions := make(map[string]int)
-		for _, f := range files {
-			inst := f.Metadata.Institution()
-			if inst == "" {
-				inst = "<unknown>"
-			}
-			institutions[inst]++
+	// Show institution/account breakdown in summary
+	institutions := make(map[string]int)
+	for _, f := range files {
+		inst := f.Metadata.Institution()
+		if inst == "" {
+			inst = "<unknown>"
 		}
-		fmt.Printf(" across %d institutions\n", len(institutions))
-		for inst, count := range institutions {
-			fmt.Printf("  - %s: %d files\n", inst, count)
-		}
-	} else {
-		fmt.Printf(" in %s\n", *inputDir)
-		fmt.Fprintf(os.Stderr, "Warning: No statement files found. Check directory path and ensure files have .qfx, .ofx, or .csv extensions.\n")
+		institutions[inst]++
+	}
+	fmt.Printf(" across %d institutions\n", len(institutions))
+	for inst, count := range institutions {
+		fmt.Printf("  - %s: %d files\n", inst, count)
 	}
 
 	// Phase 5: Load dedup state if provided
@@ -185,12 +186,12 @@ func run() error {
 				// Check if this is a permission error to provide specific guidance
 				var pathErr *os.PathError
 				if errors.As(err, &pathErr) && errors.Is(pathErr.Err, os.ErrPermission) {
-					return fmt.Errorf("failed to load state file %q: permission denied: %w\n\nCRITICAL: The state file exists but cannot be read.\nDeleting it will cause all transactions to be reprocessed as NEW (creating duplicates).\n\nOptions:\n  1. Check file permissions: ls -la %q\n  2. Check ownership: stat %q\n  3. Backup and reset (will reprocess ALL transactions): cp %q %q.backup && rm %q",
+					return fmt.Errorf("failed to load state file %q: permission denied: %w\n\nCRITICAL: The state file exists but cannot be read.\nDeleting it will cause all transactions to be reprocessed as NEW (losing deduplication history).\n\nOptions:\n  1. Check file permissions: ls -la %q\n  2. Check ownership: stat %q\n  3. Backup and reset (will reprocess ALL transactions): cp %q %q.backup && rm %q",
 						*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile, *stateFile)
 				}
 
 				// Generic load failure (corruption, format error, etc)
-				return fmt.Errorf("failed to load existing state file %q: %w\n\nCRITICAL: The state file exists but cannot be loaded.\nDeleting it will cause all transactions to be reprocessed as NEW (creating duplicates).\n\nOptions:\n  1. Check file integrity: file %q\n  2. Backup the file: cp %q %q.backup\n  3. Try to recover: inspect JSON structure in %q\n  4. Reset (will reprocess ALL transactions): rm %q after backing up",
+				return fmt.Errorf("failed to load existing state file %q: %w\n\nCRITICAL: The state file exists but cannot be loaded.\nDeleting it will cause all transactions to be reprocessed as NEW (losing deduplication history).\n\nOptions:\n  1. Check file integrity: file %q\n  2. Backup the file: cp %q %q.backup\n  3. Try to recover: inspect JSON structure in %q\n  4. Reset (will reprocess ALL transactions): rm %q after backing up",
 					*stateFile, err, *stateFile, *stateFile, *stateFile, *stateFile, *stateFile)
 			}
 		} else {
@@ -202,17 +203,15 @@ func run() error {
 					state.Version, dedup.CurrentVersion)
 			}
 
+			if state.TotalFingerprints() == 0 && !state.Metadata.LastUpdated.IsZero() {
+				// State file has metadata but no fingerprints - likely corruption
+				return fmt.Errorf("state file %q exists but is empty (has metadata, 0 fingerprints)\n\nThis will cause all transactions in the current run to be processed without deduplication (losing ability to detect duplicates against recent history).\n\nRecovery options:\n  1. Restore state from backup if available\n  2. Check filesystem integrity: fsck or disk utility\n  3. Delete state file to start fresh: rm %q\n\nCannot proceed with suspicious empty state.",
+					*stateFile, *stateFile)
+			}
+
 			if state.TotalFingerprints() == 0 {
-				if !state.Metadata.LastUpdated.IsZero() {
-					timeSinceUpdate := time.Since(state.Metadata.LastUpdated)
-					if timeSinceUpdate < 30*24*time.Hour {
-						// Likely corruption - state was recently used but is now empty
-						return fmt.Errorf("state file corruption detected: file was last updated %v ago but contains 0 fingerprints\n\nThis will cause ALL transactions to be reprocessed as duplicates.\n\nRecovery options:\n  1. Restore state from backup if available\n  2. Check filesystem integrity: fsck or disk utility\n  3. Delete state file and accept duplicates: rm %q\n\nCannot proceed with corrupted state.",
-							timeSinceUpdate, *stateFile)
-					}
-				}
-				// Empty state is OK for first run
-				fmt.Fprintf(os.Stderr, "State file is empty (first run) - all transactions will be processed as new\n")
+				// Truly new state file with no history - OK for first run
+				fmt.Fprintf(os.Stderr, "Creating new state file (first run) - all transactions will be processed as new\n")
 			}
 
 			if *verbose {
@@ -287,7 +286,8 @@ func run() error {
 			return fmt.Errorf("failed to find parser for %s: %w", file.Path, err)
 		}
 		if parser == nil {
-			return fmt.Errorf("no parser found for %s", file.Path)
+			return fmt.Errorf("INTERNAL ERROR: registry.FindParser returned nil without error for %s (scanner detected this as parseable)\n\nThis indicates a bug in the parser registry.\nPlease report this issue with:\n  - File extension: %s\n  - File path: %s",
+				file.Path, filepath.Ext(file.Path), file.Path)
 		}
 
 		if *verbose {
@@ -305,7 +305,7 @@ func run() error {
 
 		rawStmt, err := parser.Parse(ctx, f, file.Metadata)
 
-		// Close file immediately after parsing (not deferred) to avoid file descriptor accumulation
+		// Close file immediately after parsing instead of deferring to avoid file descriptor accumulation in loop
 		closeErr := f.Close()
 		if closeErr != nil {
 			// Log immediately with full context in verbose mode
@@ -313,7 +313,7 @@ func run() error {
 				fmt.Fprintf(os.Stderr, "WARNING: Failed to close %s: %v\n", file.Path, closeErr)
 			}
 
-			// Detect error type by searching error message for aggregation
+			// Categorize error type for aggregation (currently only tracks unknown)
 			errType := "unknown"
 			errStr := closeErr.Error()
 
@@ -336,15 +336,14 @@ func run() error {
 				i+1, len(files), file.Path, err)
 		}
 
-		// Verify parser contract: if no error, rawStmt must not be nil
+		// Verify parser contract (see internal/parser/parser.go): Parse() must return non-nil statement when error is nil
 		if rawStmt == nil {
-			return fmt.Errorf("parser %s returned nil statement without error for %s (parser bug)",
+			return fmt.Errorf("parser %s violated interface contract: returned nil statement without error for %s (parser bug)",
 				parser.Name(), file.Path)
 		}
 
 		stats, err := transform.TransformStatement(rawStmt, budget, state, engine)
 		if err != nil {
-			// Provide context about parsed data in error message
 			return fmt.Errorf("transform failed for file %d of %d (%s) with %d transactions from %s to %s: %w",
 				i+1, len(files), file.Path,
 				len(rawStmt.Transactions),
@@ -525,19 +524,21 @@ func run() error {
 		}
 	}
 
-	// Phase 6: Save state before writing output to prevent reprocessing on retry.
-	// If state saves but output fails, we can retry output without parsing again.
-	// If state save fails, we abort before output to maintain consistency.
+	// CRITICAL ORDERING: Save state before writing output to prevent reprocessing on retry.
+	// This ordering provides retry safety:
+	//   - If state saves but output fails: retry output without re-parsing
+	//   - If state save fails: abort before output to maintain consistency
+	//   - Never write output with unsaved state (would lose deduplication on retry)
 	if state != nil && *stateFile != "" {
 		if err := dedup.SaveState(state, *stateFile); err != nil {
-			// State save failed - provide detailed diagnostics
+			// State save failed - explain impact and provide recovery guidance
 			fmt.Fprintf(os.Stderr, "\nERROR: Failed to save deduplication state: %v\n", err)
 			fmt.Fprintf(os.Stderr, "\nThis means:\n")
 			fmt.Fprintf(os.Stderr, "  - All parsing work for this run will be lost\n")
 			fmt.Fprintf(os.Stderr, "  - Transactions will be reprocessed as NEW on next run\n")
 			fmt.Fprintf(os.Stderr, "  - Output file will NOT be written to prevent inconsistency\n")
 
-			// Provide actionable recovery steps based on error type
+			// Provide actionable recovery steps for common error types (permission, disk space)
 			if strings.Contains(err.Error(), "permission denied") {
 				stateDir := filepath.Dir(*stateFile)
 				fmt.Fprintf(os.Stderr, "\nPermission denied - check directory permissions:\n")

@@ -75,6 +75,7 @@ var (
 )
 
 // Transaction matches TypeScript Transaction interface
+// TODO(#1437): Consider refactoring to state machine with TransactionType enum to make redeemable/transfer mutual exclusivity more explicit
 type Transaction struct {
 	ID          string `json:"id"`
 	Date        string `json:"date"` // ISO format YYYY-MM-DD
@@ -97,6 +98,7 @@ type Transaction struct {
 // After construction, Statement should be treated as immutable.
 // Modifying StartDate or EndDate fields directly may violate invariants.
 // Use Validate() method to re-check invariants if needed.
+// TODO(#1438): Make StartDate and EndDate private with getters to enforce true immutability
 type Statement struct {
 	ID             string `json:"id"`
 	AccountID      string `json:"accountId"`
@@ -120,6 +122,7 @@ type Institution struct {
 }
 
 // Budget is the root output structure (full JSON file)
+// TODO(#1439): Add atomic multi-entity operations like AddAccountWithStatements to prevent partial failures
 type Budget struct {
 	institutions []Institution
 	accounts     []Account

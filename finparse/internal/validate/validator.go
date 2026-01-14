@@ -13,6 +13,28 @@ type ValidationResult struct {
 	Warnings []ValidationWarning
 }
 
+// addError appends a validation error to the result
+func (r *ValidationResult) addError(entity, id, field, value, message string) {
+	r.Errors = append(r.Errors, ValidationError{
+		Entity:  entity,
+		ID:      id,
+		Field:   field,
+		Value:   value,
+		Message: message,
+	})
+}
+
+// addWarning appends a validation warning to the result
+func (r *ValidationResult) addWarning(entity, id, field, value, message string) {
+	r.Warnings = append(r.Warnings, ValidationWarning{
+		Entity:  entity,
+		ID:      id,
+		Field:   field,
+		Value:   value,
+		Message: message,
+	})
+}
+
 // ValidationError represents a validation error
 type ValidationError struct {
 	Entity  string // "transaction", "statement", "account", "institution"
@@ -35,7 +57,11 @@ type ValidationWarning struct {
 // checking both individual entity constraints and referential integrity.
 // Returns ValidationResult with all errors and warnings found.
 func ValidateBudget(b *domain.Budget) *ValidationResult {
-	// TODO(#1435): Validator doesn't check for empty institution/account/statement/transaction lists
+	// Note: Empty budgets are valid (incremental parsing may start with no entities)
+	// TODO: Type design improvements needed in separate PR:
+	//   - Add EntityType enum to prevent "trasaction" typos
+	//   - Make ValidationError/Warning fields private with constructors
+	//   - Add convenience methods: HasErrors(), IsValid(), ErrorCount()
 	result := &ValidationResult{
 		Errors:   []ValidationError{},
 		Warnings: []ValidationWarning{},
@@ -50,34 +76,16 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 	// Validate institutions
 	for _, inst := range b.GetInstitutions() {
 		if inst.ID == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "institution",
-				ID:      inst.ID,
-				Field:   "ID",
-				Value:   "",
-				Message: "institution ID cannot be empty",
-			})
+			result.addError("institution", inst.ID, "ID", "", "institution ID cannot be empty")
 		}
 		if inst.Name == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "institution",
-				ID:      inst.ID,
-				Field:   "Name",
-				Value:   "",
-				Message: "institution name cannot be empty",
-			})
+			result.addError("institution", inst.ID, "Name", "", "institution name cannot be empty")
 		}
 
 		// Check for duplicate IDs
 		if inst.ID != "" {
 			if institutionIDs[inst.ID] {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "institution",
-					ID:      inst.ID,
-					Field:   "ID",
-					Value:   inst.ID,
-					Message: "duplicate institution ID",
-				})
+				result.addError("institution", inst.ID, "ID", inst.ID, "duplicate institution ID")
 			}
 			institutionIDs[inst.ID] = true
 		}
@@ -86,65 +94,31 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 	// Validate accounts
 	for _, acc := range b.GetAccounts() {
 		if acc.ID == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "account",
-				ID:      acc.ID,
-				Field:   "ID",
-				Value:   "",
-				Message: "account ID cannot be empty",
-			})
+			result.addError("account", acc.ID, "ID", "", "account ID cannot be empty")
 		}
 		if acc.Name == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "account",
-				ID:      acc.ID,
-				Field:   "Name",
-				Value:   "",
-				Message: "account name cannot be empty",
-			})
+			result.addError("account", acc.ID, "Name", "", "account name cannot be empty")
 		}
 		if acc.InstitutionID == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "account",
-				ID:      acc.ID,
-				Field:   "InstitutionID",
-				Value:   "",
-				Message: "account institutionId cannot be empty",
-			})
+			result.addError("account", acc.ID, "InstitutionID", "", "account institutionId cannot be empty")
 		}
 
 		// Validate account type enum
 		if !domain.ValidateAccountType(acc.Type) {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "account",
-				ID:      acc.ID,
-				Field:   "Type",
-				Value:   string(acc.Type),
-				Message: fmt.Sprintf("invalid account type: %s (must be checking, savings, credit, or investment)", acc.Type),
-			})
+			result.addError("account", acc.ID, "Type", string(acc.Type),
+				fmt.Sprintf("invalid account type: %s (must be checking, savings, credit, or investment)", acc.Type))
 		}
 
 		// Check institution reference
 		if acc.InstitutionID != "" && !institutionIDs[acc.InstitutionID] {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "account",
-				ID:      acc.ID,
-				Field:   "InstitutionID",
-				Value:   acc.InstitutionID,
-				Message: fmt.Sprintf("references non-existent institution: %s", acc.InstitutionID),
-			})
+			result.addError("account", acc.ID, "InstitutionID", acc.InstitutionID,
+				fmt.Sprintf("references non-existent institution: %s", acc.InstitutionID))
 		}
 
 		// Check for duplicate IDs
 		if acc.ID != "" {
 			if accountIDs[acc.ID] {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "account",
-					ID:      acc.ID,
-					Field:   "ID",
-					Value:   acc.ID,
-					Message: "duplicate account ID",
-				})
+				result.addError("account", acc.ID, "ID", acc.ID, "duplicate account ID")
 			}
 			accountIDs[acc.ID] = true
 		}
@@ -153,46 +127,24 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 	// Validate statements
 	for _, stmt := range b.GetStatements() {
 		if stmt.ID == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "statement",
-				ID:      stmt.ID,
-				Field:   "ID",
-				Value:   "",
-				Message: "statement ID cannot be empty",
-			})
+			result.addError("statement", stmt.ID, "ID", "", "statement ID cannot be empty")
 		}
 		if stmt.AccountID == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "statement",
-				ID:      stmt.ID,
-				Field:   "AccountID",
-				Value:   "",
-				Message: "statement accountId cannot be empty",
-			})
+			result.addError("statement", stmt.ID, "AccountID", "", "statement accountId cannot be empty")
 		}
 
 		// Validate date formats
 		if stmt.StartDate != "" {
 			if _, err := time.Parse("2006-01-02", stmt.StartDate); err != nil {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "statement",
-					ID:      stmt.ID,
-					Field:   "StartDate",
-					Value:   stmt.StartDate,
-					Message: fmt.Sprintf("invalid date format (expected YYYY-MM-DD): %v", err),
-				})
+				result.addError("statement", stmt.ID, "StartDate", stmt.StartDate,
+					fmt.Sprintf("invalid date format (expected YYYY-MM-DD): %v", err))
 			}
 		}
 
 		if stmt.EndDate != "" {
 			if _, err := time.Parse("2006-01-02", stmt.EndDate); err != nil {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "statement",
-					ID:      stmt.ID,
-					Field:   "EndDate",
-					Value:   stmt.EndDate,
-					Message: fmt.Sprintf("invalid date format (expected YYYY-MM-DD): %v", err),
-				})
+				result.addError("statement", stmt.ID, "EndDate", stmt.EndDate,
+					fmt.Sprintf("invalid date format (expected YYYY-MM-DD): %v", err))
 			}
 		}
 
@@ -201,37 +153,21 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 			start, startErr := time.Parse("2006-01-02", stmt.StartDate)
 			end, endErr := time.Parse("2006-01-02", stmt.EndDate)
 			if startErr == nil && endErr == nil && end.Before(start) {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "statement",
-					ID:      stmt.ID,
-					Field:   "EndDate",
-					Value:   stmt.EndDate,
-					Message: fmt.Sprintf("end date %s is before start date %s", stmt.EndDate, stmt.StartDate),
-				})
+				result.addError("statement", stmt.ID, "EndDate", stmt.EndDate,
+					fmt.Sprintf("end date %s is before start date %s", stmt.EndDate, stmt.StartDate))
 			}
 		}
 
 		// Check account reference
 		if stmt.AccountID != "" && !accountIDs[stmt.AccountID] {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "statement",
-				ID:      stmt.ID,
-				Field:   "AccountID",
-				Value:   stmt.AccountID,
-				Message: fmt.Sprintf("references non-existent account: %s", stmt.AccountID),
-			})
+			result.addError("statement", stmt.ID, "AccountID", stmt.AccountID,
+				fmt.Sprintf("references non-existent account: %s", stmt.AccountID))
 		}
 
 		// Check for duplicate IDs
 		if stmt.ID != "" {
 			if statementIDs[stmt.ID] {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "statement",
-					ID:      stmt.ID,
-					Field:   "ID",
-					Value:   stmt.ID,
-					Message: "duplicate statement ID",
-				})
+				result.addError("statement", stmt.ID, "ID", stmt.ID, "duplicate statement ID")
 			}
 			statementIDs[stmt.ID] = true
 		}
@@ -239,13 +175,7 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 		// Validate transaction references (bidirectional check)
 		for _, txnID := range stmt.GetTransactionIDs() {
 			if txnID == "" {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "statement",
-					ID:      stmt.ID,
-					Field:   "TransactionIDs",
-					Value:   "",
-					Message: "statement contains empty transaction ID",
-				})
+				result.addError("statement", stmt.ID, "TransactionIDs", "", "statement contains empty transaction ID")
 			}
 		}
 	}
@@ -253,91 +183,49 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 	// Validate transactions
 	for _, txn := range b.GetTransactions() {
 		if txn.ID == "" {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "transaction",
-				ID:      txn.ID,
-				Field:   "ID",
-				Value:   "",
-				Message: "transaction ID cannot be empty",
-			})
+			result.addError("transaction", txn.ID, "ID", "", "transaction ID cannot be empty")
 		}
 
 		// Validate date format
 		if txn.Date != "" {
 			if _, err := time.Parse("2006-01-02", txn.Date); err != nil {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "transaction",
-					ID:      txn.ID,
-					Field:   "Date",
-					Value:   txn.Date,
-					Message: fmt.Sprintf("invalid date format (expected YYYY-MM-DD): %v", err),
-				})
+				result.addError("transaction", txn.ID, "Date", txn.Date,
+					fmt.Sprintf("invalid date format (expected YYYY-MM-DD): %v", err))
 			}
 		}
 
 		// Validate category enum
 		if !domain.ValidateCategory(txn.Category) {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "transaction",
-				ID:      txn.ID,
-				Field:   "Category",
-				Value:   string(txn.Category),
-				Message: fmt.Sprintf("invalid category: %s", txn.Category),
-			})
+			result.addError("transaction", txn.ID, "Category", string(txn.Category),
+				fmt.Sprintf("invalid category: %s", txn.Category))
 		}
 
 		// Validate redemption rate
 		if txn.RedemptionRate() < 0 || txn.RedemptionRate() > 1 {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "transaction",
-				ID:      txn.ID,
-				Field:   "RedemptionRate",
-				Value:   fmt.Sprintf("%f", txn.RedemptionRate()),
-				Message: fmt.Sprintf("redemption rate must be in [0,1], got %f", txn.RedemptionRate()),
-			})
+			result.addError("transaction", txn.ID, "RedemptionRate", fmt.Sprintf("%f", txn.RedemptionRate()),
+				fmt.Sprintf("redemption rate must be in [0,1], got %f", txn.RedemptionRate()))
 		}
 
 		// Validate redeemable consistency
 		if txn.Redeemable() && txn.RedemptionRate() == 0 {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "transaction",
-				ID:      txn.ID,
-				Field:   "RedemptionRate",
-				Value:   "0",
-				Message: "redeemable transaction must have non-zero redemption rate",
-			})
+			result.addError("transaction", txn.ID, "RedemptionRate", "0",
+				"redeemable transaction must have non-zero redemption rate")
 		}
 		if !txn.Redeemable() && txn.RedemptionRate() != 0 {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "transaction",
-				ID:      txn.ID,
-				Field:   "RedemptionRate",
-				Value:   fmt.Sprintf("%f", txn.RedemptionRate()),
-				Message: "non-redeemable transaction must have zero redemption rate",
-			})
+			result.addError("transaction", txn.ID, "RedemptionRate", fmt.Sprintf("%f", txn.RedemptionRate()),
+				"non-redeemable transaction must have zero redemption rate")
 		}
 
 		// Validate transfer and redeemable flags
 		if txn.Transfer() && txn.Redeemable() {
-			result.Errors = append(result.Errors, ValidationError{
-				Entity:  "transaction",
-				ID:      txn.ID,
-				Field:   "Transfer",
-				Value:   "true",
-				Message: "transaction cannot be both transfer and redeemable (transfers should not earn cashback)",
-			})
+			result.addError("transaction", txn.ID, "Transfer", "true",
+				"transaction cannot be both transfer and redeemable (transfers should not earn cashback)")
 		}
 
 		// Check for duplicate IDs
 		if txn.ID != "" {
 			if transactionIDs[txn.ID] {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "transaction",
-					ID:      txn.ID,
-					Field:   "ID",
-					Value:   txn.ID,
-					Message: "duplicate transaction ID",
-				})
+				result.addError("transaction", txn.ID, "ID", txn.ID, "duplicate transaction ID")
 			}
 			transactionIDs[txn.ID] = true
 		}
@@ -345,18 +233,10 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 		// Validate statement references (bidirectional check)
 		for _, stmtID := range txn.GetStatementIDs() {
 			if stmtID == "" {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "transaction",
-					ID:      txn.ID,
-					Field:   "StatementIDs",
-					Value:   "",
-					Message: "transaction contains empty statement ID",
-				})
+				result.addError("transaction", txn.ID, "StatementIDs", "", "transaction contains empty statement ID")
 			}
-			// Note: We defer checking if statementIDs exist until after we've built the complete map
-			// because transactions and statements can reference each other bidirectionally. A transaction
-			// may reference a statement that appears later in the list, so we must build the complete
-			// statementIDs map first before validating references.
+			// Note: Statement ID validation deferred to second pass (line 388) because
+			// bidirectional transaction↔statement references may appear in any order.
 		}
 	}
 
@@ -365,13 +245,8 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 	for _, txn := range b.GetTransactions() {
 		for _, stmtID := range txn.GetStatementIDs() {
 			if stmtID != "" && !statementIDs[stmtID] {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "transaction",
-					ID:      txn.ID,
-					Field:   "StatementIDs",
-					Value:   stmtID,
-					Message: fmt.Sprintf("references non-existent statement: %s", stmtID),
-				})
+				result.addError("transaction", txn.ID, "StatementIDs", stmtID,
+					fmt.Sprintf("references non-existent statement: %s", stmtID))
 			}
 		}
 	}
@@ -380,13 +255,8 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 	for _, stmt := range b.GetStatements() {
 		for _, txnID := range stmt.GetTransactionIDs() {
 			if txnID != "" && !transactionIDs[txnID] {
-				result.Errors = append(result.Errors, ValidationError{
-					Entity:  "statement",
-					ID:      stmt.ID,
-					Field:   "TransactionIDs",
-					Value:   txnID,
-					Message: fmt.Sprintf("references non-existent transaction: %s", txnID),
-				})
+				result.addError("statement", stmt.ID, "TransactionIDs", txnID,
+					fmt.Sprintf("references non-existent transaction: %s", txnID))
 			}
 		}
 	}
