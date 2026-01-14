@@ -61,7 +61,7 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 				return fmt.Errorf("failed to load existing budget for merge: %w", err)
 			}
 			// File doesn't exist, create new file
-			fmt.Fprintf(os.Stderr, "Warning: merge mode requested but %s does not exist, creating new file\n", opts.FilePath)
+			_, _ = fmt.Fprintf(os.Stderr, "Warning: merge mode requested but %s does not exist, creating new file\n", opts.FilePath)
 		} else {
 			// Merge new budget into existing budget
 			if err := mergeBudgets(existingBudget, budget); err != nil {
@@ -104,7 +104,10 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 	// Handle write error first
 	if writeErr != nil {
 		if removeErr := os.Remove(tmpFile); removeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v\n", tmpFile, removeErr)
+			if _, warnErr := fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v\n", tmpFile, removeErr); warnErr != nil {
+				// Stderr failed - include cleanup failure in returned error instead
+				return fmt.Errorf("failed to write budget to temp file: %w (also: cleanup failed: %v)", writeErr, removeErr)
+			}
 		}
 		return fmt.Errorf("failed to write budget to temp file: %w", writeErr)
 	}
@@ -112,7 +115,10 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 	// Then handle close error
 	if closeErr != nil {
 		if removeErr := os.Remove(tmpFile); removeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v\n", tmpFile, removeErr)
+			if _, warnErr := fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v\n", tmpFile, removeErr); warnErr != nil {
+				// Stderr failed - include cleanup failure in returned error instead
+				return fmt.Errorf("failed to close temp file before rename: %w (also: cleanup failed: %v)", closeErr, removeErr)
+			}
 		}
 		return fmt.Errorf("failed to close temp file before rename: %w", closeErr)
 	}
@@ -120,7 +126,10 @@ func WriteBudgetToFile(budget *domain.Budget, opts WriteOptions) (err error) {
 	// Atomic rename prevents corruption if process killed during write (atomic on Unix, best-effort on Windows)
 	if err = os.Rename(tmpFile, opts.FilePath); err != nil {
 		if removeErr := os.Remove(tmpFile); removeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s after rename failure: %v\n", tmpFile, removeErr)
+			if _, warnErr := fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s after rename failure: %v\n", tmpFile, removeErr); warnErr != nil {
+				// Stderr failed - include cleanup failure in returned error instead
+				return fmt.Errorf("failed to rename temp file to %s: %w (also: cleanup failed: %v)", opts.FilePath, err, removeErr)
+			}
 		}
 		return fmt.Errorf("failed to rename temp file to %s: %w", opts.FilePath, err)
 	}

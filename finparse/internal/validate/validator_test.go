@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -184,8 +185,8 @@ func TestValidateBudget_DefaultRedemptionRateIsValid(t *testing.T) {
 }
 
 func TestValidateBudget_MissingInstitutionReference(t *testing.T) {
-	// Test validator by loading JSON with broken reference
-	// (Budget.AddAccount would catch this, but validator should also catch it)
+	// Test validator defense-in-depth: Budget.AddAccount validates references during normal construction,
+	// but validator also catches them for JSON unmarshaling and bulk loading scenarios where constructors may be bypassed.
 	jsonData := []byte(`{
 		"institutions": [],
 		"accounts": [{
@@ -764,5 +765,188 @@ func TestValidateBudget_TransactionWithEmptyStatementID(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected empty statement ID validation error")
+	}
+}
+
+func TestValidationErrorMessages(t *testing.T) {
+	// Test that validation error messages contain useful information
+	// This ensures error messages remain user-friendly through refactoring
+	budget := domain.NewBudget()
+
+	// Add institution and account for context
+	inst := domain.Institution{ID: "inst1", Name: "Test Bank"}
+	if err := budget.AddInstitution(inst); err != nil {
+		t.Fatalf("failed to add institution: %v", err)
+	}
+
+	// Create account with invalid type to trigger error
+	acc := domain.Account{
+		ID:            "acc1",
+		InstitutionID: "inst1",
+		Name:          "Test Account",
+		Type:          domain.AccountType("invalid_type"),
+	}
+	if err := budget.AddAccount(acc); err != nil {
+		t.Fatalf("failed to add account: %v", err)
+	}
+
+	// Create transaction with invalid date to trigger error
+	txn := &domain.Transaction{
+		ID:       "txn1",
+		Date:     "2024-13-01", // Invalid month
+		Category: domain.CategoryGroceries,
+	}
+	if err := budget.AddTransaction(*txn); err != nil {
+		t.Fatalf("failed to add transaction: %v", err)
+	}
+
+	result := ValidateBudget(budget)
+
+	if len(result.Errors) == 0 {
+		t.Fatal("expected validation errors")
+	}
+
+	// Check that error messages contain key information
+	for _, e := range result.Errors {
+		// All errors should have entity type
+		if e.Entity == "" {
+			t.Errorf("error missing entity type: %+v", e)
+		}
+
+		// All errors should have a message
+		if e.Message == "" {
+			t.Errorf("error missing message: %+v", e)
+		}
+
+		// Date errors should mention expected format
+		if e.Field == "Date" {
+			if !strings.Contains(e.Message, "YYYY-MM-DD") {
+				t.Errorf("date error should mention expected format, got: %s", e.Message)
+			}
+		}
+
+		// Invalid type errors should list valid options
+		if e.Field == "Type" && e.Entity == "account" {
+			msg := strings.ToLower(e.Message)
+			if !strings.Contains(msg, "checking") || !strings.Contains(msg, "savings") {
+				t.Errorf("account type error should list valid types, got: %s", e.Message)
+			}
+		}
+	}
+}
+
+func TestValidateBudget_RedemptionRateBoundaries(t *testing.T) {
+	// Test exact boundary values and edge cases for redemption rate validation
+	// This catches off-by-one errors in validation logic
+
+	testCases := []struct {
+		name          string
+		redeemable    bool
+		rate          float64
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:        "rate exactly 0.0 (valid)",
+			redeemable:  false,
+			rate:        0.0,
+			expectError: false,
+		},
+		{
+			name:        "rate exactly 1.0 (valid)",
+			redeemable:  true,
+			rate:        1.0,
+			expectError: false,
+		},
+		{
+			name:        "rate 0.00001 (valid)",
+			redeemable:  true,
+			rate:        0.00001,
+			expectError: false,
+		},
+		{
+			name:        "rate 0.99999 (valid)",
+			redeemable:  true,
+			rate:        0.99999,
+			expectError: false,
+		},
+		{
+			name:          "rate slightly over 1.0 (invalid)",
+			redeemable:    true,
+			rate:          1.00001,
+			expectError:   true,
+			errorContains: "must be in [0,1]",
+		},
+		{
+			name:          "rate slightly under 0.0 (invalid)",
+			redeemable:    false,
+			rate:          -0.00001,
+			expectError:   true,
+			errorContains: "must be in [0,1]",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create budget with transaction having specific redemption rate
+			jsonData := fmt.Sprintf(`{
+				"institutions": [],
+				"accounts": [],
+				"statements": [],
+				"transactions": [{
+					"id": "txn1",
+					"date": "2024-01-15",
+					"description": "Test",
+					"amount": -50.00,
+					"category": "groceries",
+					"redeemable": %v,
+					"redemptionRate": %f,
+					"vacation": false,
+					"transfer": false,
+					"statementIds": []
+				}]
+			}`, tc.redeemable, tc.rate)
+
+			budget := domain.NewBudget()
+			err := budget.UnmarshalJSON([]byte(jsonData))
+
+			// Some boundary cases might be caught during unmarshal
+			if err != nil && tc.expectError {
+				// Expected - domain validation caught it
+				return
+			}
+			if err != nil && !tc.expectError {
+				t.Fatalf("unexpected unmarshal error: %v", err)
+			}
+
+			// Run validator
+			result := ValidateBudget(budget)
+
+			if tc.expectError {
+				if len(result.Errors) == 0 {
+					t.Errorf("expected validation error for %s", tc.name)
+					return
+				}
+
+				// Check error message contains expected text
+				found := false
+				for _, e := range result.Errors {
+					if e.Entity == "transaction" && strings.Contains(e.Message, tc.errorContains) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q, got: %+v", tc.errorContains, result.Errors)
+				}
+			} else {
+				// Should have no redemption rate errors
+				for _, e := range result.Errors {
+					if e.Entity == "transaction" && e.Field == "RedemptionRate" {
+						t.Errorf("unexpected redemption rate error for %s: %s", tc.name, e.Message)
+					}
+				}
+			}
+		})
 	}
 }

@@ -99,7 +99,7 @@ func run() error {
 	//   1. Stop accepting new files, wait for current parser to complete (if parser supports context)
 	//   2. Save state with already-processed transactions before exiting
 	// Note: State is currently saved once after all parsing completes but before output writing
-	// (see line 532). Graceful shutdown would require incremental state saves during parsing loop.
+	// (see state saving near line 536). Graceful shutdown would require incremental state saves during parsing loop.
 	ctx := context.Background()
 
 	// Create scanner
@@ -149,9 +149,9 @@ func run() error {
 		return fmt.Errorf("no statement files found in %s\n\nPlease check:\n  - Directory path is correct\n  - Files have supported extensions (.qfx, .ofx, .csv)\n  - You have read permissions on the directory and files\n\nRun with -verbose to see file discovery details", *inputDir)
 	}
 
-	// Show summary of scan results for user feedback (format varies by file count)
+	// Show summary of scan results with per-institution breakdown
 	fmt.Printf("Scan complete: found %d statement files", len(files))
-	// Show institution/account breakdown in summary
+	// Build institution breakdown for summary (shows file count per institution)
 	institutions := make(map[string]int)
 	for _, f := range files {
 		inst := f.Metadata.Institution()
@@ -198,6 +198,11 @@ func run() error {
 			state = loadedState
 
 			// Validate loaded state integrity
+			if err := state.Validate(); err != nil {
+				return fmt.Errorf("state file %q failed validation: %w\n\nCRITICAL: Cannot proceed with parsing.\nParsing with invalid state would allow duplicate transactions and risk further corruption.\n\nThe state file exists but contains invalid data.\nDeleting it will cause all transactions to be reprocessed as NEW (losing deduplication history).\n\nRecovery options:\n  1. Restore from backup if available\n  2. Inspect state file: cat %q\n  3. Reset (will reprocess ALL transactions): rm %q after backing up",
+					*stateFile, err, *stateFile, *stateFile)
+			}
+
 			if state.Version != dedup.CurrentVersion {
 				return fmt.Errorf("state file version mismatch: got %d, expected %d",
 					state.Version, dedup.CurrentVersion)
@@ -205,7 +210,7 @@ func run() error {
 
 			if state.TotalFingerprints() == 0 && !state.Metadata.LastUpdated.IsZero() {
 				// State file has metadata but no fingerprints - likely corruption
-				return fmt.Errorf("state file %q exists but is empty (has metadata, 0 fingerprints)\n\nThis will cause all transactions in the current run to be processed without deduplication (losing ability to detect duplicates against recent history).\n\nRecovery options:\n  1. Restore state from backup if available\n  2. Check filesystem integrity: fsck or disk utility\n  3. Delete state file to start fresh: rm %q\n\nCannot proceed with suspicious empty state.",
+				return fmt.Errorf("state file %q exists but is empty (has metadata, 0 fingerprints)\n\nCRITICAL: Parsing aborted due to suspicious empty state.\nContinuing would process all transactions without deduplication history.\n\nRecovery options:\n  1. Restore state from backup if available\n  2. Check filesystem integrity: fsck or disk utility\n  3. Delete state file to start fresh: rm %q\n\nCannot proceed until state is fixed or removed.",
 					*stateFile, *stateFile)
 			}
 
@@ -308,13 +313,9 @@ func run() error {
 		// Close file immediately after parsing instead of deferring to avoid file descriptor accumulation in loop
 		closeErr := f.Close()
 		if closeErr != nil {
-			// Log immediately with full context in verbose mode
-			if *verbose {
-				fmt.Fprintf(os.Stderr, "WARNING: Failed to close %s: %v\n", file.Path, closeErr)
-			}
+			// Always log close errors immediately to detect filesystem issues early
+			fmt.Fprintf(os.Stderr, "\nWARNING: Failed to close %s: %v\n", file.Path, closeErr)
 
-			// Categorize error type for aggregation (currently only tracks unknown)
-			errType := "unknown"
 			errStr := closeErr.Error()
 
 			// Fail immediately on critical errors that indicate serious issues
@@ -326,8 +327,9 @@ func run() error {
 				return fmt.Errorf("failed to close file %s (filesystem corruption, stopping): %w", file.Path, closeErr)
 			}
 
-			// For less serious errors, store both path and error message
-			closeErrors[errType] = append(closeErrors[errType], fmt.Sprintf("%s: %v", file.Path, closeErr))
+			// For non-critical errors, store both path and error message
+			// All non-critical errors are tracked as "unknown" type
+			closeErrors["unknown"] = append(closeErrors["unknown"], fmt.Sprintf("%s: %v", file.Path, closeErr))
 			closeErrorCount++
 		}
 
@@ -336,7 +338,9 @@ func run() error {
 				i+1, len(files), file.Path, err)
 		}
 
-		// Verify parser contract (see internal/parser/parser.go): Parse() must return non-nil statement when error is nil
+		// Verify parser contract (see internal/parser/parser.go): Parse() must return non-nil statement when error is nil.
+		// This defensive check catches parser implementation bugs that could cause nil pointer panics downstream.
+		// If triggered, this indicates a bug in the parser implementation that needs fixing.
 		if rawStmt == nil {
 			return fmt.Errorf("parser %s violated interface contract: returned nil statement without error for %s (parser bug)",
 				parser.Name(), file.Path)
@@ -495,6 +499,7 @@ func run() error {
 			}
 		} else {
 			ui.Error(fmt.Sprintf("Validation failed with %d errors", len(validationResult.Errors)))
+			ui.Info("Showing first 5 errors (run with -verbose to see all):")
 			// Show first 5 errors
 			for i, e := range validationResult.Errors {
 				if i >= 5 {
@@ -503,6 +508,7 @@ func run() error {
 				}
 				ui.Error(fmt.Sprintf("%s %s [%s]: %s", e.Entity, e.ID, e.Field, e.Message))
 			}
+			ui.Info("To fix: Review the errors above and check your statement files")
 		}
 		return fmt.Errorf("validation failed with %d errors", len(validationResult.Errors))
 	}

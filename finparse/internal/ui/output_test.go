@@ -62,13 +62,13 @@ func TestCenter(t *testing.T) {
 			name:     "unicode emoji",
 			text:     "😀",
 			width:    10,
-			expected: "   😀", // center() uses byte length, not rune count
+			expected: "   😀", // See center() documentation for byte vs rune handling
 		},
 		{
 			name:     "unicode multi-byte characters",
 			text:     "日本語",
 			width:    20,
-			expected: "     日本語", // center() uses byte length, not rune count
+			expected: "     日本語", // See center() documentation for byte vs rune handling
 		},
 		{
 			name:     "very long string",
@@ -88,6 +88,7 @@ func TestCenter(t *testing.T) {
 	}
 }
 
+// TODO(#1443): UI output tests don't verify actual color codes
 func TestColorFunctions(t *testing.T) {
 	// These tests verify that the color functions don't panic
 	// We can't easily test the actual color output without mocking

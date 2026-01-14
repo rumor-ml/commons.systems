@@ -58,7 +58,13 @@ func YellowText(text string) {
 	yellow.Println(text)
 }
 
-// center centers text within a given width
+// center centers text within a given width using byte length.
+// Note: Uses len() which counts bytes, not Unicode runes. Multi-byte
+// characters (e.g., emoji, CJK) will appear off-center by approximately
+// N positions where N equals the number of multi-byte chars. This is a
+// cosmetic issue only - headers remain readable. Consider using
+// utf8.RuneCountInString if perfect visual centering becomes important
+// for internationalized output.
 func center(text string, width int) string {
 	if len(text) >= width {
 		return text

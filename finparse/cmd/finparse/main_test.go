@@ -105,6 +105,7 @@ func TestMain_ErrorExitCode(t *testing.T) {
 }
 
 // withFlags is a test helper that temporarily sets flag values and restores them after the test.
+// TODO(#1440): Add panic recovery handling or document defer requirement
 func withFlags(t *testing.T, input string, dryRunVal, verboseVal bool) func() {
 	t.Helper()
 	origInput := *inputDir
@@ -747,7 +748,18 @@ func TestRun_StateCorruptedJSON(t *testing.T) {
 	}
 }
 
-// TestRun_StateSavePermissionDenied tests permission error on save
+// TestRun_StateSavePermissionDenied tests the critical state-before-output contract.
+//
+// CRITICAL CONTRACT: State must be saved BEFORE output is written (main.go:531-535).
+// This ordering ensures retry safety:
+//   - If state saves but output fails: retry can write output without re-parsing
+//   - If state save fails: output is NOT written, maintaining consistency
+//   - Never write output with unsaved state (would lose deduplication on retry)
+//
+// This test verifies that when state save fails, output is NOT written.
+// If this contract breaks (e.g., state check removed at main.go:555), invalid data
+// would be written without saving state, breaking deduplication on retry and causing
+// duplicate transactions in the budget prototype.
 func TestRun_StateSavePermissionDenied(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateDir := filepath.Join(tmpDir, "readonly")
@@ -849,70 +861,77 @@ NEWFILEUID:NONE
 		t.Errorf("Expected error about permission denied, got: %v", err)
 	}
 
-	// Verify output file was NOT created (consistency check)
+	// CRITICAL VERIFICATION: Output file was NOT created (state-before-output contract)
+	// This verifies main.go:555 blocks output when state save fails.
+	// If output file exists, it means the contract is violated and retry would create duplicates.
 	if _, err := os.Stat(outputFilePath); err == nil {
-		t.Error("Expected output file to NOT be created when state operation fails")
+		t.Error("CRITICAL: Output file was created despite state save failure - this violates the state-before-output contract and will cause duplicate transactions on retry")
+	} else if !os.IsNotExist(err) {
+		t.Errorf("Failed to check output file existence: %v", err)
 	}
 }
 
-// TestRun_ValidationBlocksOutput tests that validation errors prevent output
+// TestRun_ValidationBlocksOutput tests that validation errors prevent output file creation.
+//
+// CRITICAL CONTRACT: When validation fails (main.go:511), output file must NOT be created.
+// This prevents corrupted/invalid budget data from being written and consumed by the budget app.
+//
+// NOTE: This test is difficult to implement without the ability to inject invalid data into
+// the budget after parsing but before validation. The transform layer is designed to always
+// produce valid domain objects, making it hard to trigger validation errors via normal parsing.
+//
+// TODO(#1440): Refactor to allow testing validation blocking behavior. Options:
+//  1. Add test helper to inject validation errors
+//  2. Create parser that produces invalid domain objects for testing
+//  3. Add validation test mode that can be triggered via flag
+//
+// For now, this test is skipped but documents the critical contract that must be maintained.
 func TestRun_ValidationBlocksOutput(t *testing.T) {
-	tmpDir := t.TempDir()
-	_ = tmpDir // Mark as used for Skip message
+	t.Skip("Requires mechanism to inject validation errors - transform layer always produces valid data")
 
-	// Create directory structure
-	instDir := filepath.Join(tmpDir, "test_bank", "1234")
-	if err := os.MkdirAll(instDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create OFX with data that will cause validation errors
-	// The trick: use an invalid account type or create a transaction with invalid redemption rate
-	// Actually, the easiest way is to manually create an invalid budget via transform
-	// But we need to test the CLI, so we need OFX that PARSES but VALIDATES incorrectly
-	// Looking at the validation code, I can't easily create invalid data via OFX
-	// because the transform layer creates valid domain objects
+	// When implemented, this test should:
+	// 1. Create statement file that produces valid parse but triggers validation errors
+	//    (e.g., duplicate IDs, invalid date formats, broken references)
+	// 2. Run pipeline with output file specified
+	// 3. Verify run() returns error containing "validation failed"
+	// 4. Verify error mentions error count
+	// 5. Verify output file was NOT created
 	//
-	// Alternative: Create OFX that references non-existent accounts
-	// Actually, looking at validator.go, the simplest validation error to trigger is
-	// a duplicate transaction ID or empty field, but OFX parsing creates unique IDs
+	// Critical verification: Check that output file doesn't exist.
+	// If it does, validation failed to block output (contract violation).
 	//
-	// The most reliable approach: create a valid OFX, but then create a corrupted budget
-	// by having duplicate statements - but that would require modifying transform
-	//
-	// Actually, I'll test this differently: test validation by checking error output format
-	// when validation fails. To trigger validation failure, I need to look at what
-	// the transform layer could produce that's invalid.
-	//
-	// Looking at validator.go lines 312-320, redemption rate validation checks [0,1] range.
-	// But transform layer always produces valid redemption rates.
-	//
-	// The easiest validation error to test: Create an OFX file with invalid dates
-	// that the parser accepts but validator rejects. Actually, the parser validates dates.
-	//
-	// Let me reconsider: The validation tests are important, but creating invalid data
-	// programmatically is difficult. Instead, I should test the validation INTEGRATION
-	// by mocking or by creating a test that verifies validation is CALLED.
-	//
-	// Better approach: Skip the "create invalid OFX" tests and focus on testing
-	// the validation error formatting and exit code behavior by calling run() with
-	// a modified validator or by testing the error display logic directly.
-	//
-	// For now, I'll create a simpler test that verifies validation runs and succeeds
-	// with valid data, which confirms integration. The "validation blocks output"
-	// test is hard to write without either:
-	// 1. A way to inject validation errors (requires refactoring)
-	// 2. Creating genuinely invalid budget data (requires corrupting internals)
-
-	t.Skip("Skipping - requires mechanism to inject validation errors for testing")
+	// Example validation errors to test:
+	//   - Duplicate statement/transaction/account/institution IDs
+	//   - Invalid date formats (not YYYY-MM-DD)
+	//   - Invalid enum values (account type, category)
+	//   - Broken references (transaction → non-existent statement)
+	//   - Invalid redemption rates (outside [0,1] range)
 }
 
-// TestRun_ValidationWarningsDontBlock tests warnings don't prevent output
+// TestRun_ValidationWarningsDontBlock tests that validation warnings don't prevent output.
+//
+// CRITICAL CONTRACT: Validation warnings are informational only (main.go:514-522).
+// They should NOT block output file creation. Only errors should block output (main.go:511).
+//
+// This test verifies that when validation produces warnings (but no errors), the output
+// file IS created successfully. This ensures warnings don't break legitimate workflows.
+//
+// TODO(#1440): Currently skipped because validator doesn't produce warnings yet.
+// Implement this test when warnings are added to validator.go.
 func TestRun_ValidationWarningsDontBlock(t *testing.T) {
-	// Currently, the validator in validator.go doesn't produce warnings
-	// (only errors). The ValidationWarning type exists but addWarning is never called.
-	// This test would need the validator to produce warnings first.
-	t.Skip("Validator does not currently produce warnings - no warnings to test")
+	t.Skip("Validator does not currently produce warnings (addWarning is never called in validator.go). Implement this test when warnings are added.")
+
+	// When warnings are implemented, this test should:
+	// 1. Create OFX that triggers validation warnings (not errors)
+	// 2. Run pipeline with output file specified
+	// 3. Verify run() returns nil (success)
+	// 4. Verify output file WAS created
+	// 5. Verify stderr contains warning messages
+	//
+	// Example warning scenarios to test:
+	//   - Unusual but valid transaction amounts (e.g., very large transactions)
+	//   - Non-standard category usage patterns
+	//   - Edge case date ranges (e.g., statement spanning multiple years)
 }
 
 // TestRun_ValidationExitCode tests exit code on validation failure

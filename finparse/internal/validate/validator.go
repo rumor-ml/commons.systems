@@ -35,6 +35,7 @@ func (r *ValidationResult) addWarning(entity, id, field, value, message string) 
 	})
 }
 
+// TODO(#1442): ValidationError and ValidationWarning have identical structures
 // ValidationError represents a validation error
 type ValidationError struct {
 	Entity  string // "transaction", "statement", "account", "institution"
@@ -57,7 +58,9 @@ type ValidationWarning struct {
 // checking both individual entity constraints and referential integrity.
 // Returns ValidationResult with all errors and warnings found.
 func ValidateBudget(b *domain.Budget) *ValidationResult {
-	// Note: Empty budgets are valid (incremental parsing may start with no entities)
+	// Note: Empty budgets are valid during initialization (domain.NewBudget() creates empty budget).
+	// After parsing statements, an empty budget would indicate no files were processed.
+	// Entities are added incrementally during the parsing/transformation pipeline.
 	// TODO: Type design improvements needed in separate PR:
 	//   - Add EntityType enum to prevent "trasaction" typos
 	//   - Make ValidationError/Warning fields private with constructors
@@ -235,7 +238,7 @@ func ValidateBudget(b *domain.Budget) *ValidationResult {
 			if stmtID == "" {
 				result.addError("transaction", txn.ID, "StatementIDs", "", "transaction contains empty statement ID")
 			}
-			// Note: Statement ID validation deferred to second pass (line 388) because
+			// Note: Statement ID validation deferred to second pass (starting line 246) because
 			// bidirectional transaction↔statement references may appear in any order.
 		}
 	}
