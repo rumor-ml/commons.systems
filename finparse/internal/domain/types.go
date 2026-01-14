@@ -7,7 +7,8 @@
 //   - Negative amounts = expense/outflow (credit card charges, bank withdrawals, purchases)
 //
 // This convention applies regardless of how the source file represents amounts.
-// Parsers are responsible for normalizing to this standard during import.
+// Parsers are responsible for normalizing to this standard during import
+// (typically in the Parse() method when creating Transaction objects).
 //
 // Examples:
 //   - Bank account deposit of $1000 -> +1000.00
@@ -74,7 +75,9 @@ var (
 	}
 )
 
+// TODO(#1446): Transaction: Private fields with JSON struct tags have no effect
 // Transaction matches TypeScript Transaction interface
+// TODO(#1437): Consider refactoring to state machine with TransactionType enum to make redeemable/transfer mutual exclusivity more explicit
 type Transaction struct {
 	ID          string `json:"id"`
 	Date        string `json:"date"` // ISO format YYYY-MM-DD
@@ -97,6 +100,7 @@ type Transaction struct {
 // After construction, Statement should be treated as immutable.
 // Modifying StartDate or EndDate fields directly may violate invariants.
 // Use Validate() method to re-check invariants if needed.
+// TODO(#1438): Make StartDate and EndDate private with getters to enforce true immutability
 type Statement struct {
 	ID             string `json:"id"`
 	AccountID      string `json:"accountId"`
@@ -120,6 +124,7 @@ type Institution struct {
 }
 
 // Budget is the root output structure (full JSON file)
+// TODO(#1439): Add atomic multi-entity operations like AddAccountWithStatements to prevent partial failures
 type Budget struct {
 	institutions []Institution
 	accounts     []Account

@@ -19,6 +19,7 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
+// TODO(#1448): State: noCopy marker doesn't prevent value copies at compile time
 // State represents the deduplication state with fingerprint history.
 // IMPORTANT: State must be passed by pointer (*State), never by value.
 // The fingerprints map is a reference type - copying State by value creates
@@ -31,6 +32,7 @@ type State struct {
 	Metadata     StateMetadata                 `json:"metadata"`
 }
 
+// TODO(#1447): FingerprintRecord: Private fields with JSON struct tags have no effect
 // FingerprintRecord tracks a transaction fingerprint across multiple observations.
 type FingerprintRecord struct {
 	firstSeen     time.Time `json:"firstSeen"`
@@ -259,6 +261,7 @@ func SaveState(state *State, filePath string) error {
 
 	if err := os.Rename(tempFile, filePath); err != nil {
 		if removeErr := os.Remove(tempFile); removeErr != nil {
+			// TODO(#1445): Dedup SaveState cleanup error returns complex multi-line error
 			// CRITICAL: Rename failed and subsequent cleanup attempt also failed - temp file orphaned
 			// This is a serious issue that requires manual intervention
 			return fmt.Errorf("failed to save state file %q: rename failed (%w) AND cleanup failed (%v)\n"+
@@ -298,6 +301,28 @@ func (s *State) GetFingerprints() map[string]FingerprintRecord {
 		result[k] = *v // Copy the record value (dereference pointer)
 	}
 	return result
+}
+
+// Validate checks the integrity of the State and its fingerprints.
+// Returns error if any fingerprint has invalid data:
+// - firstSeen is after lastSeen
+// - count is not positive
+// - transactionId is empty
+func (s *State) Validate() error {
+	for fp, record := range s.fingerprints {
+		if record.firstSeen.After(record.lastSeen) {
+			return fmt.Errorf("fingerprint %s: firstSeen (%v) is after lastSeen (%v)",
+				fp, record.firstSeen, record.lastSeen)
+		}
+		if record.count <= 0 {
+			return fmt.Errorf("fingerprint %s: count (%d) must be positive",
+				fp, record.count)
+		}
+		if record.transactionID == "" {
+			return fmt.Errorf("fingerprint %s: transactionId is empty", fp)
+		}
+	}
+	return nil
 }
 
 // RecordTransaction records a transaction fingerprint in the state.
