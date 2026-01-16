@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Budget Visualization', () => {
-  test('should load page without errors', async ({ page }) => {
+  test('should load page without errors @smoke', async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: Error[] = [];
 
@@ -38,7 +38,7 @@ test.describe('Budget Visualization', () => {
     expect(pageErrors).toHaveLength(0);
   });
 
-  test('should display header with title', async ({ page }) => {
+  test('should display header with title @smoke', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.app-container');
 
@@ -70,7 +70,7 @@ test.describe('Budget Visualization', () => {
     }
   });
 
-  test('should render Observable Plot chart', async ({ page }) => {
+  test('should render Observable Plot chart @smoke', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.app-container');
 

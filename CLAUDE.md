@@ -10,6 +10,12 @@
 - ✅ ALWAYS: `git commit`, `git push`, or use `/commit-merge-push`
 - See `.claude/settings.json` for auto-approved git commands that respect hooks
 
+**CRITICAL: NEVER check out a different branch in the current directory.** Worktree directories are named after their branches (e.g., `~/worktrees/1259-finparse-csv-support/` contains branch `1259-finparse-csv-support`). The main branch is located at `~/commons.systems/`. Use the correct worktree directory instead of switching branches.
+
+- ❌ NEVER: `git checkout main`, `git switch other-branch`
+- ✅ ALWAYS: Work in the current worktree directory that matches the branch name
+- Main branch location: `~/commons.systems/`
+
 Trust user bug reports. Do not assume caching errors or user error while building.
 
 If creating temporary artifacts such as debugging scripts, commit messages, or status/process documentation always write to tmp/ directory in the worktree root (already .gitignore'd) so that artifacts are not committed.

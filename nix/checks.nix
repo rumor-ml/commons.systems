@@ -97,6 +97,41 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # === Pre-Push Hooks ===
+    # Check for console.log statements in source code before push
+    # This catches debug statements that would fail CI
+    # Matches the exact check that CI performs in run-local-tests.sh
+    no-console-log = {
+      enable = true;
+      name = "no-console-log";
+      description = "Check for console.log statements in source code";
+      entry = "${pkgs.writeShellScript "no-console-log" ''
+        set -e
+        FOUND_LOGS=0
+
+        for site in fellspiral videobrowser audiobrowser print; do
+          if [ -d "$site/site/src" ]; then
+            if grep -r "console\.log" "$site/site/src/" 2>/dev/null; then
+              FOUND_LOGS=1
+            fi
+          fi
+        done
+
+        if [ $FOUND_LOGS -eq 1 ]; then
+          echo ""
+          echo "❌ Found console.log statements in source code"
+          echo "Please remove all console.log statements before pushing"
+          echo ""
+          exit 1
+        fi
+
+        echo "✅ No console.log statements found"
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
     # Validate all TypeScript/JavaScript/JSON/Markdown files are formatted before push
     # This catches pre-existing formatting violations that nix flake check would find
     # Note: Checks ALL tracked files (not just changed) to prevent CI failures from
@@ -295,6 +330,46 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         else
           echo "No package files changed, skipping lockfile validation."
         fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
+    # Validate Nix development shell loads successfully
+    # Catches Nix syntax errors and evaluation failures before CI
+    # Uses --max-jobs 0 to check evaluation without building derivations (fast <10s)
+    # This catches common Nix issues like syntax errors, missing dependencies, and evaluation failures
+    # without the overhead of full nix-build (which runs in CI)
+    nix-shell-check = {
+      enable = true;
+      name = "nix-shell-check";
+      description = "Validate Nix development shell evaluation";
+      entry = "${pkgs.writeShellScript "nix-shell-check" ''
+        set -e
+
+        echo "Validating Nix development shell..."
+
+        # Check flake evaluation without building derivations
+        # --max-jobs 0 prevents building, only evaluates the flake
+        if ! ${pkgs.nix}/bin/nix develop --max-jobs 0 --command echo 'Development shell loads successfully' 2>&1 | grep -q 'Development shell loads successfully'; then
+          echo ""
+          echo "ERROR: Nix development shell failed to load"
+          echo ""
+          echo "This check validates that the Nix flake can be evaluated successfully."
+          echo "It catches syntax errors, missing dependencies, and evaluation failures."
+          echo ""
+          echo "To fix this issue:"
+          echo "  1. Run: nix develop"
+          echo "  2. Review any error messages from Nix"
+          echo "  3. Fix the issues in your Nix configuration"
+          echo "  4. Retry your push"
+          echo ""
+          exit 1
+        fi
+
+        echo "✅ Nix development shell evaluation successful"
       ''}";
       language = "system";
       stages = [ "pre-push" ];

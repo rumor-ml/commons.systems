@@ -1,0 +1,16 @@
+{
+  "mode": "emulator",
+  "isCI": false,
+  "emulators": {
+    "projectId": "demo-test-314015698",
+    "firestoreHost": "127.0.0.1:8081",
+    "authHost": "127.0.0.1:9099",
+    "storageHost": "127.0.0.1:9199",
+    "hostingPort": 5980
+  },
+  "timeouts": {
+    "test": 60,
+    "emulatorStartup": 120,
+    "multiplier": 1
+  }
+}

@@ -1,7 +1,14 @@
 ---
 name: pr-test-analyzer
-description: Use this agent when you need to review a pull request for test coverage quality and completeness. This agent should be invoked after a PR is created or updated to ensure tests adequately cover new functionality and edge cases. Examples:
+description: Analyze test coverage and quality for changes in a pull request
+model: sonnet
+permissionMode: acceptEdits
+color: cyan
+---
 
+**Use this agent when:** You need to review a pull request for test coverage quality and completeness. This agent should be invoked after a PR is created or updated to ensure tests adequately cover new functionality and edge cases.
+
+**Examples:**
 <example>
 Context: Daisy has just created a pull request with new functionality.
 user: "I've created the PR. Can you check if the tests are thorough?"
@@ -28,10 +35,6 @@ assistant: "I'll use the pr-test-analyzer agent to thoroughly review the test co
 Daisy wants a final test coverage check before marking PR ready, use the pr-test-analyzer agent.
 </commentary>
 </example>
-model: sonnet
-permissionMode: acceptEdits
-color: cyan
----
 
 ## CRITICAL: Issue Context and Scope Awareness
 

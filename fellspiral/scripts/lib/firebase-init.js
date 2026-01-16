@@ -2,6 +2,7 @@
  * Shared Firebase initialization helper
  *
  * Supports multiple credential sources:
+ * - Emulator mode (FIREBASE_AUTH_EMULATOR_HOST or FIRESTORE_EMULATOR_HOST set)
  * - GOOGLE_APPLICATION_CREDENTIALS_JSON (inline JSON, for CI/CD)
  * - GOOGLE_APPLICATION_CREDENTIALS (path to service account file)
  * - gcloud Application Default Credentials (requires FIREBASE_PROJECT_ID environment variable)
@@ -12,8 +13,27 @@
 import { initializeApp, cert, applicationDefault, getApps } from 'firebase-admin/app';
 import { readFileSync } from 'fs';
 
+// TODO(#1357): Extract credential validation to allow graceful error recovery in server context
 export function initializeFirebase() {
   if (getApps().length > 0) {
+    return true;
+  }
+
+  // Detect emulator mode - no credentials needed
+  const isEmulatorMode = !!(
+    process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST
+  );
+
+  if (isEmulatorMode) {
+    // Firebase Admin SDK automatically connects to emulators when env vars are set
+    // Use GCP_PROJECT_ID from environment (set by allocate-test-ports.sh)
+    // TODO(#1370): Verify allocate-test-ports.sh script exists or update comment
+    // Each worktree gets a unique project ID like demo-test-314015698
+    const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
+    initializeApp({
+      projectId,
+    });
+    console.log(`Using Firebase emulators (projectId: ${projectId})`);
     return true;
   }
 

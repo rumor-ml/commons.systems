@@ -1,0 +1,637 @@
+# Finparse Category Rules
+# Priority bands:
+#   900-999: Income
+#   800-899: Transfers (payments, Zelle, ATM)
+#   700-799: Travel/vacation
+#   600-699: Housing/utilities
+#   500-599: Recurring bills
+#   400-499: Groceries
+#   300-399: Dining/entertainment
+#   200-299: Shopping
+#   100-199: Healthcare
+#   0-99: Catch-all
+
+rules:
+  # Income (900-999)
+  - name: 'JHU Salary/Trade Pay'
+    pattern: 'JOHNS HOPKINS'
+    match_type: 'contains'
+    priority: 950
+    category: 'income'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'RML Income'
+    pattern: '0000005540446997'
+    match_type: 'contains'
+    priority: 945
+    category: 'income'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Interest Income'
+    pattern: 'INTEREST PAYMENT'
+    match_type: 'contains'
+    priority: 940
+    category: 'income'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'ATM Fee Reimbursement'
+    pattern: 'REIMB'
+    match_type: 'contains'
+    priority: 935
+    category: 'income'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Mobile Deposit'
+    pattern: 'MOBILE DEPOSIT'
+    match_type: 'contains'
+    priority: 930
+    category: 'income'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Travel Rewards'
+    pattern: 'CREDIT-TRAVEL REWARD'
+    match_type: 'contains'
+    priority: 925
+    category: 'income'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  # Transfers (800-899) - Exclude from budget
+  - name: 'Capital One Payment'
+    pattern: 'CAPITAL ONE'
+    match_type: 'contains'
+    priority: 850
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  - name: 'Apple Card Payment'
+    pattern: 'APPLECARD'
+    match_type: 'contains'
+    priority: 845
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  - name: 'Synchrony Payment'
+    pattern: 'SYNCHRONY'
+    match_type: 'contains'
+    priority: 840
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  - name: 'Amex Payment'
+    pattern: 'AMEX EPAYMENT'
+    match_type: 'contains'
+    priority: 835
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  - name: 'ATM Withdrawal'
+    pattern: 'ATM'
+    match_type: 'contains'
+    priority: 830
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  - name: 'Zelle Transfer'
+    pattern: 'ZEL TO'
+    match_type: 'contains'
+    priority: 825
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  - name: 'Venmo'
+    pattern: 'VENMO'
+    match_type: 'contains'
+    priority: 820
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  - name: 'Check Deposit'
+    pattern: 'CHECK'
+    match_type: 'contains'
+    priority: 815
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: true
+    redemption_rate: 0.0
+
+  # Housing & Utilities (600-699)
+  - name: 'Mr. Cooper Mortgage'
+    pattern: 'NSM DBAMR'
+    match_type: 'contains'
+    priority: 650
+    category: 'housing'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Mortgage Payment to Linda'
+    pattern: 'ZEL TO LINDA'
+    match_type: 'contains'
+    priority: 645
+    category: 'housing'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Arcadia Power'
+    pattern: 'ARCADIA'
+    match_type: 'contains'
+    priority: 640
+    category: 'utilities'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Baltimore Water'
+    pattern: 'BALTIMOREWATER'
+    match_type: 'contains'
+    priority: 635
+    category: 'utilities'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'T-Mobile'
+    pattern: 'T-MOBILE'
+    match_type: 'contains'
+    priority: 630
+    category: 'utilities'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'IONOS Hosting'
+    pattern: 'IONOS'
+    match_type: 'contains'
+    priority: 625
+    category: 'utilities'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  # Groceries (400-499)
+  - name: 'Whole Foods'
+    pattern: 'WHOLEFDS'
+    match_type: 'contains'
+    priority: 450
+    category: 'groceries'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Larriland Farms'
+    pattern: 'LARRILAND'
+    match_type: 'contains'
+    priority: 445
+    category: 'groceries'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  # Dining (300-399)
+  - name: 'Uber Eats'
+    pattern: 'UBER'
+    match_type: 'contains'
+    priority: 350
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'TST Restaurants'
+    pattern: 'TST'
+    match_type: 'contains'
+    priority: 345
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Starbucks'
+    pattern: 'STARBUCKS'
+    match_type: 'contains'
+    priority: 340
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Chipotle'
+    pattern: 'CHIPOTLE'
+    match_type: 'contains'
+    priority: 335
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Chick-fil-A'
+    pattern: 'CHICKFILA'
+    match_type: 'contains'
+    priority: 330
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Shake Shack'
+    pattern: 'SHAKE SHACK'
+    match_type: 'contains'
+    priority: 325
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Golden Wok'
+    pattern: 'GOLDEN WOK'
+    match_type: 'contains'
+    priority: 320
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Kilwins'
+    pattern: 'KILWINS'
+    match_type: 'contains'
+    priority: 315
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Ceremony Coffee'
+    pattern: 'CEREMONY COFFEE'
+    match_type: 'contains'
+    priority: 310
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'BIN 604 Wine'
+    pattern: 'BIN 604'
+    match_type: 'contains'
+    priority: 305
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Bristol Wine & Spirits'
+    pattern: 'BRISTOL'
+    match_type: 'contains'
+    priority: 304
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Broadway Liquors'
+    pattern: 'BROADWAY LIQUORS'
+    match_type: 'contains'
+    priority: 303
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Lighthouse Liquor'
+    pattern: 'LIGHTHOUSE'
+    match_type: 'contains'
+    priority: 302
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Union Craft Brewing'
+    pattern: 'UNION CRAFT'
+    match_type: 'contains'
+    priority: 301
+    category: 'dining'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  # Healthcare (100-199) - gym → healthcare per issue #1261
+  - name: 'CVS Pharmacy'
+    pattern: 'CVS/PHARMACY'
+    match_type: 'contains'
+    priority: 150
+    category: 'healthcare'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Red Clover Counseling'
+    pattern: 'RED CLOVER'
+    match_type: 'contains'
+    priority: 145
+    category: 'healthcare'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Elite Physical Therapy'
+    pattern: 'ELITE PHYSICAL THERAPY'
+    match_type: 'contains'
+    priority: 140
+    category: 'healthcare'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Gloss Salon'
+    pattern: 'GLOSS'
+    match_type: 'contains'
+    priority: 135
+    category: 'healthcare'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Maryland Athletic Club'
+    pattern: 'MARYLAND ATHLETIC CLUB'
+    match_type: 'contains'
+    priority: 130
+    category: 'healthcare'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Wellbridge Harbor East'
+    pattern: 'WELLBRIDGE'
+    match_type: 'contains'
+    priority: 125
+    category: 'healthcare'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Corner Team'
+    pattern: 'CORNER TEAM'
+    match_type: 'contains'
+    priority: 120
+    category: 'healthcare'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  # Entertainment/Media (300-399) - Lower priority than dining
+  - name: 'Flickr'
+    pattern: 'FLICKR'
+    match_type: 'contains'
+    priority: 260
+    category: 'entertainment'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'YouTube Premium'
+    pattern: 'YOUTUBEPREMIUM'
+    match_type: 'contains'
+    priority: 255
+    category: 'entertainment'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Disney Plus'
+    pattern: 'DISNEY'
+    match_type: 'contains'
+    priority: 250
+    category: 'entertainment'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Boosteroid'
+    pattern: 'BOOSTEROID'
+    match_type: 'contains'
+    priority: 245
+    category: 'entertainment'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Patreon'
+    pattern: 'PATREON'
+    match_type: 'contains'
+    priority: 240
+    category: 'entertainment'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Google YouTube'
+    pattern: 'GOOGLE *YOUTUBE'
+    match_type: 'contains'
+    priority: 235
+    category: 'entertainment'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  # Other categories (0-99)
+  - name: 'Student Loan Payment'
+    pattern: 'DEPT EDUCATION'
+    match_type: 'contains'
+    priority: 50
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Kiva Donation'
+    pattern: 'KIVA'
+    match_type: 'contains'
+    priority: 45
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Wren Climate'
+    pattern: 'WREN CLIMATE'
+    match_type: 'contains'
+    priority: 40
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'RAD COMP Tax'
+    pattern: 'RAD COMP'
+    match_type: 'contains'
+    priority: 35
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Baltimore City Tax'
+    pattern: 'BALTIMOREGOVT'
+    match_type: 'contains'
+    priority: 30
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'Member Fee'
+    pattern: 'MEMBER FEE'
+    match_type: 'contains'
+    priority: 25
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+
+  - name: 'ATM Fee'
+    pattern: 'FEE'
+    match_type: 'contains'
+    priority: 20
+    category: 'other'
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0

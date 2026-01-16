@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
-    <title>Card Manager - Fellspiral</title>
+    <title>Library - Fellspiral</title>
     <meta name="description" content="Manage cards for Fellspiral tactical tabletop RPG" />
     <link rel="stylesheet" href="/styles/main.css" />
     <link rel="stylesheet" href="/styles/cards.css" />
@@ -42,9 +42,9 @@
       </button>
 
       <!-- Main Content -->
-      <main class="main-content card-manager">
+      <main class="main-content card-library">
         <div class="container-fluid">
-          <div class="card-manager-layout">
+          <div class="card-library-layout">
             <!-- Main Content Area -->
             <div class="card-content">
               <!-- Toolbar -->
@@ -59,7 +59,7 @@
                     Add Card
                   </button>
                   <button id="importCardsBtn" class="btn btn-secondary auth-controls">
-                    Import from Rules.md
+                    Import JSON
                   </button>
                   <button id="exportCardsBtn" class="btn btn-secondary auth-controls">
                     Export JSON
@@ -117,137 +117,191 @@
                   <path fill="white" d="M5 4h6v1H5V4zm0 2h6v1H5V6zm0 2h4v1H5V8z" />
                 </svg>
                 <h3>No cards found</h3>
-                <p>Get started by importing cards from rules.md or creating a new card</p>
+                <p>Get started by creating a new card</p>
                 <button
                   class="btn btn-primary"
-                  onclick="document.getElementById('importCardsBtn').click()"
+                  onclick="document.getElementById('addCardBtn').click()"
                 >
-                  Import Cards
+                  Add Card
                 </button>
               </div>
             </div>
           </div>
         </div>
+
+        <!-- Card Editor Modal - Inside main-content for HTMX navigation -->
+        <div id="cardEditorModal" class="modal">
+          <div class="modal-backdrop"></div>
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2 id="modalTitle">Add Card</h2>
+              <button class="modal-close" id="closeModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+              <form id="cardForm">
+                <input type="hidden" id="cardId" />
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="cardTitle">Title *</label>
+                    <input type="text" id="cardTitle" name="title" required class="form-control" />
+                    <div class="error-message"></div>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="cardType">Type *</label>
+                    <div class="combobox" id="typeCombobox">
+                      <input
+                        type="text"
+                        id="cardType"
+                        name="type"
+                        required
+                        pattern=".*\S.*"
+                        title="Type cannot be whitespace-only"
+                        class="form-control combobox-input"
+                        placeholder="Type or select type..."
+                        autocomplete="off"
+                        role="combobox"
+                        aria-expanded="false"
+                        aria-controls="typeListbox"
+                        aria-autocomplete="list"
+                      />
+                      <button
+                        type="button"
+                        class="combobox-toggle"
+                        aria-label="Show options"
+                        tabindex="-1"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                          <path
+                            d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
+                          />
+                        </svg>
+                      </button>
+                      <ul id="typeListbox" class="combobox-listbox" role="listbox"></ul>
+                    </div>
+                    <div class="error-message"></div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="cardSubtype">Subtype *</label>
+                    <div class="combobox" id="subtypeCombobox">
+                      <input
+                        type="text"
+                        id="cardSubtype"
+                        name="subtype"
+                        required
+                        pattern=".*\S.*"
+                        title="Subtype cannot be whitespace-only"
+                        class="form-control combobox-input"
+                        placeholder="Type or select subtype..."
+                        autocomplete="off"
+                        role="combobox"
+                        aria-expanded="false"
+                        aria-controls="subtypeListbox"
+                        aria-autocomplete="list"
+                      />
+                      <button
+                        type="button"
+                        class="combobox-toggle"
+                        aria-label="Show options"
+                        tabindex="-1"
+                      >
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                          <path
+                            d="M4.427 6.427a.75.75 0 011.06 0L8 8.94l2.513-2.513a.75.75 0 111.06 1.06l-3.043 3.044a.75.75 0 01-1.06 0L4.427 7.487a.75.75 0 010-1.06z"
+                          />
+                        </svg>
+                      </button>
+                      <ul id="subtypeListbox" class="combobox-listbox" role="listbox"></ul>
+                    </div>
+                    <div class="error-message"></div>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="cardTags">Tags (comma separated)</label>
+                  <input
+                    type="text"
+                    id="cardTags"
+                    name="tags"
+                    class="form-control"
+                    placeholder="2h, swept, precise"
+                  />
+                  <small class="form-help">Separate tags with commas</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="cardDescription">Description</label>
+                  <textarea
+                    id="cardDescription"
+                    name="description"
+                    rows="3"
+                    class="form-control"
+                  ></textarea>
+                  <div class="error-message"></div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="cardStat1">Stat 1</label>
+                    <input
+                      type="text"
+                      id="cardStat1"
+                      name="stat1"
+                      class="form-control"
+                      placeholder="e.g., d8, 6 AC"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label for="cardStat2">Stat 2</label>
+                    <input
+                      type="text"
+                      id="cardStat2"
+                      name="stat2"
+                      class="form-control"
+                      placeholder="e.g., 2 slot"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label for="cardCost">Cost</label>
+                    <input
+                      type="text"
+                      id="cardCost"
+                      name="cost"
+                      class="form-control"
+                      placeholder="e.g., 5 pt"
+                    />
+                  </div>
+                </div>
+              </form>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
+              <button
+                type="button"
+                class="btn btn-danger auth-controls"
+                id="deleteCardBtn"
+                style="display: none"
+              >
+                Delete
+              </button>
+              <button
+                type="submit"
+                form="cardForm"
+                class="btn btn-primary auth-controls"
+                id="saveCardBtn"
+              >
+                Save Card
+              </button>
+            </div>
+          </div>
+        </div>
       </main>
-    </div>
-
-    <!-- Card Editor Modal -->
-    <div id="cardEditorModal" class="modal">
-      <div class="modal-backdrop"></div>
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 id="modalTitle">Add Card</h2>
-          <button class="modal-close" id="closeModalBtn">&times;</button>
-        </div>
-        <div class="modal-body">
-          <form id="cardForm">
-            <input type="hidden" id="cardId" />
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="cardTitle">Title *</label>
-                <input type="text" id="cardTitle" name="title" required class="form-control" />
-              </div>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="cardType">Type *</label>
-                <select id="cardType" name="type" required class="form-control">
-                  <option value="">Select type...</option>
-                  <option value="Equipment">Equipment</option>
-                  <option value="Skill">Skill</option>
-                  <option value="Upgrade">Upgrade</option>
-                  <option value="Origin">Origin</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="cardSubtype">Subtype *</label>
-                <select id="cardSubtype" name="subtype" required class="form-control">
-                  <option value="">Select subtype...</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="cardTags">Tags (comma separated)</label>
-              <input
-                type="text"
-                id="cardTags"
-                name="tags"
-                class="form-control"
-                placeholder="2h, swept, precise"
-              />
-              <small class="form-help">Separate tags with commas</small>
-            </div>
-
-            <div class="form-group">
-              <label for="cardDescription">Description</label>
-              <textarea
-                id="cardDescription"
-                name="description"
-                rows="3"
-                class="form-control"
-              ></textarea>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="cardStat1">Stat 1</label>
-                <input
-                  type="text"
-                  id="cardStat1"
-                  name="stat1"
-                  class="form-control"
-                  placeholder="e.g., d8, 6 AC"
-                />
-              </div>
-
-              <div class="form-group">
-                <label for="cardStat2">Stat 2</label>
-                <input
-                  type="text"
-                  id="cardStat2"
-                  name="stat2"
-                  class="form-control"
-                  placeholder="e.g., 2 slot"
-                />
-              </div>
-
-              <div class="form-group">
-                <label for="cardCost">Cost</label>
-                <input
-                  type="text"
-                  id="cardCost"
-                  name="cost"
-                  class="form-control"
-                  placeholder="e.g., 5 pt"
-                />
-              </div>
-            </div>
-          </form>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" id="cancelModalBtn">Cancel</button>
-          <button
-            type="button"
-            class="btn btn-danger auth-controls"
-            id="deleteCardBtn"
-            style="display: none"
-          >
-            Delete
-          </button>
-          <button
-            type="submit"
-            form="cardForm"
-            class="btn btn-primary auth-controls"
-            id="saveCardBtn"
-          >
-            Save Card
-          </button>
-        </div>
-      </div>
     </div>
 
     <script type="module">

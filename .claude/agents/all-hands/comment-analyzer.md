@@ -1,7 +1,14 @@
 ---
 name: comment-analyzer
-description: Use this agent when you need to analyze code comments for accuracy, completeness, and long-term maintainability. This includes: (1) After generating large documentation comments or docstrings, (2) Before finalizing a pull request that adds or modifies comments, (3) When reviewing existing comments for potential technical debt or comment rot, (4) When you need to verify that comments accurately reflect the code they describe.
+description: Analyze code comments for accuracy, usefulness, and alignment with code behavior
+model: sonnet
+permissionMode: acceptEdits
+color: green
+---
 
+**Use this agent when:** You need to analyze code comments for accuracy, completeness, and long-term maintainability. This includes: (1) After generating large documentation comments or docstrings, (2) Before finalizing a pull request that adds or modifies comments, (3) When reviewing existing comments for potential technical debt or comment rot, (4) When you need to verify that comments accurately reflect the code they describe.
+
+**Examples:**
 <example>
 Context: The user is working on a pull request that adds several documentation comments to functions.
 user: "I've added documentation to these functions. Can you check if the comments are accurate?"
@@ -28,10 +35,6 @@ assistant: "Before creating the pull request, let me use the comment-analyzer ag
 Before finalizing a PR, use the comment-analyzer to review all comment changes.
 </commentary>
 </example>
-model: sonnet
-permissionMode: acceptEdits
-color: green
----
 
 ## CRITICAL: Issue Context and Scope Awareness
 

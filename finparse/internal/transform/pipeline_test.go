@@ -1,0 +1,969 @@
+package transform
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/rumor-ml/commons.systems/finparse/internal/dedup"
+	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
+	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
+	"github.com/rumor-ml/commons.systems/finparse/internal/rules"
+)
+
+func TestTransformInstitution(t *testing.T) {
+	tests := []struct {
+		name         string
+		rawAccount   *parser.RawAccount
+		expectError  bool
+		expectedID   string
+		expectedName string
+	}{
+		{
+			name:         "valid institution",
+			rawAccount:   mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit"),
+			expectError:  false,
+			expectedID:   "american-express",
+			expectedName: "American Express",
+		},
+		{
+			name:        "empty institution name",
+			rawAccount:  mustNewRawAccount(t, "TEST", "", "1234", "checking"),
+			expectError: true,
+		},
+		{
+			name:        "institution name with only special chars",
+			rawAccount:  mustNewRawAccount(t, "TEST", "!@#$%", "1234", "checking"),
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inst, err := transformInstitution(tt.rawAccount)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if inst.ID != tt.expectedID {
+				t.Errorf("expected ID %q, got %q", tt.expectedID, inst.ID)
+			}
+
+			if inst.Name != tt.expectedName {
+				t.Errorf("expected Name %q, got %q", tt.expectedName, inst.Name)
+			}
+		})
+	}
+}
+
+func TestTransformAccount(t *testing.T) {
+	tests := []struct {
+		name          string
+		rawAccount    *parser.RawAccount
+		institutionID string
+		expectError   bool
+		expectedID    string
+		expectedType  domain.AccountType
+	}{
+		{
+			name:          "valid checking account",
+			rawAccount:    mustNewRawAccount(t, "PNC", "PNC Bank", "5678", "checking"),
+			institutionID: "pnc-bank",
+			expectError:   false,
+			expectedID:    "acc-pnc-bank-5678",
+			expectedType:  domain.AccountTypeChecking,
+		},
+		{
+			name:          "valid credit card",
+			rawAccount:    mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit card"),
+			institutionID: "american-express",
+			expectError:   false,
+			expectedID:    "acc-amex-2011",
+			expectedType:  domain.AccountTypeCredit,
+		},
+		{
+			name:          "invalid account type",
+			rawAccount:    mustNewRawAccount(t, "TEST", "Test Bank", "1234", "unknown"),
+			institutionID: "test-bank",
+			expectError:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			acc, err := transformAccount(tt.rawAccount, tt.institutionID)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if acc.ID != tt.expectedID {
+				t.Errorf("expected ID %q, got %q", tt.expectedID, acc.ID)
+			}
+
+			if acc.InstitutionID != tt.institutionID {
+				t.Errorf("expected InstitutionID %q, got %q", tt.institutionID, acc.InstitutionID)
+			}
+
+			if acc.Type != tt.expectedType {
+				t.Errorf("expected Type %q, got %q", tt.expectedType, acc.Type)
+			}
+		})
+	}
+}
+
+func TestTransformStatement(t *testing.T) {
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+
+	period := mustNewPeriod(t, startDate, endDate)
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{},
+	}
+
+	accountID := "acc-amex-2011"
+
+	stmt, err := transformStatement(raw, accountID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedID := "stmt-2025-10-acc-amex-2011"
+	if stmt.ID != expectedID {
+		t.Errorf("expected ID %q, got %q", expectedID, stmt.ID)
+	}
+
+	if stmt.AccountID != accountID {
+		t.Errorf("expected AccountID %q, got %q", accountID, stmt.AccountID)
+	}
+
+	if stmt.StartDate != "2025-10-01" {
+		t.Errorf("expected StartDate %q, got %q", "2025-10-01", stmt.StartDate)
+	}
+
+	if stmt.EndDate != "2025-10-31" {
+		t.Errorf("expected EndDate %q, got %q", "2025-10-31", stmt.EndDate)
+	}
+}
+
+func TestTransformTransaction(t *testing.T) {
+	txnDate := time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC)
+	rawTxn := mustNewRawTransaction(t, "TXN123", txnDate, txnDate, "Test Purchase", -50.00)
+
+	statementID := "stmt-2025-10-acc-amex-2011"
+
+	txn, matched, err := transformTransaction(rawTxn, statementID, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify no rule matched (engine is nil)
+	if matched {
+		t.Errorf("expected no match with nil engine, but matched = true")
+	}
+
+	// Verify ID is preserved
+	if txn.ID != "TXN123" {
+		t.Errorf("expected ID %q, got %q", "TXN123", txn.ID)
+	}
+
+	// Verify date formatting
+	if txn.Date != "2025-10-15" {
+		t.Errorf("expected Date %q, got %q", "2025-10-15", txn.Date)
+	}
+
+	// Verify description and amount
+	if txn.Description != "Test Purchase" {
+		t.Errorf("expected Description %q, got %q", "Test Purchase", txn.Description)
+	}
+
+	if txn.Amount != -50.00 {
+		t.Errorf("expected Amount %f, got %f", -50.00, txn.Amount)
+	}
+
+	// Verify Phase 4 defaults
+	if txn.Category != domain.CategoryOther {
+		t.Errorf("expected Category %q, got %q", domain.CategoryOther, txn.Category)
+	}
+
+	if txn.Redeemable() != false {
+		t.Errorf("expected Redeemable false, got %v", txn.Redeemable())
+	}
+
+	if txn.Vacation() != false {
+		t.Errorf("expected Vacation false, got %v", txn.Vacation())
+	}
+
+	if txn.Transfer() != false {
+		t.Errorf("expected Transfer false, got %v", txn.Transfer())
+	}
+
+	if txn.RedemptionRate() != 0.0 {
+		t.Errorf("expected RedemptionRate 0.0, got %f", txn.RedemptionRate())
+	}
+
+	if txn.LinkedTransactionID != nil {
+		t.Errorf("expected LinkedTransactionID nil, got %v", txn.LinkedTransactionID)
+	}
+
+	// Verify statement link
+	stmtIDs := txn.GetStatementIDs()
+	if len(stmtIDs) != 1 {
+		t.Errorf("expected 1 statement ID, got %d", len(stmtIDs))
+	} else if stmtIDs[0] != statementID {
+		t.Errorf("expected statement ID %q, got %q", statementID, stmtIDs[0])
+	}
+}
+
+func TestMapAccountType(t *testing.T) {
+	tests := []struct {
+		name        string
+		rawType     string
+		expected    domain.AccountType
+		expectError bool
+	}{
+		{
+			name:        "checking",
+			rawType:     "checking",
+			expected:    domain.AccountTypeChecking,
+			expectError: false,
+		},
+		{
+			name:        "checking account",
+			rawType:     "checking account",
+			expected:    domain.AccountTypeChecking,
+			expectError: false,
+		},
+		{
+			name:        "checking with whitespace",
+			rawType:     "  Checking  ",
+			expected:    domain.AccountTypeChecking,
+			expectError: false,
+		},
+		{
+			name:        "savings",
+			rawType:     "savings",
+			expected:    domain.AccountTypeSavings,
+			expectError: false,
+		},
+		{
+			name:        "savings account",
+			rawType:     "savings account",
+			expected:    domain.AccountTypeSavings,
+			expectError: false,
+		},
+		{
+			name:        "credit",
+			rawType:     "credit",
+			expected:    domain.AccountTypeCredit,
+			expectError: false,
+		},
+		{
+			name:        "credit card",
+			rawType:     "credit card",
+			expected:    domain.AccountTypeCredit,
+			expectError: false,
+		},
+		{
+			name:        "creditcard",
+			rawType:     "creditcard",
+			expected:    domain.AccountTypeCredit,
+			expectError: false,
+		},
+		{
+			name:        "investment",
+			rawType:     "investment",
+			expected:    domain.AccountTypeInvestment,
+			expectError: false,
+		},
+		{
+			name:        "brokerage",
+			rawType:     "brokerage",
+			expected:    domain.AccountTypeInvestment,
+			expectError: false,
+		},
+		{
+			name:        "unknown type",
+			rawType:     "unknown",
+			expected:    "",
+			expectError: true,
+		},
+		{
+			name:        "empty string",
+			rawType:     "",
+			expected:    "",
+			expectError: true,
+		},
+		{
+			name:        "uppercase unknown type - shows normalization in error",
+			rawType:     "INVALID TYPE",
+			expected:    "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := mapAccountType(tt.rawType)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				// For uppercase unknown type, verify error message shows normalization
+				if tt.name == "uppercase unknown type - shows normalization in error" {
+					errMsg := err.Error()
+					if !strings.Contains(errMsg, "INVALID TYPE") {
+						t.Errorf("error should contain original value 'INVALID TYPE', got: %v", errMsg)
+					}
+					if !strings.Contains(errMsg, "invalid type") {
+						t.Errorf("error should contain normalized value 'invalid type', got: %v", errMsg)
+					}
+					if !strings.Contains(errMsg, "normalized to") {
+						t.Errorf("error should mention normalization, got: %v", errMsg)
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestTransformStatementIntegration(t *testing.T) {
+	// Create a complete RawStatement
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txn1Date := time.Date(2025, 10, 5, 0, 0, 0, 0, time.UTC)
+	txn2Date := time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC)
+
+	rawTxn1 := mustNewRawTransaction(t, "TXN001", txn1Date, txn1Date, "Purchase 1", -25.00)
+	rawTxn2 := mustNewRawTransaction(t, "TXN002", txn2Date, txn2Date, "Purchase 2", -75.50)
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*rawTxn1, *rawTxn2},
+	}
+
+	// Create budget and transform
+	budget := domain.NewBudget()
+	_, err := TransformStatement(raw, budget, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify institution
+	institutions := budget.GetInstitutions()
+	if len(institutions) != 1 {
+		t.Fatalf("expected 1 institution, got %d", len(institutions))
+	}
+	if institutions[0].ID != "american-express" {
+		t.Errorf("expected institution ID %q, got %q", "american-express", institutions[0].ID)
+	}
+	if institutions[0].Name != "American Express" {
+		t.Errorf("expected institution name %q, got %q", "American Express", institutions[0].Name)
+	}
+
+	// Verify account
+	accounts := budget.GetAccounts()
+	if len(accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(accounts))
+	}
+	if accounts[0].ID != "acc-amex-2011" {
+		t.Errorf("expected account ID %q, got %q", "acc-amex-2011", accounts[0].ID)
+	}
+	if accounts[0].Type != domain.AccountTypeCredit {
+		t.Errorf("expected account type %q, got %q", domain.AccountTypeCredit, accounts[0].Type)
+	}
+
+	// Verify statement
+	statements := budget.GetStatements()
+	if len(statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(statements))
+	}
+	if statements[0].ID != "stmt-2025-10-acc-amex-2011" {
+		t.Errorf("expected statement ID %q, got %q", "stmt-2025-10-acc-amex-2011", statements[0].ID)
+	}
+
+	// Verify transactions
+	transactions := budget.GetTransactions()
+	if len(transactions) != 2 {
+		t.Fatalf("expected 2 transactions, got %d", len(transactions))
+	}
+
+	// Check first transaction
+	if transactions[0].ID != "TXN001" {
+		t.Errorf("expected transaction ID %q, got %q", "TXN001", transactions[0].ID)
+	}
+	if transactions[0].Amount != -25.00 {
+		t.Errorf("expected amount %f, got %f", -25.00, transactions[0].Amount)
+	}
+
+	// Check second transaction
+	if transactions[1].ID != "TXN002" {
+		t.Errorf("expected transaction ID %q, got %q", "TXN002", transactions[1].ID)
+	}
+	if transactions[1].Amount != -75.50 {
+		t.Errorf("expected amount %f, got %f", -75.50, transactions[1].Amount)
+	}
+}
+
+func TestTransformStatementDuplicateHandling(t *testing.T) {
+	// Create a RawStatement
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+
+	rawAccount := mustNewRawAccount(t, "PNC", "PNC Bank", "1234", "checking")
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{},
+	}
+
+	// Create budget and transform twice
+	budget := domain.NewBudget()
+
+	// First transform should succeed
+	_, err := TransformStatement(raw, budget, nil, nil)
+	if err != nil {
+		t.Fatalf("first transform failed: %v", err)
+	}
+
+	// Second transform should fail (duplicate statement)
+	_, err = TransformStatement(raw, budget, nil, nil)
+	if err == nil {
+		t.Errorf("expected error for duplicate statement")
+	} else if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("expected 'already exists' error, got: %v", err)
+	}
+
+	// Verify only one set of entities was created
+	if len(budget.GetInstitutions()) != 1 {
+		t.Errorf("expected 1 institution, got %d", len(budget.GetInstitutions()))
+	}
+	if len(budget.GetAccounts()) != 1 {
+		t.Errorf("expected 1 account, got %d", len(budget.GetAccounts()))
+	}
+}
+
+func TestTransformStatement_NilBudget(t *testing.T) {
+	raw := &parser.RawStatement{
+		Account:      *mustNewRawAccount(t, "TEST", "Test Bank", "1234", "checking"),
+		Period:       *mustNewPeriod(t, time.Now(), time.Now()),
+		Transactions: []parser.RawTransaction{},
+	}
+
+	_, err := TransformStatement(raw, nil, nil, nil)
+	if err == nil {
+		t.Error("expected error for nil budget")
+	}
+	if !strings.Contains(err.Error(), "budget cannot be nil") {
+		t.Errorf("expected 'budget cannot be nil' error, got: %v", err)
+	}
+}
+
+func TestTransformStatement_NilRawStatement(t *testing.T) {
+	budget := domain.NewBudget()
+	_, err := TransformStatement(nil, budget, nil, nil)
+	if err == nil {
+		t.Error("expected error for nil raw statement")
+	}
+	if !strings.Contains(err.Error(), "raw statement cannot be nil") {
+		t.Errorf("expected 'raw statement cannot be nil' error, got: %v", err)
+	}
+}
+
+func TestTransformAccount_EmptyAccountNumber(t *testing.T) {
+	// Note: The parser layer already validates empty account IDs during
+	// RawAccount construction. This test verifies that the transform layer's
+	// defense-in-depth validation exists and parser validation works correctly.
+	// The actual validation is covered by parser_test.go and defensive checks in
+	// transformAccount remain as protection against future parser changes.
+
+	// Verify that parser rejects empty account ID
+	_, err := parser.NewRawAccount("AMEX", "American Express", "", "credit")
+	if err == nil {
+		t.Fatal("parser should reject empty account ID")
+	}
+	if !strings.Contains(err.Error(), "account ID cannot be empty") {
+		t.Errorf("expected 'account ID cannot be empty' error from parser, got: %v", err)
+	}
+}
+
+func TestTransformStatement_EmptyTransactionList(t *testing.T) {
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{}, // Empty list
+	}
+
+	budget := domain.NewBudget()
+	_, err := TransformStatement(raw, budget, nil, nil)
+	if err != nil {
+		t.Fatalf("expected success with empty transactions, got error: %v", err)
+	}
+
+	// Verify statement was created even with no transactions
+	statements := budget.GetStatements()
+	if len(statements) != 1 {
+		t.Errorf("expected 1 statement, got %d", len(statements))
+	}
+
+	transactions := budget.GetTransactions()
+	if len(transactions) != 0 {
+		t.Errorf("expected 0 transactions, got %d", len(transactions))
+	}
+}
+
+func TestTransformStatement_InvalidTransaction(t *testing.T) {
+	// Note: The parser layer already validates empty descriptions and IDs during
+	// RawTransaction construction. This test verifies that the transform layer's
+	// defense-in-depth validation works and error messages propagate correctly.
+	// If parser validation is ever relaxed, the transform layer will still catch it.
+
+	// Since we can't bypass parser validation to test transform validation directly,
+	// this test documents the expected behavior and validates error message format.
+	// The actual validation is covered by parser_test.go and defensive checks in
+	// transformTransaction remain as protection against future parser changes.
+
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txnDate := time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC)
+
+	// Verify that parser rejects empty description
+	_, err := parser.NewRawTransaction("TXN123", txnDate, txnDate, "", -50.00)
+	if err == nil {
+		t.Fatal("parser should reject empty description")
+	}
+	if !strings.Contains(err.Error(), "description cannot be empty") {
+		t.Errorf("expected 'description cannot be empty' error from parser, got: %v", err)
+	}
+
+	// Verify that parser rejects empty ID
+	_, err = parser.NewRawTransaction("", txnDate, txnDate, "Test", -50.00)
+	if err == nil {
+		t.Fatal("parser should reject empty transaction ID")
+	}
+	if !strings.Contains(err.Error(), "transaction ID cannot be empty") {
+		t.Errorf("expected 'transaction ID cannot be empty' error from parser, got: %v", err)
+	}
+
+	// Create a valid statement to verify transform layer error wrapping works
+	validTxn := mustNewRawTransaction(t, "TXN123", txnDate, txnDate, "Valid Transaction", -50.00)
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*validTxn},
+	}
+
+	budget := domain.NewBudget()
+	_, err = TransformStatement(raw, budget, nil, nil)
+	if err != nil {
+		t.Errorf("expected success with valid transaction, got error: %v", err)
+	}
+
+	// Verify transaction was added
+	transactions := budget.GetTransactions()
+	if len(transactions) != 1 {
+		t.Errorf("expected 1 transaction, got %d", len(transactions))
+	}
+}
+
+func TestTransformTransaction_UnmatchedDefaultsToOther(t *testing.T) {
+	// Load embedded rules engine
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("failed to load embedded rules: %v", err)
+	}
+
+	// Create transaction with description that matches NO rules
+	txnDate := time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC)
+	rawTxn := mustNewRawTransaction(t, "TXN999", txnDate, txnDate,
+		"UNKNOWN_MERCHANT_XYZ123_NOMATCH", -99.99)
+
+	statementID := "stmt-2025-10-acc-amex-2011"
+
+	txn, matched, err := transformTransaction(rawTxn, statementID, engine)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify no rule matched
+	if matched {
+		t.Errorf("expected no rule match, but matched = true")
+	}
+
+	// Verify defaults when no rule matches
+	if txn.Category != domain.CategoryOther {
+		t.Errorf("expected Category %q, got %q", domain.CategoryOther, txn.Category)
+	}
+
+	if txn.Redeemable() != false {
+		t.Errorf("expected Redeemable false, got %v", txn.Redeemable())
+	}
+
+	if txn.Vacation() != false {
+		t.Errorf("expected Vacation false, got %v", txn.Vacation())
+	}
+
+	if txn.Transfer() != false {
+		t.Errorf("expected Transfer false, got %v", txn.Transfer())
+	}
+
+	if txn.RedemptionRate() != 0.0 {
+		t.Errorf("expected RedemptionRate 0.0, got %f", txn.RedemptionRate())
+	}
+}
+
+func TestFormatDate(t *testing.T) {
+	// Test with valid time.Time values. Type system prevents invalid inputs
+	// (string, nil, int) at compile time, so no error handling tests needed.
+	testDate := time.Date(2025, 10, 15, 14, 30, 0, 0, time.UTC)
+	result := formatDate(testDate)
+	expected := "2025-10-15"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+
+	// Test with zero time
+	zeroTime := time.Time{}
+	result = formatDate(zeroTime)
+	expected = "0001-01-01"
+	if result != expected {
+		t.Errorf("expected %q for zero time, got %q", expected, result)
+	}
+}
+
+func TestTransformStatement_StatsAccuracy(t *testing.T) {
+	// Setup: 4 transactions to test comprehensive statistics tracking
+	// - TXN001 (WHOLEFDS): matches rule, marked as duplicate (skipped)
+	// - TXN002 (CHIPOTLE): matches rule, added
+	// - TXN003 (UNKNOWN_XYZ_NOMATCH): doesn't match, added
+	// - TXN004 (STARBUCKS): matches rule, added
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 10, 31, 23, 59, 59, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, endDate)
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txn1 := mustNewRawTransaction(t, "TXN001", startDate, startDate, "WHOLEFDS MARKET", -50.00)
+	txn2 := mustNewRawTransaction(t, "TXN002", startDate, startDate, "CHIPOTLE", -15.00)
+	txn3 := mustNewRawTransaction(t, "TXN003", startDate, startDate, "UNKNOWN_XYZ_NOMATCH", -10.00)
+	txn4 := mustNewRawTransaction(t, "TXN004", startDate, startDate, "STARBUCKS", -5.00)
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn1, *txn2, *txn3, *txn4},
+	}
+
+	// First pass: record txn1 as duplicate
+	state := dedup.NewState()
+	fp1 := dedup.GenerateFingerprint("2025-10-01", -50.00, "WHOLEFDS MARKET")
+	if err := state.RecordTransaction(fp1, "TXN001", time.Now()); err != nil {
+		t.Fatalf("Failed to record transaction: %v", err)
+	}
+
+	engine, err := rules.LoadEmbedded()
+	if err != nil {
+		t.Fatalf("Failed to load rules: %v", err)
+	}
+
+	budget := domain.NewBudget()
+	stats, err := TransformStatement(raw, budget, state, engine)
+	if err != nil {
+		t.Fatalf("TransformStatement failed: %v", err)
+	}
+
+	// Verify duplicate tracking (stats counted BEFORE dedup check per pipeline.go logic)
+	if stats.DuplicatesSkipped != 1 {
+		t.Errorf("Expected 1 duplicate skipped, got %d", stats.DuplicatesSkipped)
+	}
+
+	// Verify rule matching statistics (counted for ALL transactions including duplicates)
+	// TXN001 (WHOLEFDS): matches rule (counted)
+	// TXN002 (CHIPOTLE): matches rule (counted)
+	// TXN003 (UNKNOWN_XYZ_NOMATCH): no match (counted as unmatched)
+	// TXN004 (STARBUCKS): matches rule (counted)
+	expectedMatched := 3
+	expectedUnmatched := 1
+	if stats.RulesMatched != expectedMatched {
+		t.Errorf("Expected %d rules matched, got %d", expectedMatched, stats.RulesMatched)
+	}
+	if stats.RulesUnmatched != expectedUnmatched {
+		t.Errorf("Expected %d rules unmatched, got %d", expectedUnmatched, stats.RulesUnmatched)
+	}
+
+	// Verify UnmatchedExamples contains the unmatched transaction description
+	if len(stats.UnmatchedExamples()) != 1 {
+		t.Errorf("Expected 1 unmatched example, got %d", len(stats.UnmatchedExamples()))
+	} else if stats.UnmatchedExamples()[0] != "UNKNOWN_XYZ_NOMATCH" {
+		t.Errorf("Expected unmatched example 'UNKNOWN_XYZ_NOMATCH', got %q", stats.UnmatchedExamples()[0])
+	}
+
+	// Verify only 3 transactions added to budget (1 was duplicate and skipped)
+	transactions := budget.GetTransactions()
+	if len(transactions) != 3 {
+		t.Errorf("Expected 3 transactions in budget, got %d", len(transactions))
+	}
+
+	// Verify the duplicate transaction was NOT added
+	for _, txn := range transactions {
+		if txn.ID == "TXN001" {
+			t.Errorf("Duplicate transaction TXN001 should not be in budget")
+		}
+	}
+}
+
+func TestTransformStatement_StatsWithNilEngine(t *testing.T) {
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, startDate.AddDate(0, 1, 0))
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txn1 := mustNewRawTransaction(t, "TXN001", startDate, startDate, "Purchase 1", -50.00)
+	txn2 := mustNewRawTransaction(t, "TXN002", startDate, startDate, "Purchase 2", -75.00)
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn1, *txn2},
+	}
+
+	budget := domain.NewBudget()
+	stats, err := TransformStatement(raw, budget, nil, nil) // nil engine
+	if err != nil {
+		t.Fatalf("TransformStatement failed: %v", err)
+	}
+
+	// When no rules engine, stats should reflect "not applicable" state
+	if stats.RulesMatched != 0 {
+		t.Errorf("Expected RulesMatched=0 with nil engine, got %d", stats.RulesMatched)
+	}
+	if stats.RulesUnmatched != 0 {
+		t.Errorf("Expected RulesUnmatched=0 with nil engine, got %d", stats.RulesUnmatched)
+	}
+	if len(stats.UnmatchedExamples()) != 0 {
+		t.Errorf("Expected empty UnmatchedExamples with nil engine, got %d", len(stats.UnmatchedExamples()))
+	}
+
+	// Verify transactions still added with default category
+	transactions := budget.GetTransactions()
+	if len(transactions) != 2 {
+		t.Errorf("Expected 2 transactions, got %d", len(transactions))
+	}
+	for _, txn := range transactions {
+		if txn.Category != domain.CategoryOther {
+			t.Errorf("Expected default category 'other', got %s", txn.Category)
+		}
+	}
+}
+
+func TestTransformStatement_DedupWithoutRules(t *testing.T) {
+	startDate := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
+	period := mustNewPeriod(t, startDate, startDate.AddDate(0, 1, 0))
+	rawAccount := mustNewRawAccount(t, "AMEX", "American Express", "2011", "credit")
+
+	txn1 := mustNewRawTransaction(t, "TXN001", startDate, startDate, "Purchase 1", -50.00)
+	txn2 := mustNewRawTransaction(t, "TXN002", startDate, startDate, "Purchase 2", -75.00)
+	txn3 := mustNewRawTransaction(t, "TXN003", startDate, startDate, "Purchase 3", -25.00)
+
+	raw := &parser.RawStatement{
+		Account:      *rawAccount,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn1, *txn2, *txn3},
+	}
+
+	// First pass with state, no engine
+	state := dedup.NewState()
+	budget1 := domain.NewBudget()
+	stats1, err := TransformStatement(raw, budget1, state, nil)
+	if err != nil {
+		t.Fatalf("First pass failed: %v", err)
+	}
+
+	// Verify stats: no rule checking occurred
+	if stats1.RulesMatched != 0 || stats1.RulesUnmatched != 0 {
+		t.Errorf("Expected 0 rule stats with nil engine, got matched=%d unmatched=%d",
+			stats1.RulesMatched, stats1.RulesUnmatched)
+	}
+
+	// Second pass: should skip all as duplicates
+	budget2 := domain.NewBudget()
+	stats2, err := TransformStatement(raw, budget2, state, nil)
+	if err != nil {
+		t.Fatalf("Second pass failed: %v", err)
+	}
+
+	if stats2.DuplicatesSkipped != 3 {
+		t.Errorf("Expected 3 duplicates skipped, got %d", stats2.DuplicatesSkipped)
+	}
+
+	// Verify duplicate examples captured
+	if len(stats2.DuplicateExamples()) == 0 {
+		t.Error("Expected duplicate examples to be captured")
+	}
+}
+
+func TestTransformStatement_ConcurrentStateAccess(t *testing.T) {
+	// Create shared state
+	state := dedup.NewState()
+
+	// Create identical raw statement for concurrent processing
+	account := mustNewRawAccount(t, "TEST", "Test Bank", "1234", "checking")
+	period := mustNewPeriod(t, time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 31, 0, 0, 0, 0, time.UTC))
+
+	txn := mustNewRawTransaction(t, "txn-test-001", time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), "Test Transaction", -50.00)
+
+	raw := &parser.RawStatement{
+		Account:      *account,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn},
+	}
+
+	var wg sync.WaitGroup
+	errors := make(chan error, 10)
+
+	// Launch 10 goroutines transforming identical transactions
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			budget := domain.NewBudget()
+			_, err := TransformStatement(raw, budget, state, nil)
+			if err != nil {
+				errors <- fmt.Errorf("goroutine %d failed: %w", id, err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Check for errors
+	for err := range errors {
+		t.Errorf("Concurrent access error: %v", err)
+	}
+
+	// Verify state consistency: should have exactly 1 fingerprint
+	// (not 0 from race, not 10 from missing dedup)
+	if state.TotalFingerprints() != 1 {
+		t.Errorf("Race condition detected: expected 1 fingerprint, got %d", state.TotalFingerprints())
+	}
+}
+
+func TestTransformStatement_StateRecordingFailure(t *testing.T) {
+	// Create raw statement
+	account := mustNewRawAccount(t, "TEST", "Test Bank", "1234", "checking")
+	period := mustNewPeriod(t, time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 31, 0, 0, 0, 0, time.UTC))
+
+	txn := mustNewRawTransaction(t, "txn-test-001", time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), time.Date(2025, 10, 15, 0, 0, 0, 0, time.UTC), "Test Transaction", -50.00)
+
+	raw := &parser.RawStatement{
+		Account:      *account,
+		Period:       *period,
+		Transactions: []parser.RawTransaction{*txn},
+	}
+
+	budget := domain.NewBudget()
+	state := dedup.NewState()
+
+	// First parse succeeds
+	_, err := TransformStatement(raw, budget, state, nil)
+	if err != nil {
+		t.Fatalf("First parse failed: %v", err)
+	}
+	if len(budget.GetTransactions()) != 1 {
+		t.Errorf("Expected 1 transaction in budget, got %d", len(budget.GetTransactions()))
+	}
+
+	// Second parse should detect duplicate
+	budget2 := domain.NewBudget()
+	stats2, err := TransformStatement(raw, budget2, state, nil)
+	if err != nil {
+		t.Fatalf("Second parse failed: %v", err)
+	}
+	if len(budget2.GetTransactions()) != 0 {
+		t.Errorf("Expected 0 transactions (duplicate skipped), got %d", len(budget2.GetTransactions()))
+	}
+	if stats2.DuplicatesSkipped != 1 {
+		t.Errorf("Expected 1 duplicate skipped, got %d", stats2.DuplicatesSkipped)
+	}
+
+	// Verify the transaction is marked as duplicate in state
+	fingerprint := dedup.GenerateFingerprint("2025-10-15", -50.00, "Test Transaction")
+	if !state.IsDuplicate(fingerprint) {
+		t.Error("Expected transaction to be marked as duplicate in state")
+	}
+}
+
+// TODO(#1347): Consider adding benchmark tests for transformation pipeline performance
+// Helper functions for test setup
+
+func mustNewRawAccount(t *testing.T, instID, instName, accountID, accountType string) *parser.RawAccount {
+	t.Helper()
+	acc, err := parser.NewRawAccount(instID, instName, accountID, accountType)
+	if err != nil {
+		t.Fatalf("failed to create raw account: %v", err)
+	}
+	return acc
+}
+
+func mustNewPeriod(t *testing.T, start, end time.Time) *parser.Period {
+	t.Helper()
+	period, err := parser.NewPeriod(start, end)
+	if err != nil {
+		t.Fatalf("failed to create period: %v", err)
+	}
+	return period
+}
+
+func mustNewRawTransaction(t *testing.T, id string, date, postedDate time.Time, description string, amount float64) *parser.RawTransaction {
+	t.Helper()
+	txn, err := parser.NewRawTransaction(id, date, postedDate, description, amount)
+	if err != nil {
+		t.Fatalf("failed to create raw transaction: %v", err)
+	}
+	return txn
+}
