@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # restart-tui.sh - Restart tmux-tui daemon and all TUI panes for manual testing
 # This script rebuilds the binaries from the current branch and restarts everything
 
@@ -9,6 +9,39 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# wait_for_process_exit - Wait for a process to fully terminate
+# Arguments:
+#   $1 - Process ID to wait for
+#   $2 - Timeout in seconds (default: 5)
+# Returns:
+#   0 - Process confirmed dead
+#   1 - Timeout waiting for process
+wait_for_process_exit() {
+  local pid=$1
+  local timeout=${2:-5}
+  local elapsed=0
+  local check_interval=0.1
+
+  # First check if process exists
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return 0  # Already dead
+  fi
+
+  # Loop until process exits or timeout
+  while (( $(echo "$elapsed < $timeout" | bc -l) )); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      # Process confirmed dead, extra delay for OS cleanup
+      sleep 0.1
+      return 0
+    fi
+    sleep "$check_interval"
+    elapsed=$(echo "$elapsed + $check_interval" | bc)
+  done
+
+  # Timeout reached
+  return 1
+}
 
 echo -e "${YELLOW}=== Restarting tmux-tui ===${NC}"
 
@@ -48,10 +81,16 @@ if [ -f "$LOCK_FILE" ]; then
   if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
     echo "Killing daemon from lock file (PID: $LOCK_PID)"
     kill -9 "$LOCK_PID" 2>/dev/null || true
-    sleep 0.2
-    echo -e "${GREEN}✓ Daemon process killed${NC}"
+
+    # Wait for process to fully terminate (timeout: 5s)
+    if wait_for_process_exit "$LOCK_PID" 5; then
+      echo -e "${GREEN}✓ Daemon process killed and fully terminated${NC}"
+    else
+      echo -e "${YELLOW}⚠ Daemon process did not terminate after 5s, forcing cleanup${NC}"
+    fi
   fi
-  # Remove lock file after killing process
+
+  # Remove lock file AFTER confirmed process exit
   rm -f "$LOCK_FILE"
   echo -e "${GREEN}✓ Lock file removed${NC}"
 else
@@ -59,9 +98,15 @@ else
   DAEMON_PIDS=$(pgrep -f tmux-tui-daemon || true)
   if [ -n "$DAEMON_PIDS" ]; then
     echo "Killing stray daemon processes: $DAEMON_PIDS"
-    # TODO(#427): Verify kill success and report failures to user
-    echo "$DAEMON_PIDS" | xargs kill 2>/dev/null || true
-    sleep 0.3
+    echo "$DAEMON_PIDS" | xargs kill -9 2>/dev/null || true
+
+    # Wait for all processes to exit
+    for pid in $DAEMON_PIDS; do
+      if ! wait_for_process_exit "$pid" 5; then
+        echo -e "${YELLOW}⚠ Process $pid did not terminate after 5s${NC}"
+      fi
+    done
+
     echo -e "${GREEN}✓ Stray daemon processes killed${NC}"
   fi
 fi
@@ -74,7 +119,7 @@ if [ -S "$DAEMON_SOCKET" ]; then
 fi
 
 # Wait a moment for cleanup
-sleep 0.2
+sleep 0.1
 
 # Step 2: Rebuild binaries
 echo -e "\n${YELLOW}Step 2: Rebuilding binaries...${NC}"
@@ -88,7 +133,7 @@ echo -e "\n${YELLOW}Step 2.5: Starting daemon...${NC}"
 DAEMON_LOG="/tmp/claude/daemon-restart.log"
 "$PROJECT_ROOT/build/tmux-tui-daemon" >> "$DAEMON_LOG" 2>&1 &
 DAEMON_PID=$!
-sleep 0.5
+sleep 0.3
 
 # TODO(#427): Check both socket existence AND process running state (not just socket)
 if [ -S "$DAEMON_SOCKET" ]; then
