@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # restart-tui.sh - Restart tmux-tui daemon and all TUI panes for manual testing
 # This script rebuilds the binaries from the current branch and restarts everything
 

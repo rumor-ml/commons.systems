@@ -33,6 +33,10 @@
       url = "github:cachix/pre-commit-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    claude-code-nix = {
+      url = "github:sadjow/claude-code-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
@@ -53,6 +57,7 @@
       flake-utils,
       home-manager,
       pre-commit-hooks,
+      claude-code-nix,
     }:
     let
       # Per-system outputs
@@ -90,6 +95,10 @@
           # the callPackage mechanism while maintaining the same package list.
           #
           # TODO: Re-evaluate using modular approach once Nix fixes underlying issue
+          #
+          # NOTE: tmux and neovim are also configured in nix/home/ for Home Manager users.
+          # They are kept here for backwards compatibility with users who don't use Home Manager
+          # and for CI environments. This duplication is intentional during the migration period.
           commonPackages = with pkgs; [
             # Core tools
             bash
@@ -113,7 +122,8 @@
             air
             templ
             # Dev utilities
-            tmux
+            tmux # Also in nix/home/tmux.nix
+            neovim # Also in nix/home/tools.nix
           ];
 
           # CI shell with inlined packages (avoiding callPackage issues)
@@ -161,6 +171,7 @@
           # Apps for tool discovery and environment checking
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
           check-env = pkgs.callPackage ./nix/apps/check-env.nix { };
+          home-manager-setup = pkgs.callPackage ./nix/apps/home-manager-setup.nix { };
 
           # Development shell with custom packages added
           # Inlined to avoid callPackage segfault issue (see commit 72d9d78)
@@ -239,6 +250,10 @@
               type = "app";
               program = "${check-env}/bin/check-env";
             };
+            home-manager-setup = {
+              type = "app";
+              program = "${home-manager-setup}/bin/home-manager-setup";
+            };
           };
 
           devShells = {
@@ -253,33 +268,30 @@
       );
 
       # Home Manager configurations
-      # Creates username-based configurations for easy activation
+      # Provides configurations for all supported systems
       homeConfigurations =
         let
-          username = builtins.getEnv "USER";
           mkHomeConfig =
             system:
-            home-manager.lib.homeManagerConfiguration {
+            let
               pkgs = import nixpkgs {
                 inherit system;
                 config = {
                   allowUnfree = true;
                 };
+                overlays = [ claude-code-nix.overlays.default ];
               };
+            in
+            home-manager.lib.homeManagerConfiguration {
+              inherit pkgs;
               modules = [
                 ./nix/home/default.nix
               ];
             };
         in
-        {
-          # Primary config for current user (auto-detects system)
-          "${username}" = mkHomeConfig builtins.currentSystem;
-
-          # System-specific variants (e.g., "n8@aarch64-darwin")
-        }
-        // builtins.listToAttrs (
+        builtins.listToAttrs (
           map (system: {
-            name = "${username}@${system}";
+            name = system;
             value = mkHomeConfig system;
           }) flake-utils.lib.defaultSystems
         );

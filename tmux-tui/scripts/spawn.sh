@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # spawn.sh - Spawn tmux-tui in a 40-column left pane
 # Follows tmux-git-window-name pattern
 #
@@ -46,21 +46,17 @@ if ! (cd "$PROJECT_ROOT" && make build >/dev/null 2>&1); then
 fi
 
 # Start daemon if not already running
-# ONLY spawn from main branch or if TMUX_TUI_RESTART=1 (from restart-tui.sh)
+# Daemon has built-in singleton enforcement via lock file, safe to attempt from any worktree
 DAEMON_BIN="$PROJECT_ROOT/build/tmux-tui-daemon"
 if [ -f "$DAEMON_BIN" ]; then
-  # Check if this is main branch (~/commons.systems) or explicit restart
-  MAIN_BRANCH_DIR="$HOME/commons.systems/tmux-tui"
-  if [ "$PROJECT_ROOT" = "$MAIN_BRANCH_DIR" ] || [ "$TMUX_TUI_RESTART" = "1" ]; then
-    # Daemon auto-detects namespace from $TMUX
-    # It will exit immediately if already running (via lock file)
-    "$DAEMON_BIN" >> /tmp/claude/daemon-output.log 2>&1 &
-    DAEMON_PID=$!
-    sleep 0.3
-    # TODO(#427): Add tmux display message for daemon start failures (not just log to file)
-    if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
-      echo "$(date): ERROR: Daemon failed to start (check /tmp/claude/daemon-output.log)" >> /tmp/claude/spawn-debug.log
-    fi
+  # Daemon auto-detects namespace from $TMUX
+  # It will exit immediately if already running (via lock file)
+  "$DAEMON_BIN" >> /tmp/claude/daemon-output.log 2>&1 &
+  DAEMON_PID=$!
+  sleep 0.3
+  # TODO(#427): Add tmux display message for daemon start failures (not just log to file)
+  if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+    echo "$(date): ERROR: Daemon failed to start (check /tmp/claude/daemon-output.log)" >> /tmp/claude/spawn-debug.log
   fi
 fi
 
