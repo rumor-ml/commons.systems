@@ -5,6 +5,7 @@ This document outlines what's already automated and what additional automation o
 ## ✅ Already Automated
 
 ### Home Manager (User-Level)
+
 - ✅ **Git configuration** (`nix/home/git.nix`)
   - User identity, aliases, pull settings
 - ✅ **Tmux** (`nix/home/tmux.nix`)
@@ -19,10 +20,12 @@ This document outlines what's already automated and what additional automation o
   - Client configuration, agent, connection multiplexing
 
 ### NixOS System (System-Level)
+
 - ✅ **SSH server** (`nix/nixos/ssh-server.nix`)
   - Secure defaults, firewall, mDNS/Avahi
 
 ### Development Environment (Flake)
+
 - ✅ **Dev shell packages** (`flake.nix`)
   - Go, Node.js, pnpm, Docker, cloud tools
 - ✅ **Custom packages**
@@ -36,6 +39,7 @@ This document outlines what's already automated and what additional automation o
 **Current state:** `.zshrc` exists (33 lines) but not managed by Nix
 
 **What to automate:**
+
 ```nix
 programs.zsh = {
   enable = true;
@@ -77,11 +81,13 @@ programs.zsh = {
 ```
 
 **Benefits:**
+
 - Consistent shell environment across all machines
 - Automatic plugin management
 - Version-controlled aliases and functions
 
 **Migration path:**
+
 1. Create `nix/home/zsh.nix`
 2. Migrate your `.zshrc` content to Nix syntax
 3. Test with `home-manager switch`
@@ -94,6 +100,7 @@ programs.zsh = {
 **Current state:** `.config/gh/config.yml` exists with custom settings
 
 **What to automate:**
+
 ```nix
 programs.gh = {
   enable = true;
@@ -111,6 +118,7 @@ programs.gh = {
 ```
 
 **Benefits:**
+
 - Consistent gh config across machines
 - No manual setup after installing gh
 - Version-controlled aliases
@@ -122,6 +130,7 @@ programs.gh = {
 **Current state:** `.npmrc` exists with `prefix=/home/n8/.npm-global`
 
 **What to automate:**
+
 ```nix
 # In your home configuration
 home.file.".npmrc".text = ''
@@ -133,6 +142,7 @@ home.file.".npmrc".text = ''
 ```
 
 **Benefits:**
+
 - Consistent npm behavior
 - Automatic global package directory setup
 
@@ -143,6 +153,7 @@ home.file.".npmrc".text = ''
 **Current state:** No dev fonts detected
 
 **What to automate:**
+
 ```nix
 # In home.nix or dedicated fonts.nix
 home.packages = with pkgs; [
@@ -155,6 +166,7 @@ fonts.fontconfig.enable = true;
 ```
 
 **Benefits:**
+
 - Consistent terminal appearance
 - Icons in tmux, nvim, etc.
 - No manual font installation
@@ -168,6 +180,7 @@ fonts.fontconfig.enable = true;
 **Options:**
 
 **Option A: Full Nix Management**
+
 ```nix
 programs.neovim = {
   enable = true;
@@ -186,12 +199,14 @@ programs.neovim = {
 ```
 
 **Option B: Just Track the Files**
+
 ```nix
 # Symlink your existing config
 home.file.".config/nvim".source = ./nvim-config;
 ```
 
 **Benefits:**
+
 - Plugin management via Nix
 - Reproducible editor setup
 - Or just backup/restore existing config
@@ -203,6 +218,7 @@ home.file.".config/nvim".source = ./nvim-config;
 ### 6. Git Credential Helper - LOW PRIORITY
 
 **What to automate:**
+
 ```nix
 programs.git = {
   extraConfig = {
@@ -284,6 +300,7 @@ xdg = {
 **Current state:** `.zshenv` exists
 
 **What to automate:**
+
 ```nix
 # In your zsh.nix or home.nix
 home.sessionVariables = {
@@ -316,6 +333,7 @@ home.sessionPath = [
 **Current state:** `.config/gcloud` exists
 
 **What to automate:**
+
 ```nix
 # Google Cloud SDK with gcloud
 home.packages = [ pkgs.google-cloud-sdk ];
@@ -347,6 +365,7 @@ These should be managed separately, not in version control:
 - ❌ **Application secrets** (database passwords, etc.)
 
 **Instead, use:**
+
 - `pass` (password store) with Nix integration
 - `sops-nix` for encrypted secrets in Nix configs
 - `agenix` for age-encrypted secrets
@@ -357,16 +376,19 @@ These should be managed separately, not in version control:
 ## 📋 Recommended Implementation Order
 
 ### Phase 1: Shell & Core Tools (Highest Impact)
+
 1. ✅ **Zsh configuration** - Your primary interface
 2. ✅ **CLI tools package** - ripgrep, fd, bat, etc.
 3. ✅ **Development fonts** - Better terminal experience
 
 ### Phase 2: Developer Tools
+
 4. ✅ **GitHub CLI config**
 5. ✅ **NPM configuration**
 6. ✅ **Git credential helper**
 
 ### Phase 3: Advanced (Optional)
+
 7. ⚠️ **Neovim config management** (if desired)
 8. ⚠️ **Cloud CLI configs** (if needed)
 9. ⚠️ **XDG directory cleanup**

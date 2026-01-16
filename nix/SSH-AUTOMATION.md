@@ -7,9 +7,11 @@ This document describes the current SSH automation setup and opportunities for i
 ### ✅ What's Automated
 
 #### 1. SSH Client (Home Manager)
+
 **Location:** `nix/home/ssh.nix`
 
 **Features:**
+
 - ✅ SSH config file (`~/.ssh/config`) management
 - ✅ SSH agent as systemd service
 - ✅ Modern security defaults (Ed25519, ChaCha20-Poly1305)
@@ -18,6 +20,7 @@ This document describes the current SSH automation setup and opportunities for i
 - ✅ Sockets directory creation
 
 **What it manages:**
+
 ```
 ~/.ssh/config              # Generated from Nix
 ~/.ssh/sockets/            # Created automatically
@@ -25,6 +28,7 @@ SSH agent service          # Auto-started
 ```
 
 **What it doesn't manage:**
+
 ```
 ~/.ssh/id_*                # Private keys (manual)
 ~/.ssh/authorized_keys     # Public keys (manual)
@@ -32,9 +36,11 @@ SSH agent service          # Auto-started
 ```
 
 #### 2. SSH Server (NixOS System)
+
 **Location:** `nix/nixos/ssh-server.nix`
 
 **Features:**
+
 - ✅ OpenSSH server configuration
 - ✅ Security hardening (modern ciphers, no root login)
 - ✅ Firewall rules (port 22 open)
@@ -42,6 +48,7 @@ SSH agent service          # Auto-started
 - ✅ Host key generation (Ed25519 + RSA)
 
 **What it manages:**
+
 ```
 /etc/ssh/sshd_config       # Generated from Nix
 /etc/ssh/ssh_host_*_key    # Host keys
@@ -50,6 +57,7 @@ Firewall rules             # Port 22 allowed
 ```
 
 ### 📖 Documentation
+
 - `nix/home/SSH-SETUP.md` - Client setup guide
 - `nix/nixos/README.md` - Server module usage
 - `tmp/ssh-lan-access-guide.md` - LAN access quick start
@@ -98,11 +106,13 @@ in
 ```
 
 **Benefits:**
+
 - ✅ New machines get SSH keys automatically
 - ✅ Consistent key naming and types
 - ✅ No manual key generation needed
 
 **Considerations:**
+
 - ⚠️ Keys are generated locally (not synced)
 - ⚠️ You still need to manually add public keys to services
 - ⚠️ Consider if you want per-machine or shared keys
@@ -147,11 +157,13 @@ users.users.n8 = {
 ```
 
 **Benefits:**
+
 - ✅ Declarative key management
 - ✅ Version controlled
 - ✅ Consistent across machines
 
 **Considerations:**
+
 - ⚠️ Public keys in git repo (fine, they're public)
 - ⚠️ Need to update config when adding new devices
 - ⚠️ Less flexible than manual management
@@ -193,11 +205,13 @@ programs.ssh = {
 ```
 
 **Benefits:**
+
 - ✅ No "unknown host" prompts for known servers
 - ✅ Protection against MITM attacks
 - ✅ Consistent known_hosts across machines
 
 **How to get host keys:**
+
 ```bash
 ssh-keyscan github.com
 ssh-keyscan myserver.example.com
@@ -252,6 +266,7 @@ in
 ```
 
 **Workflow:**
+
 1. Generate key on new machine (or auto-generate with #1)
 2. Copy public key to `nix/ssh-keys/machines/newmachine.pub`
 3. Commit to repo
@@ -259,6 +274,7 @@ in
 5. All machines can now SSH to each other!
 
 **Benefits:**
+
 - ✅ One-time key addition
 - ✅ Automatic distribution to all machines
 - ✅ Central audit of all authorized keys
@@ -284,6 +300,7 @@ services.openssh.extraConfig = ''
 ```
 
 **Benefits:**
+
 - ✅ Single source of trust
 - ✅ Easy to issue/revoke certificates
 - ✅ Time-limited access (certificates expire)
@@ -321,6 +338,7 @@ sops = {
 Similar to sops-nix but uses age encryption.
 
 **Benefits:**
+
 - ✅ Encrypted secrets in git
 - ✅ Automated secret deployment
 - ✅ Can version control private keys (encrypted)
@@ -434,12 +452,14 @@ systemd.paths.update-dns-watcher = {
 ```
 
 **Benefits:**
+
 - ✅ Stable IP even when WSL2 IP changes
 - ✅ Works from anywhere (not just LAN)
 - ✅ End-to-end encrypted
 - ✅ No router configuration needed
 
 **SSH over Tailscale:**
+
 ```bash
 ssh n8@nixbox.tailnet-name.ts.net
 ```
@@ -474,16 +494,19 @@ in
 ## 🎯 Recommended Implementation Priority
 
 ### Phase 1: Immediate Wins (Do Now)
+
 1. ✅ **Multi-machine key distribution** - Central key repository
 2. ✅ **Tailscale integration** - Solve WSL2 IP changing
 3. ✅ **Known hosts for common services** - GitHub, GitLab, etc.
 
 ### Phase 2: Quality of Life (Soon)
+
 4. ✅ **Auto SSH key generation** - New machines get keys automatically
 5. ✅ **fail2ban** - Protect SSH from brute force
 6. ✅ **Declarative authorized_keys** - Manage access centrally
 
 ### Phase 3: Advanced (Later)
+
 7. ⚠️ **Secrets management** - Only if syncing private keys
 8. ⚠️ **SSH CA** - Only for large deployments
 9. ⚠️ **Port knocking** - Only if high security needed
@@ -552,6 +575,7 @@ ssh n8@$(tailscale ip -4)
 ## 🔍 Current vs. Future State
 
 ### Current State
+
 ```
 SSH Setup Automation: 65%
 
@@ -566,6 +590,7 @@ SSH Setup Automation: 65%
 ```
 
 ### Future State (After Improvements)
+
 ```
 SSH Setup Automation: 95%
 

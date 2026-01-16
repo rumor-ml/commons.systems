@@ -145,21 +145,25 @@ The repository includes comprehensive Nix-based automation for reproducible mach
 - **[macOS Setup with nix-darwin](nix/DARWIN-SETUP.md)** - Complete declarative macOS configuration
 
 #### SSH Configuration
+
 - **[SSH Client Setup](nix/home/SSH-SETUP.md)** - Home Manager SSH client configuration
 - **[SSH Server Module](nix/nixos/README.md)** - NixOS SSH server deployment
 - **[SSH Key Management](nix/ssh-keys/README.md)** - Central SSH key repository
 
 #### Tailscale VPN
+
 - **[NixOS Tailscale Module](nix/nixos/tailscale.nix)** - Tailscale for NixOS/WSL2
 - **[macOS Tailscale Module](nix/darwin/README.md)** - Tailscale for nix-darwin
 
 #### macOS Configuration
+
 - **[nix-darwin Setup Guide](nix/DARWIN-SETUP.md)** - Complete macOS setup with nix-darwin
 - **[nix-darwin Modules](nix/darwin/README.md)** - Available darwin modules and usage
 
 ### ⚙️ What's Automated
 
 **User-Level (Home Manager):**
+
 - Git configuration with auto-detected identity
 - Tmux with project-specific TUI integration
 - SSH client with agent and modern security defaults
@@ -167,12 +171,14 @@ The repository includes comprehensive Nix-based automation for reproducible mach
 - Claude Code CLI
 
 **System-Level (NixOS):**
+
 - SSH server with security hardening
 - Firewall configuration
 - mDNS/Avahi for hostname resolution
 - Tailscale VPN with mesh networking
 
 **System-Level (macOS via nix-darwin):**
+
 - Complete declarative system configuration
 - Tailscale VPN integration
 - macOS defaults (dock, finder, keyboard, trackpad)
@@ -180,6 +186,7 @@ The repository includes comprehensive Nix-based automation for reproducible mach
 - Home Manager integration
 
 **Development Environment:**
+
 - Language toolchains (Go, Node.js, pnpm)
 - Cloud tools (gcloud, terraform)
 - Custom packages (tmux-tui, MCP servers)

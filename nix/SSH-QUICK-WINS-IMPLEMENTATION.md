@@ -9,11 +9,13 @@ This document describes the three SSH automation quick wins that have been imple
 **Location:** `nix/home/ssh-authorized-keys.nix`
 
 **What it does:**
+
 - Centrally manages authorized SSH keys from `nix/ssh-keys/` directory
 - Automatically generates `~/.ssh/authorized_keys` on all machines
 - Enables easy access granting and revocation
 
 **Directory structure created:**
+
 ```
 nix/ssh-keys/
 ├── README.md                    # Usage documentation
@@ -26,6 +28,7 @@ nix/ssh-keys/
 **How to use:**
 
 **Add a new machine:**
+
 1. On the new machine, the key is auto-generated (see #2 below)
 2. Copy the public key: `cat ~/.ssh/id_ed25519.pub`
 3. Add to repo: `echo "ssh-ed25519 AAA..." > nix/ssh-keys/machines/newmachine.pub`
@@ -35,6 +38,7 @@ nix/ssh-keys/
 7. All machines can now SSH to each other!
 
 **Revoke access:**
+
 1. Remove the key file: `git rm nix/ssh-keys/machines/oldmachine.pub`
 2. Remove from list in `ssh-authorized-keys.nix`
 3. Commit, push, and rebuild on all machines
@@ -47,12 +51,14 @@ nix/ssh-keys/
 **Location:** `nix/home/ssh-keygen.nix`
 
 **What it does:**
+
 - Automatically generates Ed25519 SSH key on first Home Manager activation
 - Only generates if key doesn't already exist
 - Sets correct permissions automatically (600 for private, 644 for public)
 - Uses hostname-based comment for easy identification
 
 **How it works:**
+
 ```bash
 # On a new machine, after home-manager switch:
 # 1. Key is automatically generated at ~/.ssh/id_ed25519
@@ -62,6 +68,7 @@ nix/ssh-keys/
 ```
 
 **Manual generation disabled:**
+
 - No more `ssh-keygen` needed on new machines!
 - Consistent key type (Ed25519) across all machines
 - Automatic permission fixing
@@ -73,6 +80,7 @@ nix/ssh-keys/
 **Location:** `nix/nixos/tailscale.nix`
 
 **What it does:**
+
 - Provides stable VPN networking between your machines
 - Solves WSL2 IP address changing problem
 - Enables remote access without port forwarding
@@ -81,6 +89,7 @@ nix/ssh-keys/
 **Setup required:**
 
 1. **Import the module** in `/etc/nixos/configuration.nix`:
+
    ```nix
    imports = [
      /path/to/repo/nix/nixos/tailscale.nix
@@ -88,23 +97,27 @@ nix/ssh-keys/
    ```
 
 2. **Rebuild the system:**
+
    ```bash
    sudo nixos-rebuild switch
    ```
 
 3. **Authenticate with Tailscale:**
+
    ```bash
    sudo tailscale up
    # Follow the URL to authenticate
    ```
 
 4. **Get your stable IP:**
+
    ```bash
    tailscale ip -4
    # Example: 100.64.1.2
    ```
 
 5. **SSH using Tailscale:**
+
    ```bash
    # Using IP
    ssh n8@100.64.1.2
@@ -114,6 +127,7 @@ nix/ssh-keys/
    ```
 
 **Benefits:**
+
 - ✅ IP never changes (even on WSL2 restart!)
 - ✅ Works from anywhere (coffee shop, office, home)
 - ✅ No router configuration needed
@@ -139,6 +153,7 @@ home-manager switch --flake .#x86_64-linux
 ```
 
 **What will happen:**
+
 1. If you don't have `~/.ssh/id_ed25519`, one will be generated
 2. Your `~/.ssh/authorized_keys` will be updated with keys from `nix/ssh-keys/`
 3. Correct permissions will be set automatically
@@ -148,6 +163,7 @@ home-manager switch --flake .#x86_64-linux
 The Tailscale module is created but NOT automatically imported. To enable:
 
 **Option 1: Import in your system config**
+
 ```bash
 # Edit your system configuration
 sudo nvim /etc/nixos/configuration.nix
@@ -165,6 +181,7 @@ sudo tailscale up
 ```
 
 **Option 2: Manual Tailscale installation** (if you prefer)
+
 ```bash
 # Install without the module
 sudo nix-env -iA nixos.tailscale
@@ -225,6 +242,7 @@ ssh n8@$(tailscale ip -4)
 ## Before and After
 
 ### Before: Manual SSH Setup
+
 ```
 New machine setup:
 1. ssh-keygen -t ed25519              # Manual key generation
@@ -238,6 +256,7 @@ Errors: Frequent (permissions, typos, forgotten steps)
 ```
 
 ### After: Automated SSH Setup
+
 ```
 New machine setup:
 1. home-manager switch                # Keys auto-generated
@@ -253,20 +272,21 @@ Errors: None (declarative config)
 
 ## Improvement Metrics
 
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| **Setup Time** | 30 min | 5 min | **83% faster** |
-| **Manual Steps** | 5+ | 2 | **60% fewer** |
-| **Error Prone** | High | Low | **Much safer** |
-| **IP Stability (WSL2)** | Changes often | Never changes | **100% stable** |
-| **Key Distribution** | Manual `ssh-copy-id` | Automatic | **Fully automated** |
-| **Access Revocation** | Edit each machine | One commit | **Centralized** |
+| Metric                  | Before               | After         | Improvement         |
+| ----------------------- | -------------------- | ------------- | ------------------- |
+| **Setup Time**          | 30 min               | 5 min         | **83% faster**      |
+| **Manual Steps**        | 5+                   | 2             | **60% fewer**       |
+| **Error Prone**         | High                 | Low           | **Much safer**      |
+| **IP Stability (WSL2)** | Changes often        | Never changes | **100% stable**     |
+| **Key Distribution**    | Manual `ssh-copy-id` | Automatic     | **Fully automated** |
+| **Access Revocation**   | Edit each machine    | One commit    | **Centralized**     |
 
 ---
 
 ## Next Steps for Full Automation
 
 ### Now Automated (65% → 90%)
+
 - ✅ SSH key generation
 - ✅ SSH key distribution
 - ✅ Stable networking (Tailscale)
@@ -274,11 +294,13 @@ Errors: None (declarative config)
 - ✅ Server configuration
 
 ### Still Manual (Remaining 10%)
+
 - ⚠️ Tailscale authentication (requires browser auth once)
 - ⚠️ Initial Tailscale setup (one-time per machine)
 - ⚠️ Adding public keys to repo (must be manual for new machines)
 
 ### Future Enhancements
+
 - Known hosts pre-population for common services
 - fail2ban integration for security
 - SSH CA for large deployments
@@ -289,6 +311,7 @@ Errors: None (declarative config)
 ## Files Created/Modified
 
 ### New Files
+
 ```
 nix/home/ssh-keygen.nix               # Auto key generation
 nix/home/ssh-authorized-keys.nix      # Central key management
@@ -299,6 +322,7 @@ nix/SSH-QUICK-WINS-IMPLEMENTATION.md  # This file
 ```
 
 ### Modified Files
+
 ```
 nix/home/default.nix                  # Added new module imports
 nix/nixos/README.md                   # Added Tailscale docs
@@ -311,6 +335,7 @@ nix/nixos/README.md                   # Added Tailscale docs
 ### Key Not Auto-Generated?
 
 Check Home Manager activation output:
+
 ```bash
 home-manager switch --flake .#x86_64-linux --show-trace
 ```
@@ -320,11 +345,13 @@ Look for "Generating SSH key at..." message.
 ### Authorized Keys Not Updated?
 
 Verify the module is imported:
+
 ```bash
 grep ssh-authorized-keys nix/home/default.nix
 ```
 
 Check the keys are readable:
+
 ```bash
 ls -la nix/ssh-keys/machines/
 cat nix/ssh-keys/machines/wsl-nix.pub
@@ -333,6 +360,7 @@ cat nix/ssh-keys/machines/wsl-nix.pub
 ### Tailscale Not Working?
 
 Check service status:
+
 ```bash
 sudo systemctl status tailscaled
 
@@ -344,12 +372,14 @@ sudo tailscale up
 ### Permission Denied on SSH?
 
 Check key permissions:
+
 ```bash
 ls -la ~/.ssh/
 # Private keys should be 600, public keys 644, directory 700
 ```
 
 Check authorized_keys:
+
 ```bash
 cat ~/.ssh/authorized_keys
 # Should contain your public key

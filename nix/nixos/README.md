@@ -9,6 +9,7 @@ This directory contains NixOS system-level configuration modules that can be imp
 Configures OpenSSH server with secure defaults for remote access.
 
 **Features:**
+
 - Modern security settings (Ed25519 keys, secure ciphers)
 - Password authentication enabled by default (disable after SSH key setup)
 - Firewall configuration
@@ -20,6 +21,7 @@ Configures OpenSSH server with secure defaults for remote access.
 Provides secure VPN networking with stable IP addresses (perfect for WSL2).
 
 **Features:**
+
 - Stable IP addresses that persist across restarts
 - Encrypted peer-to-peer connections
 - Works from anywhere (not just LAN)
@@ -28,6 +30,7 @@ Provides secure VPN networking with stable IP addresses (perfect for WSL2).
 - Firewall pre-configured
 
 **Setup after enabling:**
+
 ```bash
 sudo nixos-rebuild switch
 sudo tailscale up
@@ -41,11 +44,13 @@ tailscale ip -4  # Get your stable Tailscale IP
 On your new NixOS machine:
 
 1. Clone this repository:
+
    ```bash
    git clone <your-repo-url> ~/repos/commons
    ```
 
 2. Edit `/etc/nixos/configuration.nix` and add to imports:
+
    ```nix
    { config, lib, pkgs, ... }:
    {
@@ -67,6 +72,7 @@ On your new NixOS machine:
 If using flakes for your system configuration:
 
 1. Add this repo as a flake input in your system `flake.nix`:
+
    ```nix
    {
      inputs = {
@@ -93,6 +99,7 @@ sudo cp nix/nixos/ssh-server.nix /etc/nixos/
 ```
 
 Then import it:
+
 ```nix
 imports = [ ./ssh-server.nix ];
 ```
@@ -148,16 +155,19 @@ After you've added your SSH keys and confirmed key-based login works:
 To integrate your current `/etc/nixos/configuration.nix` with this module:
 
 1. **Back up your current config:**
+
    ```bash
    sudo cp /etc/nixos/configuration.nix /etc/nixos/configuration.nix.backup
    ```
 
 2. **Edit your configuration:**
+
    ```bash
    sudo nvim /etc/nixos/configuration.nix
    ```
 
 3. **Add the import and remove the inline openssh config:**
+
    ```nix
    { config, lib, pkgs, ... }:
    {

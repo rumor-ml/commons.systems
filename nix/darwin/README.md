@@ -35,6 +35,7 @@ tailscale ip -4  # Save this IP!
 4. **Restart your shell** and you're done!
 
 **What you get:**
+
 - ✅ Declarative system configuration
 - ✅ Tailscale VPN with stable networking
 - ✅ Home Manager integration (uses `../home` config)
@@ -68,6 +69,7 @@ Then import individual modules as shown below.
 Provides secure VPN networking with stable IP addresses for macOS clients.
 
 **Features:**
+
 - Automated Tailscale service installation and startup
 - Works seamlessly with nix-darwin
 - Simple CLI configuration
@@ -80,6 +82,7 @@ Provides secure VPN networking with stable IP addresses for macOS clients.
 On your macOS machine, add to your nix-darwin configuration:
 
 **For standalone configuration** (`~/.nixpkgs/darwin-configuration.nix`):
+
 ```nix
 { config, pkgs, ... }:
 
@@ -93,6 +96,7 @@ On your macOS machine, add to your nix-darwin configuration:
 ```
 
 **For flake-based configuration:**
+
 ```nix
 # In your darwin configuration flake.nix
 {
@@ -123,6 +127,7 @@ cp nix/darwin/tailscale.nix ~/.nixpkgs/modules/
 ```
 
 Then import it:
+
 ```nix
 imports = [ ./modules/tailscale.nix ];
 ```
@@ -232,6 +237,7 @@ programs.ssh.matchBlocks = {
 ```
 
 Or manually:
+
 ```
 Host nixos
     HostName nixos.your-tailnet.ts.net
@@ -243,6 +249,7 @@ Host *.ts.net
 ```
 
 Then connect with just:
+
 ```bash
 ssh nixos
 ```

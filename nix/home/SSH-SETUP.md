@@ -20,6 +20,7 @@ home-manager switch --flake .#x86_64-linux
 ```
 
 Replace `x86_64-linux` with your system type:
+
 - Linux (x86_64): `x86_64-linux`
 - Linux (ARM): `aarch64-linux`
 - macOS (Intel): `x86_64-darwin`
@@ -66,17 +67,20 @@ ssh -T git@github.com
 Your SSH configuration includes:
 
 ✅ **Security-focused defaults**:
+
 - Modern ciphers (ChaCha20-Poly1305, AES-GCM)
 - Modern key exchange algorithms (Curve25519)
 - SHA-2 based MACs
 - Ed25519 and RSA-SHA2 host keys only
 
 ✅ **Performance optimizations**:
+
 - Connection multiplexing (ControlMaster)
 - Connection persistence (10 minutes)
 - Connection keep-alive
 
 ✅ **SSH Agent**:
+
 - Automatically started as a systemd user service
 - Manages your keys securely in memory
 
@@ -175,11 +179,13 @@ ssh prod
 After editing `nix/home/ssh.nix`:
 
 1. The file is tracked by git in the flake, so you need to stage changes:
+
    ```bash
    git add nix/home/ssh.nix
    ```
 
 2. Apply the new configuration:
+
    ```bash
    home-manager switch --flake .#x86_64-linux
    ```
@@ -205,11 +211,13 @@ systemctl --user start ssh-agent
 ### Permission Denied (publickey)
 
 1. Verify your key is loaded:
+
    ```bash
    ssh-add -l
    ```
 
 2. Add your key if missing:
+
    ```bash
    ssh-add ~/.ssh/id_ed25519
    ```
@@ -261,6 +269,7 @@ Once activated, Home Manager manages:
 If you have an existing `~/.ssh/config`:
 
 1. **Back it up first**:
+
    ```bash
    cp ~/.ssh/config ~/.ssh/config.backup
    ```
@@ -268,6 +277,7 @@ If you have an existing `~/.ssh/config`:
 2. **Convert your hosts** to Nix format in `ssh.nix`
 
 3. **Test the configuration** before removing your backup:
+
    ```bash
    ssh -F ~/.ssh/config your-host
    ```

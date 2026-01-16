@@ -79,6 +79,7 @@ All done! Your macOS machine is now fully configured and can securely connect to
 ## What You Get
 
 ### System Configuration
+
 - ✅ **Tailscale VPN** - Secure networking with stable IPs
 - ✅ **macOS Defaults** - Sensible system settings
   - Dock auto-hide, no recent apps
@@ -91,7 +92,9 @@ All done! Your macOS machine is now fully configured and can securely connect to
 - ✅ **Fonts** - GeistMono, Hack, FiraCode Nerd Fonts
 
 ### Home Manager Integration
+
 The configuration automatically uses the Home Manager config from `../home`, giving you:
+
 - Git configuration
 - SSH client with modern security
 - Tmux configuration
@@ -99,6 +102,7 @@ The configuration automatically uses the Home Manager config from `../home`, giv
 - All your dotfiles
 
 ### Nix Configuration
+
 - ✅ Flakes and nix-command enabled
 - ✅ Auto garbage collection (weekly, 30-day retention)
 - ✅ Trusted users configured
@@ -211,12 +215,14 @@ tailscale netcheck
 If you have existing Home Manager config, it may conflict. Options:
 
 1. **Remove old Home Manager** (recommended):
+
 ```bash
 home-manager uninstall
 # Then use integrated version via nix-darwin
 ```
 
 2. **Disable integration** in `nix/darwin/flake.nix`:
+
 ```nix
 # Comment out the home-manager module section
 ```
@@ -291,6 +297,7 @@ darwin-rebuild switch --flake ~/.config/nix-darwin#macbook
    - Dock behavior
 
 4. **Keep it updated**:
+
 ```bash
 # Update flake inputs
 cd ~/path/to/commons.systems

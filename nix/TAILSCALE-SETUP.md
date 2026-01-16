@@ -5,6 +5,7 @@ This guide walks you through setting up Tailscale VPN on both your NixOS server 
 ## What is Tailscale?
 
 Tailscale creates a secure mesh VPN between your devices using WireGuard. It's perfect for:
+
 - **WSL2 environments** - Solves IP address changing issues
 - **Remote access** - SSH from anywhere (coffee shop, office, home)
 - **Zero configuration** - No port forwarding or router setup needed
@@ -14,6 +15,7 @@ Tailscale creates a secure mesh VPN between your devices using WireGuard. It's p
 ## Overview
 
 We'll set up:
+
 1. **NixOS (WSL2/Server)** - Using `nix/nixos/tailscale.nix`
 2. **macOS (Client)** - Using `nix/darwin/tailscale.nix`
 3. **SSH Configuration** - Automated connection setup
@@ -29,6 +31,7 @@ sudo nvim /etc/nixos/configuration.nix
 ```
 
 **Add to imports:**
+
 ```nix
 { config, pkgs, ... }:
 
@@ -49,6 +52,7 @@ sudo nixos-rebuild switch
 ```
 
 **Expected output:**
+
 - Tailscale service will be installed
 - Firewall rules will be configured
 - Service will be enabled
@@ -64,6 +68,7 @@ sudo tailscale up
 ```
 
 **In your browser:**
+
 1. Open the URL
 2. Sign in with Google, Microsoft, or email
 3. Authorize the device
@@ -173,6 +178,7 @@ sudo tailscale up
 ```
 
 **In your browser:**
+
 1. Authenticate with the same account as NixOS
 2. Authorize this device
 3. Your machines are now on the same network!
@@ -248,6 +254,7 @@ programs.ssh = {
 ```
 
 **Rebuild:**
+
 ```bash
 home-manager switch --flake .#x86_64-linux --impure
 ```
@@ -336,6 +343,7 @@ The magic of Tailscale is it works from anywhere!
 Use NixOS as a VPN gateway:
 
 **On NixOS:**
+
 ```bash
 # Advertise as exit node
 sudo tailscale up --advertise-exit-node
@@ -344,6 +352,7 @@ sudo tailscale up --advertise-exit-node
 ```
 
 **On macOS:**
+
 ```bash
 # Route all traffic through NixOS
 sudo tailscale up --exit-node=nixos
@@ -357,11 +366,13 @@ sudo tailscale up --exit-node=""
 Share a network through a machine:
 
 **On NixOS (if it has access to a 192.168.1.0/24 network):**
+
 ```bash
 sudo tailscale up --advertise-routes=192.168.1.0/24
 ```
 
 **Enable in Tailscale admin console:**
+
 - Go to https://login.tailscale.com/admin/machines
 - Click on the machine
 - Enable "Subnet routes"
@@ -399,11 +410,13 @@ ssh-copy-id n8@nixos
 ### Viewing Logs
 
 **NixOS:**
+
 ```bash
 sudo journalctl -u tailscaled -f
 ```
 
 **macOS:**
+
 ```bash
 log stream --predicate 'subsystem == "com.tailscale"'
 ```
@@ -411,12 +424,14 @@ log stream --predicate 'subsystem == "com.tailscale"'
 ### Updating Tailscale
 
 **NixOS:**
+
 ```bash
 # Update nixpkgs, then rebuild
 sudo nixos-rebuild switch --upgrade
 ```
 
 **macOS:**
+
 ```bash
 # Update with nix-darwin
 darwin-rebuild switch --upgrade
@@ -425,12 +440,14 @@ darwin-rebuild switch --upgrade
 ### Managing Devices
 
 **Web Admin Console:**
+
 - Visit: https://login.tailscale.com/admin/machines
 - View all devices
 - Disable/remove devices
 - Configure sharing and access
 
 **CLI:**
+
 ```bash
 # List all devices
 tailscale status
@@ -468,6 +485,7 @@ tailscale netcheck
 ### WSL2 IP still changing
 
 This is fine! Use Tailscale IP instead:
+
 ```bash
 # Don't use: ssh n8@192.168.12.228
 # Use this: ssh n8@100.64.1.2
@@ -476,6 +494,7 @@ This is fine! Use Tailscale IP instead:
 ### Firewall blocking
 
 **NixOS:**
+
 ```bash
 # Check firewall
 sudo iptables -L -n | grep tailscale
@@ -486,6 +505,7 @@ sudo systemctl status tailscaled
 
 **macOS:**
 Usually no issues, but if needed:
+
 ```bash
 # Check firewall
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
