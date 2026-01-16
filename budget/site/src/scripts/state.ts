@@ -77,46 +77,37 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
 }
 
 /**
+ * Application view type
+ */
+export type ViewType = 'main' | 'planning';
+
+/**
+ * Bar aggregation for chart display
+ */
+export type BarAggregation = 'monthly' | 'weekly';
+
+/**
  * Budget application state (persisted to localStorage)
  * @property hiddenCategories - Categories hidden in visualization
  * @property showVacation - Whether to include vacation spending
  * @property budgetPlan - User's budget configuration (null = no budget set)
- * @property viewGranularity - Time aggregation level for historic view
- * @property selectedWeek - Specific week for week view, or null to show current week.
- *   null = components call getCurrentWeek() on each render (ensures "current week" stays current across days)
- *   Non-null = user has navigated to a specific historical week (persisted for session continuity)
- *   INVARIANT: Enforced via discriminated union type:
- *   - viewGranularity='month' → selectedWeek MUST be null
- *   - viewGranularity='week' → selectedWeek MAY be null (current week) or WeekId (specific week)
- * @property planningMode - Whether budget plan editor is visible
+ * @property currentView - Current application view ('main' or 'planning')
+ * @property dateRangeStart - Start date for date range filter (YYYY-MM-DD, null = no start limit)
+ * @property dateRangeEnd - End date for date range filter (YYYY-MM-DD, null = no end limit)
+ * @property barAggregation - Time aggregation for chart bars ('monthly' or 'weekly')
+ * @property visibleIndicators - Set of category indicators visible on chart (empty = none visible)
+ * @property showNetIncomeIndicator - Whether to show the net income indicator line
  */
-export type BudgetState = {
+export interface BudgetState {
   readonly hiddenCategories: readonly Category[];
   readonly showVacation: boolean;
   readonly budgetPlan: BudgetPlan | null;
-  readonly planningMode: boolean;
-} & (
-  | { readonly viewGranularity: 'month'; readonly selectedWeek: null }
-  | { readonly viewGranularity: 'week'; readonly selectedWeek: WeekId | null }
-);
-
-/**
- * Creates a BudgetState for month view (selectedWeek must be null).
- */
-export function createMonthViewState(
-  base: Omit<BudgetState, 'viewGranularity' | 'selectedWeek'>
-): BudgetState {
-  return { ...base, viewGranularity: 'month' as const, selectedWeek: null };
-}
-
-/**
- * Creates a BudgetState for week view (selectedWeek can be WeekId | null).
- */
-export function createWeekViewState(
-  base: Omit<BudgetState, 'viewGranularity' | 'selectedWeek'>,
-  selectedWeek: WeekId | null
-): BudgetState {
-  return { ...base, viewGranularity: 'week' as const, selectedWeek };
+  readonly currentView: ViewType;
+  readonly dateRangeStart: string | null;
+  readonly dateRangeEnd: string | null;
+  readonly barAggregation: BarAggregation;
+  readonly visibleIndicators: readonly Category[];
+  readonly showNetIncomeIndicator: boolean;
 }
 
 export class StateManager {
@@ -181,9 +172,12 @@ export class StateManager {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       };
 
       if (!stored) {
@@ -205,6 +199,15 @@ export class StateManager {
         };
       }
 
+      // TODO(2026-07): Remove planningMode migration (added 2026-01).
+      // Migration: Convert old planningMode to currentView
+      let currentView: ViewType = 'main';
+      if ('planningMode' in parsed) {
+        currentView = parsed.planningMode === true ? 'planning' : 'main';
+      } else if (parsed.currentView === 'planning' || parsed.currentView === 'main') {
+        currentView = parsed.currentView;
+      }
+
       // Validate and filter hiddenCategories
       let hiddenCategories: Category[] = [];
       if (Array.isArray(parsed.hiddenCategories)) {
@@ -216,36 +219,45 @@ export class StateManager {
       // Validate budgetPlan structure
       const budgetPlan = validateBudgetPlan(parsed);
 
-      // Validate viewGranularity
-      const viewGranularity: TimeGranularity =
-        parsed.viewGranularity === 'week' || parsed.viewGranularity === 'month'
-          ? parsed.viewGranularity
-          : 'month';
+      // Validate dateRangeStart and dateRangeEnd
+      const dateRangeStart =
+        typeof parsed.dateRangeStart === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dateRangeStart)
+          ? parsed.dateRangeStart
+          : null;
 
-      // Validate selectedWeek
-      let selectedWeek: WeekId | null = null;
-      if (typeof parsed.selectedWeek === 'string') {
-        selectedWeek = parseWeekId(parsed.selectedWeek);
+      const dateRangeEnd =
+        typeof parsed.dateRangeEnd === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dateRangeEnd)
+          ? parsed.dateRangeEnd
+          : null;
+
+      // Validate barAggregation
+      const barAggregation: BarAggregation =
+        parsed.barAggregation === 'weekly' || parsed.barAggregation === 'monthly'
+          ? parsed.barAggregation
+          : 'monthly';
+
+      // Validate visibleIndicators
+      let visibleIndicators: Category[] = [];
+      if (Array.isArray(parsed.visibleIndicators)) {
+        visibleIndicators = parsed.visibleIndicators.filter((cat: string) =>
+          CATEGORIES.includes(cat as Category)
+        ) as Category[];
       }
 
-      // Enforce invariant: selectedWeek must be null when viewGranularity is 'month'
-      if (viewGranularity === 'month' && selectedWeek !== null) {
-        selectedWeek = null;
-      }
+      // Validate showNetIncomeIndicator
+      const showNetIncomeIndicator = parsed.showNetIncomeIndicator !== false;
 
-      // Return properly typed discriminated union based on viewGranularity
-      const baseState = {
+      return {
         hiddenCategories,
         showVacation: parsed.showVacation ?? true,
         budgetPlan,
-        planningMode: parsed.planningMode === true,
+        currentView,
+        dateRangeStart,
+        dateRangeEnd,
+        barAggregation,
+        visibleIndicators,
+        showNetIncomeIndicator,
       };
-
-      if (viewGranularity === 'month') {
-        return createMonthViewState(baseState);
-      } else {
-        return createWeekViewState(baseState, selectedWeek);
-      }
     } catch (error) {
       // TODO: Distinguish between error types (JSON parse, localStorage access, validation) and provide specific user guidance
       console.error('Failed to load state from localStorage:', error);
@@ -259,9 +271,12 @@ export class StateManager {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       };
     }
   }
@@ -269,36 +284,11 @@ export class StateManager {
   static save(state: Partial<BudgetState>): BudgetState {
     const current = this.load();
 
-    // Build updated state with proper type narrowing for discriminated union
-    let updated: BudgetState;
-
-    // Determine the target viewGranularity (from update or current)
-    const targetGranularity = state.viewGranularity ?? current.viewGranularity;
-
-    if (targetGranularity === 'month') {
-      // Month mode: selectedWeek must be null (discriminated union constraint)
-      updated = {
-        ...current,
-        ...state,
-        viewGranularity: 'month',
-        selectedWeek: null,
-      };
-    } else {
-      // Week mode: selectedWeek can be WeekId | null
-      const selectedWeek =
-        state.selectedWeek !== undefined
-          ? state.selectedWeek
-          : current.viewGranularity === 'week'
-            ? current.selectedWeek
-            : null;
-
-      updated = {
-        ...current,
-        ...state,
-        viewGranularity: 'week',
-        selectedWeek,
-      };
-    }
+    // Build updated state by merging current and provided state
+    const updated: BudgetState = {
+      ...current,
+      ...state,
+    };
 
     try {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updated));

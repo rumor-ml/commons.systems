@@ -485,3 +485,13 @@ export function createCashFlowPrediction(
     variance,
   };
 }
+
+/**
+ * Historic average for a specific category
+ * @property category - The budget category
+ * @property averageWeekly - Average weekly amount for this category
+ */
+export interface CategoryHistoricAverage {
+  readonly category: Category;
+  readonly averageWeekly: number;
+}

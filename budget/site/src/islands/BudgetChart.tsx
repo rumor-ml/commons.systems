@@ -7,24 +7,18 @@ import {
   Category,
   TooltipData,
   QualifierBreakdown,
-  TimeGranularity,
-  WeekId,
   BudgetPlan,
   createQualifierBreakdown,
 } from './types';
 import { CATEGORY_COLORS } from './constants';
 import { SegmentTooltip } from './SegmentTooltip';
 import {
-  aggregateTransactionsByWeek,
-  calculateWeeklyComparison,
-  getCurrentWeek,
-} from '../scripts/weeklyAggregation';
-import {
   updateQualifierBreakdown,
   filterTransactions,
   getDisplayAmount,
   partitionByIncome,
 } from './qualifierUtils';
+import { dispatchBudgetEvent } from '../utils/events';
 
 /**
  * Render an empty state message in the chart container.
@@ -39,23 +33,34 @@ function renderEmptyState(container: HTMLElement, message: string): void {
 
 /**
  * Transform transactions to monthly aggregates with qualifier tracking.
- * Filters out transfers and applies category/vacation filters.
+ * Filters out transfers and applies category/vacation/date range filters.
  * @returns Object containing monthlyData, netIncomeData, and trailingAvgData
  */
 function transformToMonthlyData(
   transactions: Transaction[],
   hiddenSet: Set<Category>,
-  showVacation: boolean
+  showVacation: boolean,
+  dateRangeStart: string | null = null,
+  dateRangeEnd: string | null = null
 ): {
   monthlyData: MonthlyData[];
   netIncomeData: { month: Date; netIncome: number }[];
   trailingAvgData: { month: Date; trailingAvg: number }[];
 } {
   // Filter out transfers and apply filters
-  const filteredTransactions = filterTransactions(transactions, {
+  let filteredTransactions = filterTransactions(transactions, {
     hiddenCategories: hiddenSet,
     showVacation,
   });
+
+  // Apply date range filter
+  if (dateRangeStart || dateRangeEnd) {
+    filteredTransactions = filteredTransactions.filter((txn) => {
+      if (dateRangeStart && txn.date < dateRangeStart) return false;
+      if (dateRangeEnd && txn.date > dateRangeEnd) return false;
+      return true;
+    });
+  }
 
   // Transform to monthly aggregates with qualifier tracking
   const monthlyMap = new Map<
@@ -168,6 +173,127 @@ function transformToMonthlyData(
 }
 
 /**
+ * Transform monthly data to weekly bars for aggregation.
+ * Groups transactions by ISO week and category.
+ */
+function transformToWeeklyBars(monthlyData: MonthlyData[]): MonthlyData[] {
+  // Group by ISO week (YYYY-Www format)
+  const weeklyMap = new Map<string, Map<Category, { amount: number; qualifiers: QualifierBreakdown }>>();
+
+  monthlyData.forEach((item) => {
+    const date = new Date(item.month + '-01');
+    const year = date.getFullYear();
+    const week = d3.utcWeek.count(d3.utcYear(date), date);
+    const weekKey = `${year}-W${String(week).padStart(2, '0')}`;
+
+    if (!weeklyMap.has(weekKey)) {
+      weeklyMap.set(weekKey, new Map());
+    }
+
+    const categoryMap = weeklyMap.get(weekKey)!;
+    const current = categoryMap.get(item.category) || {
+      amount: 0,
+      qualifiers: createQualifierBreakdown(),
+    };
+
+    current.amount += item.amount;
+    // Merge qualifiers
+    Object.keys(item.qualifiers).forEach((key) => {
+      const qualKey = key as keyof QualifierBreakdown;
+      if (typeof item.qualifiers[qualKey] === 'number') {
+        (current.qualifiers[qualKey] as number) += item.qualifiers[qualKey] as number;
+      }
+    });
+
+    categoryMap.set(item.category, current);
+  });
+
+  // Convert back to array format
+  const weeklyData: MonthlyData[] = [];
+  weeklyMap.forEach((categoryMap, weekKey) => {
+    categoryMap.forEach((data, category) => {
+      weeklyData.push({
+        month: weekKey,
+        category,
+        amount: data.amount,
+        isIncome: data.amount > 0,
+        qualifiers: data.qualifiers,
+      });
+    });
+  });
+
+  return weeklyData.sort((a, b) => a.month.localeCompare(b.month));
+}
+
+/**
+ * Calculate indicator lines for each category's budget performance.
+ * Returns data for actual spending, trailing average, and budget target lines.
+ */
+function calculateIndicatorLines(
+  transactions: Transaction[],
+  budgetPlan: BudgetPlan,
+  visibleIndicators: readonly Category[],
+  hiddenCategories: Set<Category>,
+  showVacation: boolean
+): {
+  actualLines: { month: string; category: Category; amount: number }[];
+  trailingLines: { month: string; category: Category; amount: number }[];
+  targetLines: { month: string; category: Category; amount: number }[];
+} {
+  const actualLines: { month: string; category: Category; amount: number }[] = [];
+  const trailingLines: { month: string; category: Category; amount: number }[] = [];
+  const targetLines: { month: string; category: Category; amount: number }[] = [];
+
+  // Only process visible indicators
+  visibleIndicators.forEach((category) => {
+    if (hiddenCategories.has(category)) return;
+
+    const budget = budgetPlan.categoryBudgets[category];
+    if (!budget) return;
+
+    // Filter transactions for this category
+    const categoryTransactions = transactions.filter(
+      (t) =>
+        t.category === category &&
+        !t.transfer &&
+        (showVacation || !t.vacation)
+    );
+
+    // Group by month and calculate actual spending
+    const monthlyAmounts = new Map<string, number>();
+    categoryTransactions.forEach((t) => {
+      const month = t.date.substring(0, 7);
+      const current = monthlyAmounts.get(month) || 0;
+      monthlyAmounts.set(month, current + getDisplayAmount(t));
+    });
+
+    // Sort months
+    const sortedMonths = Array.from(monthlyAmounts.keys()).sort();
+
+    // Calculate lines for each month
+    sortedMonths.forEach((month, idx) => {
+      const amount = monthlyAmounts.get(month) || 0;
+
+      // Actual spending line
+      actualLines.push({ month, category, amount });
+
+      // Budget target line (weekly target * ~4.33 weeks per month)
+      const monthlyTarget = budget.weeklyTarget * 4.33;
+      targetLines.push({ month, category, amount: monthlyTarget });
+
+      // 3-period trailing average
+      const start = Math.max(0, idx - 2);
+      const slice = sortedMonths.slice(start, idx + 1);
+      const values = slice.map((m) => monthlyAmounts.get(m) || 0);
+      const avg = d3.mean(values) || 0;
+      trailingLines.push({ month, category, amount: avg });
+    });
+  });
+
+  return { actualLines, trailingLines, targetLines };
+}
+
+/**
  * Render monthly stacked bar chart with trend lines.
  * @returns Object containing plot element and partitioned data
  */
@@ -175,7 +301,13 @@ function renderMonthlyChart(
   container: HTMLElement,
   monthlyData: MonthlyData[],
   netIncomeData: { month: Date; netIncome: number }[],
-  trailingAvgData: { month: Date; trailingAvg: number }[]
+  trailingAvgData: { month: Date; trailingAvg: number }[],
+  indicatorLines: {
+    actualLines: { month: string; category: Category; amount: number }[];
+    trailingLines: { month: string; category: Category; amount: number }[];
+    targetLines: { month: string; category: Category; amount: number }[];
+  },
+  showNetIncomeIndicator: boolean
 ): { plot: Element; expenseData: MonthlyData[]; incomeData: MonthlyData[] } {
   // Partition data once for both plot rendering and event listeners
   const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
@@ -231,23 +363,71 @@ function renderMonthlyChart(
         })
       ),
 
-      // Net income line
-      Plot.line(netIncomeData, {
-        x: (d) => d.month.toISOString().substring(0, 7),
-        y: 'netIncome',
-        stroke: '#00d4ed',
-        strokeWidth: 3,
-      }),
+      // Net income line (conditionally rendered)
+      ...(showNetIncomeIndicator
+        ? [
+            Plot.line(netIncomeData, {
+              x: (d) => d.month.toISOString().substring(0, 7),
+              y: 'netIncome',
+              stroke: '#00d4ed',
+              strokeWidth: 3,
+            }),
 
-      // 3-month trailing average line
-      Plot.line(trailingAvgData, {
-        x: (d) => d.month.toISOString().substring(0, 7),
-        y: 'trailingAvg',
-        stroke: '#00d4ed',
-        strokeWidth: 2,
-        strokeDasharray: '5,5',
-        strokeOpacity: 0.7,
-      }),
+            // 3-month trailing average line
+            Plot.line(trailingAvgData, {
+              x: (d) => d.month.toISOString().substring(0, 7),
+              y: 'trailingAvg',
+              stroke: '#00d4ed',
+              strokeWidth: 2,
+              strokeDasharray: '5,5',
+              strokeOpacity: 0.7,
+            }),
+          ]
+        : []),
+
+      // Budget indicator lines for each visible category
+      // Actual spending line (solid)
+      ...(indicatorLines.actualLines.length > 0
+        ? [
+            Plot.line(indicatorLines.actualLines, {
+              x: 'month',
+              y: 'amount',
+              z: 'category',
+              stroke: (d) => CATEGORY_COLORS[d.category],
+              strokeWidth: 2,
+            }),
+          ]
+        : []),
+
+      // Trailing average line (dashed)
+      ...(indicatorLines.trailingLines.length > 0
+        ? [
+            Plot.line(indicatorLines.trailingLines, {
+              x: 'month',
+              y: 'amount',
+              z: 'category',
+              stroke: (d) => CATEGORY_COLORS[d.category],
+              strokeWidth: 2,
+              strokeDasharray: '5,5',
+              strokeOpacity: 0.7,
+            }),
+          ]
+        : []),
+
+      // Budget target line (dotted)
+      ...(indicatorLines.targetLines.length > 0
+        ? [
+            Plot.line(indicatorLines.targetLines, {
+              x: 'month',
+              y: 'amount',
+              z: 'category',
+              stroke: (d) => CATEGORY_COLORS[d.category],
+              strokeWidth: 1.5,
+              strokeDasharray: '2,3',
+              strokeOpacity: 0.5,
+            }),
+          ]
+        : []),
     ],
   });
 
@@ -358,18 +538,24 @@ interface BudgetChartProps {
   transactions: Transaction[];
   hiddenCategories: readonly Category[];
   showVacation: boolean;
-  granularity?: TimeGranularity;
-  selectedWeek?: WeekId | null;
   budgetPlan?: BudgetPlan | null;
+  dateRangeStart?: string | null;
+  dateRangeEnd?: string | null;
+  barAggregation?: 'monthly' | 'weekly';
+  visibleIndicators?: readonly Category[];
+  showNetIncomeIndicator?: boolean;
 }
 
 export function BudgetChart({
   transactions,
   hiddenCategories,
   showVacation,
-  granularity = 'month',
-  selectedWeek = null,
   budgetPlan = null,
+  dateRangeStart = null,
+  dateRangeEnd = null,
+  barAggregation = 'monthly',
+  visibleIndicators = [],
+  showNetIncomeIndicator = true,
 }: BudgetChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pinnedSegmentRef = useRef<TooltipData | null>(null);
@@ -395,220 +581,6 @@ export function BudgetChart({
 
     const hiddenSet = new Set(hiddenCategories);
 
-    // WEEKLY vs MONTHLY modes use separate rendering paths for code clarity and maintainability.
-    // Weekly mode adds budget overlay marks and rollover badges; monthly mode adds trend lines
-    // and time-series formatting. Both use the same Plot.plot() structure with different data
-    // sources, marks arrays, and axis configurations.
-
-    // WEEKLY MODE
-    if (granularity === 'week') {
-      // Aggregate transactions by week
-      let weeklyData;
-      try {
-        weeklyData = aggregateTransactionsByWeek(transactions, {
-          hiddenCategories: hiddenSet,
-          showVacation,
-        });
-      } catch (err) {
-        console.error('Failed to aggregate transactions by week:', err, {
-          transactionCount: transactions.length,
-          hiddenCategories: Array.from(hiddenSet),
-        });
-        setError('Failed to process transaction data. Check console for details.');
-        setLoading(false);
-        return;
-      }
-
-      if (weeklyData.length === 0) {
-        const hasAnyTransactions = transactions.length > 0;
-        const allCategoriesHidden = hiddenCategories.length > 0;
-        const nonTransferCount = transactions.filter((t) => !t.transfer).length;
-
-        const getMessage = (): string => {
-          if (!hasAnyTransactions) {
-            return 'No transactions loaded. Import transaction data to begin.';
-          }
-          if (nonTransferCount === 0) {
-            return 'Only transfers found (transfers are excluded from budget view)';
-          }
-          if (allCategoriesHidden) {
-            return `${hiddenCategories.length} categories are hidden. Click categories in the legend to show them.`;
-          }
-          if (!showVacation) {
-            return 'No non-vacation transactions available. Enable "Show Vacation" to see vacation spending.';
-          }
-          return 'No transaction data available for weekly view';
-        };
-
-        renderEmptyState(containerRef.current, getMessage());
-        setLoading(false);
-        return;
-      }
-
-      // Determine which week to display
-      const activeWeek = selectedWeek || getCurrentWeek();
-
-      // Filter data for the selected week only
-      const weekData = weeklyData.filter((d) => d.week === activeWeek);
-
-      if (weekData.length === 0) {
-        renderEmptyState(
-          containerRef.current,
-          `No transaction data for week ${activeWeek}. Try navigating to a different week.`
-        );
-        setLoading(false);
-        return;
-      }
-
-      // Calculate budget comparisons if budget plan exists
-      let comparisons: Map<Category, { target: number; rolloverAccumulated: number }> = new Map();
-      let budgetComparisonFailed = false;
-      if (budgetPlan && Object.keys(budgetPlan.categoryBudgets).length > 0) {
-        try {
-          const comparisonData = calculateWeeklyComparison(weeklyData, budgetPlan, activeWeek);
-          comparisonData.forEach((c) => {
-            comparisons.set(c.category, {
-              target: c.target,
-              rolloverAccumulated: c.rolloverAccumulated,
-            });
-          });
-        } catch (err) {
-          console.error('Failed to calculate budget comparisons:', err, {
-            activeWeek,
-            budgetCategories: Object.keys(budgetPlan.categoryBudgets),
-          });
-          // Show degraded chart without budget overlays instead of complete failure
-          budgetComparisonFailed = true;
-          // comparisons Map is already empty, so no budget overlays will be added
-        }
-      }
-
-      // Chart rendering
-      try {
-        // Clear container
-        containerRef.current.replaceChildren();
-
-        // Create the weekly chart
-        const marks: any[] = [
-          // Zero line
-          Plot.ruleY([0], { stroke: '#666', strokeWidth: 1.5 }),
-        ];
-
-        const { expense: expenseData, income: incomeData } = partitionByIncome(weekData);
-
-        if (expenseData.length > 0) {
-          marks.push(
-            Plot.barY(expenseData, {
-              x: 'category',
-              y: 'amount',
-              fill: 'category',
-            })
-          );
-        }
-
-        if (incomeData.length > 0) {
-          marks.push(
-            Plot.barY(incomeData, {
-              x: 'category',
-              y: 'amount',
-              fill: 'category',
-            })
-          );
-        }
-
-        // Add budget target overlays if budget plan exists
-        if (budgetPlan && comparisons.size > 0) {
-          const targetData: { category: Category; target: number; hasRollover: boolean }[] = [];
-          comparisons.forEach((data, category) => {
-            if (data.target !== 0) {
-              targetData.push({
-                category,
-                target: data.target,
-                hasRollover: data.rolloverAccumulated !== 0,
-              });
-            }
-          });
-
-          if (targetData.length > 0) {
-            // Target bars with lower opacity
-            marks.push(
-              Plot.barY(targetData, {
-                x: 'category',
-                y: 'target',
-                fill: 'category',
-                opacity: 0.3,
-                stroke: 'category',
-                strokeWidth: 2,
-                strokeDasharray: '4,4',
-              })
-            );
-
-            // Rollover badges
-            const rolloverData = targetData.filter((d) => d.hasRollover);
-            if (rolloverData.length > 0) {
-              marks.push(
-                Plot.text(rolloverData, {
-                  x: 'category',
-                  y: () => 0,
-                  text: () => '🔄',
-                  dy: -10,
-                  fontSize: 12,
-                })
-              );
-            }
-          }
-        }
-
-        const plot = Plot.plot({
-          width: containerRef.current.clientWidth || 800,
-          height: 500,
-          marginTop: 20,
-          marginRight: 20,
-          marginBottom: 80,
-          marginLeft: 60,
-          x: {
-            label: 'Category',
-            tickRotate: -45,
-          },
-          y: {
-            label: 'Amount ($)',
-            grid: true,
-            tickFormat: (d: number) => `$${Math.abs(d).toLocaleString()}`,
-          },
-          color: {
-            type: 'categorical',
-            domain: Object.keys(CATEGORY_COLORS),
-            range: Object.values(CATEGORY_COLORS),
-            legend: false,
-          },
-          marks,
-        });
-
-        containerRef.current.appendChild(plot);
-
-        // Add warning indicator if budget comparison failed
-        if (budgetComparisonFailed && containerRef.current) {
-          const warningDiv = document.createElement('div');
-          warningDiv.className = 'text-xs text-warning bg-warning-muted p-2 rounded mt-2';
-          warningDiv.innerHTML =
-            '⚠️ Budget overlays unavailable - showing spending data only. Check your budget settings.';
-          containerRef.current.appendChild(warningDiv);
-        }
-      } catch (err) {
-        console.error('Failed to render weekly chart:', err, {
-          activeWeek,
-          dataPoints: weekData.length,
-          budgetOverlays: comparisons.size,
-        });
-        setError('Failed to render chart visualization. Try switching to monthly view.');
-        setLoading(false);
-        return;
-      }
-
-      setLoading(false);
-      return;
-    }
-
     // MONTHLY MODE
     // Data transformation
     let monthlyData: MonthlyData[];
@@ -619,7 +591,9 @@ export function BudgetChart({
       ({ monthlyData, netIncomeData, trailingAvgData } = transformToMonthlyData(
         transactions,
         hiddenSet,
-        showVacation
+        showVacation,
+        dateRangeStart,
+        dateRangeEnd
       ));
     } catch (err) {
       console.error('Failed to transform monthly data:', err);
@@ -631,6 +605,14 @@ export function BudgetChart({
     // Store monthlyData in ref for tooltip access
     monthlyDataRef.current = monthlyData;
 
+    // Apply bar aggregation if weekly mode selected
+    const displayData = barAggregation === 'weekly' ? transformToWeeklyBars(monthlyData) : monthlyData;
+
+    // Calculate indicator lines if budget plan exists
+    const indicatorLines = budgetPlan
+      ? calculateIndicatorLines(transactions, budgetPlan, visibleIndicators, hiddenSet, showVacation)
+      : { actualLines: [], trailingLines: [], targetLines: [] };
+
     // Chart rendering
     let plot: Element;
     let expenseData: MonthlyData[];
@@ -639,9 +621,11 @@ export function BudgetChart({
       containerRef.current.replaceChildren();
       const result = renderMonthlyChart(
         containerRef.current,
-        monthlyData,
+        displayData,
         netIncomeData,
-        trailingAvgData
+        trailingAvgData,
+        indicatorLines,
+        showNetIncomeIndicator
       );
       plot = result.plot;
       expenseData = result.expenseData;
@@ -649,7 +633,7 @@ export function BudgetChart({
       containerRef.current.appendChild(plot);
     } catch (err) {
       console.error('Failed to render monthly chart:', err);
-      setError('Failed to render chart visualization. Try switching to weekly view.');
+      setError('Failed to render chart visualization.');
       setLoading(false);
       return;
     }
@@ -696,7 +680,7 @@ export function BudgetChart({
     }
 
     setLoading(false);
-  }, [transactions, hiddenCategories, showVacation, granularity, selectedWeek, budgetPlan]);
+  }, [transactions, hiddenCategories, showVacation, budgetPlan, dateRangeStart, dateRangeEnd, barAggregation, visibleIndicators, showNetIncomeIndicator]);
 
   // Handle document clicks to unpin tooltip
   useEffect(() => {
@@ -750,9 +734,32 @@ export function BudgetChart({
     );
   }
 
+  const handleAggregationToggle = (aggregation: 'monthly' | 'weekly') => {
+    dispatchBudgetEvent('budget:aggregation-toggle', { barAggregation: aggregation });
+  };
+
   return (
     <div className="p-6 bg-bg-elevated rounded-lg shadow-lg">
-      <h2 className="text-2xl font-semibold mb-4 text-text-primary">Budget Overview</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-semibold text-text-primary">Budget Overview</h2>
+
+        {/* Bar Aggregation Toggle */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleAggregationToggle('monthly')}
+            className={`btn btn-sm ${barAggregation === 'monthly' ? 'btn-primary' : 'btn-ghost'}`}
+          >
+            Monthly Bars
+          </button>
+          <button
+            onClick={() => handleAggregationToggle('weekly')}
+            className={`btn btn-sm ${barAggregation === 'weekly' ? 'btn-primary' : 'btn-ghost'}`}
+          >
+            Weekly Bars
+          </button>
+        </div>
+      </div>
+
       <div ref={containerRef} className="w-full"></div>
       <SegmentTooltip
         data={pinnedSegment || hoveredSegment}

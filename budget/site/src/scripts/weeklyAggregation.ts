@@ -470,3 +470,45 @@ export function getAvailableWeeks(transactions: Transaction[]): WeekId[] {
   });
   return Array.from(weeks).sort();
 }
+
+/**
+ * Calculate per-category historic averages from weekly aggregated data.
+ * Computes the average weekly amount for each category across all weeks in the data.
+ * @param weeklyData - Weekly aggregated transaction data
+ * @returns Array of per-category historic averages
+ */
+export function calculateCategoryHistoricAverages(
+  weeklyData: WeeklyData[]
+): import('../islands/types').CategoryHistoricAverage[] {
+  // Get unique weeks to calculate averages across
+  const allWeeks = Array.from(new Set(weeklyData.map((d) => d.week))).sort();
+  const weekCount = allWeeks.length;
+
+  if (weekCount === 0) {
+    console.warn('Cannot calculate category averages: no weekly data available');
+    return [];
+  }
+
+  // Group data by category
+  const categoryTotals = new Map<Category, number>();
+
+  weeklyData.forEach((data) => {
+    const current = categoryTotals.get(data.category) || 0;
+    categoryTotals.set(data.category, current + data.amount);
+  });
+
+  // Calculate averages
+  const averages: import('../islands/types').CategoryHistoricAverage[] = [];
+
+  categoryTotals.forEach((total, category) => {
+    averages.push({
+      category,
+      averageWeekly: total / weekCount,
+    });
+  });
+
+  // Sort by category for consistency
+  averages.sort((a, b) => a.category.localeCompare(b.category));
+
+  return averages;
+}
