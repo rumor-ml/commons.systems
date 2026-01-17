@@ -272,7 +272,7 @@
       );
 
       # Home Manager configurations
-      # Provides configurations for all supported systems
+      # Provides configurations for all supported systems, plus a 'default' that auto-detects
       homeConfigurations =
         let
           mkHomeConfig =
@@ -292,13 +292,20 @@
                 ./nix/home/default.nix
               ];
             };
+
+          # Create configurations for all systems
+          systemConfigs = builtins.listToAttrs (
+            map (system: {
+              name = system;
+              value = mkHomeConfig system;
+            }) flake-utils.lib.defaultSystems
+          );
         in
-        builtins.listToAttrs (
-          map (system: {
-            name = system;
-            value = mkHomeConfig system;
-          }) flake-utils.lib.defaultSystems
-        );
+        # Add a 'default' configuration that auto-detects the current system
+        # Requires --impure flag: home-manager switch --flake . --impure
+        systemConfigs // {
+          default = mkHomeConfig builtins.currentSystem;
+        };
     in
     systemOutputs // { inherit homeConfigurations; };
 }

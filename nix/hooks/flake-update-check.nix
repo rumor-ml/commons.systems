@@ -54,17 +54,6 @@
 
     # Display warning if updates found
     if [ ''${#UPDATES[@]} -gt 0 ]; then
-      # Detect system for home-manager command
-      SYSTEM_ARCH="$(uname -m)"
-      SYSTEM_OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-      case "$SYSTEM_ARCH-$SYSTEM_OS" in
-        x86_64-linux)    HM_SYSTEM="x86_64-linux" ;;
-        aarch64-linux)   HM_SYSTEM="aarch64-linux" ;;
-        x86_64-darwin)   HM_SYSTEM="x86_64-darwin" ;;
-        arm64-darwin)    HM_SYSTEM="aarch64-darwin" ;;
-        *)               HM_SYSTEM="x86_64-linux" ;;
-      esac
-
       echo ""
       echo "╔═══════════════════════════════════════════════════════════╗"
       echo "║  ⚠  Flake Updates Available                               ║"
@@ -78,9 +67,8 @@
       echo "║  To update, run:                                          ║"
       echo "║                                                           ║"
       echo "║    1. nix flake update                                    ║"
-      echo "║    2. home-manager switch --impure \\                      ║"
-      printf "║         --flake .#%-38s ║\n" "$HM_SYSTEM"
-      echo "║                                                           ║"
+      echo "║    2. nix develop --rebuild                               ║"
+      echo "║    3. home-manager switch --flake .#default --impure      ║"
       echo "║                                                           ║"
       echo "║  (This check runs once per 24 hours)                      ║"
       echo "╚═══════════════════════════════════════════════════════════╝"

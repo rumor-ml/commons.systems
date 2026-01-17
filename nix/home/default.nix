@@ -16,15 +16,16 @@
 #
 # To activate this configuration for your system:
 #   First time (requires experimental features flags):
-#     nix --extra-experimental-features 'nix-command flakes' run home-manager/master -- switch --extra-experimental-features 'nix-command flakes' --flake .#x86_64-linux
+#     nix --extra-experimental-features 'nix-command flakes' run home-manager/master -- switch --extra-experimental-features 'nix-command flakes' --flake .#default --impure
 #
-#   After first activation:
-#     home-manager switch --flake .#x86_64-linux
+#   After first activation (auto-detects system architecture):
+#     home-manager switch --flake .#default --impure
 #
-#   Replace x86_64-linux with: x86_64-linux, aarch64-linux, x86_64-darwin, or aarch64-darwin
+#   Or explicitly specify system (x86_64-linux, aarch64-linux, x86_64-darwin, aarch64-darwin):
+#     home-manager switch --flake .#x86_64-linux --impure
 #
-# Note: home.username and home.homeDirectory will be automatically detected
-# from your environment when you run home-manager switch.
+# Note: --impure is required because home.username and home.homeDirectory are
+# automatically detected from your environment using builtins.getEnv.
 
 {
   config,
