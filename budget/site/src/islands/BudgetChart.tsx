@@ -173,15 +173,40 @@ function transformToMonthlyData(
 }
 
 /**
- * Transform monthly data to weekly bars for aggregation.
- * Groups transactions by ISO week and category.
+ * Transform transactions directly to weekly bars.
+ * Aggregates from raw transactions to avoid precision loss from monthly->weekly conversion.
  */
-function transformToWeeklyBars(monthlyData: MonthlyData[]): MonthlyData[] {
-  // Group by ISO week (YYYY-Www format)
-  const weeklyMap = new Map<string, Map<Category, { amount: number; qualifiers: QualifierBreakdown }>>();
+function transformToWeeklyData(
+  transactions: Transaction[],
+  hiddenSet: Set<Category>,
+  showVacation: boolean,
+  dateRangeStart: string | null = null,
+  dateRangeEnd: string | null = null
+): MonthlyData[] {
+  // Filter transactions
+  let filteredTransactions = filterTransactions(transactions, {
+    hiddenCategories: hiddenSet,
+    showVacation,
+    transfers: false,
+  });
 
-  monthlyData.forEach((item) => {
-    const date = new Date(item.month + '-01');
+  // Apply date range filter if specified
+  if (dateRangeStart || dateRangeEnd) {
+    filteredTransactions = filteredTransactions.filter((txn) => {
+      if (dateRangeStart && txn.date < dateRangeStart) return false;
+      if (dateRangeEnd && txn.date > dateRangeEnd) return false;
+      return true;
+    });
+  }
+
+  // Group by week and category
+  const weeklyMap = new Map<
+    string,
+    Map<Category, { amount: number; qualifiers: QualifierBreakdown }>
+  >();
+
+  filteredTransactions.forEach((txn) => {
+    const date = new Date(txn.date);
     const year = date.getFullYear();
     const week = d3.utcWeek.count(d3.utcYear(date), date);
     const weekKey = `${year}-W${String(week).padStart(2, '0')}`;
@@ -191,24 +216,25 @@ function transformToWeeklyBars(monthlyData: MonthlyData[]): MonthlyData[] {
     }
 
     const categoryMap = weeklyMap.get(weekKey)!;
-    const current = categoryMap.get(item.category) || {
+    const current = categoryMap.get(txn.category) || {
       amount: 0,
       qualifiers: createQualifierBreakdown(),
     };
 
-    current.amount += item.amount;
-    // Merge qualifiers
-    Object.keys(item.qualifiers).forEach((key) => {
-      const qualKey = key as keyof QualifierBreakdown;
-      if (typeof item.qualifiers[qualKey] === 'number') {
-        (current.qualifiers[qualKey] as number) += item.qualifiers[qualKey] as number;
-      }
-    });
+    const displayAmount = getDisplayAmount(txn);
+    current.amount += displayAmount;
 
-    categoryMap.set(item.category, current);
+    // Update qualifiers
+    if (txn.redeemable) current.qualifiers.redeemable += displayAmount;
+    else current.qualifiers.nonRedeemable += displayAmount;
+
+    if (txn.vacation) current.qualifiers.vacation += displayAmount;
+    else current.qualifiers.nonVacation += displayAmount;
+
+    categoryMap.set(txn.category, current);
   });
 
-  // Convert back to array format
+  // Convert to array format
   const weeklyData: MonthlyData[] = [];
   weeklyMap.forEach((categoryMap, weekKey) => {
     categoryMap.forEach((data, category) => {
@@ -226,6 +252,49 @@ function transformToWeeklyBars(monthlyData: MonthlyData[]): MonthlyData[] {
 }
 
 /**
+ * Calculate net income data from aggregated data (works for both monthly and weekly).
+ * Returns net income per period and 3-period trailing average.
+ */
+function calculateNetIncomeFromData(data: MonthlyData[]): {
+  netIncomeData: { month: string; netIncome: number }[];
+  trailingAvgData: { month: string; trailingAvg: number }[];
+} {
+  // Group by period and calculate net income
+  const periodMap = new Map<string, { income: number; expense: number }>();
+
+  data.forEach((item) => {
+    const current = periodMap.get(item.month) || { income: 0, expense: 0 };
+    if (item.isIncome) {
+      current.income += item.amount;
+    } else {
+      current.expense += Math.abs(item.amount);
+    }
+    periodMap.set(item.month, current);
+  });
+
+  // Convert to array and calculate net income
+  const netIncomeData = Array.from(periodMap.entries())
+    .map(([month, { income, expense }]) => ({
+      month,
+      netIncome: income - expense,
+    }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  // Calculate 3-period trailing average
+  const trailingAvgData = netIncomeData.map((item, idx) => {
+    const start = Math.max(0, idx - 2);
+    const slice = netIncomeData.slice(start, idx + 1);
+    const avg = d3.mean(slice, (d) => d.netIncome) || 0;
+    return {
+      month: item.month,
+      trailingAvg: avg,
+    };
+  });
+
+  return { netIncomeData, trailingAvgData };
+}
+
+/**
  * Calculate indicator lines for each category's budget performance.
  * Returns data for actual spending, trailing average, and budget target lines.
  */
@@ -234,7 +303,8 @@ function calculateIndicatorLines(
   budgetPlan: BudgetPlan,
   visibleIndicators: readonly Category[],
   hiddenCategories: Set<Category>,
-  showVacation: boolean
+  showVacation: boolean,
+  barAggregation: 'monthly' | 'weekly'
 ): {
   actualLines: { month: string; category: Category; amount: number }[];
   trailingLines: { month: string; category: Category; amount: number }[];
@@ -253,40 +323,49 @@ function calculateIndicatorLines(
 
     // Filter transactions for this category
     const categoryTransactions = transactions.filter(
-      (t) =>
-        t.category === category &&
-        !t.transfer &&
-        (showVacation || !t.vacation)
+      (t) => t.category === category && !t.transfer && (showVacation || !t.vacation)
     );
 
-    // Group by month and calculate actual spending
-    const monthlyAmounts = new Map<string, number>();
+    // Group by period (month or week) and calculate actual spending
+    const periodAmounts = new Map<string, number>();
     categoryTransactions.forEach((t) => {
-      const month = t.date.substring(0, 7);
-      const current = monthlyAmounts.get(month) || 0;
-      monthlyAmounts.set(month, current + getDisplayAmount(t));
+      let period: string;
+      if (barAggregation === 'weekly') {
+        // Use same format as transformToWeeklyBars: "YYYY-Www"
+        const date = new Date(t.date);
+        const year = date.getFullYear();
+        const week = d3.utcWeek.count(d3.utcYear(date), date);
+        period = `${year}-W${String(week).padStart(2, '0')}`;
+      } else {
+        period = t.date.substring(0, 7);
+      }
+      const current = periodAmounts.get(period) || 0;
+      periodAmounts.set(period, current + getDisplayAmount(t));
     });
 
-    // Sort months
-    const sortedMonths = Array.from(monthlyAmounts.keys()).sort();
+    // Sort periods
+    const sortedPeriods = Array.from(periodAmounts.keys()).sort();
 
-    // Calculate lines for each month
-    sortedMonths.forEach((month, idx) => {
-      const amount = monthlyAmounts.get(month) || 0;
+    // Calculate target based on aggregation
+    const periodTarget =
+      barAggregation === 'weekly' ? budget.weeklyTarget : budget.weeklyTarget * 4.33;
 
-      // Actual spending line
-      actualLines.push({ month, category, amount });
+    // Calculate lines for each period
+    sortedPeriods.forEach((period, idx) => {
+      const amount = periodAmounts.get(period) || 0;
 
-      // Budget target line (weekly target * ~4.33 weeks per month)
-      const monthlyTarget = budget.weeklyTarget * 4.33;
-      targetLines.push({ month, category, amount: monthlyTarget });
+      // Actual spending line - use 'month' to match bar data field name
+      actualLines.push({ month: period, category, amount });
+
+      // Budget target line
+      targetLines.push({ month: period, category, amount: periodTarget });
 
       // 3-period trailing average
       const start = Math.max(0, idx - 2);
-      const slice = sortedMonths.slice(start, idx + 1);
-      const values = slice.map((m) => monthlyAmounts.get(m) || 0);
+      const slice = sortedPeriods.slice(start, idx + 1);
+      const values = slice.map((p) => periodAmounts.get(p) || 0);
       const avg = d3.mean(values) || 0;
-      trailingLines.push({ month, category, amount: avg });
+      trailingLines.push({ month: period, category, amount: avg });
     });
   });
 
@@ -300,14 +379,15 @@ function calculateIndicatorLines(
 function renderMonthlyChart(
   container: HTMLElement,
   monthlyData: MonthlyData[],
-  netIncomeData: { month: Date; netIncome: number }[],
-  trailingAvgData: { month: Date; trailingAvg: number }[],
+  netIncomeData: { month: string; netIncome: number }[],
+  trailingAvgData: { month: string; trailingAvg: number }[],
   indicatorLines: {
     actualLines: { month: string; category: Category; amount: number }[];
     trailingLines: { month: string; category: Category; amount: number }[];
     targetLines: { month: string; category: Category; amount: number }[];
   },
-  showNetIncomeIndicator: boolean
+  showNetIncomeIndicator: boolean,
+  barAggregation: 'monthly' | 'weekly'
 ): { plot: Element; expenseData: MonthlyData[]; incomeData: MonthlyData[] } {
   // Partition data once for both plot rendering and event listeners
   const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
@@ -322,10 +402,29 @@ function renderMonthlyChart(
     marginLeft: 60,
     x: {
       type: 'band',
-      label: 'Month',
+      label: barAggregation === 'weekly' ? 'Week' : 'Month',
       tickFormat: (d: string) => {
-        const date = new Date(d + '-01');
-        return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        if (barAggregation === 'weekly') {
+          // Parse weekly format: "YYYY-Www" (e.g., "2024-W01")
+          const weekMatch = d.match(/^(\d{4})-W(\d{2})$/);
+          if (weekMatch) {
+            const year = parseInt(weekMatch[1], 10);
+            const weekNum = parseInt(weekMatch[2], 10);
+            // Use d3 to calculate the week date (consistent with how we created the week key)
+            const yearStart = new Date(Date.UTC(year, 0, 1));
+            const weekDate = d3.utcWeek.offset(d3.utcYear(yearStart), weekNum);
+            return weekDate.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              timeZone: 'UTC',
+            });
+          }
+          return d; // Fallback if parsing fails
+        } else {
+          // Monthly format: "YYYY-MM"
+          const date = new Date(d + '-01');
+          return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        }
       },
     },
     y: {
@@ -367,15 +466,15 @@ function renderMonthlyChart(
       ...(showNetIncomeIndicator
         ? [
             Plot.line(netIncomeData, {
-              x: (d) => d.month.toISOString().substring(0, 7),
+              x: 'month',
               y: 'netIncome',
               stroke: '#00d4ed',
               strokeWidth: 3,
             }),
 
-            // 3-month trailing average line
+            // 3-period trailing average line
             Plot.line(trailingAvgData, {
-              x: (d) => d.month.toISOString().substring(0, 7),
+              x: 'month',
               y: 'trailingAvg',
               stroke: '#00d4ed',
               strokeWidth: 2,
@@ -584,11 +683,9 @@ export function BudgetChart({
     // MONTHLY MODE
     // Data transformation
     let monthlyData: MonthlyData[];
-    let netIncomeData: { month: Date; netIncome: number }[];
-    let trailingAvgData: { month: Date; trailingAvg: number }[];
 
     try {
-      ({ monthlyData, netIncomeData, trailingAvgData } = transformToMonthlyData(
+      ({ monthlyData } = transformToMonthlyData(
         transactions,
         hiddenSet,
         showVacation,
@@ -606,12 +703,60 @@ export function BudgetChart({
     monthlyDataRef.current = monthlyData;
 
     // Apply bar aggregation if weekly mode selected
-    const displayData = barAggregation === 'weekly' ? transformToWeeklyBars(monthlyData) : monthlyData;
+    const displayData =
+      barAggregation === 'weekly'
+        ? transformToWeeklyData(transactions, hiddenSet, showVacation, dateRangeStart, dateRangeEnd)
+        : monthlyData;
+
+    // Calculate net income from display data (supports both monthly and weekly)
+    const { netIncomeData: periodNetIncome, trailingAvgData: periodTrailing } =
+      calculateNetIncomeFromData(displayData);
 
     // Calculate indicator lines if budget plan exists
     const indicatorLines = budgetPlan
-      ? calculateIndicatorLines(transactions, budgetPlan, visibleIndicators, hiddenSet, showVacation)
+      ? calculateIndicatorLines(
+          transactions,
+          budgetPlan,
+          visibleIndicators,
+          hiddenSet,
+          showVacation,
+          barAggregation
+        )
       : { actualLines: [], trailingLines: [], targetLines: [] };
+
+    // Debug: Log sample data for alignment verification
+    if (barAggregation === 'weekly') {
+      console.log('[BudgetChart] Weekly view debug:');
+      console.log('  Total display data points:', displayData.length);
+      console.log(
+        '  Bar periods (all unique):',
+        [...new Set(displayData.map((d) => d.month))].slice(0, 20)
+      );
+      console.log(
+        '  Bar categories (sample):',
+        displayData.slice(0, 5).map((d) => ({ month: d.month, cat: d.category, amt: d.amount }))
+      );
+
+      if (indicatorLines.actualLines.length > 0) {
+        console.log('  Indicator line points:', indicatorLines.actualLines.length);
+        console.log(
+          '  Indicator periods (all unique):',
+          [...new Set(indicatorLines.actualLines.map((d) => d.month))].slice(0, 20)
+        );
+        console.log(
+          '  Indicator sample:',
+          indicatorLines.actualLines
+            .slice(0, 5)
+            .map((d) => ({ month: d.month, cat: d.category, amt: d.amount }))
+        );
+        console.log(
+          '  Field names match:',
+          displayData[0]?.month === indicatorLines.actualLines[0]?.month
+        );
+      } else {
+        console.log('  No indicator lines (none enabled)');
+      }
+    }
 
     // Chart rendering
     let plot: Element;
@@ -622,10 +767,11 @@ export function BudgetChart({
       const result = renderMonthlyChart(
         containerRef.current,
         displayData,
-        netIncomeData,
-        trailingAvgData,
+        periodNetIncome,
+        periodTrailing,
         indicatorLines,
-        showNetIncomeIndicator
+        showNetIncomeIndicator,
+        barAggregation
       );
       plot = result.plot;
       expenseData = result.expenseData;
@@ -680,7 +826,17 @@ export function BudgetChart({
     }
 
     setLoading(false);
-  }, [transactions, hiddenCategories, showVacation, budgetPlan, dateRangeStart, dateRangeEnd, barAggregation, visibleIndicators, showNetIncomeIndicator]);
+  }, [
+    transactions,
+    hiddenCategories,
+    showVacation,
+    budgetPlan,
+    dateRangeStart,
+    dateRangeEnd,
+    barAggregation,
+    visibleIndicators,
+    showNetIncomeIndicator,
+  ]);
 
   // Handle document clicks to unpin tooltip
   useEffect(() => {
