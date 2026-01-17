@@ -167,6 +167,7 @@
           tmuxTuiHook = pkgs.callPackage ./nix/hooks/tmux-tui.nix { };
           goEnvHook = pkgs.callPackage ./nix/hooks/go-env.nix { };
           gitWorktreeHook = pkgs.callPackage ./nix/hooks/git-worktree.nix { };
+          flakeUpdateCheckHook = pkgs.callPackage ./nix/hooks/flake-update-check.nix { };
 
           # Apps for tool discovery and environment checking
           list-tools = pkgs.callPackage ./nix/apps/list-tools.nix { };
@@ -190,6 +191,9 @@
 
               # Configure git worktree extension (prevents core.bare issues)
               ${gitWorktreeHook}
+
+              # Check for flake updates (runs once per day)
+              ${flakeUpdateCheckHook}
 
               # Initialize Go environment
               ${goEnvHook}

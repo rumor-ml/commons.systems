@@ -13,6 +13,12 @@
   # Install tmux-tui auto-load helper script
   home.file.".local/bin/tmux-tui-auto-load".source = ./scripts/tmux-tui-auto-load.sh;
 
+  # Install OSC 52 clipboard integration script
+  home.file.".local/bin/copy-osc52" = {
+    source = ./scripts/copy-osc52.sh;
+    executable = true;
+  };
+
   programs.tmux = {
     enable = true;
 
@@ -35,6 +41,20 @@
 
       # Allow applications to use tmux passthrough sequences
       set -g allow-passthrough on
+
+      # Enable tmux clipboard integration with OSC 52
+      set -g set-clipboard on
+
+      # OSC 52 clipboard integration for remote SSH sessions
+      # Copy mode keybindings that pipe selection to OSC 52 script
+      # Vi copy mode (default)
+      bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "${config.home.homeDirectory}/.local/bin/copy-osc52"
+      bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "${config.home.homeDirectory}/.local/bin/copy-osc52"
+      bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "${config.home.homeDirectory}/.local/bin/copy-osc52"
+
+      # Emacs copy mode
+      bind-key -T copy-mode M-w send-keys -X copy-pipe-and-cancel "${config.home.homeDirectory}/.local/bin/copy-osc52"
+      bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "${config.home.homeDirectory}/.local/bin/copy-osc52"
 
       # Auto-load project tmux-tui config automatically
       # These hooks ensure the config loads even if tmux starts before direnv

@@ -1424,6 +1424,57 @@ hooks = {
 
 After adding, run `nix flake check` to validate.
 
+## Flake Update Notifications
+
+The development shell checks for flake updates once per day and displays a warning banner if upstream changes are available for nixpkgs or home-manager.
+
+### How It Works
+
+- Runs automatically when you enter `nix develop`
+- Checks nixpkgs and home-manager for upstream updates
+- Compares current locked revisions with latest upstream
+- Shows a warning banner if updates are available
+- Only runs once per 24 hours (cached)
+
+### Force a Check
+
+To force an immediate check, delete the cache:
+
+```bash
+rm -f ~/.cache/nix-flake-update-check/last-check
+nix develop
+```
+
+### Cache Behavior
+
+- Check runs at most once per 24 hours
+- Cache stored at `~/.cache/nix-flake-update-check/last-check`
+- Fails silently if offline or network unavailable
+- Skips check in non-interactive shells (CI-friendly)
+
+### Example Output
+
+When updates are available, you'll see:
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║  ⚠  Flake Updates Available                               ║
+╠═══════════════════════════════════════════════════════════╣
+║  The following inputs have upstream updates:              ║
+║                                                           ║
+║    • nixpkgs                                              ║
+║    • home-manager                                         ║
+║                                                           ║
+║  To update, run:                                          ║
+║                                                           ║
+║    1. nix flake update                                    ║
+║    2. nix develop --rebuild                               ║
+║    3. home-manager switch --flake .#x86_64-linux          ║
+║                                                           ║
+║  (This check runs once per 24 hours)                      ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
 ## Future Enhancements
 
 Potential expansions to the Nix configuration:
