@@ -221,7 +221,8 @@ export class StateManager {
 
       // Validate dateRangeStart and dateRangeEnd
       const dateRangeStart =
-        typeof parsed.dateRangeStart === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dateRangeStart)
+        typeof parsed.dateRangeStart === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(parsed.dateRangeStart)
           ? parsed.dateRangeStart
           : null;
 

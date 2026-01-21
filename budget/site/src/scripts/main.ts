@@ -437,7 +437,10 @@ function initAggregationToggle(): void {
         eventName: 'toggle bar aggregation',
         validate: (detail) => {
           if (!detail?.barAggregation || !['monthly', 'weekly'].includes(detail.barAggregation)) {
-            return { valid: false, error: 'Unable to toggle aggregation: invalid aggregation value' };
+            return {
+              valid: false,
+              error: 'Unable to toggle aggregation: invalid aggregation value',
+            };
           }
           return { valid: true };
         },
