@@ -83,7 +83,9 @@ export function Legend({
   };
 
   const handleNetIncomeToggle = () => {
-    dispatchBudgetEvent('budget:net-income-toggle', { showNetIncomeIndicator: !showNetIncomeIndicator });
+    dispatchBudgetEvent('budget:net-income-toggle', {
+      showNetIncomeIndicator: !showNetIncomeIndicator,
+    });
   };
 
   return (
@@ -108,6 +110,12 @@ export function Legend({
         <h4 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
           Categories (click to toggle)
         </h4>
+        {visibleIndicators.length > 0 && (
+          <div className="mb-3 px-3 py-2 bg-primary/10 border border-primary/30 rounded text-xs text-secondary">
+            📊 Grouped view: Showing {visibleIndicators.length} category comparison
+            {visibleIndicators.length > 1 ? 's' : ''}
+          </div>
+        )}
         {categorySummaries.length > 0 ? (
           categorySummaries.map(({ category, total, count }) => {
             const isHidden = hiddenCategories.includes(category);
@@ -144,7 +152,9 @@ export function Legend({
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="text-right">
-                      <div className="text-sm text-white font-semibold">${formatCurrency(total)}</div>
+                      <div className="text-sm text-white font-semibold">
+                        ${formatCurrency(total)}
+                      </div>
                       <div className="text-xs text-white opacity-90">{count} txns</div>
                     </div>
                     {budget && (
@@ -153,8 +163,10 @@ export function Legend({
                           e.stopPropagation();
                           handleIndicatorToggle(category);
                         }}
-                        className={`btn btn-sm ${isIndicatorVisible ? 'btn-primary' : 'btn-ghost'} text-white`}
-                        title="Toggle budget indicator line"
+                        className={`btn btn-sm ${isIndicatorVisible ? 'btn-primary' : 'btn-ghost-visible'}`}
+                        title={`Toggle budget indicator line for ${CATEGORY_LABELS[category]}`}
+                        aria-label={`${isIndicatorVisible ? 'Hide' : 'Show'} budget indicator for ${CATEGORY_LABELS[category]}`}
+                        aria-pressed={isIndicatorVisible}
                       >
                         📊
                       </button>
@@ -163,7 +175,8 @@ export function Legend({
                 </div>
                 {budget && (
                   <div className="mt-2 text-xs text-white opacity-90">
-                    Weekly budget: ${formatCurrency(weeklyBudget)} | Balance: ${formatCurrency(weeklyBudget - total)}
+                    Weekly budget: ${formatCurrency(weeklyBudget)} | Balance: $
+                    {formatCurrency(weeklyBudget - total)}
                   </div>
                 )}
               </div>

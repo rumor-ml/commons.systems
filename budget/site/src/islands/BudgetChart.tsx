@@ -34,6 +34,7 @@ function renderEmptyState(container: HTMLElement, message: string): void {
 /**
  * Transform transactions to monthly aggregates with qualifier tracking.
  * Filters out transfers and applies category/vacation/date range filters.
+ * @param filterToIndicatorCategories If provided, only include these categories in the output
  * @returns Object containing monthlyData, netIncomeData, and trailingAvgData
  */
 function transformToMonthlyData(
@@ -41,7 +42,8 @@ function transformToMonthlyData(
   hiddenSet: Set<Category>,
   showVacation: boolean,
   dateRangeStart: string | null = null,
-  dateRangeEnd: string | null = null
+  dateRangeEnd: string | null = null,
+  filterToIndicatorCategories?: Set<Category>
 ): {
   monthlyData: MonthlyData[];
   netIncomeData: { month: Date; netIncome: number }[];
@@ -100,13 +102,16 @@ function transformToMonthlyData(
     let monthExpense = 0;
 
     categoryMap.forEach((data, category) => {
-      monthlyData.push({
-        month,
-        category,
-        amount: data.amount,
-        isIncome: data.amount > 0,
-        qualifiers: data.qualifiers,
-      });
+      // Filter to indicator categories if specified
+      if (!filterToIndicatorCategories || filterToIndicatorCategories.has(category)) {
+        monthlyData.push({
+          month,
+          category,
+          amount: data.amount,
+          isIncome: data.amount > 0,
+          qualifiers: data.qualifiers,
+        });
+      }
 
       if (data.amount > 0) {
         monthIncome += data.amount;
@@ -175,13 +180,15 @@ function transformToMonthlyData(
 /**
  * Transform transactions directly to weekly bars.
  * Aggregates from raw transactions to avoid precision loss from monthly->weekly conversion.
+ * @param filterToIndicatorCategories If provided, only include these categories in the output
  */
 function transformToWeeklyData(
   transactions: Transaction[],
   hiddenSet: Set<Category>,
   showVacation: boolean,
   dateRangeStart: string | null = null,
-  dateRangeEnd: string | null = null
+  dateRangeEnd: string | null = null,
+  filterToIndicatorCategories?: Set<Category>
 ): MonthlyData[] {
   // Filter transactions
   let filteredTransactions = filterTransactions(transactions, {
@@ -238,13 +245,16 @@ function transformToWeeklyData(
   const weeklyData: MonthlyData[] = [];
   weeklyMap.forEach((categoryMap, weekKey) => {
     categoryMap.forEach((data, category) => {
-      weeklyData.push({
-        month: weekKey,
-        category,
-        amount: data.amount,
-        isIncome: data.amount > 0,
-        qualifiers: data.qualifiers,
-      });
+      // Filter to indicator categories if specified
+      if (!filterToIndicatorCategories || filterToIndicatorCategories.has(category)) {
+        weeklyData.push({
+          month: weekKey,
+          category,
+          amount: data.amount,
+          isIncome: data.amount > 0,
+          qualifiers: data.qualifiers,
+        });
+      }
     });
   });
 
@@ -392,6 +402,20 @@ function renderMonthlyChart(
   // Partition data once for both plot rendering and event listeners
   const { expense: expenseData, income: incomeData } = partitionByIncome(monthlyData);
 
+  // Determine if we have active indicators (switches to grouped bars)
+  const hasActiveIndicators = indicatorLines.actualLines.length > 0;
+
+  // Helper function to create bar configuration based on mode
+  const createBarConfig = (data: MonthlyData[]) => {
+    const baseConfig = {
+      x: 'month',
+      y: 'amount',
+      fill: 'category',
+    };
+
+    return hasActiveIndicators ? Plot.dodgeX('middle', baseConfig) : Plot.stackY(baseConfig);
+  };
+
   // Create the plot
   const plot = Plot.plot({
     width: container.clientWidth || 800,
@@ -442,25 +466,11 @@ function renderMonthlyChart(
       // Zero line
       Plot.ruleY([0], { stroke: '#666', strokeWidth: 1.5 }),
 
-      // Stacked bars for expenses (negative values)
-      Plot.barY(
-        expenseData,
-        Plot.stackY({
-          x: 'month',
-          y: 'amount',
-          fill: 'category',
-        })
-      ),
+      // Bars for expenses (negative values) - stacked or grouped based on indicators
+      Plot.barY(expenseData, createBarConfig(expenseData)),
 
-      // Stacked bars for income (positive values)
-      Plot.barY(
-        incomeData,
-        Plot.stackY({
-          x: 'month',
-          y: 'amount',
-          fill: 'category',
-        })
-      ),
+      // Bars for income (positive values) - stacked or grouped based on indicators
+      Plot.barY(incomeData, createBarConfig(incomeData)),
 
       // Net income line (conditionally rendered)
       ...(showNetIncomeIndicator
@@ -680,6 +690,10 @@ export function BudgetChart({
 
     const hiddenSet = new Set(hiddenCategories);
 
+    // Detect if we have active indicators (switches to grouped bar mode)
+    const hasActiveIndicators = visibleIndicators.length > 0;
+    const indicatorCategoriesSet = hasActiveIndicators ? new Set(visibleIndicators) : undefined;
+
     // MONTHLY MODE
     // Data transformation
     let monthlyData: MonthlyData[];
@@ -690,7 +704,8 @@ export function BudgetChart({
         hiddenSet,
         showVacation,
         dateRangeStart,
-        dateRangeEnd
+        dateRangeEnd,
+        indicatorCategoriesSet
       ));
     } catch (err) {
       console.error('Failed to transform monthly data:', err);
@@ -705,7 +720,14 @@ export function BudgetChart({
     // Apply bar aggregation if weekly mode selected
     const displayData =
       barAggregation === 'weekly'
-        ? transformToWeeklyData(transactions, hiddenSet, showVacation, dateRangeStart, dateRangeEnd)
+        ? transformToWeeklyData(
+            transactions,
+            hiddenSet,
+            showVacation,
+            dateRangeStart,
+            dateRangeEnd,
+            indicatorCategoriesSet
+          )
         : monthlyData;
 
     // Calculate net income from display data (supports both monthly and weekly)
