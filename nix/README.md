@@ -696,6 +696,7 @@ git config --global user.email "you@example.com"
 
 The configuration automatically detects your username and home directory from
 environment variables. You can customize tools in the relevant files:
+
 - `nix/home/git.nix` - Git configuration
 - `nix/home/tmux.nix` - Tmux configuration
 - `nix/home/tools.nix` - CLI tools (direnv, neovim, etc.)
