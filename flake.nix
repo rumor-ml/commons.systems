@@ -303,7 +303,8 @@
         in
         # Add a 'default' configuration that auto-detects the current system
         # Requires --impure flag: home-manager switch --flake . --impure
-        systemConfigs // {
+        systemConfigs
+        // {
           default = mkHomeConfig builtins.currentSystem;
         };
     in

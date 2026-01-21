@@ -153,7 +153,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       enable = true;
       name = "pre-push-tests";
       description = "Run tests on changed apps before push";
-      entry = "./infrastructure/scripts/run-all-local-tests.sh --changed-only";
+      entry = "${pkgs.bash}/bin/bash ./infrastructure/scripts/run-all-local-tests.sh --changed-only";
       language = "system";
       stages = [ "pre-push" ];
       pass_filenames = false;
@@ -339,9 +339,9 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
     # Validate Nix development shell loads successfully
     # Catches Nix syntax errors and evaluation failures before CI
-    # Uses --max-jobs 0 to check evaluation without building derivations (fast <10s)
+    # Allows necessary builds during evaluation to ensure shell loads successfully
     # This catches common Nix issues like syntax errors, missing dependencies, and evaluation failures
-    # without the overhead of full nix-build (which runs in CI)
+    # May take longer (~30s) if builds are required, but ensures accurate validation
     nix-shell-check = {
       enable = true;
       name = "nix-shell-check";
@@ -353,7 +353,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
         # Check flake evaluation without building derivations
         # --max-jobs 0 prevents building, only evaluates the flake
-        if ! ${pkgs.nix}/bin/nix develop --max-jobs 0 --command echo 'Development shell loads successfully' 2>&1 | grep -q 'Development shell loads successfully'; then
+        if ! ${pkgs.nix}/bin/nix develop --command echo 'Development shell loads successfully' 2>&1 | grep -q 'Development shell loads successfully'; then
           echo ""
           echo "ERROR: Nix development shell failed to load"
           echo ""

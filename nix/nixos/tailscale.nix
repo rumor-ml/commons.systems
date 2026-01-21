@@ -18,7 +18,12 @@
 #
 # Learn more: https://tailscale.com/
 
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 {
   # Enable Tailscale VPN service

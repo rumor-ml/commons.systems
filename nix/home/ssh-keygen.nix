@@ -19,7 +19,12 @@
 #   - Private keys never leave the machine
 #   - No passphrase (for automation - add one manually if needed)
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   sshDir = "${config.home.homeDirectory}/.ssh";
@@ -32,7 +37,7 @@ let
 in
 {
   # Generate primary SSH key if it doesn't exist
-  home.activation.generatePrimarySshKey = lib.hm.dag.entryAfter ["writeBoundary"] ''
+  home.activation.generatePrimarySshKey = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     if [ ! -f "${primaryKeyFile}" ]; then
       echo "Generating SSH key at ${primaryKeyFile}..."
       $DRY_RUN_CMD ${pkgs.openssh}/bin/ssh-keygen \

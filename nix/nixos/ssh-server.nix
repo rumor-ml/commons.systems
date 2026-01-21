@@ -8,7 +8,12 @@
 # Then rebuild:
 #   sudo nixos-rebuild switch
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
   services.openssh = {
@@ -53,8 +58,14 @@
 
     # Listen on all interfaces
     listenAddresses = [
-      { addr = "0.0.0.0"; port = 22; }
-      { addr = "::"; port = 22; }
+      {
+        addr = "0.0.0.0";
+        port = 22;
+      }
+      {
+        addr = "::";
+        port = 22;
+      }
     ];
 
     # Generate host keys
