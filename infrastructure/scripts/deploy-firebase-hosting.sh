@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Deploy site to Firebase Hosting
 # Supports both production and preview channel deployments
 #

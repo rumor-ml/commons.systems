@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Cleanup stale Firebase Hosting preview channels to avoid quota errors
 # Deletes channels for PRs that are closed/merged
 

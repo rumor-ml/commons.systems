@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Test a Go fullstack app - delegates to unified runner
 set -e
 

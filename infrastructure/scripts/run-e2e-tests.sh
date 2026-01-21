@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Universal E2E test runner
 # Usage: run-e2e-tests.sh <app-type> <app-path>
 #

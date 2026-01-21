@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Run Go integration tests with Firestore emulator
 # This script starts the Firestore emulator, runs the tests, and cleans up
 set -e
