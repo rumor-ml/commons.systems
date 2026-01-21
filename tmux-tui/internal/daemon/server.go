@@ -144,12 +144,15 @@ func (d *AlertDaemon) playAlertSound() {
 	debug.Log("AUDIO_PLAYING pid=%d method=terminal_bell", pid)
 
 	// Write to /dev/tty (controlling terminal) so bell works even for background processes
-	if f, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+	if f, openErr := os.OpenFile("/dev/tty", os.O_WRONLY, 0); openErr == nil {
 		f.Write([]byte("\a"))
-		f.Close()
-		debug.Log("AUDIO_COMPLETED pid=%d", pid)
+		if closeErr := f.Close(); closeErr != nil {
+			debug.Log("AUDIO_FAILED pid=%d error=close_failed: %v", pid, closeErr)
+		} else {
+			debug.Log("AUDIO_COMPLETED pid=%d", pid)
+		}
 	} else {
-		debug.Log("AUDIO_FAILED pid=%d error=%v", pid, err)
+		debug.Log("AUDIO_FAILED pid=%d error=%v", pid, openErr)
 	}
 
 }
