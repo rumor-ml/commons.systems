@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Sanitize branch name for Cloud Run service names
 # Usage: sanitize-branch-name.sh <branch-name> [prefix]
 # Example: sanitize-branch-name.sh "feature/my-feature" "fellspiral"

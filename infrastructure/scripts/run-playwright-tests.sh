@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # TODO: See issue #435 - Add automated tests for this script (criticality 10/10)
 # Run Playwright E2E tests against deployed site
 # Usage: run-playwright-tests.sh <site-name> <site-url>

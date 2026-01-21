@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Check if files changed in a given path pattern
 # Usage: check-changes.sh <path-pattern> [commit-range]
 # Example: check-changes.sh "fellspiral/**" "HEAD^..HEAD"
