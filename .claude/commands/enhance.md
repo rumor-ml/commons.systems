@@ -123,7 +123,61 @@ gh issue edit <priority-number> \
 **Duplicates Closed**: #<num1>, #<num2>, #<num3>"
 ```
 
-## Step 6: Create Worktree for Priority Issue
+## Step 6: Verify Issue Relevance
+
+**IMPORTANT**: Before creating a worktree, verify the selected issue is still relevant to the current codebase.
+
+### 6.1: Investigate Issue Relevance
+
+Use the Task tool with `subagent_type="Explore"` to investigate whether the issue is still relevant:
+
+```bash
+Task(
+  subagent_type: "Explore",
+  prompt: "Investigate issue #<priority-number>: '<priority-title>'. Analyze the current codebase to determine if this issue is still relevant. Check:
+
+  1. Does the code/feature mentioned in the issue still exist?
+  2. Has the bug already been fixed or feature already implemented?
+  3. Is the issue obsolete due to refactoring or architectural changes?
+  4. Are the file paths and code references in the issue still valid?
+
+  Provide a clear YES/NO answer on whether this issue is still relevant, with 2-3 sentences explaining your reasoning."
+)
+```
+
+### 6.2: Handle Non-Relevant Issues
+
+If the Explore agent determines the issue is **NOT relevant**:
+
+1. Use AskUserQuestion to confirm closure:
+
+   ```
+   Issue #<priority-number> appears to be no longer relevant to the current codebase.
+
+   Reason: <agent's explanation>
+
+   Close this issue and proceed to the next highest priority enhancement? (yes/no)
+   ```
+
+2. If user confirms "yes":
+   - Close the issue with explanatory comment:
+     ```bash
+     gh issue close <priority-number> \
+       --comment "Closing as no longer relevant. <Brief explanation from Explore agent>"
+     ```
+   - Remove the closed issue from the prioritized lists
+   - **Loop back to Step 3** to select the next highest priority issue
+   - Continue with duplicate detection and relevance verification for the new selection
+
+3. If user confirms "no":
+   - Continue to Step 7 (create worktree anyway)
+   - User may want to update/redefine the issue
+
+If the Explore agent determines the issue **IS relevant**:
+
+- Continue to Step 7 (create worktree)
+
+## Step 7: Create Worktree for Priority Issue
 
 Execute the worktree skill with the priority issue number:
 
@@ -138,7 +192,7 @@ The worktree skill will:
 - Remove "ready" label and add "in progress" label
 - Open a new tmux window for work
 
-## Step 7: Report Completion
+## Step 8: Report Completion
 
 Provide a summary:
 
@@ -164,7 +218,9 @@ Ready to begin work on enhancement #<priority-number>
 - **No issues found**: Report "No open enhancement issues found" and exit
 - **Network errors**: Report error and suggest user retry
 - **No PR for duplicate closure**: Continue with workflow, report issue
-- **Worktree skill fails**: Report error, do not proceed to Step 7
+- **Explore agent fails**: Assume issue is relevant and continue to Step 7
+- **Worktree skill fails**: Report error, do not proceed to Step 8
+- **All issues marked not relevant**: Report error and exit workflow
 
 ## Implementation Notes
 
