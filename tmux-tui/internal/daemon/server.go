@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -112,55 +111,47 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 		branch, wasBlocked, previousBlockedBy)
 }
 
-// playAlertSound plays the system alert sound in the background.
+// playAlertSound plays the alert sound via terminal bell.
 //
 // Playback Conditions:
 //   - Skipped during E2E tests (CLAUDE_E2E_TEST env var set)
-//   - Rate limited: Maximum 1 sound per 500ms to prevent audio daemon overload
+//   - Rate limited: Maximum 1 sound per 500ms to prevent excessive alerts
 //   - Only plays when transitioning TO an alert state (handleAlertEvent determines this)
 //
-// Error Handling:
-//   - Logs to stderr for immediate visibility
-//   - Broadcasts MsgTypeAudioError to all connected clients
-//   - Audio failures don't block other daemon operations
-//
 // Implementation Notes:
-//   - Runs asynchronously in goroutine to avoid blocking daemon
+//   - Uses terminal bell (\a) for universal cross-platform support
+//   - Synchronous execution (terminal bell never fails)
 //   - Rate limiting uses global audioMutex and lastAudioPlay timestamp
-//   - afplay command targets macOS system sounds
 func (d *AlertDaemon) playAlertSound() {
 	// Skip sound during E2E tests
 	if os.Getenv("CLAUDE_E2E_TEST") != "" {
 		return
 	}
 
-	// Rate limit: Only allow one sound every 500ms to prevent audio daemon overload
+	// Rate limit: Only allow one sound every 500ms
 	audioMutex.Lock()
 	defer audioMutex.Unlock()
 
 	now := time.Now()
 	if now.Sub(lastAudioPlay) < 500*time.Millisecond {
-		// Too soon since last play - skip to prevent audio daemon overload
 		debug.Log("AUDIO_SKIPPED reason=rate_limit since_last=%v", now.Sub(lastAudioPlay))
 		return
 	}
 	lastAudioPlay = now
 
-	// Play sound asynchronously to avoid blocking daemon operations.
-	// Rate limiting (500ms above) reduces but does not eliminate goroutine accumulation
-	// during rapid alert bursts. Each goroutine blocks until afplay completes (~200ms typical).
-	// Accumulation is mitigated by rate limiting but not prevented entirely.
-	// cmd.Run() blocks the goroutine until afplay exits, automatically cleaning up the process.
-	cmd := exec.Command("afplay", "/System/Library/Sounds/Tink.aiff")
+	// Play terminal bell by writing to controlling terminal
 	pid := os.Getpid()
-	go func() {
-		debug.Log("AUDIO_PLAYING pid=%d", pid)
-		if err := cmd.Run(); err != nil {
-			debug.Log("AUDIO_ERROR pid=%d error=%v", pid, err)
-			d.broadcastAudioError(err)
-		}
+	debug.Log("AUDIO_PLAYING pid=%d method=terminal_bell", pid)
+
+	// Write to /dev/tty (controlling terminal) so bell works even for background processes
+	if f, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+		f.Write([]byte("\a"))
+		f.Close()
 		debug.Log("AUDIO_COMPLETED pid=%d", pid)
-	}()
+	} else {
+		debug.Log("AUDIO_FAILED pid=%d error=%v", pid, err)
+	}
+
 }
 
 // broadcastAudioError broadcasts an audio playback error to all connected clients.
