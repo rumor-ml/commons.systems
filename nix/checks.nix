@@ -351,8 +351,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
         echo "Validating Nix development shell..."
 
-        # Check flake evaluation without building derivations
-        # --max-jobs 0 prevents building, only evaluates the flake
+        # Check flake evaluation, allowing necessary builds
+        # This ensures the development shell can actually load successfully
         if ! ${pkgs.nix}/bin/nix develop --command echo 'Development shell loads successfully' 2>&1 | grep -q 'Development shell loads successfully'; then
           echo ""
           echo "ERROR: Nix development shell failed to load"
