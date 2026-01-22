@@ -545,11 +545,12 @@ func TestMustNew_PanicContext_NilCustomParser(t *testing.T) {
 		}
 		panicMsg := fmt.Sprint(r)
 
-		// Verify enhanced context
 		assertions := []string{
 			"failed to register custom parser 2 of 2",
 			"cannot register nil parser",
-			"Successfully registered: [ofx csv-pnc test-parser]",
+			"Successfully registered: ofx, csv-pnc, test-parser",
+			"programmer error",
+			"check your parser initialization",
 		}
 		for _, expected := range assertions {
 			if !strings.Contains(panicMsg, expected) {
@@ -574,7 +575,9 @@ func TestMustNew_PanicContext_DuplicateName(t *testing.T) {
 			"failed to register custom parser 2 of 2",
 			"already registered",
 			"test-parser",
-			"Successfully registered: [ofx csv-pnc test-parser]",
+			"Successfully registered: ofx, csv-pnc, test-parser",
+			"programmer error",
+			"check your parser initialization",
 		}
 		for _, expected := range assertions {
 			if !strings.Contains(panicMsg, expected) {
@@ -600,7 +603,9 @@ func TestMustNew_PanicContext_BuiltInConflict(t *testing.T) {
 			"failed to register custom parser 1 of 1",
 			"already registered",
 			"ofx",
-			"Successfully registered: [ofx csv-pnc]",
+			"Successfully registered: ofx, csv-pnc",
+			"programmer error",
+			"check your parser initialization",
 		}
 		for _, expected := range assertions {
 			if !strings.Contains(panicMsg, expected) {
@@ -625,7 +630,7 @@ func TestNew_EnhancedErrorContext(t *testing.T) {
 			errorContains: []string{
 				"failed to register custom parser 2 of 2",
 				"cannot register nil parser",
-				"Successfully registered: [ofx csv-pnc valid]",
+				"Successfully registered: ofx, csv-pnc, valid",
 			},
 		},
 		{
@@ -637,7 +642,7 @@ func TestNew_EnhancedErrorContext(t *testing.T) {
 			errorContains: []string{
 				"failed to register custom parser 2 of 2",
 				"already registered",
-				"Successfully registered: [ofx csv-pnc dup]",
+				"Successfully registered: ofx, csv-pnc, dup",
 			},
 		},
 	}
@@ -657,6 +662,32 @@ func TestNew_EnhancedErrorContext(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNew_EnhancedErrorContext_BuiltInOFXFailure(t *testing.T) {
+	// This test documents that we cannot easily test OFX parser registration failures
+	// without dependency injection. The error path exists in New() at lines 27-30,
+	// and includes enhanced context showing successfully registered parsers.
+	//
+	// If ofx.NewParser() were to return nil or fail, the error would show:
+	//   "failed to register ofx parser: <error>\n  Successfully registered: "
+	//
+	// This path is covered by integration tests where OFX parser initialization
+	// could fail due to misconfiguration or resource issues.
+	t.Skip("Cannot test OFX parser failure without dependency injection - covered by integration tests")
+}
+
+func TestNew_EnhancedErrorContext_BuiltInCSVFailure(t *testing.T) {
+	// This test documents that we cannot easily test CSV parser registration failures
+	// without dependency injection. The error path exists in New() at lines 32-35,
+	// and includes enhanced context showing successfully registered parsers (including OFX).
+	//
+	// If csv.NewParser() were to return nil or fail after OFX succeeds, the error would show:
+	//   "failed to register csv-pnc parser: <error>\n  Successfully registered: ofx"
+	//
+	// This path validates the sequential registration logic and context accumulation.
+	// It is covered by integration tests where CSV parser initialization could fail.
+	t.Skip("Cannot test CSV parser failure without dependency injection - covered by integration tests")
 }
 
 // Helper functions

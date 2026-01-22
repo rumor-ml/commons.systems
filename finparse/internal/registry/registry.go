@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
@@ -23,24 +24,29 @@ type Registry struct {
 func New(customParsers ...parser.Parser) (*Registry, error) {
 	r := &Registry{parsers: []parser.Parser{}}
 
+	// Helper to get registered parser names without calling public methods on partial registry
+	getRegisteredNames := func() string {
+		names := make([]string, len(r.parsers))
+		for i, p := range r.parsers {
+			names[i] = p.Name()
+		}
+		return strings.Join(names, ", ")
+	}
+
 	// Register built-in parsers
 	if err := r.register(ofx.NewParser()); err != nil {
-		registered := r.ListParsers()
-		return nil, fmt.Errorf("failed to register ofx parser: %w\n  Successfully registered: %v", err, registered)
+		return nil, fmt.Errorf("failed to register ofx parser: %w\n  Successfully registered: %s", err, getRegisteredNames())
 	}
 
 	if err := r.register(csv.NewParser()); err != nil {
-		registered := r.ListParsers()
-		return nil, fmt.Errorf("failed to register csv-pnc parser: %w\n  Successfully registered: %v", err, registered)
+		return nil, fmt.Errorf("failed to register csv-pnc parser: %w\n  Successfully registered: %s", err, getRegisteredNames())
 	}
 
 	// Register custom parsers
 	for i, p := range customParsers {
 		if err := r.register(p); err != nil {
-			// Include context: which parsers were successfully registered before failure
-			registered := r.ListParsers()
-			return nil, fmt.Errorf("failed to register custom parser %d of %d: %w\n  Successfully registered: %v",
-				i+1, len(customParsers), err, registered)
+			return nil, fmt.Errorf("failed to register custom parser %d of %d: %w\n  Successfully registered: %s",
+				i+1, len(customParsers), err, getRegisteredNames())
 		}
 	}
 
