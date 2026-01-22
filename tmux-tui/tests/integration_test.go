@@ -1025,6 +1025,25 @@ func TestIntegration_WorkingEventDoesNotClearOtherAlerts(t *testing.T) {
 	t.Log("Working event correctly cleared only target pane's alert, leaving others intact")
 }
 
+// containsOSCSequences checks for expected OSC notification sequences in captured output.
+// Returns true if OSC 777 (notify) and OSC 9 (macOS alert) sequences are found.
+// Checks both exact binary format and common escaped representations.
+func containsOSCSequences(captured string) (hasOSC777, hasOSC9 bool) {
+	// Check for exact binary format (what daemon actually writes)
+	expectedOSC777 := "\x1b]777;notify;tmux-tui;Alert\x07"
+	expectedOSC9 := "\x1b]9;tmux-tui alert\x07"
+
+	hasOSC777 = strings.Contains(captured, expectedOSC777) ||
+		strings.Contains(captured, "777;notify;tmux-tui;Alert") ||
+		strings.Contains(captured, "\\033]777") ||
+		strings.Contains(captured, "\x1b]777")
+	hasOSC9 = strings.Contains(captured, expectedOSC9) ||
+		strings.Contains(captured, "9;tmux-tui alert") ||
+		strings.Contains(captured, "\\033]9") ||
+		strings.Contains(captured, "\x1b]9")
+	return
+}
+
 // TestIntegration_SSHPassthroughWithTmux verifies that notification OSC sequences
 // are passed through tmux when allow-passthrough is enabled. This tests the core
 // requirement that notifications work "across SSH boundaries" on macOS clients.
@@ -1040,6 +1059,8 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping SSH passthrough test in short mode")
 	}
+
+	const notificationSequence = "\\033]777;notify;tmux-tui;Alert\\a\\033]9;tmux-tui alert\\a\\a"
 
 	socketName := uniqueSocketName()
 	sessionName := "passthrough-test"
@@ -1078,7 +1099,6 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 
 		// Write notification sequences to the pane (simulating daemon output)
 		// These are the exact sequences from playAlertSound()
-		notificationSequence := "\\033]777;notify;tmux-tui;Alert\\a\\033]9;tmux-tui alert\\a\\a"
 		sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", sessionName, "-l",
 			fmt.Sprintf("printf '%s'", notificationSequence))
 		if err := sendKeysCmd.Run(); err != nil {
@@ -1097,16 +1117,16 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 
 		// Verify OSC sequences are present in output
 		captured := string(capturedOutput)
-		hasOSC777 := strings.Contains(captured, "777;notify;tmux-tui;Alert") ||
-			strings.Contains(captured, "\\033]777") ||
-			strings.Contains(captured, "\x1b]777")
-		hasOSC9 := strings.Contains(captured, "9;tmux-tui alert") ||
-			strings.Contains(captured, "\\033]9") ||
-			strings.Contains(captured, "\x1b]9")
+		hasOSC777, hasOSC9 := containsOSCSequences(captured)
 
-		if !hasOSC777 && !hasOSC9 {
+		if !hasOSC777 || !hasOSC9 {
 			t.Logf("Captured output (first 500 chars): %q", captured[:min(500, len(captured))])
-			t.Error("OSC sequences not found in tmux output with allow-passthrough on")
+			if !hasOSC777 {
+				t.Error("OSC 777 sequence not found in exact binary format")
+			}
+			if !hasOSC9 {
+				t.Error("OSC 9 sequence not found in exact binary format")
+			}
 			t.Error("This indicates sequences may be stripped, breaking SSH notifications")
 		} else {
 			t.Log("✓ OSC sequences present in tmux output (passthrough working)")
@@ -1142,7 +1162,6 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 		t.Log("✓ Tmux configured with allow-passthrough off")
 
 		// Write same notification sequences
-		notificationSequence := "\\033]777;notify;tmux-tui;Alert\\a\\033]9;tmux-tui alert\\a\\a"
 		sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", sessionName2, "-l",
 			fmt.Sprintf("printf '%s'", notificationSequence))
 		if err := sendKeysCmd.Run(); err != nil {
@@ -1160,12 +1179,7 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 
 		// With passthrough off, sequences should be stripped or not visible
 		captured := string(capturedOutput)
-		hasOSC777 := strings.Contains(captured, "777;notify;tmux-tui;Alert") ||
-			strings.Contains(captured, "\\033]777") ||
-			strings.Contains(captured, "\x1b]777")
-		hasOSC9 := strings.Contains(captured, "9;tmux-tui alert") ||
-			strings.Contains(captured, "\\033]9") ||
-			strings.Contains(captured, "\x1b]9")
+		hasOSC777, hasOSC9 := containsOSCSequences(captured)
 
 		// Document behavior: with passthrough off, sequences may be stripped
 		if hasOSC777 || hasOSC9 {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -5215,25 +5216,57 @@ func (m *mockWriteCloser) Close() error {
 	return nil
 }
 
+// setupPlayAlertSoundTest configures test environment for playAlertSound tests.
+// It saves the original ttyWriter, sets a custom ttyWriter, and resets rate limiting.
+// Returns a cleanup function that must be called with defer.
+func setupPlayAlertSoundTest(customTTYWriter func() (io.WriteCloser, error)) func() {
+	originalWriter := ttyWriter
+	ttyWriter = customTTYWriter
+
+	// Reset rate limiting
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	return func() {
+		ttyWriter = originalWriter
+	}
+}
+
+// createTestDaemon creates a minimal AlertDaemon with mock client for testing.
+// Returns the daemon, client connection (for reading responses), and server connection.
+// Caller must close both connections with defer.
+func createTestDaemon(t *testing.T) (*AlertDaemon, net.Conn, net.Conn) {
+	tmpDir := t.TempDir()
+	daemon := &AlertDaemon{
+		clients:         make(map[string]*clientConnection),
+		blockedBranches: make(map[string]string),
+		blockedPath:     filepath.Join(tmpDir, "blocked.json"),
+	}
+
+	// Create mock client for error broadcast verification
+	clientConn, serverConn := net.Pipe()
+	clientEncoder := json.NewEncoder(serverConn)
+	daemon.clients["test-client"] = &clientConnection{
+		conn:      serverConn,
+		encoder:   clientEncoder,
+		encoderMu: sync.Mutex{},
+	}
+
+	return daemon, clientConn, serverConn
+}
+
 // TestPlayAlertSound_EscapeSequenceFormat verifies that playAlertSound writes
 // the correct OSC escape sequences in the expected format for terminal notifications.
 // This is the core functionality change - the notification sequence must be exact
 // or terminals will silently ignore it.
 func TestPlayAlertSound_EscapeSequenceFormat(t *testing.T) {
-	// Save original ttyWriter and restore after test
-	originalWriter := ttyWriter
-	defer func() { ttyWriter = originalWriter }()
-
-	// Reset rate limiting to allow test to run
-	audioMutex.Lock()
-	lastAudioPlay = time.Time{}
-	audioMutex.Unlock()
-
 	// Capture what gets written
 	mock := &mockWriteCloser{}
-	ttyWriter = func() (io.WriteCloser, error) {
+	cleanup := setupPlayAlertSoundTest(func() (io.WriteCloser, error) {
 		return mock, nil
-	}
+	})
+	defer cleanup()
 
 	// Create daemon and play sound
 	daemon := &AlertDaemon{
@@ -5274,82 +5307,112 @@ func TestPlayAlertSound_EscapeSequenceFormat(t *testing.T) {
 }
 
 // TestPlayAlertSound_DevTtyOpenFailure verifies that playAlertSound handles
-// /dev/tty open failures gracefully without crashing the daemon.
+// /dev/tty open failures gracefully and broadcasts errors to clients.
 func TestPlayAlertSound_DevTtyOpenFailure(t *testing.T) {
-	// Save original ttyWriter and restore after test
-	originalWriter := ttyWriter
-	defer func() { ttyWriter = originalWriter }()
-
-	// Reset rate limiting
-	audioMutex.Lock()
-	lastAudioPlay = time.Time{}
-	audioMutex.Unlock()
-
-	// Simulate /dev/tty open failure
 	openCalled := false
-	ttyWriter = func() (io.WriteCloser, error) {
+	cleanup := setupPlayAlertSoundTest(func() (io.WriteCloser, error) {
 		openCalled = true
 		return nil, os.ErrPermission
-	}
+	})
+	defer cleanup()
 
-	// Create daemon and play sound
-	daemon := &AlertDaemon{
-		clients: make(map[string]*clientConnection),
-	}
+	daemon, clientConn, serverConn := createTestDaemon(t)
+	defer clientConn.Close()
+	defer serverConn.Close()
 
-	// Should not panic or return error
+	// Should not panic
 	daemon.playAlertSound()
 
 	if !openCalled {
 		t.Error("ttyWriter was not called")
 	}
 
-	// Verify daemon remains operational by checking it didn't crash
-	// (if we reach here, the test passed - no panic occurred)
+	// Verify error was broadcast to client
+	// Note: broadcastAudioError runs in a goroutine, so we need a timeout
+	clientDecoder := json.NewDecoder(clientConn)
+	var msg Message
+
+	done := make(chan error, 1)
+	go func() {
+		done <- clientDecoder.Decode(&msg)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Failed to receive error broadcast: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for error broadcast")
+	}
+
+	if msg.Type != MsgTypeAudioError {
+		t.Errorf("Expected MsgTypeAudioError, got %v", msg.Type)
+	}
+	if !strings.Contains(msg.Error, "permission denied") {
+		t.Errorf("Error message missing permission details: %s", msg.Error)
+	}
 }
 
-// TestPlayAlertSound_WriteFailure verifies graceful handling of write failures
+// TestPlayAlertSound_WriteFailure verifies graceful handling of write failures,
+// resource cleanup, and error broadcasting.
 func TestPlayAlertSound_WriteFailure(t *testing.T) {
-	// Save original ttyWriter and restore after test
-	originalWriter := ttyWriter
-	defer func() { ttyWriter = originalWriter }()
-
-	// Reset rate limiting
-	audioMutex.Lock()
-	lastAudioPlay = time.Time{}
-	audioMutex.Unlock()
-
-	// Simulate write failure
+	closeCalled := false
 	mock := &mockWriteCloser{
 		writeFunc: func(p []byte) (int, error) {
 			return 0, os.ErrClosed
 		},
+		closeFunc: func() error {
+			closeCalled = true
+			return nil
+		},
 	}
-	ttyWriter = func() (io.WriteCloser, error) {
+	cleanup := setupPlayAlertSoundTest(func() (io.WriteCloser, error) {
 		return mock, nil
-	}
+	})
+	defer cleanup()
 
-	// Create daemon and play sound
-	daemon := &AlertDaemon{
-		clients: make(map[string]*clientConnection),
-	}
+	daemon, clientConn, serverConn := createTestDaemon(t)
+	defer clientConn.Close()
+	defer serverConn.Close()
 
 	// Should not panic
 	daemon.playAlertSound()
+
+	// Verify close was still called despite write failure
+	if !closeCalled {
+		t.Error("Close not called after write failure - resource leak")
+	}
+
+	// Verify error broadcast (with timeout since it runs in a goroutine)
+	clientDecoder := json.NewDecoder(clientConn)
+	var msg Message
+
+	done := make(chan error, 1)
+	go func() {
+		done <- clientDecoder.Decode(&msg)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Failed to receive error broadcast: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for error broadcast")
+	}
+
+	if msg.Type != MsgTypeAudioError {
+		t.Errorf("Expected MsgTypeAudioError, got %v", msg.Type)
+	}
+	if !strings.Contains(msg.Error, "write") && !strings.Contains(msg.Error, "closed") {
+		t.Errorf("Error message should mention write failure: %s", msg.Error)
+	}
 }
 
-// TestPlayAlertSound_CloseFailure verifies graceful handling of close failures
+// TestPlayAlertSound_CloseFailure verifies graceful handling of close failures,
+// error broadcasting, and that daemon remains operational.
 func TestPlayAlertSound_CloseFailure(t *testing.T) {
-	// Save original ttyWriter and restore after test
-	originalWriter := ttyWriter
-	defer func() { ttyWriter = originalWriter }()
-
-	// Reset rate limiting
-	audioMutex.Lock()
-	lastAudioPlay = time.Time{}
-	audioMutex.Unlock()
-
-	// Simulate close failure
 	closeCalled := false
 	mock := &mockWriteCloser{
 		closeFunc: func() error {
@@ -5357,19 +5420,150 @@ func TestPlayAlertSound_CloseFailure(t *testing.T) {
 			return os.ErrClosed
 		},
 	}
-	ttyWriter = func() (io.WriteCloser, error) {
+	cleanup := setupPlayAlertSoundTest(func() (io.WriteCloser, error) {
 		return mock, nil
-	}
+	})
+	defer cleanup()
 
-	// Create daemon and play sound
-	daemon := &AlertDaemon{
-		clients: make(map[string]*clientConnection),
-	}
+	daemon, clientConn, serverConn := createTestDaemon(t)
+	defer clientConn.Close()
+	defer serverConn.Close()
 
 	// Should not panic
 	daemon.playAlertSound()
 
 	if !closeCalled {
 		t.Error("Close was not called")
+	}
+
+	// Verify close error was broadcast (with timeout since it runs in a goroutine)
+	clientDecoder := json.NewDecoder(clientConn)
+	var msg Message
+
+	done := make(chan error, 1)
+	go func() {
+		done <- clientDecoder.Decode(&msg)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Failed to receive error broadcast: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for error broadcast")
+	}
+
+	if msg.Type != MsgTypeAudioError {
+		t.Errorf("Expected MsgTypeAudioError, got %v", msg.Type)
+	}
+	if !strings.Contains(msg.Error, "close") && !strings.Contains(msg.Error, "closed") {
+		t.Errorf("Error should mention close failure: %s", msg.Error)
+	}
+
+	// Verify daemon remains operational - second call should work
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{} // Reset to allow second call
+	audioMutex.Unlock()
+
+	closeCalledAgain := false
+	mock2 := &mockWriteCloser{
+		closeFunc: func() error {
+			closeCalledAgain = true
+			return nil // Successful close this time
+		},
+	}
+	ttyWriter = func() (io.WriteCloser, error) {
+		return mock2, nil
+	}
+
+	daemon.playAlertSound()
+
+	if !closeCalledAgain {
+		t.Error("Daemon not operational after close failure - second call didn't execute")
+	}
+}
+
+// TestPlayAlertSound_SkipDuringE2E verifies that sound playback is skipped when CLAUDE_E2E_TEST is set
+func TestPlayAlertSound_SkipDuringE2E(t *testing.T) {
+	// Save original and restore after test
+	originalWriter := ttyWriter
+	originalEnv := os.Getenv("CLAUDE_E2E_TEST")
+	defer func() {
+		ttyWriter = originalWriter
+		if originalEnv == "" {
+			os.Unsetenv("CLAUDE_E2E_TEST")
+		} else {
+			os.Setenv("CLAUDE_E2E_TEST", originalEnv)
+		}
+	}()
+
+	// Set E2E environment
+	os.Setenv("CLAUDE_E2E_TEST", "1")
+
+	// Reset rate limiting
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	// Track if ttyWriter was called
+	writerCalled := false
+	ttyWriter = func() (io.WriteCloser, error) {
+		writerCalled = true
+		return &mockWriteCloser{}, nil
+	}
+
+	// Create daemon and play sound
+	daemon := &AlertDaemon{clients: make(map[string]*clientConnection)}
+	daemon.playAlertSound()
+
+	// Verify skip behavior
+	if writerCalled {
+		t.Error("ttyWriter called during E2E test - should skip sound playback")
+	}
+
+	audioMutex.Lock()
+	defer audioMutex.Unlock()
+	if !lastAudioPlay.IsZero() {
+		t.Error("lastAudioPlay modified during E2E test - should remain zero")
+	}
+}
+
+// TestPlayAlertSound_RateLimitSkip verifies that sound playback is rate limited
+func TestPlayAlertSound_RateLimitSkip(t *testing.T) {
+	originalWriter := ttyWriter
+	defer func() { ttyWriter = originalWriter }()
+
+	// Reset rate limiting
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	// Track write calls
+	writeCount := 0
+	ttyWriter = func() (io.WriteCloser, error) {
+		writeCount++
+		return &mockWriteCloser{}, nil
+	}
+
+	daemon := &AlertDaemon{clients: make(map[string]*clientConnection)}
+
+	// First call - should execute
+	daemon.playAlertSound()
+	if writeCount != 1 {
+		t.Errorf("First call: expected 1 write, got %d", writeCount)
+	}
+
+	// Immediate second call - should be rate limited
+	daemon.playAlertSound()
+	if writeCount != 1 {
+		t.Errorf("Second call within 500ms: expected 1 write (rate limited), got %d", writeCount)
+	}
+
+	// Wait past rate limit
+	time.Sleep(550 * time.Millisecond)
+	daemon.playAlertSound()
+	if writeCount != 2 {
+		t.Errorf("Third call after 550ms: expected 2 writes, got %d", writeCount)
 	}
 }

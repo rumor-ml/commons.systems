@@ -170,6 +170,7 @@ func (d *AlertDaemon) playAlertSound() {
 	if openErr == nil {
 		if _, writeErr := f.Write([]byte(notificationSequence)); writeErr != nil {
 			debug.Log("AUDIO_FAILED pid=%d error=write_failed: %v", pid, writeErr)
+			d.broadcastAudioError(fmt.Errorf("failed to write notification sequence: %w", writeErr))
 			if closeErr := f.Close(); closeErr != nil {
 				debug.Log("AUDIO_FAILED pid=%d error=close_after_write_failed: %v", pid, closeErr)
 			}
@@ -177,11 +178,13 @@ func (d *AlertDaemon) playAlertSound() {
 		}
 		if closeErr := f.Close(); closeErr != nil {
 			debug.Log("AUDIO_FAILED pid=%d error=close_failed: %v", pid, closeErr)
+			d.broadcastAudioError(fmt.Errorf("failed to close /dev/tty: %w", closeErr))
 		} else {
 			debug.Log("AUDIO_COMPLETED pid=%d method=osc777+osc9+bel", pid)
 		}
 	} else {
 		debug.Log("AUDIO_FAILED pid=%d error=%v", pid, openErr)
+		d.broadcastAudioError(fmt.Errorf("failed to open /dev/tty: %w", openErr))
 	}
 
 }
