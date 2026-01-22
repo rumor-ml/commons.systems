@@ -15,6 +15,21 @@ import { UpdateIssueInputSchema, updateIssue, getWriteErrorGuidance } from './up
 import type { IssueRecord } from './manifest-types.js';
 import { FilesystemError } from '../utils/errors.js';
 
+/**
+ * Helper to detect if running on WSL (Windows Subsystem for Linux)
+ * WSL has known limitations with chmod permissions on NTFS filesystems
+ */
+function isWSL(): boolean {
+  try {
+    return (
+      existsSync('/proc/version') &&
+      readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft')
+    );
+  } catch {
+    return false;
+  }
+}
+
 describe('update-issue tool', () => {
   describe('UpdateIssueInputSchema', () => {
     describe('valid inputs', () => {
@@ -561,6 +576,12 @@ describe('update-issue behavioral tests', () => {
       // On macOS, only creating/deleting files is blocked by directory permissions
       if (process.platform === 'darwin') {
         t.skip('macOS directory permissions do not prevent writing to existing files');
+        return;
+      }
+
+      // Skip on WSL - chmod permissions don't work reliably on NTFS filesystems
+      if (isWSL()) {
+        t.skip('WSL chmod permissions do not work reliably on NTFS filesystems');
         return;
       }
 
