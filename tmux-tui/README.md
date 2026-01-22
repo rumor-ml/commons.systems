@@ -5,7 +5,7 @@ Developer dashboard TUI for commons.systems monorepo.
 ## Features
 
 - Auto-spawns in 40-column left pane in every new tmux window
-- Hotkey to reopen if closed (Prefix + t, default Prefix is Ctrl+b)
+- Hotkey to reopen if closed (Ctrl+Space)
 - Built with Go and Bubbletea
 - Integrates cleanly with existing Node.js workflow
 - Comprehensive E2E tests
@@ -40,9 +40,11 @@ When you're in the Nix development environment and inside tmux, every new window
 
 ### Manual Control
 
-- **Reopen TUI**: Press `Prefix + t` (default: Ctrl+b, then t)
+- **Reopen TUI**: Press `Ctrl+Space`
+- **Toggle block state**: Press `Prefix + B` (default: Ctrl+b, then B)
 - **Close TUI**: Press `Ctrl+C` in the TUI pane
 - **Disable globally**: Exit the Nix shell or unset the tmux hook
+- **Reload config**: `./tmux-tui/scripts/reload-config.sh` (if keybinding stops working)
 - **Rebuild manually**: `cd tmux-tui && make build` (usually not needed)
 
 ### Environment Variables
@@ -85,7 +87,8 @@ make clean  # or: go clean && rm -rf build/
 
 3. **tmux-tui.conf** - Tmux configuration
    - Sets `after-new-window` hook
-   - Binds Prefix + t keybinding
+   - Binds Ctrl+Space keybinding to spawn/reopen TUI
+   - Binds Prefix+B keybinding to toggle block state
    - Auto-sourced by Nix shellHook
 
 4. **tests/e2e_test.go** - E2E tests
@@ -107,7 +110,7 @@ make clean  # or: go clean && rm -rf build/
    - Focus returns to the main (right) pane
 
 3. If you close the TUI:
-   - Press Prefix + t to reopen it
+   - Press Ctrl+Space to reopen it
    - The keybinding runs the same `spawn.sh` script
 
 ### Automatic Build Detection
@@ -173,7 +176,8 @@ After building, verify:
 - [ ] Cursor starts in right pane (main work area)
 - [ ] Multiple windows have independent TUI panes
 - [ ] Ctrl+C closes TUI pane
-- [ ] Prefix + t reopens TUI
+- [ ] Ctrl+Space reopens TUI
+- [ ] Prefix+B toggles block state
 - [ ] Multiple tmux sessions work independently
 
 ## Troubleshooting
@@ -220,16 +224,45 @@ tmux show-window-options | grep tui-pane
 
 **Fix:** Rebuild: `make clean && make build`
 
-### Keybinding doesn't work
+### Keybinding doesn't work (Ctrl+Space)
+
+This commonly happens after cloning the repo to a new machine when the tmux session was started before direnv loaded the Nix shell configuration.
 
 **Diagnosis:**
 
 ```bash
-# Check keybinding is set
-tmux list-keys | grep "bind-key.*t"
+# Check if Ctrl+Space keybinding is set
+tmux list-keys | grep "C-Space"
+
+# Check if environment variable is set
+tmux show-environment -g | grep TMUX_TUI_SPAWN_SCRIPT
+
+# Check if you're in the Nix shell
+echo $IN_NIX_SHELL
 ```
 
-**Fix:** Re-source config: `tmux source-file tmux-tui/tmux-tui.conf`
+**Quick Fix:** Run the reload script:
+
+```bash
+./tmux-tui/scripts/reload-config.sh
+```
+
+**Manual Fix:** Re-source config manually:
+
+```bash
+# From the Nix shell (nix develop)
+tmux source-file "$(dirname "$(dirname "$(command -v tmux-tui)")")/share/tmux-tui/tmux-tui.conf"
+```
+
+**Permanent Fix:** Exit and re-enter tmux to ensure direnv loads properly:
+
+```bash
+# Exit tmux completely
+tmux kill-session
+
+# Start a new tmux session (direnv will auto-load)
+tmux
+```
 
 ## Health Monitoring
 
@@ -299,7 +332,8 @@ tmux-tui/
 │       └── main.go          # TUI entry point
 ├── scripts/
 │   ├── spawn.sh             # Tmux hook script
-│   └── restart-tui.sh       # Testing script - restart all TUI panes
+│   ├── restart-tui.sh       # Testing script - restart all TUI panes
+│   └── reload-config.sh     # Reload tmux-tui config (troubleshooting)
 ├── tests/
 │   └── e2e_test.go          # E2E tests
 ├── tmux-tui.conf            # Tmux configuration

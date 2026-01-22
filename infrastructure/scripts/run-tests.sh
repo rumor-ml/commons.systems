@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Unified test runner - discovers and tests all apps
 # Usage:
 #   run-tests.sh              # Test all apps

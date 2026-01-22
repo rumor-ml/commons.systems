@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Wait for a service to be healthy with exponential backoff and content validation
 #
 # Usage:
