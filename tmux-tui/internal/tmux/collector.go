@@ -318,3 +318,13 @@ func (c *Collector) CacheSize() int {
 	}
 	return c.claudeCache.Size()
 }
+
+// GetPaneTitle queries tmux for the current title of a specific pane.
+// Returns the title string or error if the query fails.
+func (c *Collector) GetPaneTitle(paneID string) (string, error) {
+	output, err := c.executor.ExecCommandOutput("tmux", "display-message", "-p", "-t", paneID, "#{pane_title}")
+	if err != nil {
+		return "", fmt.Errorf("failed to get pane title: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}

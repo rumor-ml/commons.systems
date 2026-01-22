@@ -130,6 +130,21 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WithWindowActive returns a new Pane with the windowActive field modified.
+func (p Pane) WithWindowActive(active bool) Pane {
+	newPane := p
+	newPane.windowActive = active
+	return newPane
+}
+
+// WithActiveAndTitle returns a new Pane with both windowActive and title modified.
+func (p Pane) WithActiveAndTitle(active bool, title string) Pane {
+	newPane := p
+	newPane.windowActive = active
+	newPane.title = title
+	return newPane
+}
+
 // Window represents a tmux window with validated panes.
 // All fields are private to enforce validation and prevent invalid state mutations.
 // Use NewWindow() to create and getters to access fields.
@@ -367,4 +382,50 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+// UpdatePaneActiveState finds a pane by ID and updates its windowActive state.
+// Returns true if found and updated, false otherwise.
+func (rt *RepoTree) UpdatePaneActiveState(paneID string, active bool) bool {
+	for repo := range rt.tree {
+		for branch := range rt.tree[repo] {
+			for i := range rt.tree[repo][branch] {
+				if rt.tree[repo][branch][i].ID() == paneID {
+					rt.tree[repo][branch][i] = rt.tree[repo][branch][i].WithWindowActive(active)
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// UpdatePaneActiveAndTitle finds a pane by ID and updates both active state and title.
+// Returns true if found and updated, false otherwise.
+func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title string) bool {
+	for repo := range rt.tree {
+		for branch := range rt.tree[repo] {
+			for i := range rt.tree[repo][branch] {
+				if rt.tree[repo][branch][i].ID() == paneID {
+					rt.tree[repo][branch][i] = rt.tree[repo][branch][i].WithActiveAndTitle(active, title)
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// FindPaneByID searches for a pane by ID and returns it with repo/branch metadata.
+func (rt RepoTree) FindPaneByID(paneID string) (Pane, string, string, bool) {
+	for repo := range rt.tree {
+		for branch := range rt.tree[repo] {
+			for _, pane := range rt.tree[repo][branch] {
+				if pane.ID() == paneID {
+					return pane, repo, branch, true
+				}
+			}
+		}
+	}
+	return Pane{}, "", "", false
 }
