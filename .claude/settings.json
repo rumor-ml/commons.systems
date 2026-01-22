@@ -85,6 +85,7 @@
       "Bash(npm test:*)",
       "Bash(pnpm test:*)",
       "Bash(pnpm build:*)",
+      "Bash(prettier --write:*)",
       "Bash(gcloud logging read:*)",
       "Bash(gcloud run services describe:*)",
       "Bash(gcloud artifacts repositories list:*)",
@@ -102,6 +103,7 @@
       "Bash(tree:*)",
       "Bash(tee:*)",
       "Bash(sort:*)",
+      "Bash(jq:*)",
       "Bash(echo:*)"
     ]
   },
