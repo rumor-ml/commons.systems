@@ -51,69 +51,72 @@
   </head>
   <body>
     <div class="app-container app-loading">
-      <!-- Header -->
-      <header class="app-header">
-        <div class="header-row">
-          <div>
-            <h1 class="app-title">Budget Visualization</h1>
-            <p class="app-subtitle">Track your income and expenses with interactive charts</p>
+      <!-- Main View (/#/) -->
+      <div id="main-view" style="display: none">
+        <!-- Header -->
+        <header class="app-header">
+          <div class="header-row">
+            <div>
+              <h1 class="app-title">Budget Visualization</h1>
+              <p class="app-subtitle">Track your income and expenses with interactive charts</p>
+            </div>
+            <button id="plan-budget-btn" class="btn btn-primary">Set Budget Targets</button>
           </div>
-          <button id="plan-budget-btn" class="btn btn-primary">Set Budget Targets</button>
+        </header>
+
+        <!-- Date Range Selector -->
+        <div
+          id="date-range-selector-island"
+          data-island-component="DateRangeSelector"
+          data-island-props="{}"
+        ></div>
+
+        <!-- Summary cards (vanilla JS rendered) -->
+        <div id="summary-cards">
+          <!-- Loading skeleton -->
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="skeleton-card">
+              <div class="skeleton-line small"></div>
+              <div class="skeleton-line medium"></div>
+            </div>
+            <div class="skeleton-card">
+              <div class="skeleton-line small"></div>
+              <div class="skeleton-line medium"></div>
+            </div>
+            <div class="skeleton-card">
+              <div class="skeleton-line small"></div>
+              <div class="skeleton-line medium"></div>
+            </div>
+            <div class="skeleton-card">
+              <div class="skeleton-line small"></div>
+              <div class="skeleton-line medium"></div>
+            </div>
+          </div>
         </div>
-      </header>
 
-      <!-- Budget Plan Editor Modal (conditionally rendered) -->
-      <div
-        id="plan-editor-island"
-        data-island-component="BudgetPlanEditor"
-        data-island-props="{}"
-        style="display: none"
-      ></div>
+        <!-- Main Layout -->
+        <div class="main-layout">
+          <!-- Chart island -->
+          <div id="chart-island" data-island-component="BudgetChart" data-island-props="{}">
+            <!-- Loading skeleton for chart -->
+            <div class="skeleton-card" style="height: 400px"></div>
+          </div>
 
-      <!-- Time Selector (conditionally rendered in weekly mode) -->
-      <div
-        id="time-selector-island"
-        data-island-component="TimeSelector"
-        data-island-props="{}"
-        style="display: none"
-      ></div>
-
-      <!-- Summary cards (vanilla JS rendered) -->
-      <div id="summary-cards">
-        <!-- Loading skeleton -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="skeleton-card">
-            <div class="skeleton-line small"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-          <div class="skeleton-card">
-            <div class="skeleton-line small"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-          <div class="skeleton-card">
-            <div class="skeleton-line small"></div>
-            <div class="skeleton-line medium"></div>
-          </div>
-          <div class="skeleton-card">
-            <div class="skeleton-line small"></div>
-            <div class="skeleton-line medium"></div>
+          <!-- Legend island -->
+          <div id="legend-island" data-island-component="Legend" data-island-props="{}">
+            <!-- Loading skeleton for legend -->
+            <div class="skeleton-card" style="height: 400px"></div>
           </div>
         </div>
       </div>
 
-      <!-- Main Layout -->
-      <div class="main-layout">
-        <!-- Chart island -->
-        <div id="chart-island" data-island-component="BudgetChart" data-island-props="{}">
-          <!-- Loading skeleton for chart -->
-          <div class="skeleton-card" style="height: 400px"></div>
-        </div>
-
-        <!-- Legend island -->
-        <div id="legend-island" data-island-component="Legend" data-island-props="{}">
-          <!-- Loading skeleton for legend -->
-          <div class="skeleton-card" style="height: 400px"></div>
-        </div>
+      <!-- Planning View (/#/plan) -->
+      <div id="planning-view" style="display: none">
+        <div
+          id="planning-page-island"
+          data-island-component="BudgetPlanningPage"
+          data-island-props="{}"
+        ></div>
       </div>
     </div>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
