@@ -9,7 +9,10 @@ interface SegmentTooltipProps {
   onClose?: () => void;
 }
 
-// TODO: See issue #445 - Add unit tests for section visibility logic edge cases
+// TODO(#445): Add unit tests for section visibility edge cases:
+// - Both redeemable/nonRedeemable are zero (hide redemption section)
+// - Both vacation/nonVacation are zero (hide type section)
+// - All sections hidden (empty breakdown display)
 /**
  * Determines if the Redemption section should be shown.
  * Hide if either redeemable or nonRedeemable is zero (making the breakdown redundant).
@@ -82,7 +85,10 @@ export const SegmentTooltip = memo(function SegmentTooltip({
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const tooltipWidth = 280;
-  // Calculate approximate tooltip height: base 150px + 100px per visible section
+  // Calculate approximate tooltip height for viewport boundary detection
+  // Base: 150px (header + total + footer), Section: 100px each (breakdown rows)
+  // NOTE: These values are approximations. If tooltip CSS changes significantly,
+  // update these constants or consider measuring actual rendered height.
   const sectionCount = Number(showRedemption) + Number(showType);
   const tooltipHeight = 150 + sectionCount * 100;
 

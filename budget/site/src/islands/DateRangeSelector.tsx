@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { dispatchBudgetEvent } from '../utils/events';
+import { StateManager } from '../scripts/state';
 
 interface DateRangeSelectorProps {
   dateRangeStart: string | null;
@@ -17,6 +18,39 @@ export function DateRangeSelector({ dateRangeStart, dateRangeEnd }: DateRangeSel
   }, [dateRangeStart, dateRangeEnd]);
 
   const handleApply = () => {
+    // Validate start date
+    if (startDate) {
+      const startDateObj = new Date(startDate);
+      if (
+        isNaN(startDateObj.getTime()) ||
+        startDateObj.toISOString().substring(0, 10) !== startDate
+      ) {
+        StateManager.showErrorBanner(
+          `Invalid start date "${startDate}". Please enter a valid date in YYYY-MM-DD format.`
+        );
+        return;
+      }
+    }
+
+    // Validate end date
+    if (endDate) {
+      const endDateObj = new Date(endDate);
+      if (isNaN(endDateObj.getTime()) || endDateObj.toISOString().substring(0, 10) !== endDate) {
+        StateManager.showErrorBanner(
+          `Invalid end date "${endDate}". Please enter a valid date in YYYY-MM-DD format.`
+        );
+        return;
+      }
+    }
+
+    // Validate date range ordering
+    if (startDate && endDate && startDate > endDate) {
+      StateManager.showErrorBanner(
+        'Invalid date range: Start date must be before or equal to end date.'
+      );
+      return;
+    }
+
     dispatchBudgetEvent('budget:date-range-change', {
       startDate: startDate || null,
       endDate: endDate || null,

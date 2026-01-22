@@ -94,12 +94,9 @@ export function aggregateTransactionsByWeek(
       skippedTransactionsByWeek.set(week, affectedTransactions);
 
       skippedWeeks.add(week);
-      // Skip this week - invalid week ID format or date calculation error.
-      // Transactions from this week are excluded from weekly aggregation.
-      // Monthly view uses LESS STRICT parsing (YYYY-MM substring extraction)
-      // that doesn't validate ISO week format, so transactions may appear there.
-      // However, invalid dates like "2025-02-31" would still be problematic.
-      // User is notified via error banner below (search for 'showErrorBanner').
+      // Skip this week: invalid week ID or date calculation error.
+      // Note: Monthly view is more lenient (uses YYYY-MM parsing) so these
+      // transactions may still appear there. User notified via error banner.
       return;
     }
 
@@ -204,9 +201,9 @@ export function aggregateTransactionsByWeek(
  * @param weeklyData - All weekly transaction data
  * @param budgetPlan - Budget plan with category targets and rollover settings
  * @param fromWeek - Start week (inclusive) for rollover calculation window.
- *   Should be the first week where budget tracking began, or the earliest week in weeklyData.
- *   Using a week later than budget start will exclude earlier rollover accumulation from results.
- *   Example: If budget started '2025-W01', always pass '2025-W01' to include full rollover history.
+ *   Typically the first week in weeklyData (earliest historical data point).
+ *   Example: If weeklyData starts at '2025-W01', pass '2025-W01' as fromWeek.
+ *   Note: Using a later fromWeek excludes earlier rollover accumulation.
  * @param toWeek - End week (exclusive). Calculates rollover accumulated up to but not including toWeek.
  *   Example: pass '2025-W05' to get rollover available for W05 budget adjustment (accumulated through end of W04).
  *   The returned rollover adjusts toWeek's effective budget target.
@@ -477,6 +474,7 @@ export function getAvailableWeeks(transactions: Transaction[]): WeekId[] {
  * @param weeklyData - Weekly aggregated transaction data
  * @returns Array of per-category historic averages
  */
+// TODO(#1459): Consider unit tests for pure calculation functions
 export function calculateCategoryHistoricAverages(
   weeklyData: WeeklyData[]
 ): import('../islands/types').CategoryHistoricAverage[] {

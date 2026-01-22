@@ -1125,7 +1125,7 @@ describe('StateManager', () => {
     it('handles race between save and load during rapid state updates', () => {
       // Simulate rapid state updates
       const updates = [
-        { hiddenCategories: ['groceries'] },
+        { hiddenCategories: ['groceries' as const] },
         { showVacation: false },
         { planningMode: true },
         { viewGranularity: 'week' as const, selectedWeek: weekId('2025-W01') },

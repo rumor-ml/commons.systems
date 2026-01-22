@@ -34,7 +34,7 @@ function renderEmptyState(container: HTMLElement, message: string): void {
 /**
  * Transform transactions to monthly aggregates with qualifier tracking.
  * Filters out transfers and applies category/vacation/date range filters.
- * @param filterToIndicatorCategories If provided, only include these categories in the output
+ * @param filterToIndicatorCategories If provided, only include these categories in monthlyData. Net income calculation always includes all categories.
  * @returns Object containing monthlyData, netIncomeData, and trailingAvgData
  */
 function transformToMonthlyData(
@@ -128,7 +128,7 @@ function transformToMonthlyData(
     });
   });
 
-  // Sort by month AND category to match Observable Plot's rendering order
+  // Sort by month AND category to ensure consistent stacking order in stacked bar mode
   monthlyData.sort((a, b) => {
     const monthCompare = a.month.localeCompare(b.month);
     if (monthCompare !== 0) return monthCompare;
@@ -154,14 +154,15 @@ function transformToMonthlyData(
     const avg = d3.mean(slice, (d) => d.netIncome);
 
     // Validate mean calculation succeeded
-    // d3.mean returns undefined for empty arrays and NaN for arrays of all NaN values
+    // d3.mean returns undefined for empty arrays or when no valid numeric values exist
     if (avg === undefined || !Number.isFinite(avg)) {
       console.error(`Invalid trailing average at index ${idx}:`, {
         slice: slice.map((d) => ({ month: d.month, netIncome: d.netIncome })),
         calculatedMean: avg,
       });
 
-      // Return 0 for empty data - intentional fallback for display purposes
+      // Return 0 for empty data - intentional fallback to prevent chart rendering errors.
+      // Using 0 instead of null/undefined ensures the line displays at baseline rather than breaking.
       return {
         month: item.month,
         trailingAvg: 0,
@@ -294,7 +295,26 @@ function calculateNetIncomeFromData(data: MonthlyData[]): {
   const trailingAvgData = netIncomeData.map((item, idx) => {
     const start = Math.max(0, idx - 2);
     const slice = netIncomeData.slice(start, idx + 1);
-    const avg = d3.mean(slice, (d) => d.netIncome) || 0;
+
+    // Validate slice has data
+    if (slice.length === 0) {
+      console.warn(`No data for trailing average at period ${item.month}`);
+      return { month: item.month, trailingAvg: 0 };
+    }
+
+    const avg = d3.mean(slice, (d) => d.netIncome);
+
+    // Validate mean calculation succeeded
+    if (avg === undefined || !Number.isFinite(avg)) {
+      console.error(`Invalid trailing average for period ${item.month}:`, {
+        slice: slice.map((d) => ({ month: d.month, netIncome: d.netIncome })),
+        calculatedMean: avg,
+      });
+
+      // Return 0 fallback - intentional to prevent chart rendering errors
+      return { month: item.month, trailingAvg: 0 };
+    }
+
     return {
       month: item.month,
       trailingAvg: avg,
@@ -307,6 +327,10 @@ function calculateNetIncomeFromData(data: MonthlyData[]): {
 /**
  * Calculate indicator lines for each category's budget performance.
  * Returns data for actual spending, trailing average, and budget target lines.
+ * @returns Object containing:
+ *   - actualLines: Array of actual spending per period
+ *   - trailingLines: Array of 3-period trailing averages
+ *   - targetLines: Array of budget target values per period
  */
 function calculateIndicatorLines(
   transactions: Transaction[],
@@ -341,7 +365,7 @@ function calculateIndicatorLines(
     categoryTransactions.forEach((t) => {
       let period: string;
       if (barAggregation === 'weekly') {
-        // Use same format as transformToWeeklyBars: "YYYY-Www"
+        // Use same format as transformToWeeklyData: "YYYY-Www"
         const date = new Date(t.date);
         const year = date.getFullYear();
         const week = d3.utcWeek.count(d3.utcYear(date), date);
@@ -374,7 +398,28 @@ function calculateIndicatorLines(
       const start = Math.max(0, idx - 2);
       const slice = sortedPeriods.slice(start, idx + 1);
       const values = slice.map((p) => periodAmounts.get(p) || 0);
-      const avg = d3.mean(values) || 0;
+
+      // Validate values array
+      if (values.some((v) => !Number.isFinite(v))) {
+        console.error(
+          `Invalid values in trailing average calculation for ${category} period ${period}:`,
+          { values, periods: slice }
+        );
+        // Skip this data point rather than adding corrupted data
+        return;
+      }
+
+      const avg = d3.mean(values);
+
+      if (avg === undefined || !Number.isFinite(avg)) {
+        console.error(`d3.mean failed for ${category} period ${period}:`, {
+          values,
+          calculatedMean: avg,
+        });
+        // Skip this data point rather than adding corrupted data
+        return;
+      }
+
       trailingLines.push({ month: period, category, amount: avg });
     });
   });
@@ -396,12 +441,6 @@ function getGroupedBarMarks(
   categories: Category[],
   allPeriods: string[]
 ): any[] {
-  console.log('[getGroupedBarMarks] Input:', {
-    totalDataPoints: data.length,
-    categories,
-    periodCount: allPeriods.length,
-  });
-
   const categoryCount = categories.length;
   if (categoryCount === 0) return [];
 
@@ -411,30 +450,36 @@ function getGroupedBarMarks(
   return categories.map((category, categoryIndex) => {
     const categoryData = data.filter((d) => d.category === category);
 
-    console.log(`  Category ${categoryIndex} "${category}": data=${categoryData.length}`);
-
     // Transform data: add x1/x2 fields for positioning
     // Each category gets an equal fraction of the band (0-1 range)
-    const transformedData = categoryData.map((d) => {
-      const periodIdx = periodToIndex.get(d.month);
-      if (periodIdx === undefined) {
-        console.warn(`Period not found: ${d.month}`);
-        return { ...d, x1: 0, x2: 0 };
-      }
+    const transformedData = categoryData
+      .map((d) => {
+        const periodIdx = periodToIndex.get(d.month);
+        if (periodIdx === undefined) {
+          console.error(`Period not found in index map: ${d.month}`, {
+            category: d.category,
+            amount: d.amount,
+            availablePeriods: Array.from(periodToIndex.keys()).slice(0, 10),
+          });
+          // Return null to filter out invalid data points
+          return null;
+        }
 
-      // Calculate fractional positions within the band [0, 1]
-      // Leave 5% gap on each side, divide the remaining 90% among categories
-      const barWidth = 0.9 / categoryCount;
-      const gap = 0.05;
-      const x1Fraction = gap + categoryIndex * barWidth;
-      const x2Fraction = gap + (categoryIndex + 1) * barWidth;
+        // Calculate fractional positions within the band [0, 1]
+        // Leave 5% gap on each side, divide the remaining 90% among categories
+        const barWidth = 0.9 / categoryCount;
+        const gap = 0.05;
+        const x1Fraction = gap + categoryIndex * barWidth;
+        const x2Fraction = gap + (categoryIndex + 1) * barWidth;
 
-      // Convert to actual positions: periodIdx + fraction
-      const x1 = periodIdx + x1Fraction;
-      const x2 = periodIdx + x2Fraction;
+        // Convert from band-relative [0,1] fractions to absolute linear scale positions
+        // Each period occupies integer range [periodIdx, periodIdx+1] on the x-axis
+        const x1 = periodIdx + x1Fraction;
+        const x2 = periodIdx + x2Fraction;
 
-      return { ...d, x1, x2 };
-    });
+        return { ...d, x1, x2 };
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null);
 
     return Plot.rectY(transformedData, {
       x1: 'x1',
@@ -472,14 +517,6 @@ function renderMonthlyChart(
   // Get unique categories for grouped bar mode - ONLY categories with active indicators
   const indicatorCategories = [...new Set(indicatorLines.actualLines.map((d) => d.category))];
 
-  console.log('[renderMonthlyChart] Debug:', {
-    hasActiveIndicators,
-    indicatorCategories,
-    totalExpenseData: expenseData.length,
-    totalIncomeData: incomeData.length,
-    expenseDataSample: expenseData.slice(0, 3),
-  });
-
   // Split indicator categories into expense and income based on available data
   const expenseCategories = indicatorCategories.filter((cat) =>
     expenseData.some((d) => d.category === cat)
@@ -487,11 +524,6 @@ function renderMonthlyChart(
   const incomeCategories = indicatorCategories.filter((cat) =>
     incomeData.some((d) => d.category === cat)
   );
-
-  console.log('[renderMonthlyChart] Categories:', {
-    expenseCategories,
-    incomeCategories,
-  });
 
   // Extract all unique periods for grouped bar positioning
   const allPeriods = [...new Set(monthlyData.map((d) => d.month))].sort();
@@ -504,19 +536,6 @@ function renderMonthlyChart(
   const incomeBarMarks = hasActiveIndicators
     ? getGroupedBarMarks(incomeData, incomeCategories, allPeriods)
     : [Plot.barY(incomeData, Plot.stackY({ x: 'month', y: 'amount', fill: 'category' }))];
-
-  console.log('[renderMonthlyChart] Bar marks created:', {
-    expenseBarMarks: expenseBarMarks.length,
-    incomeBarMarks: incomeBarMarks.length,
-  });
-
-  // Debug: log the actual mark configurations
-  if (hasActiveIndicators) {
-    console.log('[renderMonthlyChart] Grouped mode - mark configs:');
-    expenseBarMarks.forEach((mark, i) => {
-      console.log(`  Expense mark ${i}:`, mark);
-    });
-  }
 
   // Transform indicator lines to numeric positions for grouped mode
   const periodToIndex = new Map(allPeriods.map((p, i) => [p, i + 0.5])); // +0.5 centers lines
@@ -697,7 +716,9 @@ function renderMonthlyChart(
  * Handles both stacked mode (2 bar groups) and grouped mode (multiple bar groups per category).
  * @param expenseData Pre-partitioned expense data (negative amounts)
  * @param incomeData Pre-partitioned income data (positive amounts)
- * @throws Error if bar groups not found (caller should handle gracefully)
+ * @throws Error if bar groups not found in rendered SVG. This is non-fatal - the chart
+ *         has already rendered successfully. Caller should catch, log diagnostics, and
+ *         continue with static chart display (no tooltip interactivity).
  */
 function attachTooltipListeners(
   plot: Element,
@@ -798,8 +819,10 @@ function attachTooltipListeners(
   const incomeCategories = [...new Set(incomeData.map((d) => d.category))];
   const totalCategories = expenseCategories.length + incomeCategories.length;
 
-  // If bar groups count matches category count, it's grouped mode
-  // Allow for slight variance due to rendering differences
+  // Grouped mode detection: bar groups ≈ category count (one group per category)
+  // Formula allows for edge cases:
+  // - Subtract 1: handles case where one category has no data and no group rendered
+  // - Min threshold 3: prevents false positives in stacked mode (typically 2 groups)
   const isGroupedMode = barGroups.length >= Math.max(totalCategories - 1, 3);
 
   if (isGroupedMode && totalCategories > 0) {
@@ -949,40 +972,6 @@ export function BudgetChart({
         )
       : { actualLines: [], trailingLines: [], targetLines: [] };
 
-    // Debug: Log sample data for alignment verification
-    if (barAggregation === 'weekly') {
-      console.log('[BudgetChart] Weekly view debug:');
-      console.log('  Total display data points:', displayData.length);
-      console.log(
-        '  Bar periods (all unique):',
-        [...new Set(displayData.map((d) => d.month))].slice(0, 20)
-      );
-      console.log(
-        '  Bar categories (sample):',
-        displayData.slice(0, 5).map((d) => ({ month: d.month, cat: d.category, amt: d.amount }))
-      );
-
-      if (indicatorLines.actualLines.length > 0) {
-        console.log('  Indicator line points:', indicatorLines.actualLines.length);
-        console.log(
-          '  Indicator periods (all unique):',
-          [...new Set(indicatorLines.actualLines.map((d) => d.month))].slice(0, 20)
-        );
-        console.log(
-          '  Indicator sample:',
-          indicatorLines.actualLines
-            .slice(0, 5)
-            .map((d) => ({ month: d.month, cat: d.category, amt: d.amount }))
-        );
-        console.log(
-          '  Field names match:',
-          displayData[0]?.month === indicatorLines.actualLines[0]?.month
-        );
-      } else {
-        console.log('  No indicator lines (none enabled)');
-      }
-    }
-
     // Chart rendering
     let plot: Element;
     let expenseData: MonthlyData[];
@@ -1002,20 +991,6 @@ export function BudgetChart({
       expenseData = result.expenseData;
       incomeData = result.incomeData;
       containerRef.current.appendChild(plot);
-
-      // Debug: Inspect rendered SVG structure
-      console.log('[BudgetChart] Plot rendered - DOM inspection:');
-      const barGroups = plot.querySelectorAll('g[aria-label="bar"]');
-      console.log(`  Total bar groups: ${barGroups.length}`);
-      barGroups.forEach((group, i) => {
-        const rects = group.querySelectorAll('rect');
-        const firstRect = rects[0] as SVGRectElement;
-        if (firstRect) {
-          console.log(
-            `  Group ${i}: ${rects.length} bars, first bar x=${firstRect.getAttribute('x')}, width=${firstRect.getAttribute('width')}, fill=${firstRect.getAttribute('fill')}`
-          );
-        }
-      });
     } catch (err) {
       console.error('Failed to render monthly chart:', err);
       setError('Failed to render chart visualization.');

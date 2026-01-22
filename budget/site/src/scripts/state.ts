@@ -78,6 +78,9 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
 
 /**
  * Application view type
+ * Note: Values map to Route type in router.ts:
+ *   'main' → '/' and 'planning' → '/plan'
+ * Consider using Route type directly in future refactor to eliminate duplication.
  */
 export type ViewType = 'main' | 'planning';
 
@@ -188,7 +191,11 @@ export class StateManager {
 
       // TODO(2026-06): Remove selectedCategory migration (added 2026-01).
       //   Safe to remove after 6mo if no user error reports about lost preferences.
-      //   Before removal: Test clean install + upgrade path.
+      //   Before removal: Test scenarios:
+      //   1. Fresh install with no localStorage (should use defaults)
+      //   2. Upgrade from old format (selectedCategory) to new (hiddenCategories)
+      //   3. Already using new format (should not break)
+      //   After removal: Drop selectedCategory handling from load() entirely.
       // Migration: Convert old selectedCategory format to hiddenCategories.
       if ('selectedCategory' in parsed && parsed.selectedCategory !== null) {
         const hiddenCategories = CATEGORIES.filter((cat) => cat !== parsed.selectedCategory);
@@ -200,6 +207,12 @@ export class StateManager {
       }
 
       // TODO(2026-07): Remove planningMode migration (added 2026-01).
+      //   Safe to remove after 6mo if no user error reports about navigation issues.
+      //   Before removal: Test scenarios:
+      //   1. Fresh install with no localStorage (should default to 'main')
+      //   2. Upgrade from old format (planningMode: boolean) to new (currentView: ViewType)
+      //   3. Already using new format (should not break)
+      //   After removal: Drop planningMode handling from load() entirely.
       // Migration: Convert old planningMode to currentView
       let currentView: ViewType = 'main';
       if ('planningMode' in parsed) {
@@ -260,7 +273,12 @@ export class StateManager {
         showNetIncomeIndicator,
       };
     } catch (error) {
-      // TODO: Distinguish between error types (JSON parse, localStorage access, validation) and provide specific user guidance
+      // TODO: Distinguish between error types and provide specific user guidance:
+      //   - JSON parse error → "Your saved settings are corrupted. Resetting to defaults."
+      //   - localStorage access denied → "Private browsing detected. Settings won't persist."
+      //   - Validation error → "Saved settings format is outdated. Migrating to new format."
+      // This would improve UX by helping users understand and fix their specific issue.
+      // Priority: Low (current generic message is acceptable for most users).
       console.error('Failed to load state from localStorage:', error);
 
       // Show user-facing warning
@@ -290,6 +308,40 @@ export class StateManager {
       ...current,
       ...state,
     };
+
+    // Validate merged state before persisting
+    if (updated.dateRangeStart && !/^\d{4}-\d{2}-\d{2}$/.test(updated.dateRangeStart)) {
+      console.warn('Invalid dateRangeStart format, using null:', updated.dateRangeStart);
+      (updated as { dateRangeStart: string | null }).dateRangeStart = null;
+    }
+    if (updated.dateRangeEnd && !/^\d{4}-\d{2}-\d{2}$/.test(updated.dateRangeEnd)) {
+      console.warn('Invalid dateRangeEnd format, using null:', updated.dateRangeEnd);
+      (updated as { dateRangeEnd: string | null }).dateRangeEnd = null;
+    }
+
+    // Validate barAggregation
+    if (updated.barAggregation !== 'monthly' && updated.barAggregation !== 'weekly') {
+      console.warn('Invalid barAggregation, defaulting to monthly:', updated.barAggregation);
+      (updated as { barAggregation: BarAggregation }).barAggregation = 'monthly';
+    }
+
+    // Validate hiddenCategories (filter out invalid categories)
+    if (Array.isArray(updated.hiddenCategories)) {
+      const validCategories = updated.hiddenCategories.filter((cat) => CATEGORIES.includes(cat));
+      if (validCategories.length !== updated.hiddenCategories.length) {
+        console.warn('Filtered invalid categories from hiddenCategories');
+        (updated as { hiddenCategories: Category[] }).hiddenCategories = validCategories;
+      }
+    }
+
+    // Validate visibleIndicators (filter out invalid categories)
+    if (Array.isArray(updated.visibleIndicators)) {
+      const validIndicators = updated.visibleIndicators.filter((cat) => CATEGORIES.includes(cat));
+      if (validIndicators.length !== updated.visibleIndicators.length) {
+        console.warn('Filtered invalid categories from visibleIndicators');
+        (updated as { visibleIndicators: Category[] }).visibleIndicators = validIndicators;
+      }
+    }
 
     try {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updated));
@@ -323,6 +375,7 @@ export class StateManager {
         );
       }
 
+      // TODO(#1464): Add proper error handling at all call sites to prevent unhandled rejections
       // Throw error instead of returning stale state
       throw new Error(
         `State save failed: ${error instanceof Error ? error.message : 'Unknown error'}`

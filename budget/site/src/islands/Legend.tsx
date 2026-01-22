@@ -7,7 +7,7 @@ import { formatCurrency } from '../utils/currency';
 
 interface LegendProps {
   transactions: Transaction[];
-  hiddenCategories: string[];
+  hiddenCategories: readonly Category[];
   showVacation: boolean;
   budgetPlan?: BudgetPlan | null;
   visibleIndicators?: readonly Category[];
@@ -53,14 +53,11 @@ export function Legend({
       category,
       total: data.total,
       count: data.count,
-      target: undefined,
-      variance: undefined,
-      rolloverAccumulated: undefined,
-      hasRollover: false,
     }));
   }
 
   // Calculate category summaries from transactions
+  // TODO(#1458): Add error handling for invalid transaction data in calculateMonthlySummaries
   const categorySummaries = useMemo(() => {
     // Guard clause: validate transactions prop
     if (!transactions || !Array.isArray(transactions)) {
