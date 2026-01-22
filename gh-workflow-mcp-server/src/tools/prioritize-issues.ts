@@ -1,6 +1,6 @@
 /**
  * Tool: gh_prioritize_issues
- * Prioritize GitHub issues using three-tier system with priority scoring
+ * Prioritize GitHub issues using four-tier system with priority scoring
  */
 
 import { z } from 'zod';
@@ -285,7 +285,7 @@ export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<To
       };
     });
 
-    // Sort by tier (ascending: 1, 2, 3) then by priority_score (descending)
+    // Sort by tier (ascending: 1, 2, 3, 4) then by priority_score (descending)
     prioritizedIssues.sort((a, b) => {
       if (a.tier !== b.tier) {
         return a.tier - b.tier; // Lower tier number = higher priority

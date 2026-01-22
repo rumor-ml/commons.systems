@@ -1,19 +1,16 @@
 ---
 description: Prioritize and work on enhancement issues
-model: haiku
+model: sonnet
 ---
 
-<!-- TODO(#1454): Add end-to-end test coverage for /enhance skill workflow execution
-     Missing test coverage for:
-     - Step 1: Fetch and prioritize issues
-     - Step 2: Parse prioritization results
-     - Step 3: Select priority issue (with skip logic for "in progress" and blocked issues)
-     - Step 4: Duplicate detection
-     - Step 5: Close duplicates (with safety check to never close "in progress" issues)
-     - Step 6: Verify issue relevance
-     - Step 7: Create worktree
-     - Step 8: Report completion
-     See: pr-test-analyzer-in-scope-2 for detailed test scenarios
+<!-- Test specifications exist in enhance.test.md (17 comprehensive scenarios)
+     covering all workflow steps and error cases. However, automated test
+     execution requires infrastructure (workflow parser, MCP mocking, assertion
+     framework) that is out of scope for this skill.
+
+     Related: pr-test-analyzer-in-scope-2 (workflow execution tests)
+     Status: Test specs exist; execution infrastructure is a separate project
+     TODO(#1490): Clarify internal reference format or link to actual GitHub issues
 -->
 
 **IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**
@@ -351,18 +348,17 @@ Ready to begin work on enhancement #<priority-number>
 
 ## Error Handling
 
-<!-- TODO(#1454): Add negative test cases for error handling scenarios
-     Missing test coverage for:
-     - Invalid similarity_threshold values (>1, <0, non-numeric)
-     - GitHub API unavailable/timeout during Step 1
-     - Selected issue deleted between Step 3 and Step 7
-     - User cancels duplicate closure confirmation in Step 5
-     - Worktree skill fails in Step 7 (disk full, permission denied)
-     - gh CLI authentication expires mid-workflow
-     - Repository dependencies feature disabled (404 from dependencies endpoint)
-     - All Tier 1/2/3 issues are blocked or in-progress (infinite loop risk)
-     See: pr-test-analyzer-in-scope-4 for detailed error scenarios
+<!-- Test specifications exist in enhance.test.md (Tests 8-15) covering all
+     error handling scenarios including API failures, invalid inputs, and edge
+     cases. Automated test execution requires infrastructure that is out of
+     scope for this skill.
+
+     Related: pr-test-analyzer-in-scope-4 (error handling tests)
+     Status: Test specs exist; execution infrastructure is a separate project
+     TODO(#1490): Clarify internal reference format or link to actual GitHub issues
 -->
+
+<!-- TODO(#1454): Add explicit error handling instructions for MCP tool failures (isError responses, timeouts, auth failures) -->
 
 - **No issues found**: Report "No open enhancement issues found" and exit
 - **Network errors**: Report error and suggest user retry

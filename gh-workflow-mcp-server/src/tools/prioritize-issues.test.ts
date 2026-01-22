@@ -1,7 +1,9 @@
 /**
  * Tests for prioritize-issues tool
  *
- * TODO(#1474): Extract test helpers to shared utility
+ * Note: This test file uses a four-tier categorization system (Tier 1-4).
+ * Helper functions (extractFoundWhileWorkingCount, calculatePriorityScore, determineTier)
+ * are imported directly from the implementation to ensure tests verify actual behavior.
  */
 
 import { describe, it } from 'node:test';
@@ -597,18 +599,79 @@ describe('PrioritizeIssues - Integration Tests', () => {
   /**
    * Integration tests for the main prioritizeIssues() function.
    *
-   * NOTE: These tests document expected behavior with various GitHub API responses.
-   * Full implementation with gh CLI mocking will be added when mocking infrastructure
-   * is available.
+   * NOTE: These tests currently document expected behavior with various GitHub API responses.
+   * They test helper functions and validation logic but do NOT test the actual prioritizeIssues()
+   * function with mocked GitHub CLI responses.
    *
-   * Test coverage goals:
-   * - Empty results from GitHub API
-   * - Malformed JSON responses
-   * - Missing/null/undefined fields
-   * - GitHub CLI errors (404, 500, timeout)
-   * - Rate limiting scenarios
-   * - Large result sets
-   * - Mixed tier categorization
+   * TODO(#1474): Add real integration tests with gh CLI mocking
+   *
+   * Required mocking infrastructure:
+   * - Mock ghCliJson() to return controlled GitHub API responses
+   * - Mock resolveRepo() to return test repository
+   *
+   * Critical test coverage gaps (HIGH PRIORITY):
+   * 1. GitHub API error handling:
+   *    - Malformed JSON responses → should throw ValidationError
+   *    - 404 errors (repo not found) → should return error ToolResult
+   *    - 500 errors (server error) → should return error ToolResult
+   *    - Network timeouts → should return error ToolResult
+   *    - Rate limiting (403) → should return error with rate limit message
+   *
+   * 2. Data validation failures:
+   *    - Non-array response from GitHub → should throw ValidationError
+   *    - Missing required fields (number, title, labels, url) → should throw ValidationError
+   *    - Invalid comments field type → should throw ValidationError
+   *
+   * 3. Success scenarios with edge cases:
+   *    - Empty results array → should return "No issues found" message
+   *    - Issues with null/undefined body → should handle gracefully (found_count = 0)
+   *    - Issues with malformed "Found while working on" → should add to warning section
+   *    - Large result sets (1000 issues) → should process without errors
+   *    - Mixed tier distribution → should group and sort correctly
+   *
+   * Implementation approach:
+   * ```typescript
+   * import { jest } from '@jest/globals'; // or equivalent mocking library
+   *
+   * describe('prioritizeIssues() - with mocked gh CLI', () => {
+   *   it('handles GitHub API 404 error gracefully', async () => {
+   *     // Mock ghCliJson to throw error
+   *     jest.spyOn(ghCli, 'ghCliJson').mockRejectedValue(
+   *       new Error('GitHub CLI command failed: 404 Not Found')
+   *     );
+   *
+   *     const result = await prioritizeIssues({ label: 'enhancement' });
+   *
+   *     assert.equal(result.isError, true);
+   *     assert.ok(result.content[0].text.includes('404'));
+   *   });
+   *
+   *   it('processes real issue data correctly', async () => {
+   *     // Mock ghCliJson to return fixture data
+   *     jest.spyOn(ghCli, 'ghCliJson').mockResolvedValue([
+   *       {
+   *         number: 1,
+   *         title: 'Test Issue',
+   *         labels: [{ name: 'enhancement' }, { name: 'bug' }],
+   *         url: 'https://github.com/owner/repo/issues/1',
+   *         comments: 5,
+   *         body: 'Found while working on #100, #200'
+   *       }
+   *     ]);
+   *
+   *     const result = await prioritizeIssues({ label: 'enhancement' });
+   *
+   *     assert.equal(result.isError, undefined);
+   *     assert.ok(result.content[0].text.includes('Tier 1')); // bug label
+   *     assert.ok(result.content[0].text.includes('found in 2 issues'));
+   *   });
+   * });
+   * ```
+   *
+   * Current test coverage:
+   * - Helper functions: ✅ Comprehensive unit tests
+   * - Validation logic: ✅ Documented expected behaviors
+   * - Main function with GitHub API: ❌ NO TESTS (requires mocking)
    */
 
   describe('Error Handling - Expected Behaviors', () => {

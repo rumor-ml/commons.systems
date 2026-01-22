@@ -75,7 +75,8 @@ export async function checkIssueDependencies(
       throw error;
     }
 
-    // Fetch blocking dependencies via GitHub API (see docstring for full endpoint path)
+    // Fetch blocking dependencies via GitHub API
+    // See docstring above for full endpoint path: GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by
     let blockingIssuesJson: string;
     let dependenciesFeatureAvailable = true;
     try {
@@ -87,7 +88,8 @@ export async function checkIssueDependencies(
       ]);
     } catch (error) {
       // If the dependencies endpoint returns 404, treat as empty array
-      // This occurs when the dependencies feature is not available (not enabled, unsupported plan, or enterprise version)
+      // A 404 can occur when: dependencies feature not enabled, unsupported GitHub plan,
+      // GitHub Enterprise version without dependencies, or API endpoint unavailable
       // (Note: If the issue exists but has no dependencies, GitHub returns [] not 404)
       if (
         error instanceof Error &&
@@ -108,6 +110,12 @@ export async function checkIssueDependencies(
     let blockingIssues: BlockingIssue[];
     try {
       const parsed = JSON.parse(blockingIssuesJson);
+      if (!Array.isArray(parsed)) {
+        console.warn(
+          `[gh-workflow] Dependencies API returned non-array response for ${resolvedRepo}#${input.issue_number}. ` +
+            `Response type: ${typeof parsed}. Treating as no dependencies.`
+        );
+      }
       blockingIssues = Array.isArray(parsed) ? parsed : [];
     } catch (parseError) {
       throw new ValidationError(
@@ -115,8 +123,24 @@ export async function checkIssueDependencies(
       );
     }
 
-    // Filter to only open blocking issues
-    const openBlockers = blockingIssues.filter((issue) => issue.state === 'open');
+    // Validate and filter to only open blocking issues
+    const validatedBlockingIssues: BlockingIssue[] = [];
+    for (const item of blockingIssues) {
+      if (
+        typeof item.number !== 'number' ||
+        typeof item.state !== 'string' ||
+        typeof item.title !== 'string'
+      ) {
+        console.warn(
+          `[gh-workflow] Skipping invalid blocking issue entry (missing required fields): ${JSON.stringify(item).substring(0, 100)}`
+        );
+        continue;
+      }
+      validatedBlockingIssues.push(item as BlockingIssue);
+    }
+
+    // TODO(#1492): Missing validation for blocker state case sensitivity
+    const openBlockers = validatedBlockingIssues.filter((issue) => issue.state === 'open');
 
     // Format output
     const lines: string[] = [
@@ -125,7 +149,7 @@ export async function checkIssueDependencies(
       '',
     ];
 
-    if (blockingIssues.length === 0) {
+    if (validatedBlockingIssues.length === 0) {
       lines.push('No blocking dependencies found.');
       if (!dependenciesFeatureAvailable) {
         lines.push('Note: Dependencies feature may not be available for this repository.');
@@ -136,7 +160,7 @@ export async function checkIssueDependencies(
       };
     }
 
-    lines.push(`Total blocking dependencies: ${blockingIssues.length}`);
+    lines.push(`Total blocking dependencies: ${validatedBlockingIssues.length}`);
     lines.push(`Open blockers: ${openBlockers.length}`);
     lines.push('');
 

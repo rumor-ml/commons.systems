@@ -39,6 +39,8 @@ This document specifies the test scenarios for the `/enhance` skill workflow def
 - Step 3 selects Issue #200 (next available)
 - Proceeds to Step 4
 
+<!-- TODO(#1491): Reference section headers instead of line numbers for maintainability -->
+
 **Validates:** "in progress" skip logic (Step 3, lines 86-87 in enhance.md)
 
 ---

@@ -204,7 +204,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'gh_prioritize_issues',
         description:
-          'Prioritize GitHub issues using three-tier system with priority scoring. Categorizes issues into Tier 1 (Enhancement+Bug), Tier 2 (Enhancement+High Priority), and Tier 3 (Other). Within each tier, sorts by priority score calculated from comment count and "Found while working on" references.',
+          'Prioritize GitHub issues using four-tier system with priority scoring. Categorizes issues into Tier 1 (Bug), Tier 2 (Code Reviewer), Tier 3 (Code Simplifier), and Tier 4 (Other). Within each tier, sorts by priority score calculated from comment count and "Found while working on" references.',
         inputSchema: {
           type: 'object',
           properties: {
