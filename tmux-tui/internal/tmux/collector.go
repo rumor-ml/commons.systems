@@ -325,14 +325,28 @@ func (c *Collector) GetPaneTitle(paneID string) (string, error) {
 	output, err := c.executor.ExecCommandOutput("tmux", "display-message", "-p", "-t", paneID, "#{pane_title}")
 	if err != nil {
 		// Check for common failure modes to provide better error context
-		// TODO(#1483): Error wrapping may suppress unexpected error types (permission denied, timeout, etc.)
 		errStr := err.Error()
+
+		// Known tmux-specific errors
 		if strings.Contains(errStr, "can't find pane") {
 			return "", fmt.Errorf("pane %s not found (likely deleted): %w", paneID, err)
 		}
 		if strings.Contains(errStr, "no server running") {
 			return "", fmt.Errorf("tmux server not running: %w", err)
 		}
+
+		// System-level errors that may occur
+		if strings.Contains(errStr, "permission denied") {
+			return "", fmt.Errorf("permission denied accessing pane %s: %w", paneID, err)
+		}
+		if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") {
+			return "", fmt.Errorf("timeout querying pane %s (tmux may be overloaded): %w", paneID, err)
+		}
+		if strings.Contains(errStr, "broken pipe") {
+			return "", fmt.Errorf("broken pipe querying pane %s (tmux process may have died): %w", paneID, err)
+		}
+
+		// Generic fallback for unexpected errors
 		return "", fmt.Errorf("failed to get pane title for %s: %w", paneID, err)
 	}
 	return strings.TrimSpace(string(output)), nil

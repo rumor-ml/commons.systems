@@ -300,3 +300,60 @@ func TestCollectorGetPaneTitle_NoServerRunning(t *testing.T) {
 		t.Errorf("Expected wrapped error with 'tmux server not running', got: %v", err)
 	}
 }
+
+func TestCollectorGetPaneTitle_UnexpectedErrors(t *testing.T) {
+	os.Setenv("TMUX", "/tmp/tmux-test,1234,0")
+	defer os.Unsetenv("TMUX")
+
+	testCases := []struct {
+		name        string
+		mockError   error
+		expectedMsg string
+	}{
+		{
+			name:        "permission denied",
+			mockError:   fmt.Errorf("permission denied"),
+			expectedMsg: "permission denied accessing pane",
+		},
+		{
+			name:        "timeout",
+			mockError:   fmt.Errorf("context deadline exceeded"),
+			expectedMsg: "timeout querying pane",
+		},
+		{
+			name:        "broken pipe",
+			mockError:   fmt.Errorf("broken pipe"),
+			expectedMsg: "broken pipe querying pane",
+		},
+		{
+			name:        "unknown error",
+			mockError:   fmt.Errorf("unknown system error"),
+			expectedMsg: "failed to get pane title",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockExec := &testutil.MockCommandExecutor{
+				CustomHandlers: map[string]func([]string) ([]byte, error){
+					"tmux": func(args []string) ([]byte, error) {
+						return nil, tc.mockError
+					},
+				},
+			}
+
+			collector, err := NewCollectorWithExecutor(mockExec)
+			if err != nil {
+				t.Fatalf("NewCollectorWithExecutor failed: %v", err)
+			}
+
+			_, err = collector.GetPaneTitle("%1")
+			if err == nil {
+				t.Error("Expected error for unexpected error type")
+			}
+			if !strings.Contains(err.Error(), tc.expectedMsg) {
+				t.Errorf("Expected error containing %q, got: %v", tc.expectedMsg, err)
+			}
+		})
+	}
+}

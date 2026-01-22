@@ -55,6 +55,17 @@ func NewPane(id, path, windowID string, windowIndex int, windowActive, windowBel
 		return Pane{}, fmt.Errorf("window index must be non-negative: %d", windowIndex)
 	}
 
+	// Sanitize title to remove control characters that could cause display issues
+	// Remove null bytes, newlines, and carriage returns which are not valid in tmux pane titles
+	if strings.ContainsAny(title, "\x00\n\r") {
+		title = strings.Map(func(r rune) rune {
+			if r == '\x00' || r == '\n' || r == '\r' {
+				return -1 // Remove character
+			}
+			return r
+		}, title)
+	}
+
 	return Pane{
 		id:           id,
 		path:         path,
@@ -130,9 +141,8 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// WithWindowActive returns a new Pane with the windowActive field modified.
-// The original Pane is not modified (immutable update pattern).
-// TODO(#1481): Comment uses passive voice and could be more direct
+// WithWindowActive returns a new Pane with the windowActive field set to the given value.
+// This method does not modify the original Pane (immutable update pattern).
 func (p Pane) WithWindowActive(active bool) Pane {
 	newPane := p
 	newPane.windowActive = active
@@ -141,26 +151,14 @@ func (p Pane) WithWindowActive(active bool) Pane {
 
 // WithActiveAndTitle returns a new Pane with both windowActive and title modified.
 // Used when handling pane focus events to update both fields atomically.
-// The original Pane is not modified (immutable update pattern).
-// Title is sanitized to remove control characters (null bytes, newlines) that could
-// cause display issues or are invalid in tmux pane titles.
-// TODO(#1482): Redundant note about title validation was removed
+// This method does not modify the original Pane (immutable update pattern).
+// Title is sanitized through NewPane constructor to maintain validation consistency.
 // TODO(#1485): Consider consolidating WithWindowActive and WithActiveAndTitle methods
 func (p Pane) WithActiveAndTitle(active bool, title string) Pane {
-	// Sanitize title to prevent control characters that could cause display issues
-	// Remove null bytes and newlines which are not valid in tmux pane titles
-	if strings.ContainsAny(title, "\x00\n\r") {
-		title = strings.Map(func(r rune) rune {
-			if r == '\x00' || r == '\n' || r == '\r' {
-				return -1 // Remove character
-			}
-			return r
-		}, title)
-	}
-
-	newPane := p
-	newPane.windowActive = active
-	newPane.title = title
+	// Delegate to constructor for validation and sanitization
+	// This ensures consistent title validation across all construction paths
+	// Safe to ignore error because we're reconstructing from a valid Pane
+	newPane, _ := NewPane(p.id, p.path, p.windowID, p.windowIndex, active, p.windowBell, p.command, title, p.isClaudePane)
 	return newPane
 }
 
@@ -404,10 +402,9 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 }
 
 // UpdatePaneActiveAndTitle finds a pane by ID and updates both active state and title.
-// Returns true if found and updated, false otherwise.
+// Returns nil if updated successfully, error otherwise.
 // Uses defensive copy pattern consistent with SetPanes to maintain type-level safety.
-// TODO(#1480): Consider returning error instead of bool for better error context
-func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title string) bool {
+func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title string) error {
 	for repo := range rt.tree {
 		for branch := range rt.tree[repo] {
 			panes := rt.tree[repo][branch]
@@ -418,12 +415,12 @@ func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title s
 					copy(updatedPanes, panes)
 					updatedPanes[i] = updatedPanes[i].WithActiveAndTitle(active, title)
 					rt.tree[repo][branch] = updatedPanes
-					return true
+					return nil
 				}
 			}
 		}
 	}
-	return false
+	return fmt.Errorf("pane %s not found in tree", paneID)
 }
 
 // FindPaneByID searches for a pane by ID and returns (pane, repo, branch, found).

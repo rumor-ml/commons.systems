@@ -1030,12 +1030,14 @@ func TestIntegration_WorkingEventDoesNotClearOtherAlerts(t *testing.T) {
 // immediate tree updates instead of waiting for the 30-second polling interval.
 // This is the regression test for issue #1472.
 //
-// This test requires a full daemon instance and is skipped in CI to avoid
-// file descriptor exhaustion. To run manually:
+// This test requires a full daemon instance and is skipped by default to avoid
+// file descriptor exhaustion in CI. To run manually:
 //
-//	go test -v -run TestPaneFocusImmediateHighlighting
+//	RUN_INTEGRATION_TESTS=1 go test -v -run TestPaneFocusImmediateHighlighting
 func TestPaneFocusImmediateHighlighting(t *testing.T) {
-	t.Skip("Skipping regression test - requires full daemon instance which causes file descriptor exhaustion in CI (manual testing required)")
+	if os.Getenv("RUN_INTEGRATION_TESTS") == "" {
+		t.Skip("Set RUN_INTEGRATION_TESTS=1 to run full daemon integration tests")
+	}
 
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

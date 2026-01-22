@@ -613,9 +613,8 @@ func TestRepoTreeUpdatePaneActiveState(t *testing.T) {
 	tree.SetPanes("repo", "main", []Pane{pane1, pane2})
 
 	// Update pane1 to active (using UpdatePaneActiveAndTitle with same title)
-	found := tree.UpdatePaneActiveAndTitle("%1", true, "title1")
-	if !found {
-		t.Error("Should find pane %1")
+	if err := tree.UpdatePaneActiveAndTitle("%1", true, "title1"); err != nil {
+		t.Errorf("Should find pane %%1: %v", err)
 	}
 
 	panes, _ := tree.GetPanes("repo", "main")
@@ -627,9 +626,8 @@ func TestRepoTreeUpdatePaneActiveState(t *testing.T) {
 	}
 
 	// Update pane2 to inactive (using UpdatePaneActiveAndTitle with same title)
-	found = tree.UpdatePaneActiveAndTitle("%2", false, "title2")
-	if !found {
-		t.Error("Should find pane %2")
+	if err := tree.UpdatePaneActiveAndTitle("%2", false, "title2"); err != nil {
+		t.Errorf("Should find pane %%2: %v", err)
 	}
 
 	panes, _ = tree.GetPanes("repo", "main")
@@ -638,9 +636,8 @@ func TestRepoTreeUpdatePaneActiveState(t *testing.T) {
 	}
 
 	// Try non-existent pane
-	found = tree.UpdatePaneActiveAndTitle("%999", true, "title")
-	if found {
-		t.Error("Should return false for non-existent pane")
+	if err := tree.UpdatePaneActiveAndTitle("%999", true, "title"); err == nil {
+		t.Error("Should return error for non-existent pane")
 	}
 }
 
@@ -655,9 +652,8 @@ func TestRepoTreeUpdatePaneActiveState_MultipleBranches(t *testing.T) {
 	tree.SetPanes("repo2", "main", []Pane{pane3})
 
 	// Update pane in repo1/feature (using UpdatePaneActiveAndTitle with same title)
-	found := tree.UpdatePaneActiveAndTitle("%2", true, "title2")
-	if !found {
-		t.Error("Should find pane %2 in repo1/feature")
+	if err := tree.UpdatePaneActiveAndTitle("%2", true, "title2"); err != nil {
+		t.Errorf("Should find pane %%2 in repo1/feature: %v", err)
 	}
 
 	panes, _ := tree.GetPanes("repo1", "feature")
@@ -756,9 +752,8 @@ func TestRepoTreeUpdatePaneActiveAndTitle(t *testing.T) {
 	pane, _ := NewPane("%1", "/path", "@10", 0, false, false, "cmd", "old", true)
 	tree.SetPanes("repo", "main", []Pane{pane})
 
-	found := tree.UpdatePaneActiveAndTitle("%1", true, "new")
-	if !found {
-		t.Error("Should find and update pane")
+	if err := tree.UpdatePaneActiveAndTitle("%1", true, "new"); err != nil {
+		t.Errorf("Should find and update pane: %v", err)
 	}
 
 	panes, _ := tree.GetPanes("repo", "main")
@@ -776,15 +771,67 @@ func TestRepoTreeUpdatePaneActiveAndTitle_NotFound(t *testing.T) {
 	pane, _ := NewPane("%1", "/path", "@10", 0, false, false, "cmd", "title", true)
 	tree.SetPanes("repo", "main", []Pane{pane})
 
-	found := tree.UpdatePaneActiveAndTitle("%999", true, "new")
-	if found {
-		t.Error("Should return false for non-existent pane")
+	if err := tree.UpdatePaneActiveAndTitle("%999", true, "new"); err == nil {
+		t.Error("Should return error for non-existent pane")
 	}
 
 	// Verify existing pane unchanged
 	panes, _ := tree.GetPanes("repo", "main")
 	if panes[0].Title() != "title" {
 		t.Error("Existing pane should remain unchanged")
+	}
+}
+
+// TestNewPane_TitleSanitization tests that NewPane sanitizes titles
+func TestNewPane_TitleSanitization(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"null bytes removed", "vim\x00editor", "vimeditor"},
+		{"newlines removed", "bash\nshell", "bashshell"},
+		{"carriage returns removed", "test\rdata", "testdata"},
+		{"multiple control chars", "a\x00b\nc\rd", "abcd"},
+		{"clean title unchanged", "normal-title", "normal-title"},
+		{"empty after sanitization", "\x00\n\r", ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pane, err := NewPane("%1", "/path", "@1", 0, false, false, "cmd", tc.input, false)
+			if err != nil {
+				t.Fatalf("NewPane failed: %v", err)
+			}
+			if pane.Title() != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, pane.Title())
+			}
+		})
+	}
+}
+
+// TestPaneWithActiveAndTitle_TitleSanitization tests that WithActiveAndTitle sanitizes titles
+func TestPaneWithActiveAndTitle_TitleSanitization(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"null bytes removed", "vim\x00editor", "vimeditor"},
+		{"newlines removed", "bash\nshell", "bashshell"},
+		{"carriage returns removed", "test\rdata", "testdata"},
+		{"multiple control chars", "a\x00b\nc\rd", "abcd"},
+		{"clean title unchanged", "normal-title", "normal-title"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pane, _ := NewPane("%1", "/path", "@1", 0, false, false, "cmd", "old", false)
+			modified := pane.WithActiveAndTitle(true, tc.input)
+			if modified.Title() != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, modified.Title())
+			}
+		})
 	}
 }
 

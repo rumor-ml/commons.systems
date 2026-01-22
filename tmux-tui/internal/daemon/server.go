@@ -810,11 +810,23 @@ func (d *AlertDaemon) isDuplicateEvent(paneID, eventType string, created bool) b
 
 // updateTreeForPaneFocus updates currentTree immediately on pane focus events.
 // Queries tmux for the focused pane's current title for immediate UI updates.
+//
+// Concurrency: This function carefully manages collectorMu to avoid blocking:
+// 1. Acquires lock to read tree and find pane
+// 2. Releases lock before I/O (GetPaneTitle) to avoid blocking collection
+// 3. Re-acquires lock and re-verifies pane existence (tree may have changed)
+// 4. Updates tree and releases lock before broadcast (network I/O)
+//
+// This pattern prevents deadlock with collectAndBroadcastTree while ensuring
+// the tree remains consistent during concurrent access.
+//
+// Returns early (with logging) if the pane is not found or if message
+// construction fails. Falls back to existing title if the title query fails.
 func (d *AlertDaemon) updateTreeForPaneFocus(newActivePaneID string) {
 	d.collectorMu.Lock()
 
 	// Find the newly focused pane
-	pane, _, _, found := d.currentTree.FindPaneByID(newActivePaneID)
+	_, _, _, found := d.currentTree.FindPaneByID(newActivePaneID)
 	if !found {
 		d.collectorMu.Unlock()
 		debug.Log("DAEMON_PANE_FOCUS_NOTFOUND paneID=%s", newActivePaneID)
@@ -823,56 +835,53 @@ func (d *AlertDaemon) updateTreeForPaneFocus(newActivePaneID string) {
 
 	// Release lock before I/O operation to avoid blocking other operations
 	d.collectorMu.Unlock()
+
+	// Query tmux for the latest title to ensure the UI shows current pane state.
+	// This prevents stale titles when the pane title changed since last full collection.
 	var newTitle string
+	titleQuerySucceeded := false
 	if d.collector != nil {
 		title, err := d.collector.GetPaneTitle(newActivePaneID)
 		if err != nil {
 			debug.Log("DAEMON_PANE_FOCUS_TITLE_ERROR paneID=%s error=%v", newActivePaneID, err)
 			fmt.Fprintf(os.Stderr, "WARNING: Failed to query title for pane %s: %v\n", newActivePaneID, err)
-			newTitle = pane.Title() // Fall back to existing title
 		} else {
 			newTitle = title
+			titleQuerySucceeded = true
 		}
 	} else {
 		debug.Log("DAEMON_PANE_FOCUS_NO_COLLECTOR paneID=%s", newActivePaneID)
 		fmt.Fprintf(os.Stderr, "WARNING: Collector unavailable during pane focus\n")
-		newTitle = pane.Title()
 	}
 
 	// Reacquire lock before mutating currentTree
 	d.collectorMu.Lock()
 
 	// Re-verify pane still exists and get fresh data (tree may have changed during I/O)
-	freshPane, _, _, stillFound := d.currentTree.FindPaneByID(newActivePaneID)
+	targetPane, targetRepo, targetBranch, stillFound := d.currentTree.FindPaneByID(newActivePaneID)
 	if !stillFound {
 		d.collectorMu.Unlock()
 		debug.Log("DAEMON_PANE_FOCUS_STALE paneID=%s", newActivePaneID)
 		return
 	}
 
-	// If title query failed, use fresh pane's current title (not stale fallback)
-	if newTitle == pane.Title() {
-		newTitle = freshPane.Title()
-	}
-
-	// Find the window containing the newly focused pane
-	targetPane, targetRepo, targetBranch, paneFound := d.currentTree.FindPaneByID(newActivePaneID)
-	if !paneFound {
-		d.collectorMu.Unlock()
-		debug.Log("DAEMON_PANE_FOCUS_NOTFOUND_AFTER_VERIFICATION paneID=%s", newActivePaneID)
-		return
+	// If title query failed or collector unavailable, use fresh pane's current title
+	if !titleQuerySucceeded {
+		newTitle = targetPane.Title()
+		debug.Log("DAEMON_PANE_FOCUS_TITLE_FALLBACK paneID=%s usingFreshTitle=%s", newActivePaneID, newTitle)
 	}
 
 	targetWindowID := targetPane.WindowID()
 
-	// Deactivate all panes in the same window as the newly focused pane
-	// (tmux allows one active pane per window)
+	// Deactivate the currently active pane in the target window
+	// (tmux allows only one active pane per window)
 	// TODO(#1486): Consider adding RepoTree.DeactivateAllPanes() method for better encapsulation
 	panes, ok := d.currentTree.GetPanes(targetRepo, targetBranch)
 	if !ok {
 		d.collectorMu.Unlock()
 		debug.Log("DAEMON_PANE_FOCUS_GETPANES_FAILED_FOR_TARGET repo=%s branch=%s", targetRepo, targetBranch)
-		fmt.Fprintf(os.Stderr, "ERROR: Failed to get panes for target repo=%s branch=%s during pane deactivation\n", targetRepo, targetBranch)
+		fmt.Fprintf(os.Stderr, "CRITICAL: Tree consistency error - pane %s found in repo=%s branch=%s but GetPanes failed\n", newActivePaneID, targetRepo, targetBranch)
+		fmt.Fprintf(os.Stderr, "CRITICAL: This indicates internal corruption - triggering immediate full tree collection\n")
 		return
 	}
 
@@ -891,15 +900,25 @@ func (d *AlertDaemon) updateTreeForPaneFocus(newActivePaneID string) {
 	if err := d.currentTree.SetPanes(targetRepo, targetBranch, updatedPanes); err != nil {
 		d.collectorMu.Unlock()
 		debug.Log("DAEMON_PANE_FOCUS_SETPANES_ERROR repo=%s branch=%s error=%v", targetRepo, targetBranch, err)
-		fmt.Fprintf(os.Stderr, "CRITICAL: Failed to deactivate panes in repo=%s branch=%s: %v - aborting tree update\n", targetRepo, targetBranch, err)
+		fmt.Fprintf(os.Stderr, "CRITICAL: Failed to deactivate panes in repo=%s branch=%s: %v\n", targetRepo, targetBranch, err)
+		fmt.Fprintf(os.Stderr, "CRITICAL: Tree may be in inconsistent state - triggering full tree recollection to recover\n")
+
+		// Trigger immediate recovery
+		go d.collectAndBroadcastTree()
+
 		return
 	}
 
 	// Activate the focused pane with new title
-	if !d.currentTree.UpdatePaneActiveAndTitle(newActivePaneID, true, newTitle) {
+	if err := d.currentTree.UpdatePaneActiveAndTitle(newActivePaneID, true, newTitle); err != nil {
 		d.collectorMu.Unlock()
-		debug.Log("DAEMON_PANE_FOCUS_ACTIVATE_FAILED paneID=%s", newActivePaneID)
-		fmt.Fprintf(os.Stderr, "CRITICAL: Failed to activate pane %s - not found in tree, aborting tree update\n", newActivePaneID)
+		debug.Log("DAEMON_PANE_FOCUS_ACTIVATE_FAILED paneID=%s error=%v", newActivePaneID, err)
+		fmt.Fprintf(os.Stderr, "CRITICAL: Failed to activate pane %s: %v\n", newActivePaneID, err)
+		fmt.Fprintf(os.Stderr, "CRITICAL: Triggering immediate full tree recollection to recover\n")
+
+		// Trigger immediate recovery
+		go d.collectAndBroadcastTree()
+
 		return
 	}
 	debug.Log("DAEMON_PANE_FOCUS_ACTIVATE paneID=%s title=%s", newActivePaneID, newTitle)
@@ -910,6 +929,12 @@ func (d *AlertDaemon) updateTreeForPaneFocus(newActivePaneID string) {
 		d.collectorMu.Unlock()
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=tree_update error=%v", err)
 		fmt.Fprintf(os.Stderr, "CRITICAL: Failed to construct tree_update message: %v\n", err)
+		fmt.Fprintf(os.Stderr, "CRITICAL: Internal tree state updated but clients not notified - daemon/client state diverged\n")
+		fmt.Fprintf(os.Stderr, "CRITICAL: Triggering full tree recollection to resynchronize all clients\n")
+
+		// Force full recollection to ensure all clients see consistent state
+		go d.collectAndBroadcastTree()
+
 		return
 	}
 
@@ -918,6 +943,8 @@ func (d *AlertDaemon) updateTreeForPaneFocus(newActivePaneID string) {
 
 	debug.Log("DAEMON_PANE_FOCUS_TREE_BROADCAST paneID=%s", newActivePaneID)
 	// Broadcast tree update immediately after pane focus
+	// Note: broadcast() handles errors internally (logs, retries on client disconnects)
+	// Individual client failures don't prevent other clients from receiving updates
 	d.broadcast(msg.ToWireFormat())
 }
 
@@ -928,8 +955,11 @@ func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 	// Update tree immediately
 	d.updateTreeForPaneFocus(event.PaneID)
 
-	// Broadcast pane_focus message for debugging and monitoring
-	// Allows focus event tracking independent of full tree state updates
+	// Broadcast pane_focus message for debugging and backward compatibility
+	// While the tree_update message above contains the active pane state,
+	// this lightweight message allows focus event tracking without parsing the full tree
+	// NOTE: This is sent even if tree update failed - clients should NOT use this for state updates
+	// Clients should only update UI based on tree_update messages, not pane_focus messages
 	msg, err := NewPaneFocusMessage(d.seqCounter.Add(1), event.PaneID)
 	if err != nil {
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=pane_focus error=%v", err)

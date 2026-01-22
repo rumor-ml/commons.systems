@@ -5379,22 +5379,11 @@ func TestUpdateTreeForPaneFocus_ActivationFailure(t *testing.T) {
 	}
 }
 
-// TestUpdateTreeForPaneFocus_MessageConstructionHandling verifies function completes without panic
-// Note: This test cannot easily inject a NewTreeUpdateMessage failure without modifying production code.
-// It serves as documentation that message construction errors are handled (lines 888-894 in server.go).
-// The production code logs the error and returns early, releasing the lock.
-func TestUpdateTreeForPaneFocus_MessageConstructionHandling(t *testing.T) {
-	// This test documents the expected behavior when NewTreeUpdateMessage fails:
-	// 1. Error is logged via debug.Log
-	// 2. Error is printed to stderr
-	// 3. Lock is released before returning (line 890: d.collectorMu.Unlock())
-	// 4. No broadcast occurs (early return on line 893)
-	//
-	// Testing this requires either:
-	// - Dependency injection of message constructor (future refactoring)
-	// - Creating an invalid tree state that causes construction to fail
-	//
-	// For now, we verify the happy path to ensure the code is exercised:
+// TestUpdateTreeForPaneFocus_HappyPath verifies that updateTreeForPaneFocus successfully:
+// - Activates the focused pane in the tree
+// - Constructs and broadcasts a tree_update message
+// - Increments the sequence counter
+func TestUpdateTreeForPaneFocus_HappyPath(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
