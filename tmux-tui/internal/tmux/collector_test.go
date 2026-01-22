@@ -1,7 +1,9 @@
 package tmux
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/commons-systems/tmux-tui/internal/tmux/testutil"
@@ -150,5 +152,128 @@ func TestCollectorExcludesPane(t *testing.T) {
 
 	if totalPanes != 2 {
 		t.Errorf("Expected 2 panes after exclusion, got %d", totalPanes)
+	}
+}
+
+func TestCollectorGetPaneTitle(t *testing.T) {
+	os.Setenv("TMUX", "/tmp/tmux-test,1234,0")
+	defer os.Unsetenv("TMUX")
+
+	// Mock successful title query
+	mockExec := &testutil.MockCommandExecutor{
+		CustomHandlers: map[string]func([]string) ([]byte, error){
+			"tmux": func(args []string) ([]byte, error) {
+				if len(args) >= 5 && args[0] == "display-message" && args[4] == "#{pane_title}" {
+					return []byte("  My Pane Title  \n"), nil
+				}
+				return nil, fmt.Errorf("unexpected tmux command")
+			},
+		},
+	}
+
+	collector, err := NewCollectorWithExecutor(mockExec)
+	if err != nil {
+		t.Fatalf("NewCollectorWithExecutor failed: %v", err)
+	}
+
+	title, err := collector.GetPaneTitle("%1")
+	if err != nil {
+		t.Fatalf("GetPaneTitle failed: %v", err)
+	}
+
+	// Verify whitespace is trimmed
+	if title != "My Pane Title" {
+		t.Errorf("Expected 'My Pane Title', got '%s'", title)
+	}
+}
+
+func TestCollectorGetPaneTitle_NonExistentPane(t *testing.T) {
+	os.Setenv("TMUX", "/tmp/tmux-test,1234,0")
+	defer os.Unsetenv("TMUX")
+
+	mockExec := &testutil.MockCommandExecutor{
+		CustomHandlers: map[string]func([]string) ([]byte, error){
+			"tmux": func(args []string) ([]byte, error) {
+				return nil, fmt.Errorf("can't find pane %%999")
+			},
+		},
+	}
+
+	collector, _ := NewCollectorWithExecutor(mockExec)
+
+	_, err := collector.GetPaneTitle("%999")
+	if err == nil {
+		t.Error("Expected error for non-existent pane")
+	}
+	if !strings.Contains(err.Error(), "not found (likely deleted)") {
+		t.Errorf("Expected wrapped error with 'not found (likely deleted)', got: %v", err)
+	}
+}
+
+func TestCollectorGetPaneTitle_WhitespaceTrimming(t *testing.T) {
+	os.Setenv("TMUX", "/tmp/tmux-test,1234,0")
+	defer os.Unsetenv("TMUX")
+
+	testCases := []struct {
+		name     string
+		rawTitle string
+		expected string
+	}{
+		{
+			name:     "leading and trailing spaces",
+			rawTitle: "  vim  ",
+			expected: "vim",
+		},
+		{
+			name:     "tabs and newlines",
+			rawTitle: "\t\nvim\n\t",
+			expected: "vim",
+		},
+		{
+			name:     "mixed whitespace",
+			rawTitle: "  \t\n  My Title  \n\t  ",
+			expected: "My Title",
+		},
+		{
+			name:     "no whitespace",
+			rawTitle: "clean-title",
+			expected: "clean-title",
+		},
+		{
+			name:     "empty string",
+			rawTitle: "",
+			expected: "",
+		},
+		{
+			name:     "only whitespace",
+			rawTitle: "   \t\n   ",
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockExec := &testutil.MockCommandExecutor{
+				CustomHandlers: map[string]func([]string) ([]byte, error){
+					"tmux": func(args []string) ([]byte, error) {
+						return []byte(tc.rawTitle), nil
+					},
+				},
+			}
+
+			collector, err := NewCollectorWithExecutor(mockExec)
+			if err != nil {
+				t.Fatalf("NewCollectorWithExecutor failed: %v", err)
+			}
+
+			title, err := collector.GetPaneTitle("%1")
+			if err != nil {
+				t.Fatalf("GetPaneTitle failed: %v", err)
+			}
+
+			if title != tc.expected {
+				t.Errorf("Expected '%s', got '%s'", tc.expected, title)
+			}
+		})
 	}
 }

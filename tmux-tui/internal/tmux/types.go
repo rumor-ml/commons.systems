@@ -131,6 +131,7 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 }
 
 // WithWindowActive returns a new Pane with the windowActive field modified.
+// The original Pane is not modified (immutable update pattern).
 func (p Pane) WithWindowActive(active bool) Pane {
 	newPane := p
 	newPane.windowActive = active
@@ -138,6 +139,9 @@ func (p Pane) WithWindowActive(active bool) Pane {
 }
 
 // WithActiveAndTitle returns a new Pane with both windowActive and title modified.
+// Used when handling pane focus events to update both fields atomically.
+// The original Pane is not modified (immutable update pattern).
+// Note: Title is not validated as Pane currently has no title invariants.
 func (p Pane) WithActiveAndTitle(active bool, title string) Pane {
 	newPane := p
 	newPane.windowActive = active
@@ -384,24 +388,11 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UpdatePaneActiveState finds a pane by ID and updates its windowActive state.
-// Returns true if found and updated, false otherwise.
-func (rt *RepoTree) UpdatePaneActiveState(paneID string, active bool) bool {
-	for repo := range rt.tree {
-		for branch := range rt.tree[repo] {
-			for i := range rt.tree[repo][branch] {
-				if rt.tree[repo][branch][i].ID() == paneID {
-					rt.tree[repo][branch][i] = rt.tree[repo][branch][i].WithWindowActive(active)
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
 // UpdatePaneActiveAndTitle finds a pane by ID and updates both active state and title.
 // Returns true if found and updated, false otherwise.
+// Note: Mutates the internal slice in place for performance. This is safe because
+// the tree is protected by collectorMu and GetPanes() returns defensive copies.
+// TODO(#1480): Consider returning error instead of bool for better error context
 func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title string) bool {
 	for repo := range rt.tree {
 		for branch := range rt.tree[repo] {
@@ -416,7 +407,8 @@ func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title s
 	return false
 }
 
-// FindPaneByID searches for a pane by ID and returns it with repo/branch metadata.
+// FindPaneByID searches for a pane by ID and returns (pane, repo, branch, found).
+// Returns empty pane and empty strings if not found (found=false).
 func (rt RepoTree) FindPaneByID(paneID string) (Pane, string, string, bool) {
 	for repo := range rt.tree {
 		for branch := range rt.tree[repo] {
