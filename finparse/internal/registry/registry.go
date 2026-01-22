@@ -20,12 +20,12 @@ type Registry struct {
 }
 
 // New creates a registry with built-in parsers and optional custom parsers.
-// Returns an error if parser registration fails (duplicate names or nil parsers).
+// Returns an error with context (successfully registered parsers, failure point) if registration fails
+// due to duplicate names or nil parsers.
 func New(customParsers ...parser.Parser) (*Registry, error) {
 	r := &Registry{parsers: []parser.Parser{}}
 
-	// Helper to get registered parser names without calling public methods on partial registry.
-	// Returns "none" if no parsers are registered yet.
+	// getRegisteredNames returns comma-separated parser names, or "none" if empty.
 	getRegisteredNames := func() string {
 		if len(r.parsers) == 0 {
 			return "none"
@@ -62,7 +62,8 @@ func New(customParsers ...parser.Parser) (*Registry, error) {
 }
 
 // MustNew creates a registry with built-in parsers and optional custom parsers.
-// Panics if parser registration fails (programmer error).
+// Panics with detailed context (successfully registered parsers, failure point) if registration fails.
+// This indicates a programmer error in parser initialization.
 func MustNew(customParsers ...parser.Parser) *Registry {
 	r, err := New(customParsers...)
 	if err != nil {

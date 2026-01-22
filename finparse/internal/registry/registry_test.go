@@ -589,7 +589,6 @@ func TestMustNew_PanicContext(t *testing.T) {
 					t.Fatal("Expected panic, got none")
 				}
 
-				// Type assertion for safety
 				panicMsg, ok := r.(string)
 				if !ok {
 					t.Fatalf("Expected string panic, got %T: %v", r, r)
@@ -618,12 +617,11 @@ func TestMustNew_PanicMessageFormat(t *testing.T) {
 			t.Fatalf("Expected string panic, got %T: %v", r, r)
 		}
 
-		// Verify message structure and all components
 		assertions := []string{
 			"failed to create parser registry:",
 			"failed to register custom parser 1 of 1",
 			"cannot register nil parser",
-			"\n\n", // Double newline separator
+			"\n\n",
 			"This is a programmer error - check your parser initialization.",
 		}
 		for _, expected := range assertions {
