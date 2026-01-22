@@ -4,7 +4,11 @@ import { renderSummaryCards } from './renderer';
 import { hydrateIsland } from '../islands/index';
 import { Transaction, BudgetPlan, WeekId, Category } from '../islands/types';
 import transactionsData from '../data/transactions.json';
-import { aggregateTransactionsByWeek, getAvailableWeeks } from './weeklyAggregation';
+import {
+  aggregateTransactionsByWeek,
+  calculateCategoryHistoricAverages,
+} from './weeklyAggregation';
+import { setupRouteListener, getCurrentRoute, navigateTo, Route } from './router';
 
 function loadTransactions(): Transaction[] {
   return transactionsData.transactions as Transaction[];
@@ -24,7 +28,33 @@ function updateIsland(elementId: string, componentName: string, props: object): 
   }
 }
 
-function updateIslands(): void {
+/**
+ * Show or hide a view based on the current route
+ */
+function showView(route: Route): void {
+  const mainView = document.getElementById('main-view');
+  const planningView = document.getElementById('planning-view');
+
+  if (!mainView || !planningView) {
+    console.error('View containers not found in DOM');
+    return;
+  }
+
+  if (route === '/') {
+    mainView.style.display = 'block';
+    planningView.style.display = 'none';
+    updateMainView();
+  } else if (route === '/plan') {
+    mainView.style.display = 'none';
+    planningView.style.display = 'block';
+    updatePlanningView();
+  }
+}
+
+/**
+ * Update all islands in the main view
+ */
+function updateMainView(): void {
   const state = StateManager.load();
   const transactions = loadTransactions();
 
@@ -33,9 +63,12 @@ function updateIslands(): void {
     transactions,
     hiddenCategories: state.hiddenCategories,
     showVacation: state.showVacation,
-    granularity: state.viewGranularity,
-    selectedWeek: state.selectedWeek,
     budgetPlan: state.budgetPlan,
+    dateRangeStart: state.dateRangeStart,
+    dateRangeEnd: state.dateRangeEnd,
+    barAggregation: state.barAggregation,
+    visibleIndicators: state.visibleIndicators,
+    showNetIncomeIndicator: state.showNetIncomeIndicator,
   });
 
   // Update legend island
@@ -44,52 +77,46 @@ function updateIslands(): void {
     hiddenCategories: state.hiddenCategories,
     showVacation: state.showVacation,
     budgetPlan: state.budgetPlan,
-    granularity: state.viewGranularity,
-    selectedWeek: state.selectedWeek,
+    visibleIndicators: state.visibleIndicators,
+    showNetIncomeIndicator: state.showNetIncomeIndicator,
   });
 
-  // Update time selector island (only in weekly mode)
-  const timeSelectorEl = document.getElementById('time-selector-island') as HTMLElement;
-  if (timeSelectorEl) {
-    if (state.viewGranularity === 'week') {
-      timeSelectorEl.style.display = 'block';
-      const availableWeeks = getAvailableWeeks(transactions);
-      updateIsland('time-selector-island', 'TimeSelector', {
-        granularity: state.viewGranularity,
-        selectedWeek: state.selectedWeek,
-        availableWeeks,
-      });
-    } else {
-      timeSelectorEl.style.display = 'none';
-    }
-  }
-
-  // Update budget plan editor island (only in planning mode)
-  const planEditorEl = document.getElementById('plan-editor-island') as HTMLElement;
-  if (planEditorEl) {
-    if (state.planningMode) {
-      planEditorEl.style.display = 'block';
-      const hiddenSet = new Set(state.hiddenCategories);
-      const weeklyData = aggregateTransactionsByWeek(transactions, {
-        hiddenCategories: hiddenSet,
-        showVacation: state.showVacation,
-      });
-      updateIsland('plan-editor-island', 'BudgetPlanEditor', {
-        budgetPlan: state.budgetPlan || {
-          categoryBudgets: {},
-          lastModified: new Date().toISOString(),
-        },
-        historicData: weeklyData,
-        onSave: () => {},
-        onCancel: () => {},
-      });
-    } else {
-      planEditorEl.style.display = 'none';
-    }
-  }
+  // Update date range selector island
+  updateIsland('date-range-selector-island', 'DateRangeSelector', {
+    dateRangeStart: state.dateRangeStart,
+    dateRangeEnd: state.dateRangeEnd,
+  });
 
   // Update summary cards (vanilla JS)
   renderSummaryCards(transactions, state);
+}
+
+/**
+ * Update the planning view with current budget data
+ */
+function updatePlanningView(): void {
+  const state = StateManager.load();
+  const transactions = loadTransactions();
+
+  // Calculate weekly aggregated data for historic averages
+  const hiddenSet = new Set(state.hiddenCategories);
+  const weeklyData = aggregateTransactionsByWeek(transactions, {
+    hiddenCategories: hiddenSet,
+    showVacation: state.showVacation,
+  });
+
+  // Calculate per-category averages
+  const categoryAverages = calculateCategoryHistoricAverages(weeklyData);
+
+  // Update planning page island
+  updateIsland('planning-page-island', 'BudgetPlanningPage', {
+    budgetPlan: state.budgetPlan || {
+      categoryBudgets: {},
+      lastModified: new Date().toISOString(),
+    },
+    historicData: weeklyData,
+    categoryAverages,
+  });
 }
 
 /**
@@ -159,7 +186,7 @@ function initCategoryToggle(): void {
         }
 
         StateManager.save({ hiddenCategories: Array.from(hiddenSet) });
-        updateIslands();
+        updateMainView();
       },
       {
         eventName: 'toggle category visibility',
@@ -183,7 +210,7 @@ function initVacationToggle(): void {
       (detail) => {
         const showVacation = detail.showVacation;
         StateManager.save({ showVacation });
-        updateIslands();
+        updateMainView();
       },
       {
         eventName: 'toggle vacation visibility',
@@ -277,21 +304,13 @@ function initBudgetPlanEvents(): void {
         try {
           saved = StateManager.save({
             budgetPlan,
-            planningMode: false,
-            viewGranularity: 'week', // Switch to weekly view after saving budget
+            currentView: 'main', // Navigate back to main view
           });
         } catch (error) {
-          // save() threw an exception - show error and keep planning mode open
+          // save() threw an exception - show error and keep on planning page
           console.error('Budget plan save failed with exception:', error);
 
           const { reason, recoveryAction } = diagnoseStorageError();
-
-          // Re-open planning mode to preserve unsaved edits (but don't throw if this fails too)
-          try {
-            StateManager.save({ planningMode: true });
-          } catch (nestedError) {
-            console.error('Failed to re-open planning mode after save failure:', nestedError);
-          }
 
           StateManager.showErrorBanner(
             `Failed to save budget plan: ${reason}. ${recoveryAction} WARNING: Your changes will be lost on page refresh.`
@@ -304,7 +323,7 @@ function initBudgetPlanEvents(): void {
           return;
         }
 
-        // If save succeeded but verification failed, keep planning mode open to preserve user's unsaved budget edits.
+        // If save succeeded but verification failed, stay on planning page to preserve user's unsaved budget edits.
         // Prevents data loss by maintaining form state until user can retry or copy values.
         // WARNING: Changes will be lost on page refresh - users should copy values manually.
         if (!saved.budgetPlan || !deepEqual(saved.budgetPlan, budgetPlan)) {
@@ -315,7 +334,6 @@ function initBudgetPlanEvents(): void {
 
           const { reason, recoveryAction } = diagnoseStorageError();
 
-          StateManager.save({ planningMode: true });
           StateManager.showErrorBanner(
             `Failed to save budget plan: ${reason}. ${recoveryAction} WARNING: Your changes will be lost on page refresh.`
           );
@@ -327,7 +345,8 @@ function initBudgetPlanEvents(): void {
           return;
         }
 
-        updateIslands();
+        // Success - navigate back to main view
+        navigateTo('/');
       },
       {
         eventName: 'save budget plan',
@@ -344,64 +363,16 @@ function initBudgetPlanEvents(): void {
     ) as EventListener
   );
 
-  // Budget plan cancel event
+  // Budget plan cancel event - not needed anymore since we use routing
+  // But keep for backwards compatibility with old code
   document.addEventListener(
     'budget:plan-cancel',
     wrapEventHandler(
       () => {
-        StateManager.save({ planningMode: false });
-        updateIslands();
+        navigateTo('/');
       },
       {
         eventName: 'cancel budget planning',
-      }
-    ) as EventListener
-  );
-}
-
-function initTimeNavigationEvents(): void {
-  // Week change event
-  document.addEventListener(
-    'budget:week-change',
-    wrapEventHandler<{ week: WeekId }>(
-      (detail) => {
-        const week = detail.week;
-        StateManager.save({ selectedWeek: week });
-        updateIslands();
-      },
-      {
-        eventName: 'change week',
-        validate: (detail) => {
-          // null is valid - means reset to current week
-          if (detail === undefined || detail === null) {
-            return { valid: false, error: 'Unable to change week: missing event data' };
-          }
-          // detail.week can be null (reset to current) or a valid WeekId
-          return { valid: true };
-        },
-        errorContext: (detail) => ({ week: detail.week }),
-      }
-    ) as EventListener
-  );
-
-  // Granularity toggle event
-  document.addEventListener(
-    'budget:granularity-toggle',
-    wrapEventHandler<{ granularity: 'week' | 'month' }>(
-      (detail) => {
-        const granularity = detail.granularity;
-        StateManager.save({ viewGranularity: granularity });
-        updateIslands();
-      },
-      {
-        eventName: 'change view mode',
-        validate: (detail) => {
-          if (!detail?.granularity) {
-            return { valid: false, error: 'Unable to change view: missing granularity value' };
-          }
-          return { valid: true };
-        },
-        errorContext: (detail) => ({ granularity: detail.granularity }),
       }
     ) as EventListener
   );
@@ -412,11 +383,11 @@ function initPlanButton(): void {
   if (planButton) {
     planButton.addEventListener('click', () => {
       try {
-        StateManager.save({ planningMode: true });
-        updateIslands();
+        // Navigate to planning view
+        navigateTo('/plan');
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Failed to enter planning mode:', {
+        console.error('Failed to navigate to planning view:', {
           error,
           errorMessage,
         });
@@ -428,6 +399,110 @@ function initPlanButton(): void {
   }
 }
 
+function initDateRangeEvents(): void {
+  document.addEventListener(
+    'budget:date-range-change',
+    wrapEventHandler<{ startDate: string | null; endDate: string | null }>(
+      (detail) => {
+        StateManager.save({
+          dateRangeStart: detail.startDate,
+          dateRangeEnd: detail.endDate,
+        });
+        updateMainView();
+      },
+      {
+        eventName: 'change date range',
+        validate: (detail) => {
+          if (detail?.startDate === undefined || detail?.endDate === undefined) {
+            return { valid: false, error: 'Unable to change date range: missing date values' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ startDate: detail.startDate, endDate: detail.endDate }),
+      }
+    ) as EventListener
+  );
+}
+
+function initAggregationToggle(): void {
+  document.addEventListener(
+    'budget:aggregation-toggle',
+    wrapEventHandler<{ barAggregation: 'monthly' | 'weekly' }>(
+      (detail) => {
+        StateManager.save({ barAggregation: detail.barAggregation });
+        updateMainView();
+      },
+      {
+        eventName: 'toggle bar aggregation',
+        validate: (detail) => {
+          if (!detail?.barAggregation || !['monthly', 'weekly'].includes(detail.barAggregation)) {
+            return {
+              valid: false,
+              error: 'Unable to toggle aggregation: invalid aggregation value',
+            };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ barAggregation: detail.barAggregation }),
+      }
+    ) as EventListener
+  );
+}
+
+function initIndicatorToggle(): void {
+  document.addEventListener(
+    'budget:indicator-toggle',
+    wrapEventHandler<{ category: Category }>(
+      (detail) => {
+        const state = StateManager.load();
+        const visibleSet = new Set(state.visibleIndicators);
+
+        // Toggle indicator visibility
+        if (visibleSet.has(detail.category)) {
+          visibleSet.delete(detail.category);
+        } else {
+          visibleSet.add(detail.category);
+        }
+
+        StateManager.save({ visibleIndicators: Array.from(visibleSet) });
+        updateMainView();
+      },
+      {
+        eventName: 'toggle indicator visibility',
+        validate: (detail) => {
+          if (!detail?.category) {
+            return { valid: false, error: 'Unable to toggle indicator: missing category name' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ category: detail.category }),
+      }
+    ) as EventListener
+  );
+}
+
+function initNetIncomeToggle(): void {
+  document.addEventListener(
+    'budget:net-income-toggle',
+    wrapEventHandler<{ showNetIncomeIndicator: boolean }>(
+      (detail) => {
+        StateManager.save({ showNetIncomeIndicator: detail.showNetIncomeIndicator });
+        updateMainView();
+      },
+      {
+        eventName: 'toggle net income indicator',
+        validate: (detail) => {
+          if (detail?.showNetIncomeIndicator === undefined) {
+            return { valid: false, error: 'Unable to toggle net income: missing value' };
+          }
+          return { valid: true };
+        },
+        errorContext: (detail) => ({ showNetIncomeIndicator: detail.showNetIncomeIndicator }),
+      }
+    ) as EventListener
+  );
+}
+
 function init(): void {
   console.log('[Budget] Initializing application');
 
@@ -437,16 +512,28 @@ function init(): void {
   StateManager.save(state);
   console.log('[Budget] Loaded state:', state);
 
-  // Render initial UI
-  const transactions = loadTransactions();
-  renderSummaryCards(transactions, state);
-
   // Initialize event listeners
   initCategoryToggle();
   initVacationToggle();
   initBudgetPlanEvents();
-  initTimeNavigationEvents();
   initPlanButton();
+  initDateRangeEvents();
+  initAggregationToggle();
+  initIndicatorToggle();
+  initNetIncomeToggle();
+
+  // Set up routing
+  setupRouteListener((route) => {
+    console.log('[Budget] Route changed to:', route);
+    showView(route);
+  });
+
+  // Initialize hash if empty (ensures URL always shows #/ or #/plan)
+  // This happens after setup so the initial route is already rendered
+  if (!window.location.hash) {
+    const currentRoute = getCurrentRoute();
+    navigateTo(currentRoute);
+  }
 
   // HTMX event handlers (future-proofing)
   document.body.addEventListener('htmx:afterSwap', ((event: CustomEvent) => {
@@ -472,9 +559,6 @@ function init(): void {
   document.body.addEventListener('htmx:afterRequest', () => {
     console.log('[HTMX] Request completed');
   });
-
-  // Hydrate islands after initial render
-  updateIslands();
 
   // Remove loading class to reveal content (prevent FOUC)
   requestAnimationFrame(() => {

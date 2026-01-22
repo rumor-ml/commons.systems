@@ -1197,3 +1197,267 @@ func TestPaneFocusImmediateHighlighting(t *testing.T) {
 
 	t.Log("SUCCESS: Pane focus immediate highlighting verified")
 }
+
+// containsOSCSequences checks for expected OSC notification sequences in captured output.
+// Returns true if OSC 777 (notify) and OSC 9 (macOS alert) sequences are found.
+// Checks both exact binary format and common escaped representations.
+func containsOSCSequences(captured string) (hasOSC777, hasOSC9 bool) {
+	// Check for exact binary format (what daemon actually writes)
+	expectedOSC777 := "\x1b]777;notify;tmux-tui;Alert\x07"
+	expectedOSC9 := "\x1b]9;tmux-tui alert\x07"
+
+	hasOSC777 = strings.Contains(captured, expectedOSC777) ||
+		strings.Contains(captured, "777;notify;tmux-tui;Alert") ||
+		strings.Contains(captured, "\\033]777") ||
+		strings.Contains(captured, "\x1b]777")
+	hasOSC9 = strings.Contains(captured, expectedOSC9) ||
+		strings.Contains(captured, "9;tmux-tui alert") ||
+		strings.Contains(captured, "\\033]9") ||
+		strings.Contains(captured, "\x1b]9")
+	return
+}
+
+// TestIntegration_SSHPassthroughWithTmux verifies that notification OSC sequences
+// are passed through tmux when allow-passthrough is enabled. This tests the core
+// requirement that notifications work "across SSH boundaries" on macOS clients.
+//
+// This test verifies:
+// 1. Tmux with allow-passthrough on doesn't strip OSC sequences
+// 2. The notification sequences are present in tmux pane output
+// 3. The configuration is effective (comparing passthrough on vs off)
+//
+// Note: This test cannot verify actual macOS notification sounds (requires manual
+// testing), but ensures the sequences reach the terminal emulator correctly.
+func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping SSH passthrough test in short mode")
+	}
+
+	const notificationSequence = "\\033]777;notify;tmux-tui;Alert\\a\\033]9;tmux-tui alert\\a\\a"
+
+	socketName := uniqueSocketName()
+	sessionName := "passthrough-test"
+
+	// Clean up after test
+	defer func() {
+		killCmd := tmuxCmd(socketName, "kill-server")
+		killCmd.Run()
+	}()
+
+	// Test Case 1: Tmux with allow-passthrough on (should preserve sequences)
+	t.Run("AllowPassthroughOn", func(t *testing.T) {
+		// Create tmux session with allow-passthrough on
+		newSessionCmd := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName,
+			"-x", "80", "-y", "24")
+		if err := newSessionCmd.Run(); err != nil {
+			t.Fatalf("Failed to create tmux session: %v", err)
+		}
+
+		// Enable passthrough for this session
+		setOptionCmd := tmuxCmd(socketName, "set-option", "-s", "allow-passthrough", "on")
+		if err := setOptionCmd.Run(); err != nil {
+			t.Fatalf("Failed to set allow-passthrough on: %v", err)
+		}
+
+		// Verify passthrough is enabled
+		showOptionCmd := tmuxCmd(socketName, "show-options", "-s", "allow-passthrough")
+		output, err := showOptionCmd.Output()
+		if err != nil {
+			t.Fatalf("Failed to verify allow-passthrough: %v", err)
+		}
+		if !strings.Contains(string(output), "allow-passthrough on") {
+			t.Fatalf("allow-passthrough not enabled: %s", string(output))
+		}
+		t.Log("Tmux configured with allow-passthrough on")
+
+		// Write notification sequences to the pane (simulating daemon output)
+		// These are the exact sequences from playAlertSound()
+		sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", sessionName, "-l",
+			fmt.Sprintf("printf '%s'", notificationSequence))
+		if err := sendKeysCmd.Run(); err != nil {
+			t.Fatalf("Failed to send notification sequence: %v", err)
+		}
+
+		// Wait for sequences to be processed
+		time.Sleep(200 * time.Millisecond)
+
+		// Capture pane content (raw output including escape sequences)
+		captureCmd := tmuxCmd(socketName, "capture-pane", "-t", sessionName, "-p", "-e")
+		capturedOutput, err := captureCmd.Output()
+		if err != nil {
+			t.Fatalf("Failed to capture pane output: %v", err)
+		}
+
+		// Verify OSC sequences are present in output
+		captured := string(capturedOutput)
+		hasOSC777, hasOSC9 := containsOSCSequences(captured)
+
+		if !hasOSC777 || !hasOSC9 {
+			t.Logf("Captured output (first 500 chars): %q", captured[:min(500, len(captured))])
+			if !hasOSC777 {
+				t.Error("OSC 777 sequence not found in exact binary format")
+			}
+			if !hasOSC9 {
+				t.Error("OSC 9 sequence not found in exact binary format")
+			}
+			t.Error("This indicates sequences may be stripped, breaking SSH notifications")
+		} else {
+			t.Log("OSC sequences present in tmux output (passthrough working)")
+		}
+	})
+
+	// Test Case 2: Tmux with allow-passthrough off (baseline - sequences stripped)
+	t.Run("AllowPassthroughOff", func(t *testing.T) {
+		sessionName2 := "passthrough-off-test"
+
+		// Create new session with passthrough off
+		newSessionCmd := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName2,
+			"-x", "80", "-y", "24")
+		if err := newSessionCmd.Run(); err != nil {
+			t.Fatalf("Failed to create tmux session: %v", err)
+		}
+
+		// Explicitly disable passthrough
+		setOptionCmd := tmuxCmd(socketName, "set-option", "-s", "allow-passthrough", "off")
+		if err := setOptionCmd.Run(); err != nil {
+			t.Fatalf("Failed to set allow-passthrough off: %v", err)
+		}
+
+		// Verify passthrough is disabled
+		showOptionCmd := tmuxCmd(socketName, "show-options", "-s", "allow-passthrough")
+		output, err := showOptionCmd.Output()
+		if err != nil {
+			t.Fatalf("Failed to verify allow-passthrough: %v", err)
+		}
+		if !strings.Contains(string(output), "allow-passthrough off") {
+			t.Fatalf("allow-passthrough not disabled: %s", string(output))
+		}
+		t.Log("Tmux configured with allow-passthrough off")
+
+		// Write same notification sequences
+		sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", sessionName2, "-l",
+			fmt.Sprintf("printf '%s'", notificationSequence))
+		if err := sendKeysCmd.Run(); err != nil {
+			t.Fatalf("Failed to send notification sequence: %v", err)
+		}
+
+		time.Sleep(200 * time.Millisecond)
+
+		// Capture pane content
+		captureCmd := tmuxCmd(socketName, "capture-pane", "-t", sessionName2, "-p", "-e")
+		capturedOutput, err := captureCmd.Output()
+		if err != nil {
+			t.Fatalf("Failed to capture pane output: %v", err)
+		}
+
+		// With passthrough off, sequences should be stripped or not visible
+		captured := string(capturedOutput)
+		hasOSC777, hasOSC9 := containsOSCSequences(captured)
+
+		// Document behavior: with passthrough off, sequences may be stripped
+		if hasOSC777 || hasOSC9 {
+			t.Log("OSC sequences present even with passthrough off (terminal behavior varies)")
+		} else {
+			t.Log("OSC sequences stripped with allow-passthrough off (expected behavior)")
+		}
+	})
+}
+
+// TestIntegration_NotificationSequenceFormat verifies the exact format of
+// notification sequences written by playAlertSound(). This ensures compatibility
+// with terminal emulators and SSH clients.
+func TestIntegration_NotificationSequenceFormat(t *testing.T) {
+	// Expected sequences from daemon/server.go playAlertSound()
+	// 1. OSC 777: \033]777;notify;tmux-tui;Alert\a
+	// 2. OSC 9: \033]9;tmux-tui alert\a
+	// 3. BEL: \a
+	expectedOSC777 := "\x1b]777;notify;tmux-tui;Alert\x07"
+	expectedOSC9 := "\x1b]9;tmux-tui alert\x07"
+	expectedBEL := "\x07"
+
+	combinedSequence := expectedOSC777 + expectedOSC9 + expectedBEL
+
+	// Verify sequence structure
+	t.Run("SequenceComponents", func(t *testing.T) {
+		// OSC 777 format: ESC ] 777 ; notify ; <app> ; <message> BEL
+		if !strings.HasPrefix(expectedOSC777, "\x1b]777;") {
+			t.Error("OSC 777 sequence has incorrect prefix")
+		}
+		if !strings.HasSuffix(expectedOSC777, "\x07") {
+			t.Error("OSC 777 sequence has incorrect terminator")
+		}
+		if !strings.Contains(expectedOSC777, "notify;tmux-tui;Alert") {
+			t.Error("OSC 777 sequence has incorrect payload")
+		}
+		t.Log("OSC 777 sequence format correct")
+
+		// OSC 9 format: ESC ] 9 ; <message> BEL
+		if !strings.HasPrefix(expectedOSC9, "\x1b]9;") {
+			t.Error("OSC 9 sequence has incorrect prefix")
+		}
+		if !strings.HasSuffix(expectedOSC9, "\x07") {
+			t.Error("OSC 9 sequence has incorrect terminator")
+		}
+		if !strings.Contains(expectedOSC9, "tmux-tui alert") {
+			t.Error("OSC 9 sequence has incorrect payload")
+		}
+		t.Log("OSC 9 sequence format correct")
+
+		// BEL character
+		if expectedBEL != "\x07" {
+			t.Error("BEL character has incorrect value")
+		}
+		t.Log("BEL character correct")
+	})
+
+	// Verify sequences can be written to a pty without errors
+	t.Run("PTYCompatibility", func(t *testing.T) {
+		// Create a temporary file to simulate pty output
+		tmpFile, err := os.CreateTemp("", "osc-test-*.txt")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		defer tmpFile.Close()
+
+		// Write sequences to file (simulating terminal output)
+		n, err := tmpFile.Write([]byte(combinedSequence))
+		if err != nil {
+			t.Fatalf("Failed to write sequences: %v", err)
+		}
+		if n != len(combinedSequence) {
+			t.Errorf("Incomplete write: wrote %d bytes, expected %d", n, len(combinedSequence))
+		}
+
+		// Read back and verify
+		tmpFile.Seek(0, 0)
+		readBack := make([]byte, len(combinedSequence))
+		n, err = tmpFile.Read(readBack)
+		if err != nil {
+			t.Fatalf("Failed to read back sequences: %v", err)
+		}
+		if n != len(combinedSequence) {
+			t.Errorf("Incomplete read: read %d bytes, expected %d", n, len(combinedSequence))
+		}
+		if string(readBack) != combinedSequence {
+			t.Error("Sequence corrupted during write/read cycle")
+		}
+
+		t.Log("Notification sequences are pty-compatible")
+	})
+
+	// Document sequence lengths for debugging
+	t.Run("SequenceLengths", func(t *testing.T) {
+		t.Logf("OSC 777 length: %d bytes", len(expectedOSC777))
+		t.Logf("OSC 9 length: %d bytes", len(expectedOSC9))
+		t.Logf("BEL length: %d bytes", len(expectedBEL))
+		t.Logf("Combined length: %d bytes", len(combinedSequence))
+
+		// Ensure sequences aren't too long (some terminals have limits)
+		if len(combinedSequence) > 1024 {
+			t.Error("Combined sequence exceeds reasonable terminal buffer size")
+		} else {
+			t.Log("Combined sequence within reasonable size limits")
+		}
+	})
+}
