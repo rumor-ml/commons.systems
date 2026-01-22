@@ -140,12 +140,42 @@ Task(
   2. Has the bug already been fixed or feature already implemented?
   3. Is the issue obsolete due to refactoring or architectural changes?
   4. Are the file paths and code references in the issue still valid?
+  5. If the code has changed but the issue is still valid, what specific details need updating (line numbers, function names, file paths, code snippets)?
 
-  Provide a clear YES/NO answer on whether this issue is still relevant, with 2-3 sentences explaining your reasoning."
+  Provide a clear answer:
+  - YES (issue is current and accurate)
+  - YES BUT NEEDS UPDATE (issue is valid but details are outdated)
+  - NO (issue is no longer relevant)
+
+  Include 2-3 sentences explaining your reasoning. If updates are needed, specify exactly what should be changed."
 )
 ```
 
-### 6.2: Handle Non-Relevant Issues
+### 6.2: Update Issue If Needed
+
+If the Explore agent determines the issue is **still relevant BUT needs updating**:
+
+1. Draft an updated issue body that:
+   - Adds a prominent update notice at the top (with date)
+   - Explains what has changed in the code since the issue was filed
+   - Updates file paths, line numbers, function names, and code snippets
+   - Preserves the original issue description and metadata
+   - Maintains any "Duplicates Closed" section at the end
+
+2. Update the issue:
+   ```bash
+   gh issue edit <priority-number> --body-file <temp-file-with-updated-body>
+   ```
+
+3. Add a comment explaining the update:
+   ```bash
+   gh issue comment <priority-number> \
+     --body "Updated issue with current code references. Core issue remains valid. Changes: <brief summary>"
+   ```
+
+4. Continue to Step 7 (create worktree)
+
+### 6.3: Handle Non-Relevant Issues
 
 If the Explore agent determines the issue is **NOT relevant**:
 
@@ -173,7 +203,9 @@ If the Explore agent determines the issue is **NOT relevant**:
    - Continue to Step 7 (create worktree anyway)
    - User may want to update/redefine the issue
 
-If the Explore agent determines the issue **IS relevant**:
+### 6.4: Proceed If Issue Is Current
+
+If the Explore agent determines the issue **IS relevant and current** (no updates needed):
 
 - Continue to Step 7 (create worktree)
 
