@@ -27,7 +27,16 @@ async function fillBudgetInput(page: Page, category: string, value: string) {
 
   // Find and fill the input within the category row
   const input = categoryRow.locator('input[type="number"]').first();
+
+  // Clear existing value and fill new value
+  await input.clear();
   await input.fill(value);
+
+  // Trigger blur to ensure onChange fires and state updates
+  await input.blur();
+
+  // Wait for React state to update
+  await page.waitForTimeout(200);
 }
 
 test.describe('Budget Indicator Lines', () => {
