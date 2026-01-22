@@ -1,6 +1,23 @@
-# Budget Visualization App
+# Budget Site
 
-A frontend-only budget visualization application built with React, Observable Plot, and the @commons design system.
+Full-stack budget visualization app with Go backend and React/HTMX frontend.
+
+## Architecture
+
+- **Backend**: Go server with Firebase Auth and Firestore
+- **Frontend**: Hybrid React islands + HTMX for new features
+- **Data Storage**: Firestore (multi-user with access control)
+- **Auth**: Firebase Auth with GitHub sign-in
+
+## Current Status
+
+This app is being migrated from frontend-only to full-stack:
+
+- ✅ Go backend server with Firestore integration
+- ✅ REST API endpoints for transactions, statements, accounts
+- 🚧 Frontend API integration (in progress)
+- 🚧 Transaction review page (in progress)
+- 🚧 Firebase Auth implementation (planned)
 
 ## Features
 
@@ -89,15 +106,77 @@ budget/site/
 - **Tailwind CSS**: Utility-first styling
 - **@commons/design-system**: Shared design tokens and components
 
-## Architecture
+## Backend API
 
-This is a frontend-only application with no backend requirements:
+### Firestore Collections
 
-- All data is loaded from a static JSON file
-- React islands pattern for selective hydration
-- Observable Plot for declarative, data-driven charts
-- Responsive design with CSS Grid
-- Supports dark/light themes via design system
+1. **budget-transactions**: Individual financial transactions
+   - userId, date, description, amount, category
+   - redeemable, vacation, transfer flags
+   - statementIds array for linking
+
+2. **budget-statements**: Statement periods
+   - userId, accountId, startDate, endDate
+   - transactionIds array
+
+3. **budget-accounts**: User accounts
+   - userId, institutionId, name, type
+
+4. **budget-institutions**: Financial institutions
+   - userId, name
+
+### API Endpoints
+
+#### Protected (require Firebase Auth token)
+
+- `GET /api/transactions` - List all user's transactions
+- `GET /api/statements` - List all user's statements
+- `GET /api/accounts` - List all user's accounts
+- `GET /api/institutions` - List all user's institutions
+
+#### Public
+
+- `GET /health` - Health check
+- `GET /` - Serve frontend (static files)
+
+## Development Setup
+
+### Prerequisites
+
+- Go 1.25.4+
+- Node.js 18+ and pnpm
+- Firebase project with Firestore enabled
+- Firebase service account credentials
+
+### Configuration
+
+Set environment variables:
+
+```bash
+export FIREBASE_PROJECT_ID="your-project-id"
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+```
+
+### Running
+
+```bash
+# Install dependencies
+make install-deps
+
+# Run backend and frontend concurrently
+make dev
+```
+
+- Backend: http://localhost:8080
+- Frontend: http://localhost:5173
+
+### Building
+
+```bash
+make build              # Build both backend and frontend
+make build-backend      # Build only backend
+make build-frontend     # Build only frontend
+```
 
 ## Customization
 
