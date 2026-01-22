@@ -7,8 +7,9 @@
 # Get project root for worktree-local tmp
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 LOG_FILE="${PROJECT_ROOT}/tmp/hooks/worktree-branch-guard.log"
-if ! mkdir -p "${PROJECT_ROOT}/tmp/hooks" 2>/dev/null; then
-  echo '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "ERROR: Cannot create log directory tmp/hooks. Check permissions and disk space."}}'
+MKDIR_ERROR=$(mkdir -p "${PROJECT_ROOT}/tmp/hooks" 2>&1)
+if [ $? -ne 0 ]; then
+  echo "{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"ERROR: Cannot create log directory at ${PROJECT_ROOT}/tmp/hooks\\n\\nError: ${MKDIR_ERROR}\\n\\nTo fix this issue:\\n1. Check disk space: df -h\\n2. Check permissions: ls -ld ${PROJECT_ROOT}/tmp\\n3. Ensure ${PROJECT_ROOT} is writable\\n\\nThis hook requires a log directory to operate.\"}}" | jq
   exit 0
 fi
 
@@ -55,7 +56,7 @@ log "Received input: $input"
 [[ -z "$input" ]] && deny "Hook received no input"
 
 # Extract command from JSON - allow if not a Bash tool call
-if ! command=$(echo "$input" | jq -r '.tool_input.command // empty' 2>/dev/null); then
+if ! command=$(echo "$input" | jq -r '.tool_input.command // ""' 2>/dev/null); then
   deny "Failed to parse JSON input. Ensure valid JSON with .tool_input.command field."
 fi
 log "Extracted command: $command"
@@ -82,16 +83,15 @@ fi
 
 # Determine operation type and whether to validate
 needs_validation=false
-operation_type=""
 
 case "$first_arg" in
   push|pull|merge)
     log "Detected destructive git operation: $first_arg"
     needs_validation=true
-    operation_type="branch_match_required"
     ;;
   stash)
-    # Only block stash creation, not read operations like "stash list"
+    # Only block stash creation operations (git stash, git stash push, git stash save)
+    # Allow read-only operations like "git stash list" or "git stash show"
     # Parse: git stash [subcommand] - need to skip "git" and "stash" to get subcommand
     read -r _ _ stash_subcommand _ <<< "$command"
     if [[ -z "$stash_subcommand" || "$stash_subcommand" == "push" || "$stash_subcommand" == "save" ]]; then
@@ -111,8 +111,9 @@ This safety check prevents accidentally stashing uncommitted changes from other 
     fi
     ;;
   checkout)
-    # Block branch switching, allow file restoration (checkout -- <file>)
-    # Parse: git checkout [branch|--] - need to skip "git" and "checkout" to get target
+    # Block all checkout operations except file restoration (checkout -- <file>)
+    # This includes branch switching, creating branches, and checking out commits
+    # Parse: git checkout [args] - need to skip "git" and "checkout" to get first argument
     read -r _ _ checkout_target _ <<< "$command"
     if [[ "$checkout_target" == "--" ]]; then
       allow  # git checkout -- <file> is safe (file restoration)
@@ -155,13 +156,20 @@ if [[ "$in_worktree" == false ]]; then
 fi
 
 if [[ "$needs_validation" == false ]]; then
-  # Already handled above (stash/checkout/switch block or allow)
+  # Not a branch-matching operation (push/pull/merge)
+  # All other operations (including stash/checkout/switch) were handled in the case statement
   allow
 fi
 
 # Get current branch name
 if ! current_branch=$(git rev-parse --abbrev-ref HEAD 2>&1); then
-  deny "Unable to determine current git branch. Git error: $current_branch"
+  # Check if we're not in a git repo (common case outside worktrees)
+  if [[ "$current_branch" =~ "not a git repository" ]]; then
+    allow "Not in a git repository, skipping validation"
+  fi
+  # Sanitize error message (truncate if too long, escape special chars)
+  sanitized_error=$(echo "$current_branch" | head -c 200 | tr '\n' ' ')
+  deny "Unable to determine current git branch. Git error: $sanitized_error"
 fi
 log "Current branch: $current_branch"
 

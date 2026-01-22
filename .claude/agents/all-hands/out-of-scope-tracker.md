@@ -239,18 +239,32 @@ After creating or updating an issue, manage dependencies and stale labels:
 Always add the current issue as a blocker, since the code being reviewed only exists in the feature branch:
 
 ```bash
-# Get repository info (uses current repo context automatically)
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-if [ -z "$REPO" ]; then
-  echo "ERROR: Could not determine repository" >&2
-  exit 1
+# Reusable function to get repository name with error handling
+get_repo() {
+  local repo
+  repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>&1)
+  if [ -z "$repo" ]; then
+    echo "ERROR: Could not determine repository" >&2
+    return 1
+  fi
+  echo "$repo"
+}
+
+# Get repository info using shared function
+REPO=$(get_repo)
+if [ $? -ne 0 ]; then
+  FAILED_ISSUES+=("${issue_id}")
+  ERROR_MESSAGES+=("${issue_id}: Could not determine repository")
+  continue  # Skip to next issue instead of exiting
 fi
 
 # Get the blocker issue ID (current issue being worked on)
 BLOCKER_ID=$(gh api "repos/${REPO}/issues/${current_issue_number}" --jq ".id" 2>&1)
 if [ $? -ne 0 ] || [ -z "$BLOCKER_ID" ]; then
   echo "ERROR: Failed to get issue ID for #${current_issue_number}: $BLOCKER_ID" >&2
-  exit 1
+  FAILED_ISSUES+=("${issue_id}")
+  ERROR_MESSAGES+=("${issue_id}: Failed to get blocker issue ID")
+  continue  # Skip to next issue instead of exiting
 fi
 
 # TODO(#1494): No tests verify bash script correctness in agent instructions
@@ -260,7 +274,9 @@ RESULT=$(gh api "repos/${REPO}/issues/${NEW_ISSUE_NUMBER}/dependencies/blocked_b
   --input - <<< "{\"issue_id\":$BLOCKER_ID}" 2>&1)
 if [ $? -ne 0 ]; then
   echo "ERROR: Failed to add blocker dependency: $RESULT" >&2
-  exit 1
+  FAILED_ISSUES+=("${issue_id}")
+  ERROR_MESSAGES+=("${issue_id}: Failed to add blocker dependency")
+  # Continue - issue was created but dependency failed
 fi
 echo "Successfully added #${current_issue_number} as blocker to #${NEW_ISSUE_NUMBER}"
 ```
@@ -282,17 +298,26 @@ location_file="${location%:*}"  # Remove :line_number suffix
 if [ -z "$location_file" ]; then
   echo "ERROR: Could not extract file path from location: ${location}" >&2
   echo "Unable to check if TODO exists in main branch" >&2
-  TODO_EXISTS_IN_MAIN=false
+  FAILED_ISSUES+=("${issue_id}")
+  ERROR_MESSAGES+=("${issue_id}: Could not extract file path from location")
+  continue  # Skip to next issue
 elif [ ! -d "$MAIN_WORKTREE" ]; then
   echo "ERROR: Main worktree not found at $MAIN_WORKTREE" >&2
   echo "Unable to check if TODO exists in main branch" >&2
-  # Fail safely: assume TODO doesn't exist in main to add blocker
+  # Conservative assumption: set TODO_EXISTS_IN_MAIN=false to add blocker
+  # This errs on the side of adding blockers when uncertain, which prevents
+  # work on potentially feature-specific issues until the current PR merges
   TODO_EXISTS_IN_MAIN=false
 else
-  # Check if the file exists in main and contains the TODO
-  if [ -f "$MAIN_WORKTREE/${location_file}" ] && grep -q "TODO(#${ISSUE_NUMBER})" "$MAIN_WORKTREE/${location_file}"; then
+  # Check if file exists in main, then search for TODO
+  if [ ! -f "$MAIN_WORKTREE/${location_file}" ]; then
+    echo "INFO: File ${location_file} does not exist in main branch (new file in feature branch)" >&2
+    TODO_EXISTS_IN_MAIN=false
+  elif grep -q "TODO(#${ISSUE_NUMBER})" "$MAIN_WORKTREE/${location_file}" 2>/dev/null; then
     TODO_EXISTS_IN_MAIN=true
+    echo "INFO: TODO(#${ISSUE_NUMBER}) found in main branch at ${location_file}" >&2
   else
+    echo "INFO: TODO(#${ISSUE_NUMBER}) not found in main branch file ${location_file}" >&2
     TODO_EXISTS_IN_MAIN=false
   fi
 fi
@@ -302,18 +327,22 @@ If TODO doesn't exist in main, add the current issue as a blocker:
 
 ```bash
 if [ "$TODO_EXISTS_IN_MAIN" = "false" ]; then
-  # TODO only exists in feature branch, add current issue as blocker
-  # Get repository info
-  REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-  if [ -z "$REPO" ]; then
-    echo "ERROR: Could not determine repository" >&2
-    exit 1
+  # TODO doesn't exist in main branch, so the issue is specific to this feature branch
+  # Add current issue as blocker since the issue can't be fixed until this branch merges
+  # Get repository info using shared function
+  REPO=$(get_repo)
+  if [ $? -ne 0 ]; then
+    FAILED_ISSUES+=("${issue_id}")
+    ERROR_MESSAGES+=("${issue_id}: Could not determine repository")
+    continue  # Skip to next issue instead of exiting
   fi
 
   BLOCKER_ID=$(gh api "repos/${REPO}/issues/${current_issue_number}" --jq ".id" 2>&1)
   if [ $? -ne 0 ] || [ -z "$BLOCKER_ID" ]; then
     echo "ERROR: Failed to get issue ID for #${current_issue_number}: $BLOCKER_ID" >&2
-    exit 1
+    FAILED_ISSUES+=("${issue_id}")
+    ERROR_MESSAGES+=("${issue_id}: Failed to get blocker issue ID")
+    continue  # Skip to next issue instead of exiting
   fi
 
   RESULT=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/dependencies/blocked_by" \
@@ -321,7 +350,9 @@ if [ "$TODO_EXISTS_IN_MAIN" = "false" ]; then
     --input - <<< "{\"issue_id\":$BLOCKER_ID}" 2>&1)
   if [ $? -ne 0 ]; then
     echo "ERROR: Failed to add blocker dependency: $RESULT" >&2
-    exit 1
+    FAILED_ISSUES+=("${issue_id}")
+    ERROR_MESSAGES+=("${issue_id}: Failed to add blocker dependency")
+    # Continue - issue was updated but dependency failed
   fi
   echo "Successfully added #${current_issue_number} as blocker to #${ISSUE_NUMBER}"
 fi
