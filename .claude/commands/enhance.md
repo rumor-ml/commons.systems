@@ -13,12 +13,13 @@ Fetch all open enhancement issues from the repository:
 gh issue list \
   --label "enhancement" \
   --state "open" \
-  --json number,title,labels,url \
+  --json number,title,labels,url,comments \
   --limit 1000
 ```
 
 - If no issues found, return: "No open enhancement issues found"
 - Parse the JSON output for use in subsequent steps
+- The `comments` field contains the number of comments on each issue (used for prioritization)
 
 ## Step 2: Three-Tier Prioritization
 
@@ -32,14 +33,17 @@ Analyze fetched issues and categorize into three tiers (categorization includes 
 **Tier 1 (Highest Priority)**: Issues with BOTH `enhancement` AND `bug` labels
 
 - These are enhancements that fix bugs - critical for stability
+- Within this tier, sort by comment count (descending) - more comments = more discussion/interest
 
 **Tier 2 (High Priority)**: Issues with BOTH `enhancement` AND `high priority` labels
 
 - Important enhancements marked for priority work
+- Within this tier, sort by comment count (descending) - more comments = more discussion/interest
 
 **Tier 3 (Remaining)**: All other enhancement issues
 
 - Standard enhancements to be evaluated
+- Within this tier, sort by comment count (descending) - more comments = more discussion/interest
 
 ## Step 3: Select Priority Issue
 
@@ -58,18 +62,26 @@ From the prioritized tiers (all excluding "in progress" issues):
 **Algorithm**:
 
 ```
-For each issue in tier (highest to lowest priority):
-  1. Check if issue has "in progress" label → Skip if yes
-  2. Check if issue has open blocking dependencies:
-     - Run: gh api repos/rumor-ml/commons.systems/issues/{number}/dependencies/blocked_by
-     - If response contains any issues with state="open" → Skip this issue
-  3. If issue passes both checks → Select it
-  4. If all issues in tier are skipped → Move to next tier
+For each tier (Tier 1, then Tier 2, then Tier 3):
+  1. Sort issues within tier by comment count (descending - most comments first)
+  2. For each issue in sorted tier:
+     a. Check if issue has "in progress" label → Skip if yes
+     b. Check if issue has open blocking dependencies:
+        - Run: gh api repos/rumor-ml/commons.systems/issues/{number}/dependencies/blocked_by
+        - If response contains any issues with state="open" → Skip this issue
+     c. If issue passes both checks → Select it and stop
+  3. If all issues in tier are skipped → Move to next tier
 ```
 
-Store the selected issue as `PRIORITY_ISSUE` (number, title, url).
+Store the selected issue as `PRIORITY_ISSUE` (number, title, url, comments).
 
 **Note**: If an issue is skipped due to blockers, consider logging: "Skipped #<num> - blocked by open issue(s)"
+
+**Comment Count Priority**: Issues with more comments are prioritized within each tier because:
+
+- More comments typically indicate more community interest and discussion
+- Well-discussed issues often have clearer requirements and context
+- Higher engagement suggests the enhancement is important to users
 
 ## Step 4: Duplicate Detection
 
