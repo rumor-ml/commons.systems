@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/parser"
@@ -19,23 +20,44 @@ type Registry struct {
 }
 
 // New creates a registry with built-in parsers and optional custom parsers.
-// Returns an error if parser registration fails (duplicate names or nil parsers).
+// Returns an error including: (1) list of successfully registered parser names, (2) which parser
+// failed (for custom parsers: "parser X of Y"), and (3) the underlying error. Registration can fail
+// due to duplicate names or nil parsers.
 func New(customParsers ...parser.Parser) (*Registry, error) {
 	r := &Registry{parsers: []parser.Parser{}}
 
+	// getRegisteredNames returns comma-separated parser names, or "none" if empty.
+	// Using "none" instead of empty string makes error messages clearer when no parsers
+	// have been registered yet (e.g., "Successfully registered: none" vs "Successfully registered: ").
+	getRegisteredNames := func() string {
+		if len(r.parsers) == 0 {
+			return "none"
+		}
+		names := make([]string, 0, len(r.parsers))
+		for _, p := range r.parsers {
+			if p != nil {
+				names = append(names, p.Name())
+			} else {
+				names = append(names, "<nil>")
+			}
+		}
+		return strings.Join(names, ", ")
+	}
+
 	// Register built-in parsers
 	if err := r.register(ofx.NewParser()); err != nil {
-		return nil, fmt.Errorf("failed to register ofx parser: %w", err)
+		return nil, fmt.Errorf("failed to register ofx parser - Successfully registered: %s: %w", getRegisteredNames(), err)
 	}
 
 	if err := r.register(csv.NewParser()); err != nil {
-		return nil, fmt.Errorf("failed to register csv-pnc parser: %w", err)
+		return nil, fmt.Errorf("failed to register csv-pnc parser - Successfully registered: %s: %w", getRegisteredNames(), err)
 	}
 
 	// Register custom parsers
-	for _, p := range customParsers {
+	for i, p := range customParsers {
 		if err := r.register(p); err != nil {
-			return nil, fmt.Errorf("failed to register custom parser: %w", err)
+			return nil, fmt.Errorf("failed to register custom parser %d of %d - Successfully registered: %s: %w",
+				i+1, len(customParsers), getRegisteredNames(), err)
 		}
 	}
 
@@ -43,11 +65,13 @@ func New(customParsers ...parser.Parser) (*Registry, error) {
 }
 
 // MustNew creates a registry with built-in parsers and optional custom parsers.
-// Panics if parser registration fails (programmer error).
+// Panics with detailed context (successfully registered parsers, failure point) if registration fails.
+// Registration failures typically indicate programmer error (nil parser, duplicate names), so MustNew()
+// is intended for use in initialization code where panics are acceptable.
 func MustNew(customParsers ...parser.Parser) *Registry {
 	r, err := New(customParsers...)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create registry: %v", err))
+		panic(fmt.Sprintf("failed to create parser registry: %+v\n\nThis is a programmer error - check your parser initialization.", err))
 	}
 	return r
 }
