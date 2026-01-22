@@ -111,7 +111,7 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 		branch, wasBlocked, previousBlockedBy)
 }
 
-// playAlertSound plays the alert sound via terminal bell.
+// playAlertSound plays the alert sound via terminal escape sequences.
 //
 // Playback Conditions:
 //   - Skipped during E2E tests (CLAUDE_E2E_TEST env var set)
@@ -119,8 +119,14 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 //   - Only plays when transitioning TO an alert state (handleAlertEvent determines this)
 //
 // Implementation Notes:
-//   - Uses terminal bell (\a) for universal cross-platform support
-//   - Synchronous execution (terminal bell never fails)
+//   - Uses multiple notification methods for broad SSH/terminal compatibility:
+//   - OSC 777: Modern terminal notification protocol (iTerm2, kitty, etc.)
+//   - OSC 9: iTerm2-specific notification protocol
+//   - BEL: Universal fallback for all terminals
+//   - Terminals pick their preferred method and ignore the rest
+//   - Works across SSH when terminal emulator supports OSC passthrough
+//   - Requires tmux to passthrough OSC sequences (allow-passthrough on)
+//   - Synchronous execution (escape sequences never fail)
 //   - Rate limiting uses global audioMutex and lastAudioPlay timestamp
 func (d *AlertDaemon) playAlertSound() {
 	// Skip sound during E2E tests
@@ -139,17 +145,24 @@ func (d *AlertDaemon) playAlertSound() {
 	}
 	lastAudioPlay = now
 
-	// Play terminal bell by writing to controlling terminal
+	// Play alert sound using multiple notification methods for broad compatibility
 	pid := os.Getpid()
-	debug.Log("AUDIO_PLAYING pid=%d method=terminal_bell", pid)
+	debug.Log("AUDIO_PLAYING pid=%d method=osc777+osc9+bel", pid)
 
-	// Write to /dev/tty (controlling terminal) so bell works even for background processes
+	// Write to /dev/tty (controlling terminal) so notifications work even for background processes
+	// Combine all three methods in a single write for efficiency:
+	// 1. OSC 777: Modern terminal notification protocol (iTerm2, kitty, etc.)
+	// 2. OSC 9: iTerm2-specific notification protocol
+	// 3. BEL: Universal fallback for all terminals
+	// Terminals pick their preferred method and ignore the rest
+	notificationSequence := "\033]777;notify;tmux-tui;Alert\a\033]9;tmux-tui alert\a\a"
+
 	if f, openErr := os.OpenFile("/dev/tty", os.O_WRONLY, 0); openErr == nil {
-		f.Write([]byte("\a"))
+		f.Write([]byte(notificationSequence))
 		if closeErr := f.Close(); closeErr != nil {
 			debug.Log("AUDIO_FAILED pid=%d error=close_failed: %v", pid, closeErr)
 		} else {
-			debug.Log("AUDIO_COMPLETED pid=%d", pid)
+			debug.Log("AUDIO_COMPLETED pid=%d method=osc777+osc9+bel", pid)
 		}
 	} else {
 		debug.Log("AUDIO_FAILED pid=%d error=%v", pid, openErr)
