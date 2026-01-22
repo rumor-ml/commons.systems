@@ -13,6 +13,7 @@ import { monitorPRChecks, MonitorPRChecksInputSchema } from './tools/monitor-pr-
 import { monitorMergeQueue, MonitorMergeQueueInputSchema } from './tools/monitor-merge-queue.js';
 import { getDeploymentUrls, GetDeploymentUrlsInputSchema } from './tools/get-deployment-urls.js';
 import { getFailureDetails, GetFailureDetailsInputSchema } from './tools/get-failure-details.js';
+import { createWorktreeCmd, CreateWorktreeInputSchema } from './tools/create-worktree.js';
 
 import { createErrorResult } from './utils/errors.js';
 import {
@@ -196,6 +197,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [],
         },
       },
+      {
+        name: 'gh_create_worktree',
+        description:
+          'Create a new git worktree with full setup. Validates environment, ' +
+          'creates worktree, configures git hooks, updates issue labels, and optionally ' +
+          'opens tmux window with claude. Accepts issue number or task description. ' +
+          'Requires dangerouslyDisableSandbox: true for git/gh/direnv/tmux operations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            issue_number: {
+              type: 'number',
+              description: 'GitHub issue number (e.g., 1500)',
+            },
+            description: {
+              type: 'string',
+              description: 'Task description (used if no issue number)',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current)',
+            },
+          },
+          required: [],
+        },
+      },
     ],
   };
 });
@@ -229,6 +256,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case 'gh_get_failure_details': {
         const validated = GetFailureDetailsInputSchema.parse(args);
         return await getFailureDetails(validated);
+      }
+
+      case 'gh_create_worktree': {
+        const validated = CreateWorktreeInputSchema.parse(args);
+        return await createWorktreeCmd(validated);
       }
 
       default:
