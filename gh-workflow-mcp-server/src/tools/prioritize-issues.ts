@@ -19,7 +19,7 @@ export const PrioritizeIssuesInputSchema = z
 
 export type PrioritizeIssuesInput = z.infer<typeof PrioritizeIssuesInputSchema>;
 
-interface GitHubIssue {
+export interface GitHubIssue {
   readonly number: number;
   readonly title: string;
   readonly labels: ReadonlyArray<{ readonly name: string }>;
@@ -32,37 +32,44 @@ interface PrioritizedIssue {
   readonly number: number;
   readonly title: string;
   readonly url: string;
-  readonly tier: 1 | 2 | 3;
+  readonly tier: 1 | 2 | 3 | 4;
   readonly priority_score: number;
   readonly comment_count: number;
   readonly found_while_working_count: number;
   readonly labels: ReadonlyArray<string>;
 }
 
+export interface FoundWhileWorkingResult {
+  readonly count: number;
+  readonly isMalformed: boolean;
+  readonly pattern?: string;
+}
+
 /**
  * Extract count of issues referenced in "Found while working on" line
  *
  * @param body - Issue body text
- * @returns Number of issue references found (0 if none or body is null)
+ * @returns Object with count, malformed flag, and pattern if malformed
  *
  * @example
- * extractFoundWhileWorkingCount("Found while working on #123") // 1
- * extractFoundWhileWorkingCount("Found while working on #123, #456") // 2
- * extractFoundWhileWorkingCount("No reference") // 0
+ * extractFoundWhileWorkingCount("Found while working on #123") // { count: 1, isMalformed: false }
+ * extractFoundWhileWorkingCount("Found while working on #123, #456") // { count: 2, isMalformed: false }
+ * extractFoundWhileWorkingCount("Found while working on 123") // { count: 0, isMalformed: true, pattern: "123" }
+ * extractFoundWhileWorkingCount("No reference") // { count: 0, isMalformed: false }
  */
-function extractFoundWhileWorkingCount(body: string | null): number {
-  if (!body) return 0;
+export function extractFoundWhileWorkingCount(body: string | null): FoundWhileWorkingResult {
+  if (!body) return { count: 0, isMalformed: false };
 
   // Match "Found while working on" followed by issue references
   const foundWhilePattern = /Found while working on\s+([#\d,\s]+)/i;
   const match = body.match(foundWhilePattern);
 
-  if (!match) return 0;
+  if (!match) return { count: 0, isMalformed: false };
 
   // Count issue number references (#123, #456, etc.)
   const issueRefs = match[1].match(/#\d+/g);
 
-  // Log warning if "Found while working on" exists but no issue references found
+  // Track if pattern exists but no issue references found (malformed)
   if (!issueRefs || issueRefs.length === 0) {
     console.warn(
       `[gh-workflow] WARN extractFoundWhileWorkingCount found "Found while working on" pattern but no issue references. ` +
@@ -70,9 +77,10 @@ function extractFoundWhileWorkingCount(body: string | null): number {
         `Pattern match: "${match[1]}" ` +
         `Expected format: "Found while working on #123, #456"`
     );
+    return { count: 0, isMalformed: true, pattern: match[1].trim() };
   }
 
-  return issueRefs ? issueRefs.length : 0;
+  return { count: issueRefs.length, isMalformed: false };
 }
 
 /**
@@ -85,56 +93,66 @@ function extractFoundWhileWorkingCount(body: string | null): number {
  * - "Found while working on" count indicates blocking or cross-cutting concerns
  * - Using maximum ensures issues are prioritized by either metric
  */
-function calculatePriorityScore(issue: GitHubIssue): {
+export function calculatePriorityScore(issue: GitHubIssue): {
   priority_score: number;
   comment_count: number;
   found_while_working_count: number;
+  found_while_working_malformed: boolean;
+  found_while_working_pattern?: string;
 } {
   const comment_count = issue.comments;
-  const found_while_working_count = extractFoundWhileWorkingCount(issue.body);
+  const foundWhileResult = extractFoundWhileWorkingCount(issue.body);
 
   return {
-    priority_score: Math.max(comment_count, found_while_working_count),
+    priority_score: Math.max(comment_count, foundWhileResult.count),
     comment_count,
-    found_while_working_count,
+    found_while_working_count: foundWhileResult.count,
+    found_while_working_malformed: foundWhileResult.isMalformed,
+    found_while_working_pattern: foundWhileResult.pattern,
   };
 }
 
 /**
  * Determine which tier an issue belongs to
  *
- * Tier 1: Has both 'enhancement' AND 'bug' labels
- * Tier 2: Has 'enhancement' AND 'high priority' labels (but not 'bug')
- * Tier 3: Has 'enhancement' label only (without 'bug' or 'high priority')
+ * Tier 1: Has 'bug' label (highest priority)
+ * Tier 2: Has 'code-reviewer' label (but not 'bug')
+ * Tier 3: Has 'code-simplifier' label (but not 'bug' or 'code-reviewer')
+ * Tier 4: Other enhancement issues
  *
  * Note: This function is typically called on issues pre-filtered by the enhancement label,
  * so all inputs are expected to have the enhancement label.
  */
-function determineTier(labels: ReadonlyArray<{ readonly name: string }>): 1 | 2 | 3 {
+export function determineTier(labels: ReadonlyArray<{ readonly name: string }>): 1 | 2 | 3 | 4 {
   const labelNames = labels.map((l) => l.name.toLowerCase());
 
-  const hasEnhancement = labelNames.includes('enhancement');
   const hasBug = labelNames.includes('bug');
-  const hasHighPriority = labelNames.includes('high priority');
+  const hasCodeReviewer = labelNames.includes('code-reviewer');
+  const hasCodeSimplifier = labelNames.includes('code-simplifier');
 
-  if (hasEnhancement && hasBug) {
+  if (hasBug) {
     return 1;
   }
 
-  if (hasEnhancement && hasHighPriority) {
+  if (hasCodeReviewer && !hasBug) {
     return 2;
   }
 
-  return 3;
+  if (hasCodeSimplifier && !hasBug && !hasCodeReviewer) {
+    return 3;
+  }
+
+  return 4;
 }
 
 /**
- * Prioritize GitHub issues using three-tier system with priority scoring
+ * Prioritize GitHub issues using four-tier system with priority scoring
  *
- * Categorizes issues into three tiers:
- * - Tier 1 (Highest): Enhancement + Bug (fixes bugs via enhancements)
- * - Tier 2 (High): Enhancement + High Priority (important enhancements)
- * - Tier 3 (Remaining): All other enhancement issues
+ * Categorizes issues into four tiers:
+ * - Tier 1 (Highest): Issues with 'bug' label
+ * - Tier 2 (High): Issues with 'code-reviewer' label (no bug)
+ * - Tier 3 (Medium): Issues with 'code-simplifier' label (no bug/code-reviewer)
+ * - Tier 4 (Standard): All other enhancement issues
  *
  * Within each tier, issues are sorted by priority score (descending):
  * priority_score = max(comment_count, found_while_working_count)
@@ -196,11 +214,20 @@ export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<To
           `GitHub CLI returned issue #${issue.number} without valid 'labels' array. This may indicate a GitHub API schema change.`
         );
       }
-      if (typeof issue.comments !== 'number') {
-        console.warn(
-          `[gh-workflow] WARN Issue #${issue.number} missing 'comments' field, defaulting to 0`
+      // Handle both array format (current GitHub CLI) and number format (legacy)
+      let commentCount: number;
+      if (Array.isArray(issue.comments)) {
+        // GitHub CLI returns comments as array - use length
+        commentCount = issue.comments.length;
+      } else if (typeof issue.comments === 'number') {
+        // Legacy format - use number directly
+        commentCount = issue.comments;
+      } else {
+        throw new ValidationError(
+          `GitHub CLI returned issue #${issue.number} with invalid 'comments' field. ` +
+            `Expected a number or array, got: ${typeof issue.comments}. ` +
+            `Issue data: ${JSON.stringify(issue).substring(0, 200)}`
         );
-        issue.comments = 0;
       }
       if (typeof issue.title !== 'string') {
         throw new ValidationError(
@@ -212,7 +239,10 @@ export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<To
           `GitHub CLI returned issue #${issue.number} without valid 'url' field`
         );
       }
-      return issue as GitHubIssue;
+      return {
+        ...issue,
+        comments: commentCount,
+      } as GitHubIssue;
     });
 
     if (issues.length === 0) {
@@ -227,10 +257,21 @@ export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<To
     }
 
     // Categorize and score all issues
+    const malformedIssues: Array<{ number: number; pattern: string }> = [];
     const prioritizedIssues: PrioritizedIssue[] = issues.map((issue) => {
       const tier = determineTier(issue.labels);
-      const { priority_score, comment_count, found_while_working_count } =
-        calculatePriorityScore(issue);
+      const {
+        priority_score,
+        comment_count,
+        found_while_working_count,
+        found_while_working_malformed,
+        found_while_working_pattern,
+      } = calculatePriorityScore(issue);
+
+      // Track malformed "Found while working on" references
+      if (found_while_working_malformed && found_while_working_pattern) {
+        malformedIssues.push({ number: issue.number, pattern: found_while_working_pattern });
+      }
 
       return {
         number: issue.number,
@@ -256,6 +297,7 @@ export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<To
     const tier1 = prioritizedIssues.filter((i) => i.tier === 1);
     const tier2 = prioritizedIssues.filter((i) => i.tier === 2);
     const tier3 = prioritizedIssues.filter((i) => i.tier === 3);
+    const tier4 = prioritizedIssues.filter((i) => i.tier === 4);
 
     // Format output
     const lines: string[] = [
@@ -284,9 +326,20 @@ export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<To
       lines.push('');
     };
 
-    formatIssueList(tier1, 'Tier 1: Enhancement + Bug (Highest Priority)');
-    formatIssueList(tier2, 'Tier 2: Enhancement + High Priority');
-    formatIssueList(tier3, 'Tier 3: Other Enhancements');
+    formatIssueList(tier1, 'Tier 1: Bug (Highest Priority)');
+    formatIssueList(tier2, 'Tier 2: Code Reviewer');
+    formatIssueList(tier3, 'Tier 3: Code Simplifier');
+    formatIssueList(tier4, 'Tier 4: Other Enhancements');
+
+    // Add warning section for malformed "Found while working on" references
+    if (malformedIssues.length > 0) {
+      lines.push('⚠️  Issues with malformed "Found while working on" references:');
+      malformedIssues.forEach(({ number, pattern }) => {
+        lines.push(`  - #${number}: "${pattern}" (missing # symbols)`);
+      });
+      lines.push('  Expected format: "Found while working on #123, #456"');
+      lines.push('');
+    }
 
     lines.push('Priority Score Formula: max(comment_count, found_while_working_count)');
 

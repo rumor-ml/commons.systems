@@ -3,6 +3,19 @@ description: Prioritize and work on enhancement issues
 model: haiku
 ---
 
+<!-- TODO(#1454): Add end-to-end test coverage for /enhance skill workflow execution
+     Missing test coverage for:
+     - Step 1: Fetch and prioritize issues
+     - Step 2: Parse prioritization results
+     - Step 3: Select priority issue (with skip logic for "in progress" and blocked issues)
+     - Step 4: Duplicate detection
+     - Step 5: Close duplicates (with safety check to never close "in progress" issues)
+     - Step 6: Verify issue relevance
+     - Step 7: Create worktree
+     - Step 8: Report completion
+     See: pr-test-analyzer-in-scope-2 for detailed test scenarios
+-->
+
 **IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**
 
 ## Step 1: Fetch and Prioritize Enhancement Issues
@@ -18,10 +31,11 @@ mcp__gh-workflow__gh_prioritize_issues({
 ```
 
 - If no issues found, return: "No open enhancement issues found"
-- The tool returns issues categorized into three tiers with priority scores
-- Tier 1: Enhancement + Bug (highest priority)
-- Tier 2: Enhancement + High Priority
-- Tier 3: Other enhancements
+- The tool returns issues categorized into four tiers with priority scores
+- Tier 1: Bug (highest priority)
+- Tier 2: Code Reviewer
+- Tier 3: Code Simplifier
+- Tier 4: Other enhancements
 - Within each tier, issues are sorted by priority score (max of comment count and "found while working on" count)
 
 ## Step 2: Parse Prioritization Results
@@ -31,19 +45,24 @@ mcp__gh-workflow__gh_prioritize_issues({
 - Issues with "in progress" label (already being worked on)
 - Issues blocked by open dependencies (not ready to work on)
 
-Parse the output from Step 1 to extract the three-tier categorization:
+Parse the output from Step 1 to extract the four-tier categorization:
 
-**Tier 1 (Highest Priority)**: Issues with BOTH `enhancement` AND `bug` labels
+**Tier 1 (Highest Priority)**: Issues with `bug` label
 
-- These are enhancements that fix bugs - critical for stability
+- Critical bugs that need to be fixed
 - Sorted by priority score (descending)
 
-**Tier 2 (High Priority)**: Issues with BOTH `enhancement` AND `high priority` labels
+**Tier 2 (High Priority)**: Issues with `code-reviewer` label (but not `bug`)
 
-- Important enhancements marked for priority work
+- Issues identified by code review agents
 - Sorted by priority score (descending)
 
-**Tier 3 (Remaining)**: All other enhancement issues
+**Tier 3 (Medium Priority)**: Issues with `code-simplifier` label (but not `bug` or `code-reviewer`)
+
+- Code simplification opportunities
+- Sorted by priority score (descending)
+
+**Tier 4 (Standard)**: All other enhancement issues
 
 - Standard enhancements to be evaluated
 - Sorted by priority score (descending)
@@ -69,7 +88,8 @@ From the prioritized tiers (from Step 1):
 1. If Tier 1 has issues: Select the first available Tier 1 issue (see selection criteria below)
 2. Else if Tier 2 has issues: Select the first available Tier 2 issue (see selection criteria below)
 3. Else if Tier 3 has issues: Select the first available Tier 3 issue (see selection criteria below)
-4. Else: Return "No enhancement issues to work on (all may be in progress or blocked)"
+4. Else if Tier 4 has issues: Select the first available Tier 4 issue (see selection criteria below)
+5. Else: Return "No enhancement issues to work on (all may be in progress or blocked)"
 
 **Selection Criteria** - Skip issues that have:
 
@@ -79,7 +99,7 @@ From the prioritized tiers (from Step 1):
 **Algorithm**:
 
 ```
-For each tier (Tier 1, then Tier 2, then Tier 3):
+For each tier (Tier 1, then Tier 2, then Tier 3, then Tier 4):
   1. Issues are already sorted by priority_score from Step 1
 
   2. For each issue in sorted tier:
@@ -107,31 +127,60 @@ Store the selected issue as `PRIORITY_ISSUE` (number, title, url, comments, prio
 
 **SAFETY CHECK**: Skip any issue with "in progress" label - never close issues being actively worked on.
 
-Use the MCP tool to find duplicates among remaining enhancement issues (excluding the priority issue):
+Perform semantic duplicate analysis by comparing the priority issue against all other enhancement issues:
+
+### 4.1: Fetch All Enhancement Issues
+
+Use gh CLI to fetch all open enhancement issues with full details:
+
+```bash
+gh issue list --label enhancement --state open --json number,title,body,labels --limit 1000
+```
+
+### 4.2: Filter Candidate Issues
+
+From the fetched issues:
+
+1. Exclude the priority issue itself
+2. Exclude issues with "in progress" label (never close issues being worked on)
+3. Store remaining issues as candidates for duplicate analysis
+
+### 4.3: Semantic Duplicate Analysis
+
+For each candidate issue, compare its title and body against the priority issue's title and body.
+
+**Perform semantic analysis to determine:**
+
+- Are the issues describing the same problem or feature request?
+- Do they have the same underlying goal or outcome?
+- Would fixing one issue also resolve the other?
+
+**Confidence Thresholds:**
+
+- **>95% confidence**: CONFIRMED_DUPLICATES - Issues that are clearly the same (e.g., identical or near-identical descriptions, same specific bug/feature)
+- **70-95% confidence**: LIKELY_DUPLICATES - Issues that appear similar but may have subtle differences
+
+**Consider:**
+
+- Title similarity (semantic meaning, not just word overlap)
+- Body content overlap (described symptoms, proposed solutions, code references)
+- Specific details (file paths, error messages, feature descriptions)
+
+**Output**: Two lists:
+
+- `CONFIRMED_DUPLICATES[]`: Issues with >95% confidence of being duplicates
+- `LIKELY_DUPLICATES[]`: Issues with 70-95% confidence of being duplicates
+
+**Format each duplicate entry as:**
 
 ```
-mcp__gh-workflow__gh_find_duplicate_issues({
-  reference_issue: <PRIORITY_ISSUE_NUMBER>,
-  candidate_issues: [<all other issue numbers from Step 1>],
-  similarity_threshold: 0.7
-})
+{
+  number: <issue_number>,
+  title: "<issue_title>",
+  confidence: <percentage>,
+  reason: "<brief explanation of why it's a duplicate>"
+}
 ```
-
-The tool returns two categories:
-
-- **Exact Matches**: Issues with identical normalized titles (auto-close safe, unless marked "IN PROGRESS")
-- **Similar Matches**: Issues with ≥70% Jaccard similarity (require user confirmation)
-
-The tool automatically:
-
-- Normalizes titles (lowercase, removes punctuation except spaces/hyphens)
-- Calculates Jaccard similarity on word tokens
-- Flags issues with "in progress" label to prevent accidental closure
-
-**Output**: Two lists from the tool:
-
-- `CONFIRMED_DUPLICATES[]`: Exact title matches
-- `LIKELY_DUPLICATES[]`: ≥70% similarity matches
 
 ## Step 5: Close Duplicates
 
@@ -301,6 +350,19 @@ Ready to begin work on enhancement #<priority-number>
 ```
 
 ## Error Handling
+
+<!-- TODO(#1454): Add negative test cases for error handling scenarios
+     Missing test coverage for:
+     - Invalid similarity_threshold values (>1, <0, non-numeric)
+     - GitHub API unavailable/timeout during Step 1
+     - Selected issue deleted between Step 3 and Step 7
+     - User cancels duplicate closure confirmation in Step 5
+     - Worktree skill fails in Step 7 (disk full, permission denied)
+     - gh CLI authentication expires mid-workflow
+     - Repository dependencies feature disabled (404 from dependencies endpoint)
+     - All Tier 1/2/3 issues are blocked or in-progress (infinite loop risk)
+     See: pr-test-analyzer-in-scope-4 for detailed error scenarios
+-->
 
 - **No issues found**: Report "No open enhancement issues found" and exit
 - **Network errors**: Report error and suggest user retry

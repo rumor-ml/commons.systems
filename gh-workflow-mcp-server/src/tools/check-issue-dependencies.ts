@@ -17,6 +17,7 @@ export const CheckIssueDependenciesInputSchema = z
 
 export type CheckIssueDependenciesInput = z.infer<typeof CheckIssueDependenciesInputSchema>;
 
+// TODO(#1479): Add readonly modifiers for immutability
 interface BlockingIssue {
   id: number;
   number: number;
@@ -74,9 +75,9 @@ export async function checkIssueDependencies(
       throw error;
     }
 
-    // Fetch blocking dependencies via GitHub API
-    // Note: This endpoint returns an array of issues that block the specified issue
+    // Fetch blocking dependencies via GitHub API (see docstring for full endpoint path)
     let blockingIssuesJson: string;
+    let dependenciesFeatureAvailable = true;
     try {
       blockingIssuesJson = await ghCli([
         'api',
@@ -86,12 +87,17 @@ export async function checkIssueDependencies(
       ]);
     } catch (error) {
       // If the dependencies endpoint returns 404, treat as empty array
-      // GitHub returns 404 if the dependencies feature is not enabled for this repository
+      // This occurs when the dependencies feature is not available (not enabled, unsupported plan, or enterprise version)
       // (Note: If the issue exists but has no dependencies, GitHub returns [] not 404)
       if (
         error instanceof Error &&
         (error.message.includes('404') || error.message.includes('Not Found'))
       ) {
+        console.warn(
+          `[gh-workflow] Dependencies endpoint returned 404 for ${resolvedRepo}#${input.issue_number}. ` +
+            `Treating as no dependencies. This likely means the dependencies feature is not available for this repository.`
+        );
+        dependenciesFeatureAvailable = false;
         blockingIssuesJson = '[]';
       } else {
         throw error;
@@ -121,6 +127,9 @@ export async function checkIssueDependencies(
 
     if (blockingIssues.length === 0) {
       lines.push('No blocking dependencies found.');
+      if (!dependenciesFeatureAvailable) {
+        lines.push('Note: Dependencies feature may not be available for this repository.');
+      }
       lines.push('Status: ACTIONABLE (ready to work on)');
       return {
         content: [{ type: 'text', text: lines.join('\n') }],

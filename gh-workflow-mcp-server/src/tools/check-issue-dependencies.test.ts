@@ -303,7 +303,7 @@ describe('CheckIssueDependencies - Integration Tests', () => {
    * NOTE: These tests verify the full checkIssueDependencies() function
    * including GitHub API integration.
    *
-   * TODO(#1454): Add integration tests with gh CLI mocking
+   * TODO(#1478): Add integration tests with gh CLI mocking
    *
    * Required test cases:
    * 1. handles 404 error correctly (no dependencies) - returns ACTIONABLE

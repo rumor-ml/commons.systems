@@ -15,10 +15,6 @@ import { getDeploymentUrls, GetDeploymentUrlsInputSchema } from './tools/get-dep
 import { getFailureDetails, GetFailureDetailsInputSchema } from './tools/get-failure-details.js';
 import { prioritizeIssues, PrioritizeIssuesInputSchema } from './tools/prioritize-issues.js';
 import {
-  findDuplicateIssues,
-  FindDuplicateIssuesInputSchema,
-} from './tools/find-duplicate-issues.js';
-import {
   checkIssueDependencies,
   CheckIssueDependenciesInputSchema,
 } from './tools/check-issue-dependencies.js';
@@ -237,37 +233,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'gh_find_duplicate_issues',
-        description:
-          'Find duplicate issues using exact title match and Jaccard similarity. Detects exact matches (auto-close recommended) and similar matches above threshold (user confirmation recommended). Flags issues with "in progress" label to prevent accidental closure.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            reference_issue: {
-              type: 'number',
-              description: 'Issue number to compare against',
-            },
-            candidate_issues: {
-              type: 'array',
-              items: {
-                type: 'number',
-              },
-              description: 'Array of issue numbers to check for duplicates',
-            },
-            similarity_threshold: {
-              type: 'number',
-              description: 'Minimum similarity for "similar" match (default: 0.7, range: 0-1)',
-              default: 0.7,
-            },
-            repo: {
-              type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
-            },
-          },
-          required: ['reference_issue', 'candidate_issues'],
-        },
-      },
-      {
         name: 'gh_check_issue_dependencies',
         description:
           'Check if an issue has open blocking dependencies. Returns actionability status (ACTIONABLE or BLOCKED) based on whether blocking issues are still open. Helps determine if an issue is ready to work on.',
@@ -324,11 +289,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case 'gh_prioritize_issues': {
         const validated = PrioritizeIssuesInputSchema.parse(args);
         return await prioritizeIssues(validated);
-      }
-
-      case 'gh_find_duplicate_issues': {
-        const validated = FindDuplicateIssuesInputSchema.parse(args);
-        return await findDuplicateIssues(validated);
       }
 
       case 'gh_check_issue_dependencies': {
