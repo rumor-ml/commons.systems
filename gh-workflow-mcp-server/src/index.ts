@@ -228,7 +228,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'gh_add_blocker',
         description:
-          'Add the current issue as a blocker for another issue using GitHub dependencies API. Creates a "blocked by" relationship. Handles duplicate relationships gracefully.',
+          'Add a blocker relationship between two issues using GitHub dependencies API. Creates a "blocked by" relationship where one issue blocks another. Handles duplicate relationships gracefully.',
         inputSchema: {
           type: 'object',
           properties: {

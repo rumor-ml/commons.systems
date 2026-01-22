@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ghCli, ghCliJson, resolveRepo } from '../utils/gh-cli.js';
 import type { ToolResult } from '../types.js';
-import { createErrorResult } from '../utils/errors.js';
+import { createErrorResult, ValidationError } from '../utils/errors.js';
 
 export const RemoveLabelIfExistsInputSchema = z
   .object({
@@ -23,6 +23,13 @@ export async function removeLabelIfExists(input: RemoveLabelIfExistsInput): Prom
       typeof input.issue_number === 'string'
         ? parseInt(input.issue_number, 10)
         : input.issue_number;
+
+    // Validate parsed number
+    if (!Number.isInteger(issue_number) || issue_number <= 0) {
+      throw new ValidationError(
+        `Invalid issue_number: must be a positive integer, got ${input.issue_number}`
+      );
+    }
 
     // Get current labels on issue
     const labels = await ghCliJson<{ name: string }[]>(
