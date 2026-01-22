@@ -890,7 +890,7 @@ func (d *AlertDaemon) updateTreeForPaneFocus(newActivePaneID string) {
 	d.collectorMu.Lock()
 
 	// Re-verify pane still exists and get fresh data (tree may have changed during I/O)
-	targetPane, targetRepo, targetBranch, stillFound := d.currentTree.FindPaneByID(newActivePaneID)
+	targetPane, _, _, stillFound := d.currentTree.FindPaneByID(newActivePaneID)
 	if !stillFound {
 		d.collectorMu.Unlock()
 		debug.Log("DAEMON_PANE_FOCUS_STALE paneID=%s", newActivePaneID)
@@ -903,42 +903,43 @@ func (d *AlertDaemon) updateTreeForPaneFocus(newActivePaneID string) {
 		debug.Log("DAEMON_PANE_FOCUS_TITLE_FALLBACK paneID=%s usingFreshTitle=%s", newActivePaneID, newTitle)
 	}
 
-	targetWindowID := targetPane.WindowID()
-
-	// Deactivate the currently active pane in the target window
-	// (tmux allows only one active pane per window)
+	// Deactivate ALL currently active panes across all repos/branches/windows
+	// (the TUI shows all panes globally, so only one should be highlighted at a time)
 	// TODO(#1486): Consider adding RepoTree.DeactivateAllPanes() method for better encapsulation
-	panes, ok := d.currentTree.GetPanes(targetRepo, targetBranch)
-	if !ok {
-		d.collectorMu.Unlock()
-		debug.Log("DAEMON_PANE_FOCUS_GETPANES_FAILED_FOR_TARGET repo=%s branch=%s", targetRepo, targetBranch)
-		fmt.Fprintf(os.Stderr, "CRITICAL: Tree consistency error - pane %s found in repo=%s branch=%s but GetPanes failed\n", newActivePaneID, targetRepo, targetBranch)
-		fmt.Fprintf(os.Stderr, "CRITICAL: This indicates internal corruption - triggering immediate full tree collection\n")
-		return
-	}
+	for _, repo := range d.currentTree.Repos() {
+		for _, branch := range d.currentTree.Branches(repo) {
+			panes, ok := d.currentTree.GetPanes(repo, branch)
+			if !ok {
+				continue
+			}
 
-	updatedPanes := make([]tmux.Pane, len(panes))
-	for i, p := range panes {
-		// Only deactivate panes in the same window
-		if p.WindowID() == targetWindowID && p.WindowActive() {
-			updatedPanes[i] = p.WithWindowActive(false)
-			debug.Log("DAEMON_PANE_FOCUS_DEACTIVATE paneID=%s windowID=%s", p.ID(), p.WindowID())
-		} else {
-			updatedPanes[i] = p
+			updatedPanes := make([]tmux.Pane, len(panes))
+			hasChanges := false
+			for i, p := range panes {
+				if p.WindowActive() {
+					updatedPanes[i] = p.WithWindowActive(false)
+					debug.Log("DAEMON_PANE_FOCUS_DEACTIVATE paneID=%s", p.ID())
+					hasChanges = true
+				} else {
+					updatedPanes[i] = p
+				}
+			}
+
+			// Only call SetPanes if we actually deactivated something
+			if hasChanges {
+				if err := d.currentTree.SetPanes(repo, branch, updatedPanes); err != nil {
+					d.collectorMu.Unlock()
+					debug.Log("DAEMON_PANE_FOCUS_SETPANES_ERROR repo=%s branch=%s error=%v", repo, branch, err)
+					fmt.Fprintf(os.Stderr, "CRITICAL: Failed to deactivate panes in repo=%s branch=%s: %v\n", repo, branch, err)
+					fmt.Fprintf(os.Stderr, "CRITICAL: Tree may be in inconsistent state - triggering full tree recollection to recover\n")
+
+					// Trigger immediate recovery
+					go d.collectAndBroadcastTree()
+
+					return
+				}
+			}
 		}
-	}
-
-	// Set the updated panes back
-	if err := d.currentTree.SetPanes(targetRepo, targetBranch, updatedPanes); err != nil {
-		d.collectorMu.Unlock()
-		debug.Log("DAEMON_PANE_FOCUS_SETPANES_ERROR repo=%s branch=%s error=%v", targetRepo, targetBranch, err)
-		fmt.Fprintf(os.Stderr, "CRITICAL: Failed to deactivate panes in repo=%s branch=%s: %v\n", targetRepo, targetBranch, err)
-		fmt.Fprintf(os.Stderr, "CRITICAL: Tree may be in inconsistent state - triggering full tree recollection to recover\n")
-
-		// Trigger immediate recovery
-		go d.collectAndBroadcastTree()
-
-		return
 	}
 
 	// Activate the focused pane with new title
