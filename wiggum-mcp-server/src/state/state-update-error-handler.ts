@@ -5,7 +5,7 @@
  * and improve maintainability. It provides a standardized way to handle state update failures
  * across different workflow steps.
  *
- * Issue #808: Extracted from router.ts to reduce file size by ~200 lines (12% reduction)
+ * Issue #808: Extracted from router.ts to reduce duplication and file size
  */
 
 import { logger } from '../utils/logger.js';
@@ -22,6 +22,7 @@ import type { StateUpdateResult } from './router.js';
  * Provides all necessary context to generate appropriate error messages
  * and log entries for state update failures.
  */
+// TODO(#1510): Consider testing readonly type constraints on StateUpdateFailureParams
 export interface StateUpdateFailureParams {
   readonly stateResult: StateUpdateResult & { readonly success: false };
   readonly newState: WiggumState;
@@ -39,18 +40,19 @@ export interface StateUpdateFailureParams {
  * - Builds detailed error context for user-facing messages
  * - Returns standardized ToolResult with isError: true
  *
- * The phase is automatically derived from the step identifier (p1-* = phase1, p2-* = phase2).
- *
  * @param params - State update failure parameters
  * @returns ToolResult with formatted error message and isError: true
  */
 export function handleStateUpdateFailure(params: StateUpdateFailureParams): ToolResult {
   const { stateResult, newState, step, targetType, targetNumber } = params;
 
-  // Derive phase from step identifier
-  // Phase 1 steps: p1-1, p1-2, p1-3, p1-4
-  // Phase 2 steps: p2-1, p2-2, p2-3, p2-4, p2-5, approval
-  const phase = step.startsWith('p1-') ? 'phase1' : 'phase2';
+  // Validate targetNumber is a positive integer
+  if (!Number.isInteger(targetNumber) || targetNumber < 1) {
+    throw new Error(`targetNumber must be positive integer, got: ${targetNumber}`);
+  }
+
+  // Use actual phase from state instead of deriving from step identifier
+  const phase = newState.phase;
 
   // Log critical error with full context for debugging
   const logContext = {
@@ -71,18 +73,24 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Tool
   const errorDetails = stateResult.lastError
     ? `\n\nActual error: ${stateResult.lastError.message}`
     : '';
-  const retryInfo = stateResult.attemptCount
-    ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
-    : '';
+  // Show retry info only if retries were actually attempted (count > 0)
+  const retryInfo =
+    stateResult.attemptCount > 0 ? `\n\nRetry attempts made: ${stateResult.attemptCount}` : '';
 
   // Format error message with step-specific context
   const targetRef = targetType === 'issue' ? `issue #${targetNumber}` : `PR #${targetNumber}`;
   const verifyCommand =
     targetType === 'issue' ? `gh issue view ${targetNumber}` : `gh pr view ${targetNumber}`;
 
-  // Build context object - empty for phase 1 (issue), pr_number for phase 2 (PR)
+  // Build context object for formatWiggumResponse
+  // Phase 1: No PR exists yet, so context is empty
+  // Phase 2: Include pr_number for PR-related operations
   const context = phase === 'phase1' ? {} : { pr_number: targetNumber };
 
+  // NOTE: formatWiggumResponse can throw FormattingError if data is invalid.
+  // This is acceptable because it indicates a programming error in this function's data construction,
+  // not a user error. The original error is already logged above (line 68).
+  // If formatting fails, the error will propagate and be handled by the caller.
   return {
     content: [
       {
