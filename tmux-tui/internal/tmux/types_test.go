@@ -480,3 +480,397 @@ func TestRepoTreeUnmarshalJSON_MapIsolation(t *testing.T) {
 		t.Errorf("Original tree should have new pane %%3, got %s", originalPanes[0].ID())
 	}
 }
+
+// TestPaneWithWindowActive tests the WithWindowActive mutation method
+func TestPaneWithWindowActive(t *testing.T) {
+	original, _ := NewPane("%1", "/path", "@10", 0, false, false, "cmd", "title", true)
+
+	modified := original.WithWindowActive(true)
+
+	// Verify windowActive was changed
+	if !modified.WindowActive() {
+		t.Error("WithWindowActive should set windowActive to true")
+	}
+
+	// Verify other fields unchanged
+	if modified.ID() != original.ID() {
+		t.Errorf("WithWindowActive should not modify ID: got %s, want %s", modified.ID(), original.ID())
+	}
+	if modified.Path() != original.Path() {
+		t.Errorf("WithWindowActive should not modify Path: got %s, want %s", modified.Path(), original.Path())
+	}
+	if modified.WindowID() != original.WindowID() {
+		t.Errorf("WithWindowActive should not modify WindowID: got %s, want %s", modified.WindowID(), original.WindowID())
+	}
+	if modified.WindowIndex() != original.WindowIndex() {
+		t.Errorf("WithWindowActive should not modify WindowIndex: got %d, want %d", modified.WindowIndex(), original.WindowIndex())
+	}
+	if modified.WindowBell() != original.WindowBell() {
+		t.Errorf("WithWindowActive should not modify WindowBell: got %v, want %v", modified.WindowBell(), original.WindowBell())
+	}
+	if modified.Command() != original.Command() {
+		t.Errorf("WithWindowActive should not modify Command: got %s, want %s", modified.Command(), original.Command())
+	}
+	if modified.Title() != original.Title() {
+		t.Errorf("WithWindowActive should not modify Title: got %s, want %s", modified.Title(), original.Title())
+	}
+	if modified.IsClaudePane() != original.IsClaudePane() {
+		t.Errorf("WithWindowActive should not modify IsClaudePane: got %v, want %v", modified.IsClaudePane(), original.IsClaudePane())
+	}
+
+	// Verify original unchanged (immutability)
+	if original.WindowActive() {
+		t.Error("WithWindowActive should not mutate original")
+	}
+}
+
+// TestPaneWithWindowActive_SetFalse tests setting windowActive to false
+func TestPaneWithWindowActive_SetFalse(t *testing.T) {
+	original, _ := NewPane("%1", "/path", "@10", 0, true, false, "cmd", "title", true)
+
+	modified := original.WithWindowActive(false)
+
+	if modified.WindowActive() {
+		t.Error("WithWindowActive should set windowActive to false")
+	}
+
+	if !original.WindowActive() {
+		t.Error("WithWindowActive should not mutate original")
+	}
+}
+
+// TestPaneWithActiveAndTitle tests the WithActiveAndTitle mutation method
+func TestPaneWithActiveAndTitle(t *testing.T) {
+	original, _ := NewPane("%1", "/path", "@10", 0, false, false, "cmd", "old", true)
+
+	modified := original.WithActiveAndTitle(true, "new")
+
+	// Verify both fields were changed
+	if !modified.WindowActive() {
+		t.Error("WithActiveAndTitle should set windowActive to true")
+	}
+	if modified.Title() != "new" {
+		t.Errorf("WithActiveAndTitle should set title: got %s, want new", modified.Title())
+	}
+
+	// Verify other fields unchanged
+	if modified.ID() != original.ID() {
+		t.Errorf("WithActiveAndTitle should not modify ID: got %s, want %s", modified.ID(), original.ID())
+	}
+	if modified.Path() != original.Path() {
+		t.Errorf("WithActiveAndTitle should not modify Path: got %s, want %s", modified.Path(), original.Path())
+	}
+	if modified.WindowID() != original.WindowID() {
+		t.Errorf("WithActiveAndTitle should not modify WindowID: got %s, want %s", modified.WindowID(), original.WindowID())
+	}
+	if modified.WindowIndex() != original.WindowIndex() {
+		t.Errorf("WithActiveAndTitle should not modify WindowIndex: got %d, want %d", modified.WindowIndex(), original.WindowIndex())
+	}
+	if modified.WindowBell() != original.WindowBell() {
+		t.Errorf("WithActiveAndTitle should not modify WindowBell: got %v, want %v", modified.WindowBell(), original.WindowBell())
+	}
+	if modified.Command() != original.Command() {
+		t.Errorf("WithActiveAndTitle should not modify Command: got %s, want %s", modified.Command(), original.Command())
+	}
+	if modified.IsClaudePane() != original.IsClaudePane() {
+		t.Errorf("WithActiveAndTitle should not modify IsClaudePane: got %v, want %v", modified.IsClaudePane(), original.IsClaudePane())
+	}
+
+	// Verify original unchanged (immutability)
+	if original.WindowActive() {
+		t.Error("WithActiveAndTitle should not mutate original windowActive")
+	}
+	if original.Title() != "old" {
+		t.Errorf("WithActiveAndTitle should not mutate original title: got %s, want old", original.Title())
+	}
+}
+
+// TestPaneWithActiveAndTitle_SetFalse tests setting windowActive to false with title update
+func TestPaneWithActiveAndTitle_SetFalse(t *testing.T) {
+	original, _ := NewPane("%1", "/path", "@10", 0, true, false, "cmd", "old", true)
+
+	modified := original.WithActiveAndTitle(false, "new")
+
+	if modified.WindowActive() {
+		t.Error("WithActiveAndTitle should set windowActive to false")
+	}
+	if modified.Title() != "new" {
+		t.Errorf("WithActiveAndTitle should set title: got %s, want new", modified.Title())
+	}
+	if !original.WindowActive() {
+		t.Error("WithActiveAndTitle should not mutate original")
+	}
+	if original.Title() != "old" {
+		t.Error("WithActiveAndTitle should not mutate original title")
+	}
+}
+
+// TestRepoTreeUpdatePaneActiveState tests updating pane active state
+func TestRepoTreeUpdatePaneActiveState(t *testing.T) {
+	tree := NewRepoTree()
+	pane1, _ := NewPane("%1", "/path", "@10", 0, false, false, "cmd", "title1", true)
+	pane2, _ := NewPane("%2", "/path", "@10", 0, true, false, "cmd", "title2", false)
+	tree.SetPanes("repo", "main", []Pane{pane1, pane2})
+
+	// Update pane1 to active (using UpdatePaneActiveAndTitle with same title)
+	if err := tree.UpdatePaneActiveAndTitle("%1", true, "title1"); err != nil {
+		t.Errorf("Should find pane %%1: %v", err)
+	}
+
+	panes, _ := tree.GetPanes("repo", "main")
+	if !panes[0].WindowActive() {
+		t.Error("Pane %1 should be active")
+	}
+	if panes[1].WindowActive() != true {
+		t.Error("Pane %2 should remain unchanged")
+	}
+
+	// Update pane2 to inactive (using UpdatePaneActiveAndTitle with same title)
+	if err := tree.UpdatePaneActiveAndTitle("%2", false, "title2"); err != nil {
+		t.Errorf("Should find pane %%2: %v", err)
+	}
+
+	panes, _ = tree.GetPanes("repo", "main")
+	if panes[1].WindowActive() {
+		t.Error("Pane %2 should be inactive")
+	}
+
+	// Try non-existent pane
+	if err := tree.UpdatePaneActiveAndTitle("%999", true, "title"); err == nil {
+		t.Error("Should return error for non-existent pane")
+	}
+}
+
+// TestRepoTreeUpdatePaneActiveState_MultipleBranches tests updating across multiple repos/branches
+func TestRepoTreeUpdatePaneActiveState_MultipleBranches(t *testing.T) {
+	tree := NewRepoTree()
+	pane1, _ := NewPane("%1", "/path1", "@10", 0, false, false, "cmd", "title1", false)
+	pane2, _ := NewPane("%2", "/path2", "@11", 1, false, false, "cmd", "title2", false)
+	pane3, _ := NewPane("%3", "/path3", "@12", 2, false, false, "cmd", "title3", false)
+	tree.SetPanes("repo1", "main", []Pane{pane1})
+	tree.SetPanes("repo1", "feature", []Pane{pane2})
+	tree.SetPanes("repo2", "main", []Pane{pane3})
+
+	// Update pane in repo1/feature (using UpdatePaneActiveAndTitle with same title)
+	if err := tree.UpdatePaneActiveAndTitle("%2", true, "title2"); err != nil {
+		t.Errorf("Should find pane %%2 in repo1/feature: %v", err)
+	}
+
+	panes, _ := tree.GetPanes("repo1", "feature")
+	if !panes[0].WindowActive() {
+		t.Error("Pane %2 should be active")
+	}
+
+	// Verify other panes unchanged
+	panes1, _ := tree.GetPanes("repo1", "main")
+	if panes1[0].WindowActive() {
+		t.Error("Pane %1 should remain inactive")
+	}
+
+	panes3, _ := tree.GetPanes("repo2", "main")
+	if panes3[0].WindowActive() {
+		t.Error("Pane %3 should remain inactive")
+	}
+}
+
+// TestRepoTreeFindPaneByID tests finding panes by ID across the tree
+func TestRepoTreeFindPaneByID(t *testing.T) {
+	tree := NewRepoTree()
+	pane1, _ := NewPane("%1", "/path1", "@10", 0, true, false, "cmd", "title1", true)
+	pane2, _ := NewPane("%2", "/path2", "@11", 1, false, false, "cmd", "title2", false)
+	tree.SetPanes("repo1", "main", []Pane{pane1})
+	tree.SetPanes("repo2", "feature", []Pane{pane2})
+
+	// Find pane in first repo
+	pane, repo, branch, found := tree.FindPaneByID("%1")
+	if !found {
+		t.Fatal("Should find pane %1")
+	}
+	if repo != "repo1" {
+		t.Errorf("Expected repo 'repo1', got %s", repo)
+	}
+	if branch != "main" {
+		t.Errorf("Expected branch 'main', got %s", branch)
+	}
+	if pane.ID() != "%1" {
+		t.Errorf("Expected pane ID %%1, got %s", pane.ID())
+	}
+	if pane.Path() != "/path1" {
+		t.Errorf("Expected path /path1, got %s", pane.Path())
+	}
+
+	// Find pane in second repo
+	pane, repo, branch, found = tree.FindPaneByID("%2")
+	if !found {
+		t.Fatal("Should find pane %2")
+	}
+	if repo != "repo2" || branch != "feature" {
+		t.Errorf("Expected repo2/feature, got %s/%s", repo, branch)
+	}
+
+	// Not found case
+	_, _, _, found = tree.FindPaneByID("%999")
+	if found {
+		t.Error("Should not find non-existent pane")
+	}
+}
+
+// TestRepoTreeFindPaneByID_EmptyTree tests finding in an empty tree
+func TestRepoTreeFindPaneByID_EmptyTree(t *testing.T) {
+	tree := NewRepoTree()
+
+	_, _, _, found := tree.FindPaneByID("%1")
+	if found {
+		t.Error("Should not find pane in empty tree")
+	}
+}
+
+// TestRepoTreeFindPaneByID_MultiplePanes tests finding among multiple panes in same branch
+func TestRepoTreeFindPaneByID_MultiplePanes(t *testing.T) {
+	tree := NewRepoTree()
+	pane1, _ := NewPane("%1", "/path", "@10", 0, true, false, "cmd", "title1", true)
+	pane2, _ := NewPane("%2", "/path", "@10", 0, false, false, "cmd", "title2", false)
+	pane3, _ := NewPane("%3", "/path", "@10", 0, false, false, "cmd", "title3", false)
+	tree.SetPanes("repo", "main", []Pane{pane1, pane2, pane3})
+
+	// Find middle pane
+	pane, repo, branch, found := tree.FindPaneByID("%2")
+	if !found {
+		t.Fatal("Should find pane %2")
+	}
+	if pane.ID() != "%2" || pane.Title() != "title2" {
+		t.Error("Should find correct pane %2 with title 'title2'")
+	}
+	if repo != "repo" || branch != "main" {
+		t.Error("Should return correct repo/branch")
+	}
+}
+
+// TestRepoTreeUpdatePaneActiveAndTitle tests updating both active state and title
+func TestRepoTreeUpdatePaneActiveAndTitle(t *testing.T) {
+	tree := NewRepoTree()
+	pane, _ := NewPane("%1", "/path", "@10", 0, false, false, "cmd", "old", true)
+	tree.SetPanes("repo", "main", []Pane{pane})
+
+	if err := tree.UpdatePaneActiveAndTitle("%1", true, "new"); err != nil {
+		t.Errorf("Should find and update pane: %v", err)
+	}
+
+	panes, _ := tree.GetPanes("repo", "main")
+	if !panes[0].WindowActive() {
+		t.Error("Should update active state to true")
+	}
+	if panes[0].Title() != "new" {
+		t.Errorf("Should update title: got %s, want new", panes[0].Title())
+	}
+}
+
+// TestRepoTreeUpdatePaneActiveAndTitle_NotFound tests updating non-existent pane
+func TestRepoTreeUpdatePaneActiveAndTitle_NotFound(t *testing.T) {
+	tree := NewRepoTree()
+	pane, _ := NewPane("%1", "/path", "@10", 0, false, false, "cmd", "title", true)
+	tree.SetPanes("repo", "main", []Pane{pane})
+
+	if err := tree.UpdatePaneActiveAndTitle("%999", true, "new"); err == nil {
+		t.Error("Should return error for non-existent pane")
+	}
+
+	// Verify existing pane unchanged
+	panes, _ := tree.GetPanes("repo", "main")
+	if panes[0].Title() != "title" {
+		t.Error("Existing pane should remain unchanged")
+	}
+}
+
+// TestNewPane_TitleSanitization tests that NewPane sanitizes titles
+func TestNewPane_TitleSanitization(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"null bytes removed", "vim\x00editor", "vimeditor"},
+		{"newlines removed", "bash\nshell", "bashshell"},
+		{"carriage returns removed", "test\rdata", "testdata"},
+		{"multiple control chars", "a\x00b\nc\rd", "abcd"},
+		{"clean title unchanged", "normal-title", "normal-title"},
+		{"empty after sanitization", "\x00\n\r", ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pane, err := NewPane("%1", "/path", "@1", 0, false, false, "cmd", tc.input, false)
+			if err != nil {
+				t.Fatalf("NewPane failed: %v", err)
+			}
+			if pane.Title() != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, pane.Title())
+			}
+		})
+	}
+}
+
+// TestPaneWithActiveAndTitle_TitleSanitization tests that WithActiveAndTitle sanitizes titles
+func TestPaneWithActiveAndTitle_TitleSanitization(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"null bytes removed", "vim\x00editor", "vimeditor"},
+		{"newlines removed", "bash\nshell", "bashshell"},
+		{"carriage returns removed", "test\rdata", "testdata"},
+		{"multiple control chars", "a\x00b\nc\rd", "abcd"},
+		{"clean title unchanged", "normal-title", "normal-title"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pane, _ := NewPane("%1", "/path", "@1", 0, false, false, "cmd", "old", false)
+			modified := pane.WithActiveAndTitle(true, tc.input)
+			if modified.Title() != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, modified.Title())
+			}
+		})
+	}
+}
+
+// TestRepoTreeUpdatePaneActiveAndTitle_PreservesOtherFields tests that other fields are not modified
+func TestRepoTreeUpdatePaneActiveAndTitle_PreservesOtherFields(t *testing.T) {
+	tree := NewRepoTree()
+	pane, _ := NewPane("%1", "/path", "@10", 0, false, true, "cmd", "old", true)
+	tree.SetPanes("repo", "main", []Pane{pane})
+
+	tree.UpdatePaneActiveAndTitle("%1", true, "new")
+
+	panes, _ := tree.GetPanes("repo", "main")
+	updated := panes[0]
+
+	// Verify updated fields
+	if !updated.WindowActive() || updated.Title() != "new" {
+		t.Error("Should update active and title")
+	}
+
+	// Verify preserved fields
+	if updated.ID() != "%1" {
+		t.Error("Should preserve ID")
+	}
+	if updated.Path() != "/path" {
+		t.Error("Should preserve Path")
+	}
+	if updated.WindowID() != "@10" {
+		t.Error("Should preserve WindowID")
+	}
+	if updated.WindowIndex() != 0 {
+		t.Error("Should preserve WindowIndex")
+	}
+	if !updated.WindowBell() {
+		t.Error("Should preserve WindowBell")
+	}
+	if updated.Command() != "cmd" {
+		t.Error("Should preserve Command")
+	}
+	if !updated.IsClaudePane() {
+		t.Error("Should preserve IsClaudePane")
+	}
+}
