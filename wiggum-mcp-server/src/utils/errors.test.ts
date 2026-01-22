@@ -283,32 +283,60 @@ describe('StateApiError.create() factory function', () => {
     assert.strictEqual(result.resourceId, undefined);
   });
 
-  it('should return ValidationError for zero resourceId (never throws)', () => {
-    const result = StateApiError.create('Failed', 'read', 'pr', 0);
-    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
-    assert.ok(result.message.includes('resourceId must be a positive integer'));
-    assert.ok(result.message.includes('0'));
+  it('should throw ValidationError for zero resourceId', () => {
+    assert.throws(
+      () => StateApiError.create('Failed', 'read', 'pr', 0),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('resourceId must be a positive integer') &&
+          error.message.includes('0')
+        );
+      },
+      'Should throw ValidationError for zero resourceId'
+    );
   });
 
-  it('should return ValidationError for negative resourceId (never throws)', () => {
-    const result = StateApiError.create('Failed', 'read', 'pr', -1);
-    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
-    assert.ok(result.message.includes('resourceId must be a positive integer'));
-    assert.ok(result.message.includes('-1'));
+  it('should throw ValidationError for negative resourceId', () => {
+    assert.throws(
+      () => StateApiError.create('Failed', 'read', 'pr', -1),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('resourceId must be a positive integer') &&
+          error.message.includes('-1')
+        );
+      },
+      'Should throw ValidationError for negative resourceId'
+    );
   });
 
-  it('should return ValidationError for non-integer resourceId (never throws)', () => {
-    const result = StateApiError.create('Failed', 'read', 'pr', 3.5);
-    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
-    assert.ok(result.message.includes('resourceId must be a positive integer'));
-    assert.ok(result.message.includes('3.5'));
+  it('should throw ValidationError for non-integer resourceId', () => {
+    assert.throws(
+      () => StateApiError.create('Failed', 'read', 'pr', 3.5),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('resourceId must be a positive integer') &&
+          error.message.includes('3.5')
+        );
+      },
+      'Should throw ValidationError for non-integer resourceId'
+    );
   });
 
-  it('should return ValidationError for NaN resourceId (never throws)', () => {
-    const result = StateApiError.create('Failed', 'read', 'pr', NaN);
-    assert.ok(result instanceof ValidationError, 'Should return ValidationError, not throw');
-    assert.ok(result.message.includes('resourceId must be a positive integer'));
-    assert.ok(result.message.includes('NaN'));
+  it('should throw ValidationError for NaN resourceId', () => {
+    assert.throws(
+      () => StateApiError.create('Failed', 'read', 'pr', NaN),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('resourceId must be a positive integer') &&
+          error.message.includes('NaN')
+        );
+      },
+      'Should throw ValidationError for NaN resourceId'
+    );
   });
 
   it('should preserve operation and resourceType', () => {
@@ -325,10 +353,32 @@ describe('StateApiError.create() factory function', () => {
     assert.strictEqual(result.cause, cause);
   });
 
-  it('should return ValidationError when resourceId is invalid (cause is not preserved)', () => {
+  it('should throw ValidationError when resourceId is invalid (cause is not preserved)', () => {
     const cause = new Error('Network error');
-    const result = StateApiError.create('Failed', 'read', 'pr', -1, cause);
-    assert.ok(result instanceof ValidationError);
-    assert.ok(result.message.includes('resourceId must be a positive integer'));
+    assert.throws(
+      () => StateApiError.create('Failed', 'read', 'pr', -1, cause),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('resourceId must be a positive integer')
+        );
+      },
+      'Should throw ValidationError for invalid resourceId'
+    );
+  });
+
+  it('should enforce factory pattern via private constructor', () => {
+    // This test documents that direct instantiation is not allowed.
+    // If someone attempts: new StateApiError('msg', 'read', 'pr', 123)
+    // TypeScript will fail compilation with: "Constructor of class 'StateApiError' is private"
+    // This prevents the dual-pattern problem described in issue #852.
+
+    // Must use factory method instead
+    const error = StateApiError.create('msg', 'read', 'pr', 123);
+    assert.ok(error instanceof StateApiError);
+    assert.strictEqual(error.message, 'msg');
+    assert.strictEqual(error.operation, 'read');
+    assert.strictEqual(error.resourceType, 'pr');
+    assert.strictEqual(error.resourceId, 123);
   });
 });
