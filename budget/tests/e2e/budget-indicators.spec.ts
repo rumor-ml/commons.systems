@@ -9,14 +9,15 @@ import { test, expect, Page } from '@playwright/test';
  * @param value - Budget value to fill (should be negative for expenses, positive for income)
  */
 async function fillBudgetInput(page: Page, category: string, value: string) {
-  // Scroll to the appropriate section
+  // Determine which section this category belongs to
   const isIncome = category === 'Income';
   const sectionHeading = isIncome ? 'h2:has-text("Income")' : 'h2:has-text("Expenses")';
-  await page.locator(sectionHeading).scrollIntoViewIfNeeded();
 
-  // Strategy: Find a div that contains both the category text and "Historic avg"
-  // This uniquely identifies the category row. Then find the input within it.
-  const categoryRow = page
+  // Find the section container
+  const section = page.locator(sectionHeading).locator('..');
+
+  // Within that section, find the specific category row
+  const categoryRow = section
     .locator('div')
     .filter({
       has: page.locator(`text="${category}"`),
@@ -24,6 +25,7 @@ async function fillBudgetInput(page: Page, category: string, value: string) {
     })
     .first();
 
+  // Find and fill the input within the category row
   const input = categoryRow.locator('input[type="number"]').first();
   await input.fill(value);
 }
