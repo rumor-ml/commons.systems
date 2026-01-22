@@ -15,6 +15,21 @@ import { UpdateIssueInputSchema, updateIssue, getWriteErrorGuidance } from './up
 import type { IssueRecord } from './manifest-types.js';
 import { FilesystemError } from '../utils/errors.js';
 
+/**
+ * Helper to detect if running on WSL (Windows Subsystem for Linux)
+ * WSL has known limitations with chmod permissions on NTFS filesystems
+ */
+function isWSL(): boolean {
+  try {
+    return (
+      existsSync('/proc/version') &&
+      readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft')
+    );
+  } catch {
+    return false;
+  }
+}
+
 describe('update-issue tool', () => {
   describe('UpdateIssueInputSchema', () => {
     describe('valid inputs', () => {
@@ -566,17 +581,10 @@ describe('update-issue behavioral tests', () => {
         return;
       }
 
-      // Check for WSL2 by reading /proc/version
-      try {
-        const procVersion = readFileSync('/proc/version', 'utf-8');
-        if (procVersion.includes('microsoft') || procVersion.includes('WSL')) {
-          t.skip('WSL2 directory permissions do not prevent writing to existing files');
-          return;
-        }
-      } catch {
-        // TODO(#1505): Add logging to catch block to prevent silent failure
-        // TODO(#1507): Empty catch block comment could explain assumption rationale
-        // If we can't read /proc/version, assume not WSL and continue
+      // Skip on WSL - chmod permissions don't work reliably on NTFS filesystems
+      if (isWSL()) {
+        t.skip('WSL chmod permissions do not work reliably on NTFS filesystems');
+        return;
       }
 
       const manifestDir = join(testDir, 'tmp', 'wiggum');
