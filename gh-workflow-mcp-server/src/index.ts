@@ -13,6 +13,12 @@ import { monitorPRChecks, MonitorPRChecksInputSchema } from './tools/monitor-pr-
 import { monitorMergeQueue, MonitorMergeQueueInputSchema } from './tools/monitor-merge-queue.js';
 import { getDeploymentUrls, GetDeploymentUrlsInputSchema } from './tools/get-deployment-urls.js';
 import { getFailureDetails, GetFailureDetailsInputSchema } from './tools/get-failure-details.js';
+import {
+  removeLabelIfExists,
+  RemoveLabelIfExistsInputSchema,
+} from './tools/remove-label-if-exists.js';
+import { addBlocker, AddBlockerInputSchema } from './tools/add-blocker.js';
+import { checkTodoInMain, CheckTodoInMainInputSchema } from './tools/check-todo-in-main.js';
 
 import { createErrorResult } from './utils/errors.js';
 import {
@@ -196,6 +202,75 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [],
         },
       },
+      {
+        name: 'gh_remove_label_if_exists',
+        description:
+          'Remove a label from an issue or PR only if it exists (no error if missing). Idempotent operation that checks for label existence before removal.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue or PR number',
+            },
+            label: {
+              type: 'string',
+              description: 'Label name to remove',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['issue_number', 'label'],
+        },
+      },
+      {
+        name: 'gh_add_blocker',
+        description:
+          'Add the current issue as a blocker for another issue using GitHub dependencies API. Creates a "blocked by" relationship. Handles duplicate relationships gracefully.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            blocked_issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue number that is blocked',
+            },
+            blocker_issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue number that is blocking',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['blocked_issue_number', 'blocker_issue_number'],
+        },
+      },
+      {
+        name: 'gh_check_todo_in_main',
+        description:
+          'Check if a TODO pattern exists in a file on the origin/main branch using GitHub API (no git checkout required). Returns whether the pattern was found.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'File path to check in the repository',
+            },
+            todo_pattern: {
+              type: 'string',
+              description: "TODO pattern to search for (e.g., 'TODO(#123)')",
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['file_path', 'todo_pattern'],
+        },
+      },
     ],
   };
 });
@@ -229,6 +304,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case 'gh_get_failure_details': {
         const validated = GetFailureDetailsInputSchema.parse(args);
         return await getFailureDetails(validated);
+      }
+
+      case 'gh_remove_label_if_exists': {
+        const validated = RemoveLabelIfExistsInputSchema.parse(args);
+        return await removeLabelIfExists(validated);
+      }
+
+      case 'gh_add_blocker': {
+        const validated = AddBlockerInputSchema.parse(args);
+        return await addBlocker(validated);
+      }
+
+      case 'gh_check_todo_in_main': {
+        const validated = CheckTodoInMainInputSchema.parse(args);
+        return await checkTodoInMain(validated);
       }
 
       default:

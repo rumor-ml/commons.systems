@@ -215,62 +215,46 @@ After creating or updating an issue, manage dependencies and stale labels:
 
 Always add the current issue as a blocker, since the code being reviewed only exists in the feature branch:
 
-```bash
-# Get the blocker issue ID (current issue being worked on)
-BLOCKER_ID=$(gh api repos/{owner}/{repo}/issues/${current_issue_number} --jq ".id")
-
-# Add current issue as a blocker to the newly created out-of-scope issue
-gh api repos/{owner}/{repo}/issues/${NEW_ISSUE_NUMBER}/dependencies/blocked_by \
-  --method POST \
-  --input - <<< "{\"issue_id\":$BLOCKER_ID}"
+```javascript
+await mcp__gh_workflow__gh_add_blocker({
+  blocked_issue_number: NEW_ISSUE_NUMBER,
+  blocker_issue_number: current_issue_number,
+});
 ```
 
 #### For EXISTING issues being brought to spec (Case A):
 
 First, check if the TODO exists in main branch:
 
-```bash
-# Switch to main to check if TODO exists there
-ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-git fetch origin main
-git checkout main 2>/dev/null || git checkout -b main origin/main
-
-# Search for the TODO reference in the file
-if grep -q "TODO(#${ISSUE_NUMBER})" "${location_file}"; then
-  TODO_EXISTS_IN_MAIN=true
-else
-  TODO_EXISTS_IN_MAIN=false
-fi
-
-# Return to original branch
-git checkout "$ORIGINAL_BRANCH"
+```javascript
+const todoResult = await mcp__gh_workflow__gh_check_todo_in_main({
+  file_path: location_file,
+  todo_pattern: `TODO(#${ISSUE_NUMBER})`,
+});
+const TODO_EXISTS_IN_MAIN = todoResult._meta.found;
 ```
 
 If TODO doesn't exist in main, add the current issue as a blocker:
 
-```bash
-if [ "$TODO_EXISTS_IN_MAIN" = "false" ]; then
-  # TODO only exists in feature branch, add current issue as blocker
-  BLOCKER_ID=$(gh api repos/{owner}/{repo}/issues/${current_issue_number} --jq ".id")
-
-  gh api repos/{owner}/{repo}/issues/${ISSUE_NUMBER}/dependencies/blocked_by \
-    --method POST \
-    --input - <<< "{\"issue_id\":$BLOCKER_ID}"
-fi
+```javascript
+if (!TODO_EXISTS_IN_MAIN) {
+  // TODO only exists in feature branch, add current issue as blocker
+  await mcp__gh_workflow__gh_add_blocker({
+    blocked_issue_number: ISSUE_NUMBER,
+    blocker_issue_number: current_issue_number,
+  });
+}
 ```
 
 #### Stale Label Removal:
 
 After adding dependency information, remove stale label if present:
 
-```bash
-# Check if issue has stale label
-LABELS=$(gh issue view #${ISSUE_NUMBER} --json labels --jq '.labels[].name')
-
-if echo "$LABELS" | grep -q "stale"; then
-  # Remove stale label - issue now has proper dependency tracking
-  gh issue edit #${ISSUE_NUMBER} --remove-label "stale"
-fi
+```javascript
+await mcp__gh_workflow__gh_remove_label_if_exists({
+  issue_number: ISSUE_NUMBER,
+  label: 'stale',
+});
 ```
 
 **Rationale:**
