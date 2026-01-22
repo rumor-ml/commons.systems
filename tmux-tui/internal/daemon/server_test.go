@@ -5320,7 +5320,17 @@ func TestPlayAlertSound_DevTtyOpenFailure(t *testing.T) {
 	defer clientConn.Close()
 	defer serverConn.Close()
 
-	// Should not panic
+	// Start reading BEFORE calling playAlertSound to prevent broadcast from blocking.
+	// broadcastAudioError is called synchronously from playAlertSound, so the
+	// broadcast write will block if no reader is consuming the pipe.
+	clientDecoder := json.NewDecoder(clientConn)
+	var msg Message
+	done := make(chan error, 1)
+	go func() {
+		done <- clientDecoder.Decode(&msg)
+	}()
+
+	// Should not panic - broadcast writes to pipe that's being read
 	daemon.playAlertSound()
 
 	if !openCalled {
@@ -5328,15 +5338,6 @@ func TestPlayAlertSound_DevTtyOpenFailure(t *testing.T) {
 	}
 
 	// Verify error was broadcast to client
-	// Note: broadcastAudioError runs in a goroutine, so we need a timeout
-	clientDecoder := json.NewDecoder(clientConn)
-	var msg Message
-
-	done := make(chan error, 1)
-	go func() {
-		done <- clientDecoder.Decode(&msg)
-	}()
-
 	select {
 	case err := <-done:
 		if err != nil {
@@ -5376,7 +5377,16 @@ func TestPlayAlertSound_WriteFailure(t *testing.T) {
 	defer clientConn.Close()
 	defer serverConn.Close()
 
-	// Should not panic
+	// Start reading BEFORE calling playAlertSound to prevent broadcast from blocking.
+	// broadcastAudioError is called synchronously from playAlertSound.
+	clientDecoder := json.NewDecoder(clientConn)
+	var msg Message
+	done := make(chan error, 1)
+	go func() {
+		done <- clientDecoder.Decode(&msg)
+	}()
+
+	// Should not panic - broadcast writes to pipe that's being read
 	daemon.playAlertSound()
 
 	// Verify close was still called despite write failure
@@ -5384,15 +5394,7 @@ func TestPlayAlertSound_WriteFailure(t *testing.T) {
 		t.Error("Close not called after write failure - resource leak")
 	}
 
-	// Verify error broadcast (with timeout since it runs in a goroutine)
-	clientDecoder := json.NewDecoder(clientConn)
-	var msg Message
-
-	done := make(chan error, 1)
-	go func() {
-		done <- clientDecoder.Decode(&msg)
-	}()
-
+	// Verify error broadcast
 	select {
 	case err := <-done:
 		if err != nil {
@@ -5429,22 +5431,23 @@ func TestPlayAlertSound_CloseFailure(t *testing.T) {
 	defer clientConn.Close()
 	defer serverConn.Close()
 
-	// Should not panic
+	// Start reading BEFORE calling playAlertSound to prevent broadcast from blocking.
+	// broadcastAudioError is called synchronously from playAlertSound.
+	clientDecoder := json.NewDecoder(clientConn)
+	var msg Message
+	done := make(chan error, 1)
+	go func() {
+		done <- clientDecoder.Decode(&msg)
+	}()
+
+	// Should not panic - broadcast writes to pipe that's being read
 	daemon.playAlertSound()
 
 	if !closeCalled {
 		t.Error("Close was not called")
 	}
 
-	// Verify close error was broadcast (with timeout since it runs in a goroutine)
-	clientDecoder := json.NewDecoder(clientConn)
-	var msg Message
-
-	done := make(chan error, 1)
-	go func() {
-		done <- clientDecoder.Decode(&msg)
-	}()
-
+	// Verify close error was broadcast
 	select {
 	case err := <-done:
 		if err != nil {
