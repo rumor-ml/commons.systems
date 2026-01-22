@@ -182,42 +182,44 @@ gh issue edit <priority-number> \
 **Duplicates Closed**: #<num1>, #<num2>, #<num3>"
 ```
 
-## Step 6: Verify Issue Relevance
+## Step 6: Verify Issue Relevance and Update with Current Code State
 
-**IMPORTANT**: Before creating a worktree, verify the selected issue is still relevant to the current codebase.
+**IMPORTANT**: Before creating a worktree, ALWAYS verify the issue reflects the current codebase state and update it accordingly.
 
-### 6.1: Investigate Issue Relevance
+### 6.1: Investigate Current Code State
 
-Use the Task tool with `subagent_type="Explore"` to investigate whether the issue is still relevant:
+Use the Task tool with `subagent_type="Explore"` to investigate the issue against current code:
 
 ```bash
 Task(
   subagent_type: "Explore",
-  prompt: "Investigate issue #<priority-number>: '<priority-title>'. Analyze the current codebase to determine if this issue is still relevant. Check:
+  prompt: "Investigate issue #<priority-number>: '<priority-title>'. Analyze the current codebase and provide detailed current state information:
 
   1. Does the code/feature mentioned in the issue still exist?
   2. Has the bug already been fixed or feature already implemented?
-  3. Is the issue obsolete due to refactoring or architectural changes?
-  4. Are the file paths and code references in the issue still valid?
-  5. If the code has changed but the issue is still valid, what specific details need updating (line numbers, function names, file paths, code snippets)?
+  3. What are the CURRENT file paths, line numbers, function names?
+  4. What are the CURRENT file sizes, pattern occurrences, or metrics mentioned?
+  5. Are there any changes to the code structure since the issue was filed?
 
-  Provide a clear answer:
-  - YES (issue is current and accurate)
-  - YES BUT NEEDS UPDATE (issue is valid but details are outdated)
-  - NO (issue is no longer relevant)
+  Provide:
+  - Status: RELEVANT (issue is valid) or NOT RELEVANT (obsolete/fixed)
+  - Current state details: specific line numbers, file sizes, pattern counts, etc.
+  - What changed: brief summary of any differences from issue description
+  - Specific updates needed: list exact changes to make the issue current
 
-  Include 2-3 sentences explaining your reasoning. If updates are needed, specify exactly what should be changed."
+  Be thorough - we will ALWAYS update the issue with this information."
 )
 ```
 
-### 6.2: Update Issue If Needed
+### 6.2: Always Update Issue with Current Code State
 
-If the Explore agent determines the issue is **still relevant BUT needs updating**:
+**For ALL relevant issues** (whether current or outdated):
 
 1. Draft an updated issue body that:
-   - Adds a prominent update notice at the top (with date)
-   - Explains what has changed in the code since the issue was filed
-   - Updates file paths, line numbers, function names, and code snippets
+   - Adds or updates the update notice at the top with current date
+   - Provides current metrics (file sizes, line numbers, pattern occurrences)
+   - Updates any code references to match current state
+   - Notes what has changed since last update (if anything)
    - Preserves the original issue description and metadata
    - Maintains any "Duplicates Closed" section at the end
 
@@ -227,18 +229,20 @@ If the Explore agent determines the issue is **still relevant BUT needs updating
    gh issue edit <priority-number> --body-file <temp-file-with-updated-body>
    ```
 
-3. Add a comment explaining the update:
+3. Add a comment with verification details:
 
    ```bash
    gh issue comment <priority-number> \
-     --body "Updated issue with current code references. Core issue remains valid. Changes: <brief summary>"
+     --body "Verified issue against current codebase (2026-01-22). Current state: <current metrics>. <Changes summary or 'No changes needed - issue is current'>"
    ```
 
 4. Continue to Step 7 (create worktree)
 
+**Rationale**: Always updating ensures issues are synchronized with the current codebase before work begins, preventing wasted effort on outdated information.
+
 ### 6.3: Handle Non-Relevant Issues
 
-If the Explore agent determines the issue is **NOT relevant**:
+If the Explore agent determines the issue is **NOT RELEVANT**:
 
 1. Use AskUserQuestion to confirm closure:
 
@@ -261,14 +265,9 @@ If the Explore agent determines the issue is **NOT relevant**:
    - Continue with duplicate detection and relevance verification for the new selection
 
 3. If user confirms "no":
+   - Still update the issue with current state (Step 6.2) before proceeding
    - Continue to Step 7 (create worktree anyway)
-   - User may want to update/redefine the issue
-
-### 6.4: Proceed If Issue Is Current
-
-If the Explore agent determines the issue **IS relevant and current** (no updates needed):
-
-- Continue to Step 7 (create worktree)
+   - User may want to update/redefine the issue during implementation
 
 ## Step 7: Create Worktree for Priority Issue
 
