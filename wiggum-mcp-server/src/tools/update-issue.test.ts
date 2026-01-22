@@ -26,6 +26,7 @@ function isWSL(): boolean {
       readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft')
     );
   } catch {
+    // TODO(#1513): Add error logging for unexpected errors during WSL detection
     return false;
   }
 }
