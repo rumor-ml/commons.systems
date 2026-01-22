@@ -5,50 +5,52 @@ model: haiku
 
 **IMPORTANT: Execute each step below sequentially. Do not skip steps or proceed to other work until all steps are complete.**
 
-## Step 1: Fetch Enhancement Issues
+## Step 1: Fetch and Prioritize Enhancement Issues
 
-Fetch all open enhancement issues from the repository:
+Use the MCP tool to fetch and prioritize all open enhancement issues:
 
-```bash
-gh issue list \
-  --label "enhancement" \
-  --state "open" \
-  --json number,title,labels,url,comments,body \
-  --limit 1000
+```
+mcp__gh-issue__gh_prioritize_issues({
+  label: "enhancement",
+  state: "open",
+  limit: 1000
+})
 ```
 
 - If no issues found, return: "No open enhancement issues found"
-- Parse the JSON output for use in subsequent steps
-- The `comments` field contains the number of comments on each issue
-- The `body` field is needed to check for "Found while working on" references
+- The tool returns issues categorized into three tiers with priority scores
+- Tier 1: Enhancement + Bug (highest priority)
+- Tier 2: Enhancement + High Priority
+- Tier 3: Other enhancements
+- Within each tier, issues are sorted by priority score (max of comment count and "found while working on" count)
 
-## Step 2: Three-Tier Prioritization
+## Step 2: Parse Prioritization Results
 
 **IMPORTANT**: During selection (Step 3), we will skip:
 
 - Issues with "in progress" label (already being worked on)
 - Issues blocked by open dependencies (not ready to work on)
 
-Analyze fetched issues and categorize into three tiers (categorization includes all issues, filtering happens in Step 3):
+Parse the output from Step 1 to extract the three-tier categorization:
 
 **Tier 1 (Highest Priority)**: Issues with BOTH `enhancement` AND `bug` labels
 
 - These are enhancements that fix bugs - critical for stability
-- Within this tier, sort by priority score (descending) - see scoring below
+- Sorted by priority score (descending)
 
 **Tier 2 (High Priority)**: Issues with BOTH `enhancement` AND `high priority` labels
 
 - Important enhancements marked for priority work
-- Within this tier, sort by priority score (descending) - see scoring below
+- Sorted by priority score (descending)
 
 **Tier 3 (Remaining)**: All other enhancement issues
 
 - Standard enhancements to be evaluated
-- Within this tier, sort by priority score (descending) - see scoring below
+- Sorted by priority score (descending)
 
-**Priority Score Calculation**:
+**Priority Score** (calculated by the MCP tool):
 
-For each issue, calculate: `priority_score = max(comment_count, found_while_working_count)`
+`priority_score = max(comment_count, found_while_working_count)`
 
 Where:
 
@@ -62,7 +64,7 @@ Where:
 
 ## Step 3: Select Priority Issue
 
-From the prioritized tiers (all excluding "in progress" issues):
+From the prioritized tiers (from Step 1):
 
 1. If Tier 1 has issues: Select the first available Tier 1 issue (see selection criteria below)
 2. Else if Tier 2 has issues: Select the first available Tier 2 issue (see selection criteria below)
@@ -72,33 +74,28 @@ From the prioritized tiers (all excluding "in progress" issues):
 **Selection Criteria** - Skip issues that have:
 
 - "in progress" label (already being worked on)
-- Open blocking dependencies (check with `gh api repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by`)
+- Open blocking dependencies (check using MCP tool)
 
 **Algorithm**:
 
 ```
 For each tier (Tier 1, then Tier 2, then Tier 3):
-  1. Calculate priority score for each issue in tier:
-     - Extract comment count from JSON
-     - Parse body for "Found while working on" line
-     - Count issue numbers (e.g., "#1234, #1235" = 2)
-     - priority_score = max(comment_count, found_while_working_count)
+  1. Issues are already sorted by priority_score from Step 1
 
-  2. Sort issues within tier by priority_score (descending - highest score first)
-
-  3. For each issue in sorted tier:
+  2. For each issue in sorted tier:
      a. Check if issue has "in progress" label → Skip if yes
+
      b. Check if issue has open blocking dependencies:
-        - Run: gh api repos/rumor-ml/commons.systems/issues/{number}/dependencies/blocked_by
-        - If response contains any issues with state="open" → Skip this issue
+        - Use: mcp__gh-issue__gh_check_issue_dependencies({ issue_number: <num> })
+        - If status is "BLOCKED" → Skip this issue
+        - Log: "Skipped #<num> - blocked by open issue(s)"
+
      c. If issue passes both checks → Select it and stop
 
-  4. If all issues in tier are skipped → Move to next tier
+  3. If all issues in tier are skipped → Move to next tier
 ```
 
 Store the selected issue as `PRIORITY_ISSUE` (number, title, url, comments, priority_score).
-
-**Note**: If an issue is skipped due to blockers, consider logging: "Skipped #<num> - blocked by open issue(s)"
 
 **Priority Score Rationale**:
 
@@ -110,33 +107,31 @@ Store the selected issue as `PRIORITY_ISSUE` (number, title, url, comments, prio
 
 **SAFETY CHECK**: Skip any issue with "in progress" label - never close issues being actively worked on.
 
-For each remaining enhancement issue (excluding the priority issue):
+Use the MCP tool to find duplicates among remaining enhancement issues (excluding the priority issue):
 
-### Layer 1: Exact Title Match (Auto-Close)
+```
+mcp__gh-issue__gh_find_duplicate_issues({
+  reference_issue: <PRIORITY_ISSUE_NUMBER>,
+  candidate_issues: [<all other issue numbers from Step 1>],
+  similarity_threshold: 0.7
+})
+```
 
-Normalize titles for comparison:
+The tool returns two categories:
 
-- Convert to lowercase
-- Remove all punctuation (except spaces and hyphens)
-- Trim whitespace
+- **Exact Matches**: Issues with identical normalized titles (auto-close safe, unless marked "IN PROGRESS")
+- **Similar Matches**: Issues with ≥70% Jaccard similarity (require user confirmation)
 
-If normalized titles match exactly:
+The tool automatically:
 
-- Mark as **confirmed duplicate** for auto-closure
-- Skip Layer 2 check
+- Normalizes titles (lowercase, removes punctuation except spaces/hyphens)
+- Calculates Jaccard similarity on word tokens
+- Flags issues with "in progress" label to prevent accidental closure
 
-### Layer 2: High Title Similarity (User Confirmation)
+**Output**: Two lists from the tool:
 
-Calculate Jaccard similarity on word tokens:
-
-1. Tokenize titles into words (lowercase, alphanumeric only)
-2. Calculate: `similarity = (words in common) / (total unique words in both titles)`
-3. If similarity ≥ 0.70 (70%): Mark as **likely duplicate** for user confirmation
-
-**Output**: Two lists:
-
-- `CONFIRMED_DUPLICATES[]`: Issues with exact title match
-- `LIKELY_DUPLICATES[]`: Issues with ≥70% similarity
+- `CONFIRMED_DUPLICATES[]`: Exact title matches
+- `LIKELY_DUPLICATES[]`: ≥70% similarity matches
 
 ## Step 5: Close Duplicates
 
