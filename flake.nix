@@ -135,10 +135,8 @@
             buildInputs = commonPackages;
 
             shellHook = ''
-              if [ -z "$PLAYWRIGHT_BROWSERS_PATH" ]; then
-                export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-              fi
-              export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+              # Setup Playwright browsers (Nix-patched browsers for NixOS compatibility)
+              ${playwrightHook}
 
               if [ ! -d "node_modules" ]; then
                 pnpm install --frozen-lockfile
