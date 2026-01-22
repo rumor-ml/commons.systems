@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -537,85 +536,111 @@ func TestRegistry_FindParser_PathPassed(t *testing.T) {
 	}
 }
 
-func TestMustNew_PanicContext_NilCustomParser(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("Expected panic, got none")
-		}
-		panicMsg := fmt.Sprint(r)
+func TestMustNew_PanicContext(t *testing.T) {
+	tests := []struct {
+		name          string
+		parsers       []parser.Parser
+		panicContains []string
+	}{
+		{
+			name:    "nil custom parser",
+			parsers: []parser.Parser{&mockParser{name: "test-parser"}, nil},
+			panicContains: []string{
+				"failed to register custom parser 2 of 2",
+				"cannot register nil parser",
+				"Successfully registered: ofx, csv-pnc, test-parser",
+				"programmer error",
+				"check your parser initialization",
+			},
+		},
+		{
+			name: "duplicate name",
+			parsers: []parser.Parser{
+				&mockParser{name: "test-parser"},
+				&mockParser{name: "test-parser"},
+			},
+			panicContains: []string{
+				"failed to register custom parser 2 of 2",
+				"already registered",
+				"Successfully registered: ofx, csv-pnc, test-parser",
+				"programmer error",
+				"check your parser initialization",
+			},
+		},
+		{
+			name:    "built-in conflict",
+			parsers: []parser.Parser{&mockParser{name: "ofx"}},
+			panicContains: []string{
+				"failed to register custom parser 1 of 1",
+				"already registered",
+				"ofx",
+				"Successfully registered: ofx, csv-pnc",
+				"programmer error",
+				"check your parser initialization",
+			},
+		},
+	}
 
-		assertions := []string{
-			"failed to register custom parser 2 of 2",
-			"cannot register nil parser",
-			"Successfully registered: ofx, csv-pnc, test-parser",
-			"programmer error",
-			"check your parser initialization",
-		}
-		for _, expected := range assertions {
-			if !strings.Contains(panicMsg, expected) {
-				t.Errorf("Panic message missing %q: %s", expected, panicMsg)
-			}
-		}
-	}()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatal("Expected panic, got none")
+				}
 
-	validParser := &mockParser{name: "test-parser"}
-	MustNew(validParser, nil) // Should panic
+				// Type assertion for safety
+				panicMsg, ok := r.(string)
+				if !ok {
+					t.Fatalf("Expected string panic, got %T: %v", r, r)
+				}
+
+				for _, expected := range tt.panicContains {
+					if !strings.Contains(panicMsg, expected) {
+						t.Errorf("Panic message missing %q: %s", expected, panicMsg)
+					}
+				}
+			}()
+			MustNew(tt.parsers...)
+		})
+	}
 }
 
-func TestMustNew_PanicContext_DuplicateName(t *testing.T) {
+func TestMustNew_PanicMessageFormat(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
 			t.Fatal("Expected panic, got none")
 		}
-		panicMsg := fmt.Sprint(r)
 
+		panicMsg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+
+		// Verify message structure and all components
 		assertions := []string{
-			"failed to register custom parser 2 of 2",
-			"already registered",
-			"test-parser",
-			"Successfully registered: ofx, csv-pnc, test-parser",
-			"programmer error",
-			"check your parser initialization",
-		}
-		for _, expected := range assertions {
-			if !strings.Contains(panicMsg, expected) {
-				t.Errorf("Panic message missing %q: %s", expected, panicMsg)
-			}
-		}
-	}()
-
-	p1 := &mockParser{name: "test-parser"}
-	p2 := &mockParser{name: "test-parser"}
-	MustNew(p1, p2) // Should panic
-}
-
-func TestMustNew_PanicContext_BuiltInConflict(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("Expected panic, got none")
-		}
-		panicMsg := fmt.Sprint(r)
-
-		assertions := []string{
+			"failed to create parser registry:",
 			"failed to register custom parser 1 of 1",
-			"already registered",
-			"ofx",
-			"Successfully registered: ofx, csv-pnc",
-			"programmer error",
-			"check your parser initialization",
+			"cannot register nil parser",
+			"\n\n", // Double newline separator
+			"This is a programmer error - check your parser initialization.",
 		}
 		for _, expected := range assertions {
 			if !strings.Contains(panicMsg, expected) {
-				t.Errorf("Panic message missing %q: %s", expected, panicMsg)
+				t.Errorf("Panic message missing %q\nFull message: %s", expected, panicMsg)
 			}
+		}
+
+		// Verify order: registry error comes before programmer message
+		registryIdx := strings.Index(panicMsg, "failed to create parser registry:")
+		programmerIdx := strings.Index(panicMsg, "This is a programmer error")
+		if registryIdx == -1 || programmerIdx == -1 || registryIdx >= programmerIdx {
+			t.Errorf("Panic message has incorrect structure. Expected 'failed to create parser registry' before 'programmer error'.\nGot: %s", panicMsg)
 		}
 	}()
 
-	ofxConflict := &mockParser{name: "ofx"}
-	MustNew(ofxConflict) // Should panic
+	MustNew(nil) // Should panic with well-structured message
 }
 
 func TestNew_EnhancedErrorContext(t *testing.T) {
@@ -645,6 +670,15 @@ func TestNew_EnhancedErrorContext(t *testing.T) {
 				"Successfully registered: ofx, csv-pnc, dup",
 			},
 		},
+		{
+			name:          "first parser fails (1 of 1)",
+			customParsers: []parser.Parser{nil},
+			errorContains: []string{
+				"failed to register custom parser 1 of 1",
+				"cannot register nil parser",
+				"Successfully registered: ofx, csv-pnc",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -662,32 +696,6 @@ func TestNew_EnhancedErrorContext(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestNew_EnhancedErrorContext_BuiltInOFXFailure(t *testing.T) {
-	// This test documents that we cannot easily test OFX parser registration failures
-	// without dependency injection. The error path exists in New() at lines 27-30,
-	// and includes enhanced context showing successfully registered parsers.
-	//
-	// If ofx.NewParser() were to return nil or fail, the error would show:
-	//   "failed to register ofx parser: <error>\n  Successfully registered: "
-	//
-	// This path is covered by integration tests where OFX parser initialization
-	// could fail due to misconfiguration or resource issues.
-	t.Skip("Cannot test OFX parser failure without dependency injection - covered by integration tests")
-}
-
-func TestNew_EnhancedErrorContext_BuiltInCSVFailure(t *testing.T) {
-	// This test documents that we cannot easily test CSV parser registration failures
-	// without dependency injection. The error path exists in New() at lines 32-35,
-	// and includes enhanced context showing successfully registered parsers (including OFX).
-	//
-	// If csv.NewParser() were to return nil or fail after OFX succeeds, the error would show:
-	//   "failed to register csv-pnc parser: <error>\n  Successfully registered: ofx"
-	//
-	// This path validates the sequential registration logic and context accumulation.
-	// It is covered by integration tests where CSV parser initialization could fail.
-	t.Skip("Cannot test CSV parser failure without dependency injection - covered by integration tests")
 }
 
 // Helper functions

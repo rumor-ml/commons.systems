@@ -24,29 +24,37 @@ type Registry struct {
 func New(customParsers ...parser.Parser) (*Registry, error) {
 	r := &Registry{parsers: []parser.Parser{}}
 
-	// Helper to get registered parser names without calling public methods on partial registry
+	// Helper to get registered parser names without calling public methods on partial registry.
+	// Returns "none" if no parsers are registered yet.
 	getRegisteredNames := func() string {
-		names := make([]string, len(r.parsers))
-		for i, p := range r.parsers {
-			names[i] = p.Name()
+		if len(r.parsers) == 0 {
+			return "none"
+		}
+		names := make([]string, 0, len(r.parsers))
+		for _, p := range r.parsers {
+			if p != nil {
+				names = append(names, p.Name())
+			} else {
+				names = append(names, "<nil>")
+			}
 		}
 		return strings.Join(names, ", ")
 	}
 
 	// Register built-in parsers
 	if err := r.register(ofx.NewParser()); err != nil {
-		return nil, fmt.Errorf("failed to register ofx parser: %w\n  Successfully registered: %s", err, getRegisteredNames())
+		return nil, fmt.Errorf("failed to register ofx parser - Successfully registered: %s: %w", getRegisteredNames(), err)
 	}
 
 	if err := r.register(csv.NewParser()); err != nil {
-		return nil, fmt.Errorf("failed to register csv-pnc parser: %w\n  Successfully registered: %s", err, getRegisteredNames())
+		return nil, fmt.Errorf("failed to register csv-pnc parser - Successfully registered: %s: %w", getRegisteredNames(), err)
 	}
 
 	// Register custom parsers
 	for i, p := range customParsers {
 		if err := r.register(p); err != nil {
-			return nil, fmt.Errorf("failed to register custom parser %d of %d: %w\n  Successfully registered: %s",
-				i+1, len(customParsers), err, getRegisteredNames())
+			return nil, fmt.Errorf("failed to register custom parser %d of %d - Successfully registered: %s: %w",
+				i+1, len(customParsers), getRegisteredNames(), err)
 		}
 	}
 
@@ -58,7 +66,7 @@ func New(customParsers ...parser.Parser) (*Registry, error) {
 func MustNew(customParsers ...parser.Parser) *Registry {
 	r, err := New(customParsers...)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create parser registry: %v\n\nThis is a programmer error - check your parser initialization.", err))
+		panic(fmt.Sprintf("failed to create parser registry: %+v\n\nThis is a programmer error - check your parser initialization.", err))
 	}
 	return r
 }
@@ -105,6 +113,7 @@ func (r *Registry) FindParser(path string) (parser.Parser, error) {
 		}
 	}
 
+	// TODO(#1470): Enhance error message with file extension and available parsers list
 	return nil, fmt.Errorf("no parser found for file: %s", path)
 }
 
