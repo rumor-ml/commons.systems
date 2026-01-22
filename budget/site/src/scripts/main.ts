@@ -529,6 +529,13 @@ function init(): void {
     showView(route);
   });
 
+  // Initialize hash if empty (ensures URL always shows #/ or #/plan)
+  // This happens after setup so the initial route is already rendered
+  if (!window.location.hash) {
+    const currentRoute = getCurrentRoute();
+    navigateTo(currentRoute);
+  }
+
   // HTMX event handlers (future-proofing)
   document.body.addEventListener('htmx:afterSwap', ((event: CustomEvent) => {
     console.log('[HTMX] afterSwap event fired');
