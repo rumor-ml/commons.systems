@@ -1,4 +1,32 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+
+/**
+ * Helper function to fill a budget input for a specific category.
+ * Handles scrolling to the correct section and finding the input.
+ *
+ * @param page - Playwright page object
+ * @param category - Category name (e.g., 'Housing', 'Income', 'Groceries')
+ * @param value - Budget value to fill (should be negative for expenses, positive for income)
+ */
+async function fillBudgetInput(page: Page, category: string, value: string) {
+  // Scroll to the appropriate section
+  const isIncome = category === 'Income';
+  const sectionHeading = isIncome ? 'h2:has-text("Income")' : 'h2:has-text("Expenses")';
+  await page.locator(sectionHeading).scrollIntoViewIfNeeded();
+
+  // Strategy: Find a div that contains both the category text and "Historic avg"
+  // This uniquely identifies the category row. Then find the input within it.
+  const categoryRow = page
+    .locator('div')
+    .filter({
+      has: page.locator(`text="${category}"`),
+      hasText: 'Historic avg',
+    })
+    .first();
+
+  const input = categoryRow.locator('input[type="number"]').first();
+  await input.fill(value);
+}
 
 test.describe('Budget Indicator Lines', () => {
   test.beforeEach(async ({ page }) => {
@@ -9,13 +37,12 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should render indicator lines correctly in monthly view @smoke', async ({ page }) => {
     // Navigate to planning page and create a budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
     // Set a budget for Housing category
-    const housingInput = page.locator('input[name="housing-budget"]');
-    await housingInput.fill('500');
+    await fillBudgetInput(page, 'Housing', '-500');
 
     // Save budget plan
     const saveButton = page.locator('button:has-text("Save")');
@@ -57,14 +84,14 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should render indicator lines correctly in weekly view', async ({ page }) => {
     // Navigate to planning page and create budgets
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
     // Set budgets for multiple categories
-    await page.locator('input[name="housing-budget"]').fill('500');
-    await page.locator('input[name="dining-budget"]').fill('200');
-    await page.locator('input[name="groceries-budget"]').fill('150');
+    await fillBudgetInput(page, 'Housing', '-500');
+    await fillBudgetInput(page, 'Dining', '-200');
+    await fillBudgetInput(page, 'Groceries', '-150');
 
     // Save budget plan
     const saveButton = page.locator('button:has-text("Save")');
@@ -73,8 +100,8 @@ test.describe('Budget Indicator Lines', () => {
     await page.waitForTimeout(500);
 
     // Switch to weekly bars
-    const weeklyBarsRadio = page.locator('input[type="radio"][value="weekly"]');
-    await weeklyBarsRadio.click();
+    const weeklyBarsButton = page.locator('button:has-text("Weekly Bars")');
+    await weeklyBarsButton.click();
     await page.waitForTimeout(800); // Wait for chart re-render
 
     // Enable indicator for Housing
@@ -113,11 +140,11 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should align indicator lines with bars in weekly view', async ({ page }) => {
     // Set up budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="groceries-budget"]').fill('150');
+    await fillBudgetInput(page, 'Groceries', '-150');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -125,8 +152,8 @@ test.describe('Budget Indicator Lines', () => {
     await page.waitForTimeout(500);
 
     // Switch to weekly bars
-    const weeklyBarsRadio = page.locator('input[type="radio"][value="weekly"]');
-    await weeklyBarsRadio.click();
+    const weeklyBarsButton = page.locator('button:has-text("Weekly Bars")');
+    await weeklyBarsButton.click();
     await page.waitForTimeout(800);
 
     // Enable indicator for Groceries
@@ -177,11 +204,11 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should show correct line styles for budget indicators', async ({ page }) => {
     // Set up budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="utilities-budget"]').fill('100');
+    await fillBudgetInput(page, 'Utilities', '-100');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -217,11 +244,11 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should toggle indicator lines on/off', async ({ page }) => {
     // Set up budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="housing-budget"]').fill('500');
+    await fillBudgetInput(page, 'Housing', '-500');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -257,11 +284,11 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should display legend with line type explanations', async ({ page }) => {
     // Set up budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="housing-budget"]').fill('500');
+    await fillBudgetInput(page, 'Housing', '-500');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -282,11 +309,11 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should persist indicator visibility across page reloads', async ({ page }) => {
     // Set up budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="dining-budget"]').fill('200');
+    await fillBudgetInput(page, 'Dining', '-200');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -318,11 +345,11 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should switch between monthly and weekly with indicators enabled', async ({ page }) => {
     // Set up budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="groceries-budget"]').fill('150');
+    await fillBudgetInput(page, 'Groceries', '-150');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -370,12 +397,12 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should display budget and balance in legend for budgeted categories', async ({ page }) => {
     // Set up budgets
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="housing-budget"]').fill('500');
-    await page.locator('input[name="groceries-budget"]').fill('150');
+    await fillBudgetInput(page, 'Housing', '-500');
+    await fillBudgetInput(page, 'Groceries', '-150');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -413,11 +440,11 @@ test.describe('Budget Indicator Lines', () => {
 
   test('should show line type explanations when indicators are enabled', async ({ page }) => {
     // Set budget
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
-    await page.locator('input[name="housing-budget"]').fill('500');
+    await fillBudgetInput(page, 'Housing', '-500');
 
     const saveButton = page.locator('button:has-text("Save")');
     await saveButton.click();
@@ -450,11 +477,11 @@ test.describe('Budget Planning Page', () => {
   test.describe('Validation Logic', () => {
     test('should prevent saving budget with zero value', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Fill housing-budget with zero
-      await page.locator('input[name="housing-budget"]').fill('0');
+      await fillBudgetInput(page, 'Housing', '0');
 
       // Try to save
       await page.locator('button:has-text("Save")').click();
@@ -468,11 +495,11 @@ test.describe('Budget Planning Page', () => {
 
     test('should prevent saving positive expense budget', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Fill housing-budget with positive value (incorrect for expense category)
-      await page.locator('input[name="housing-budget"]').fill('500');
+      await fillBudgetInput(page, 'Housing', '500');
 
       // Try to save
       await page.locator('button:has-text("Save")').click();
@@ -486,11 +513,11 @@ test.describe('Budget Planning Page', () => {
 
     test('should prevent saving budget over $1M', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Fill housing-budget with over $1M
-      await page.locator('input[name="housing-budget"]').fill('-2000000');
+      await fillBudgetInput(page, 'Housing', '-2000000');
 
       // Try to save
       await page.locator('button:has-text("Save")').click();
@@ -504,11 +531,11 @@ test.describe('Budget Planning Page', () => {
 
     test('should save valid budget successfully', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Fill housing-budget with valid negative value
-      await page.locator('input[name="housing-budget"]').fill('-500');
+      await fillBudgetInput(page, 'Housing', '-500');
 
       // Save budget
       await page.locator('button:has-text("Save")').click();
@@ -517,11 +544,16 @@ test.describe('Budget Planning Page', () => {
       await page.waitForURL(/\/#\//);
 
       // Navigate back to planning page to verify it saved
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
-      // Verify the value persisted
-      const housingInput = page.locator('input[name="housing-budget"]');
+      await page.locator('h2:has-text("Expenses")').scrollIntoViewIfNeeded();
+      const housingInput = page
+        .locator('text=Housing')
+        .locator('..')
+        .locator('..')
+        .locator('input[type="number"]');
+      await expect(housingInput).toHaveValue('-500');
       await expect(housingInput).toHaveValue('-500');
     });
 
@@ -529,11 +561,11 @@ test.describe('Budget Planning Page', () => {
       page,
     }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Fill housing-budget with invalid value (zero)
-      await page.locator('input[name="housing-budget"]').fill('0');
+      await fillBudgetInput(page, 'Housing', '0');
 
       // Try to save
       await page.locator('button:has-text("Save")').click();
@@ -552,11 +584,11 @@ test.describe('Budget Planning Page', () => {
   test.describe('Rollover Functionality', () => {
     test('should save and persist rollover settings', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Set budget and enable rollover
-      await page.locator('input[name="housing-budget"]').fill('-500');
+      await fillBudgetInput(page, 'Housing', '-500');
 
       const rolloverCheckbox = page.locator(
         '.category-row:has-text("Housing") input[type="checkbox"]'
@@ -573,7 +605,7 @@ test.describe('Budget Planning Page', () => {
       await page.waitForSelector('.app-container');
 
       // Go back to planning
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Verify rollover checkbox is still checked
@@ -585,7 +617,7 @@ test.describe('Budget Planning Page', () => {
 
     test('should disable rollover checkbox when no budget target set', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Try to enable rollover without setting budget (checkbox should be disabled)
@@ -595,7 +627,7 @@ test.describe('Budget Planning Page', () => {
       expect(await rolloverCheckbox.isDisabled()).toBe(true);
 
       // Set budget
-      await page.locator('input[name="utilities-budget"]').fill('-100');
+      await fillBudgetInput(page, 'Utilities', '-100');
 
       // Now checkbox should be enabled
       expect(await rolloverCheckbox.isDisabled()).toBe(false);
@@ -616,11 +648,11 @@ test.describe('Budget Planning Page', () => {
 
     test('should toggle rollover on and off', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Set budget and enable rollover
-      await page.locator('input[name="groceries-budget"]').fill('-150');
+      await fillBudgetInput(page, 'Groceries', '-150');
 
       const rolloverCheckbox = page.locator(
         '.category-row:has-text("Groceries") input[type="checkbox"]'
@@ -633,7 +665,7 @@ test.describe('Budget Planning Page', () => {
       await page.waitForURL(/\/#\//);
 
       // Go back to planning
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Verify rollover is checked
@@ -650,7 +682,7 @@ test.describe('Budget Planning Page', () => {
       await page.waitForURL(/\/#\//);
 
       // Go back to planning
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Verify rollover is now unchecked
@@ -793,7 +825,7 @@ test.describe('Budget Planning Page', () => {
   test.describe('Cash Flow Prediction', () => {
     test('should show historic average before budgets are set', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Verify prediction card shows
@@ -811,11 +843,11 @@ test.describe('Budget Planning Page', () => {
 
     test('should show predicted net income when budgets are set', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Set income budget higher than historic
-      await page.locator('input[name="income-budget"]').fill('6000');
+      await fillBudgetInput(page, 'Income', '6000');
       await page.waitForTimeout(400); // Wait for debounce
 
       // Predicted net income should be visible
@@ -830,12 +862,12 @@ test.describe('Budget Planning Page', () => {
 
     test('should show positive variance with green styling', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Set income budget higher than historic
-      await page.locator('input[name="income-budget"]').fill('6000');
-      await page.locator('input[name="housing-budget"]').fill('-300');
+      await fillBudgetInput(page, 'Income', '6000');
+      await fillBudgetInput(page, 'Housing', '-300');
       await page.waitForTimeout(400); // Wait for debounce
 
       // Change from historic should show positive (green)
@@ -851,12 +883,12 @@ test.describe('Budget Planning Page', () => {
 
     test('should show negative variance with red styling', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Set higher expenses than historic
-      await page.locator('input[name="housing-budget"]').fill('-2000');
-      await page.locator('input[name="groceries-budget"]').fill('-500');
+      await fillBudgetInput(page, 'Housing', '-2000');
+      await fillBudgetInput(page, 'Groceries', '-500');
       await page.waitForTimeout(400); // Wait for debounce
 
       // Change from historic should show negative (red)
@@ -871,11 +903,11 @@ test.describe('Budget Planning Page', () => {
 
     test('should recalculate prediction when budget changes (debounce)', async ({ page }) => {
       // Navigate to planning page
-      await page.locator('button:has-text("Plan Budget")').click();
+      await page.locator('button:has-text("Set Budget Targets")').click();
       await page.waitForURL(/\/#\/plan/);
 
       // Set initial income budget
-      await page.locator('input[name="income-budget"]').fill('5000');
+      await fillBudgetInput(page, 'Income', '5000');
       await page.waitForTimeout(400); // Wait for debounce
 
       // Get initial predicted value
@@ -884,7 +916,7 @@ test.describe('Budget Planning Page', () => {
         .textContent();
 
       // Change income budget
-      await page.locator('input[name="income-budget"]').fill('7000');
+      await fillBudgetInput(page, 'Income', '7000');
       await page.waitForTimeout(400); // Wait for debounce
 
       // Get new predicted value
