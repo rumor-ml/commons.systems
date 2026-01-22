@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Inject Firebase web app configuration into site
 # Usage: inject-firebase-config.sh <site-name>
 

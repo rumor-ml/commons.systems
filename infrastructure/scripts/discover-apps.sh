@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Discover apps by convention
 # Output format: app_name:app_type:app_path (one per line)
 

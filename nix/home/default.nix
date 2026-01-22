@@ -7,15 +7,25 @@
 # This configuration includes:
 # - Git configuration (git.nix)
 # - Tmux configuration (tmux.nix)
+# - Development tools: direnv, neovim (tools.nix)
+# - Claude Code CLI (claude-code.nix)
+# - Nix settings: experimental features (nix.nix)
+# - SSH client and agent configuration (ssh.nix)
+# - SSH key auto-generation (ssh-keygen.nix)
+# - SSH authorized keys management (ssh-authorized-keys.nix)
 #
 # To activate this configuration for your system:
-#   home-manager switch --flake .#aarch64-darwin
-#   home-manager switch --flake .#x86_64-linux
-#   home-manager switch --flake .#x86_64-darwin
-#   home-manager switch --flake .#aarch64-linux
+#   First time (requires experimental features flags):
+#     nix --extra-experimental-features 'nix-command flakes' run home-manager/master -- switch --extra-experimental-features 'nix-command flakes' --flake .#default --impure
 #
-# Note: home.username and home.homeDirectory will be automatically detected
-# from your environment when you run home-manager switch.
+#   After first activation (auto-detects system architecture):
+#     home-manager switch --flake .#default --impure
+#
+#   Or explicitly specify system (x86_64-linux, aarch64-linux, x86_64-darwin, aarch64-darwin):
+#     home-manager switch --flake .#x86_64-linux --impure
+#
+# Note: --impure is required because home.username and home.homeDirectory are
+# automatically detected from your environment using builtins.getEnv.
 
 {
   config,
@@ -28,16 +38,49 @@
   imports = [
     ./git.nix
     ./tmux.nix
+    ./tools.nix
+    ./claude-code.nix
+    ./nix.nix
+    ./ssh.nix
+    ./ssh-keygen.nix
+    ./ssh-authorized-keys.nix
   ];
 
-  # User identity - these will be set automatically from environment
-  home.username = lib.mkDefault (builtins.getEnv "USER");
+  # User identity - detect from environment or HOME directory
+  home.username = lib.mkDefault (
+    let
+      envUser = builtins.getEnv "USER";
+      # Fallback: extract username from HOME environment variable
+      # e.g., /home/username -> username
+      homeDir = builtins.getEnv "HOME";
+      extractedUser = if homeDir != "" then builtins.baseNameOf homeDir else "";
+    in
+    if envUser != "" then
+      envUser
+    else if extractedUser != "" then
+      extractedUser
+    else
+      throw "Could not determine username. Please set USER or HOME environment variable."
+  );
+
   home.homeDirectory = lib.mkDefault (
-    if pkgs.stdenv.isDarwin then "/Users/${config.home.username}" else "/home/${config.home.username}"
+    let
+      envHome = builtins.getEnv "HOME";
+    in
+    if envHome != "" then
+      envHome
+    else if pkgs.stdenv.isDarwin then
+      "/Users/${config.home.username}"
+    else
+      "/home/${config.home.username}"
   );
 
   # Let Home Manager manage itself
   programs.home-manager.enable = true;
+
+  # Disable version mismatch check since we're using home-manager/master with nixos-unstable
+  # Both track the latest changes, so the version check warning is not relevant
+  home.enableNixpkgsReleaseCheck = false;
 
   # This value determines the Home Manager release that your configuration is
   # compatible with. This helps avoid breakage when a new Home Manager release

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Run all local tests for all apps in the repository
 # Usage: ./run-all-local-tests.sh [--changed-only]
 set -e

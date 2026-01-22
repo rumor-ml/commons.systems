@@ -692,26 +692,20 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
 
-**Step 3**: Customize `home/home.nix` with your preferences
+**Step 3**: Customize `nix/home/*.nix` files with your preferences
 
-```nix
-{
-  home.username = "yourusername";  # Change this
-  home.homeDirectory = "/Users/yourusername";  # Change this
+The configuration automatically detects your username and home directory from
+environment variables. You can customize tools in the relevant files:
 
-  # Add your custom programs
-  programs.git = {
-    enable = true;
-    userName = "Your Name";
-    userEmail = "you@example.com";
-  };
-}
-```
+- `nix/home/git.nix` - Git configuration
+- `nix/home/tmux.nix` - Tmux configuration
+- `nix/home/tools.nix` - CLI tools (direnv, neovim, etc.)
+- `nix/home/ssh.nix` - SSH client configuration
 
 **Step 4**: Build the configuration
 
 ```bash
-nix build .#homeConfigurations.yourusername.activationPackage
+nix build .#homeConfigurations.default.activationPackage --impure
 ```
 
 **Step 5**: Activate Home Manager
@@ -720,10 +714,20 @@ nix build .#homeConfigurations.yourusername.activationPackage
 ./result/activate
 ```
 
-**Step 6**: Apply future changes
+**Step 6**: Apply future changes (auto-detects your system architecture)
 
 ```bash
-home-manager switch --flake .#yourusername
+home-manager switch --flake .#default --impure
+```
+
+Or explicitly specify your system:
+
+```bash
+# Linux x86_64
+home-manager switch --flake .#x86_64-linux --impure
+
+# macOS ARM (Apple Silicon)
+home-manager switch --flake .#aarch64-darwin --impure
 ```
 
 See `home/README.md` for detailed instructions and troubleshooting.
@@ -1017,7 +1021,7 @@ error: Existing file '/Users/you/.bashrc' is in the way
    ```bash
    mv ~/.bashrc ~/.bashrc.backup
    mv ~/.gitconfig ~/.gitconfig.backup
-   home-manager switch --flake .#yourusername
+   home-manager switch --flake .#default --impure
    ```
 
 2. **Import existing config into Home Manager**:
@@ -1423,6 +1427,57 @@ hooks = {
 ```
 
 After adding, run `nix flake check` to validate.
+
+## Flake Update Notifications
+
+The development shell checks for flake updates once per day and displays a warning banner if upstream changes are available for nixpkgs or home-manager.
+
+### How It Works
+
+- Runs automatically when you enter `nix develop`
+- Checks nixpkgs and home-manager for upstream updates
+- Compares current locked revisions with latest upstream
+- Shows a warning banner if updates are available
+- Only runs once per 24 hours (cached)
+
+### Force a Check
+
+To force an immediate check, delete the cache:
+
+```bash
+rm -f ~/.cache/nix-flake-update-check/last-check
+nix develop
+```
+
+### Cache Behavior
+
+- Check runs at most once per 24 hours
+- Cache stored at `~/.cache/nix-flake-update-check/last-check`
+- Fails silently if offline or network unavailable
+- Skips check in non-interactive shells (CI-friendly)
+
+### Example Output
+
+When updates are available, you'll see:
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║  ⚠  Flake Updates Available                               ║
+╠═══════════════════════════════════════════════════════════╣
+║  The following inputs have upstream updates:              ║
+║                                                           ║
+║    • nixpkgs                                              ║
+║    • home-manager                                         ║
+║                                                           ║
+║  To update, run:                                          ║
+║                                                           ║
+║    1. nix flake update                                    ║
+║    2. nix develop --rebuild                               ║
+║    3. home-manager switch --flake .#default --impure      ║
+║                                                           ║
+║  (This check runs once per 24 hours)                      ║
+╚═══════════════════════════════════════════════════════════╝
+```
 
 ## Future Enhancements
 

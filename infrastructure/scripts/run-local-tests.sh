@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Run local tests for a site
 # Usage: run-local-tests.sh <site-name>
 # Example: run-local-tests.sh "fellspiral"

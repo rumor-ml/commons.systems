@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Test a Go TUI app - delegates to unified runner
 set -e
 
