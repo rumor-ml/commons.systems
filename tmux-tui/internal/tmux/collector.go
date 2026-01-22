@@ -325,6 +325,7 @@ func (c *Collector) GetPaneTitle(paneID string) (string, error) {
 	output, err := c.executor.ExecCommandOutput("tmux", "display-message", "-p", "-t", paneID, "#{pane_title}")
 	if err != nil {
 		// Check for common failure modes to provide better error context
+		// TODO(#1483): Error wrapping may suppress unexpected error types (permission denied, timeout, etc.)
 		errStr := err.Error()
 		if strings.Contains(errStr, "can't find pane") {
 			return "", fmt.Errorf("pane %s not found (likely deleted): %w", paneID, err)

@@ -277,3 +277,26 @@ func TestCollectorGetPaneTitle_WhitespaceTrimming(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectorGetPaneTitle_NoServerRunning(t *testing.T) {
+	os.Setenv("TMUX", "/tmp/tmux-test,1234,0")
+	defer os.Unsetenv("TMUX")
+
+	mockExec := &testutil.MockCommandExecutor{
+		CustomHandlers: map[string]func([]string) ([]byte, error){
+			"tmux": func(args []string) ([]byte, error) {
+				return nil, fmt.Errorf("error connecting to /tmp/tmux-1000/default (no server running)")
+			},
+		},
+	}
+
+	collector, _ := NewCollectorWithExecutor(mockExec)
+
+	_, err := collector.GetPaneTitle("%1")
+	if err == nil {
+		t.Fatal("Expected error for no server running")
+	}
+	if !strings.Contains(err.Error(), "tmux server not running") {
+		t.Errorf("Expected wrapped error with 'tmux server not running', got: %v", err)
+	}
+}

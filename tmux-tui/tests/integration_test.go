@@ -1035,7 +1035,7 @@ func TestIntegration_WorkingEventDoesNotClearOtherAlerts(t *testing.T) {
 //
 //	go test -v -run TestPaneFocusImmediateHighlighting
 func TestPaneFocusImmediateHighlighting(t *testing.T) {
-	t.Skip("Skipping pane focus test to avoid daemon startup issues in test suite (see issue #1472 for manual verification)")
+	t.Skip("Skipping regression test - requires full daemon instance which causes file descriptor exhaustion in CI (manual testing required)")
 
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

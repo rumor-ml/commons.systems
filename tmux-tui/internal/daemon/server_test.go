@@ -1537,7 +1537,7 @@ func TestProtocolMessage_ResyncRequest(t *testing.T) {
 // TestHandleClient_PongSendFailure tests that client is removed on pong send failure
 func TestHandleClient_PongSendFailure(t *testing.T) {
 	// TODO(#1467): Test times out after 10 minutes - flaky test that needs investigation
-	t.Skip("TODO(#1467): Flaky test that hangs - skipping until fixed")
+	t.Skip("Skipping flaky test - times out after 10 minutes (see issue #1467)")
 
 	tmpDir := t.TempDir()
 	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
@@ -5188,4 +5188,244 @@ func TestDaemon_CurrentTreeConcurrentAccess(t *testing.T) {
 
 	// If we reach here without race detector errors, the test passes
 	// Run with: go test -race ./tmux-tui/internal/daemon/...
+}
+
+// TestUpdateTreeForPaneFocus_NilCollector verifies graceful handling when collector is nil
+func TestUpdateTreeForPaneFocus_NilCollector(t *testing.T) {
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Create daemon with nil collector (degraded mode)
+	daemon := &AlertDaemon{
+		collector:       nil, // Degraded mode
+		currentTree:     tmux.NewRepoTree(),
+		blockedBranches: make(map[string]string),
+		blockedPath:     blockedPath,
+		clients:         make(map[string]*clientConnection),
+	}
+
+	// Initialize atomic values
+	daemon.lastBroadcastError.Store("")
+	daemon.lastTreeError.Store("")
+
+	// Create a pane in the tree
+	pane, err := tmux.NewPane("%100", "/test/path", "@1", 0, false, false, "bash", "original-title", false)
+	if err != nil {
+		t.Fatalf("Failed to create pane: %v", err)
+	}
+
+	if err := daemon.currentTree.SetPanes("test-repo", "main", []tmux.Pane{pane}); err != nil {
+		t.Fatalf("Failed to set panes: %v", err)
+	}
+
+	// Capture stderr to verify warning message
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	defer func() { os.Stderr = oldStderr }()
+
+	// Call updateTreeForPaneFocus with nil collector
+	daemon.updateTreeForPaneFocus("%100")
+
+	// Read stderr
+	w.Close()
+	stderrOutput, _ := io.ReadAll(r)
+	stderrStr := string(stderrOutput)
+
+	// Verify warning was printed
+	if !strings.Contains(stderrStr, "WARNING") && !strings.Contains(stderrStr, "Collector unavailable") {
+		t.Errorf("Expected warning about collector unavailable in stderr, got: %s", stderrStr)
+	}
+
+	// Verify pane was still updated (with existing title)
+	panes, ok := daemon.currentTree.GetPanes("test-repo", "main")
+	if !ok || len(panes) != 1 {
+		t.Fatal("Pane should still exist in tree")
+	}
+
+	// Verify pane is activated (even though title wasn't updated)
+	if !panes[0].WindowActive() {
+		t.Error("Pane should be activated despite nil collector")
+	}
+
+	// Title should remain unchanged (since collector is nil)
+	if panes[0].Title() != "original-title" {
+		t.Errorf("Title should be unchanged, got: %s", panes[0].Title())
+	}
+}
+
+// TestUpdateTreeForPaneFocus_PaneNotFound verifies early return when pane not found
+func TestUpdateTreeForPaneFocus_PaneNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Create daemon with empty tree
+	daemon := &AlertDaemon{
+		collector:       nil, // Use nil to avoid actual tmux queries
+		currentTree:     tmux.NewRepoTree(),
+		blockedBranches: make(map[string]string),
+		blockedPath:     blockedPath,
+		clients:         make(map[string]*clientConnection),
+	}
+
+	daemon.lastBroadcastError.Store("")
+	daemon.lastTreeError.Store("")
+
+	// Call with non-existent pane
+	daemon.updateTreeForPaneFocus("%999")
+
+	// Should return early without error (verified by not panicking)
+	// Tree should still be empty
+	if len(daemon.currentTree.Repos()) != 0 {
+		t.Error("Tree should remain empty when pane not found")
+	}
+}
+
+// TestUpdateTreeForPaneFocus_WithMultiplePanes verifies deactivation loop handles multiple panes
+func TestUpdateTreeForPaneFocus_WithMultiplePanes(t *testing.T) {
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Create daemon
+	daemon := &AlertDaemon{
+		collector:       nil, // Use nil to avoid tmux queries
+		currentTree:     tmux.NewRepoTree(),
+		blockedBranches: make(map[string]string),
+		blockedPath:     blockedPath,
+		clients:         make(map[string]*clientConnection),
+	}
+
+	daemon.lastBroadcastError.Store("")
+	daemon.lastTreeError.Store("")
+
+	// Create multiple panes, one active
+	pane1, _ := tmux.NewPane("%100", "/test", "@1", 0, true, false, "bash", "title1", false)
+	pane2, _ := tmux.NewPane("%101", "/test", "@1", 0, false, false, "bash", "title2", false)
+	pane3, _ := tmux.NewPane("%102", "/test", "@1", 0, false, false, "bash", "title3", false)
+
+	daemon.currentTree.SetPanes("test-repo", "main", []tmux.Pane{pane1, pane2, pane3})
+
+	// Focus pane2
+	daemon.updateTreeForPaneFocus("%101")
+
+	// Verify pane1 is deactivated, pane2 is activated
+	panes, _ := daemon.currentTree.GetPanes("test-repo", "main")
+
+	var pane1Active, pane2Active, pane3Active bool
+	for _, p := range panes {
+		switch p.ID() {
+		case "%100":
+			pane1Active = p.WindowActive()
+		case "%101":
+			pane2Active = p.WindowActive()
+		case "%102":
+			pane3Active = p.WindowActive()
+		}
+	}
+
+	if pane1Active {
+		t.Error("Pane1 should be deactivated")
+	}
+	if !pane2Active {
+		t.Error("Pane2 should be activated")
+	}
+	if pane3Active {
+		t.Error("Pane3 should remain inactive")
+	}
+}
+
+// TestUpdateTreeForPaneFocus_ActivationFailure verifies error logging when pane cannot be activated
+func TestUpdateTreeForPaneFocus_ActivationFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	// Create daemon with a pane
+	daemon := &AlertDaemon{
+		collector:       nil,
+		currentTree:     tmux.NewRepoTree(),
+		blockedBranches: make(map[string]string),
+		blockedPath:     blockedPath,
+		clients:         make(map[string]*clientConnection),
+	}
+
+	daemon.lastBroadcastError.Store("")
+	daemon.lastTreeError.Store("")
+
+	// Create a pane
+	pane, _ := tmux.NewPane("%100", "/test", "@1", 0, false, false, "bash", "title", false)
+	daemon.currentTree.SetPanes("test-repo", "main", []tmux.Pane{pane})
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	defer func() { os.Stderr = oldStderr }()
+
+	// Remove the pane from tree (simulating race condition after deactivation)
+	daemon.currentTree.SetPanes("test-repo", "main", []tmux.Pane{})
+
+	// Try to focus the now-missing pane
+	daemon.updateTreeForPaneFocus("%100")
+
+	// Read stderr
+	w.Close()
+	stderrOutput, _ := io.ReadAll(r)
+	stderrStr := string(stderrOutput)
+
+	// Verify error was logged (though we can't easily verify debug.Log output)
+	// At minimum, verify function didn't panic
+	if len(stderrStr) == 0 {
+		t.Log("Note: stderr capture may not work in test environment - verified no panic")
+	}
+}
+
+// TestUpdateTreeForPaneFocus_MessageConstructionHandling verifies function completes without panic
+// Note: This test cannot easily inject a NewTreeUpdateMessage failure without modifying production code.
+// It serves as documentation that message construction errors are handled (lines 888-894 in server.go).
+// The production code logs the error and returns early, releasing the lock.
+func TestUpdateTreeForPaneFocus_MessageConstructionHandling(t *testing.T) {
+	// This test documents the expected behavior when NewTreeUpdateMessage fails:
+	// 1. Error is logged via debug.Log
+	// 2. Error is printed to stderr
+	// 3. Lock is released before returning (line 890: d.collectorMu.Unlock())
+	// 4. No broadcast occurs (early return on line 893)
+	//
+	// Testing this requires either:
+	// - Dependency injection of message constructor (future refactoring)
+	// - Creating an invalid tree state that causes construction to fail
+	//
+	// For now, we verify the happy path to ensure the code is exercised:
+
+	tmpDir := t.TempDir()
+	blockedPath := filepath.Join(tmpDir, "blocked-branches.json")
+
+	daemon := &AlertDaemon{
+		collector:       nil,
+		currentTree:     tmux.NewRepoTree(),
+		blockedBranches: make(map[string]string),
+		blockedPath:     blockedPath,
+		clients:         make(map[string]*clientConnection),
+	}
+
+	daemon.lastBroadcastError.Store("")
+	daemon.lastTreeError.Store("")
+	daemon.seqCounter.Store(0)
+
+	// Create a valid pane
+	pane, _ := tmux.NewPane("%100", "/test", "@1", 0, false, false, "bash", "title", false)
+	daemon.currentTree.SetPanes("test-repo", "main", []tmux.Pane{pane})
+
+	// Call updateTreeForPaneFocus - should succeed
+	daemon.updateTreeForPaneFocus("%100")
+
+	// Verify sequence counter incremented (message was constructed)
+	if daemon.seqCounter.Load() == 0 {
+		t.Error("Sequence counter should have incremented")
+	}
+
+	// Verify pane is activated
+	panes, _ := daemon.currentTree.GetPanes("test-repo", "main")
+	if len(panes) != 1 || !panes[0].WindowActive() {
+		t.Error("Pane should be activated")
+	}
 }

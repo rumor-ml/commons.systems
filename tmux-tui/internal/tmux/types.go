@@ -132,6 +132,7 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 
 // WithWindowActive returns a new Pane with the windowActive field modified.
 // The original Pane is not modified (immutable update pattern).
+// TODO(#1481): Comment uses passive voice and could be more direct
 func (p Pane) WithWindowActive(active bool) Pane {
 	newPane := p
 	newPane.windowActive = active
@@ -141,8 +142,22 @@ func (p Pane) WithWindowActive(active bool) Pane {
 // WithActiveAndTitle returns a new Pane with both windowActive and title modified.
 // Used when handling pane focus events to update both fields atomically.
 // The original Pane is not modified (immutable update pattern).
-// Note: Title is not validated as Pane currently has no title invariants.
+// Title is sanitized to remove control characters (null bytes, newlines) that could
+// cause display issues or are invalid in tmux pane titles.
+// TODO(#1482): Redundant note about title validation was removed
+// TODO(#1485): Consider consolidating WithWindowActive and WithActiveAndTitle methods
 func (p Pane) WithActiveAndTitle(active bool, title string) Pane {
+	// Sanitize title to prevent control characters that could cause display issues
+	// Remove null bytes and newlines which are not valid in tmux pane titles
+	if strings.ContainsAny(title, "\x00\n\r") {
+		title = strings.Map(func(r rune) rune {
+			if r == '\x00' || r == '\n' || r == '\r' {
+				return -1 // Remove character
+			}
+			return r
+		}, title)
+	}
+
 	newPane := p
 	newPane.windowActive = active
 	newPane.title = title
@@ -390,15 +405,19 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 
 // UpdatePaneActiveAndTitle finds a pane by ID and updates both active state and title.
 // Returns true if found and updated, false otherwise.
-// Note: Mutates the internal slice in place for performance. This is safe because
-// the tree is protected by collectorMu and GetPanes() returns defensive copies.
+// Uses defensive copy pattern consistent with SetPanes to maintain type-level safety.
 // TODO(#1480): Consider returning error instead of bool for better error context
 func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title string) bool {
 	for repo := range rt.tree {
 		for branch := range rt.tree[repo] {
-			for i := range rt.tree[repo][branch] {
-				if rt.tree[repo][branch][i].ID() == paneID {
-					rt.tree[repo][branch][i] = rt.tree[repo][branch][i].WithActiveAndTitle(active, title)
+			panes := rt.tree[repo][branch]
+			for i := range panes {
+				if panes[i].ID() == paneID {
+					// Make defensive copy consistent with SetPanes pattern
+					updatedPanes := make([]Pane, len(panes))
+					copy(updatedPanes, panes)
+					updatedPanes[i] = updatedPanes[i].WithActiveAndTitle(active, title)
+					rt.tree[repo][branch] = updatedPanes
 					return true
 				}
 			}
