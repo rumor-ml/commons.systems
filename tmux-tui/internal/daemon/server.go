@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -24,6 +25,9 @@ const (
 var (
 	audioMutex    sync.Mutex
 	lastAudioPlay time.Time
+	// ttyWriter allows injecting a custom writer for testing
+	// In production, this is nil and /dev/tty is used
+	ttyWriter func() (io.WriteCloser, error)
 )
 
 // clientConnection wraps a client connection with a mutex-protected encoder
@@ -126,7 +130,7 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 //   - Terminals pick their preferred method and ignore the rest
 //   - Works across SSH when terminal emulator supports OSC passthrough
 //   - Requires tmux to passthrough OSC sequences (allow-passthrough on)
-//   - Synchronous execution (escape sequences never fail)
+//   - Synchronous execution with error handling for /dev/tty access failures
 //   - Rate limiting uses global audioMutex and lastAudioPlay timestamp
 func (d *AlertDaemon) playAlertSound() {
 	// Skip sound during E2E tests
@@ -150,15 +154,27 @@ func (d *AlertDaemon) playAlertSound() {
 	debug.Log("AUDIO_PLAYING pid=%d method=osc777+osc9+bel", pid)
 
 	// Write to /dev/tty (controlling terminal) so notifications work even for background processes
-	// Combine all three methods in a single write for efficiency:
-	// 1. OSC 777: Modern terminal notification protocol (iTerm2, kitty, etc.)
-	// 2. OSC 9: iTerm2-specific notification protocol
-	// 3. BEL: Universal fallback for all terminals
+	// Combine all three methods (OSC 777, OSC 9, BEL) in a single write for efficiency
 	// Terminals pick their preferred method and ignore the rest
 	notificationSequence := "\033]777;notify;tmux-tui;Alert\a\033]9;tmux-tui alert\a\a"
 
-	if f, openErr := os.OpenFile("/dev/tty", os.O_WRONLY, 0); openErr == nil {
-		f.Write([]byte(notificationSequence))
+	// Use injected writer for testing, otherwise use /dev/tty
+	var f io.WriteCloser
+	var openErr error
+	if ttyWriter != nil {
+		f, openErr = ttyWriter()
+	} else {
+		f, openErr = os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+	}
+
+	if openErr == nil {
+		if _, writeErr := f.Write([]byte(notificationSequence)); writeErr != nil {
+			debug.Log("AUDIO_FAILED pid=%d error=write_failed: %v", pid, writeErr)
+			if closeErr := f.Close(); closeErr != nil {
+				debug.Log("AUDIO_FAILED pid=%d error=close_after_write_failed: %v", pid, closeErr)
+			}
+			return
+		}
 		if closeErr := f.Close(); closeErr != nil {
 			debug.Log("AUDIO_FAILED pid=%d error=close_failed: %v", pid, closeErr)
 		} else {

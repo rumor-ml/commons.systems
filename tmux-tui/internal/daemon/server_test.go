@@ -2168,6 +2168,7 @@ func TestBlockBranch_PersistenceFailureRollback(t *testing.T) {
 	t.Logf("Rollback test passed: reverted to main, broadcasts received")
 }
 
+// TODO(#1477): TestPlayAlertSound_ErrorBroadcast simulates but doesn't test real error path
 // TestPlayAlertSound_ErrorBroadcast tests that audio errors are broadcast to clients
 func TestPlayAlertSound_ErrorBroadcast(t *testing.T) {
 	daemon := &AlertDaemon{
@@ -2230,6 +2231,7 @@ func TestPlayAlertSound_ErrorBroadcast(t *testing.T) {
 	}
 }
 
+// TODO(#1476): TestPlayAlertSound_ConcurrentRateLimiting has weak assertions
 // TestPlayAlertSound_ConcurrentRateLimiting tests that concurrent calls to playAlertSound
 // are protected by mutex and rate limiting works correctly without race conditions.
 func TestPlayAlertSound_ConcurrentRateLimiting(t *testing.T) {
@@ -5189,4 +5191,185 @@ func TestDaemon_CurrentTreeConcurrentAccess(t *testing.T) {
 
 	// If we reach here without race detector errors, the test passes
 	// Run with: go test -race ./tmux-tui/internal/daemon/...
+}
+
+// mockWriteCloser implements io.WriteCloser for testing
+type mockWriteCloser struct {
+	writeFunc func([]byte) (int, error)
+	closeFunc func() error
+	written   []byte
+}
+
+func (m *mockWriteCloser) Write(p []byte) (int, error) {
+	if m.writeFunc != nil {
+		return m.writeFunc(p)
+	}
+	m.written = append(m.written, p...)
+	return len(p), nil
+}
+
+func (m *mockWriteCloser) Close() error {
+	if m.closeFunc != nil {
+		return m.closeFunc()
+	}
+	return nil
+}
+
+// TestPlayAlertSound_EscapeSequenceFormat verifies that playAlertSound writes
+// the correct OSC escape sequences in the expected format for terminal notifications.
+// This is the core functionality change - the notification sequence must be exact
+// or terminals will silently ignore it.
+func TestPlayAlertSound_EscapeSequenceFormat(t *testing.T) {
+	// Save original ttyWriter and restore after test
+	originalWriter := ttyWriter
+	defer func() { ttyWriter = originalWriter }()
+
+	// Reset rate limiting to allow test to run
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	// Capture what gets written
+	mock := &mockWriteCloser{}
+	ttyWriter = func() (io.WriteCloser, error) {
+		return mock, nil
+	}
+
+	// Create daemon and play sound
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+	daemon.playAlertSound()
+
+	// Verify exact escape sequence format
+	expectedSequence := "\033]777;notify;tmux-tui;Alert\a\033]9;tmux-tui alert\a\a"
+	actualSequence := string(mock.written)
+
+	if actualSequence != expectedSequence {
+		t.Errorf("Escape sequence mismatch\nExpected: %q\nActual:   %q", expectedSequence, actualSequence)
+	}
+
+	// Verify OSC 777 format: ESC ] 777 ; notify ; title ; message BEL
+	if !strings.Contains(actualSequence, "\033]777;notify;tmux-tui;Alert\a") {
+		t.Error("Missing or malformed OSC 777 sequence (\\033]777;notify;tmux-tui;Alert\\a)")
+	}
+
+	// Verify OSC 9 format: ESC ] 9 ; message BEL
+	if !strings.Contains(actualSequence, "\033]9;tmux-tui alert\a") {
+		t.Error("Missing or malformed OSC 9 sequence (\\033]9;tmux-tui alert\\a)")
+	}
+
+	// Verify final BEL fallback
+	if !strings.HasSuffix(actualSequence, "\a") {
+		t.Error("Missing final BEL fallback (\\a)")
+	}
+
+	// Verify structure integrity - check for common mistakes
+	if strings.Contains(actualSequence, "\033]777notify") {
+		t.Error("OSC 777 missing semicolon after code (should be \\033]777;notify)")
+	}
+	if strings.Contains(actualSequence, "\033]778") {
+		t.Error("Wrong OSC code (should be 777, not 778)")
+	}
+}
+
+// TestPlayAlertSound_DevTtyOpenFailure verifies that playAlertSound handles
+// /dev/tty open failures gracefully without crashing the daemon.
+func TestPlayAlertSound_DevTtyOpenFailure(t *testing.T) {
+	// Save original ttyWriter and restore after test
+	originalWriter := ttyWriter
+	defer func() { ttyWriter = originalWriter }()
+
+	// Reset rate limiting
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	// Simulate /dev/tty open failure
+	openCalled := false
+	ttyWriter = func() (io.WriteCloser, error) {
+		openCalled = true
+		return nil, os.ErrPermission
+	}
+
+	// Create daemon and play sound
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+
+	// Should not panic or return error
+	daemon.playAlertSound()
+
+	if !openCalled {
+		t.Error("ttyWriter was not called")
+	}
+
+	// Verify daemon remains operational by checking it didn't crash
+	// (if we reach here, the test passed - no panic occurred)
+}
+
+// TestPlayAlertSound_WriteFailure verifies graceful handling of write failures
+func TestPlayAlertSound_WriteFailure(t *testing.T) {
+	// Save original ttyWriter and restore after test
+	originalWriter := ttyWriter
+	defer func() { ttyWriter = originalWriter }()
+
+	// Reset rate limiting
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	// Simulate write failure
+	mock := &mockWriteCloser{
+		writeFunc: func(p []byte) (int, error) {
+			return 0, os.ErrClosed
+		},
+	}
+	ttyWriter = func() (io.WriteCloser, error) {
+		return mock, nil
+	}
+
+	// Create daemon and play sound
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+
+	// Should not panic
+	daemon.playAlertSound()
+}
+
+// TestPlayAlertSound_CloseFailure verifies graceful handling of close failures
+func TestPlayAlertSound_CloseFailure(t *testing.T) {
+	// Save original ttyWriter and restore after test
+	originalWriter := ttyWriter
+	defer func() { ttyWriter = originalWriter }()
+
+	// Reset rate limiting
+	audioMutex.Lock()
+	lastAudioPlay = time.Time{}
+	audioMutex.Unlock()
+
+	// Simulate close failure
+	closeCalled := false
+	mock := &mockWriteCloser{
+		closeFunc: func() error {
+			closeCalled = true
+			return os.ErrClosed
+		},
+	}
+	ttyWriter = func() (io.WriteCloser, error) {
+		return mock, nil
+	}
+
+	// Create daemon and play sound
+	daemon := &AlertDaemon{
+		clients: make(map[string]*clientConnection),
+	}
+
+	// Should not panic
+	daemon.playAlertSound()
+
+	if !closeCalled {
+		t.Error("Close was not called")
+	}
 }
