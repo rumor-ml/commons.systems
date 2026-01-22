@@ -14,7 +14,7 @@ export type Category =
   | 'investment'
   | 'other';
 
-// TODO: Add readonly modifiers, branded types for IDs, validation, constrain redemptionRate to [0,1]
+// TODO(#1460): Add readonly modifiers, branded types for IDs, validation, constrain redemptionRate to [0,1]
 export interface Transaction {
   id: string;
   date: string; // ISO date
@@ -29,6 +29,7 @@ export interface Transaction {
   statementIds: string[]; // Belongs to multiple statements
 }
 
+// TODO(#1463): Add readonly modifiers, validate date range, make transactionIds immutable
 export interface Statement {
   id: string;
   accountId: string;
@@ -91,7 +92,7 @@ export function validateQualifierBreakdown(q: QualifierBreakdown): boolean {
   return true;
 }
 
-// TODO: Use branded YearMonth type, remove redundant isIncome, validate qualifier sums
+// TODO(#386): Use branded YearMonth type, remove redundant isIncome, validate qualifier sums
 export interface MonthlyData {
   month: string; // YYYY-MM format
   category: Category;
@@ -100,7 +101,7 @@ export interface MonthlyData {
   qualifiers: QualifierBreakdown;
 }
 
-// TODO: Replace index signature with explicit Record<Category, boolean> or exhaustive interface
+// TODO(#386): Replace index signature with explicit Record<Category, boolean> or exhaustive interface
 export interface CategoryFilter {
   [category: string]: boolean;
 }
@@ -120,6 +121,8 @@ export type TimeGranularity = 'week' | 'month';
 
 // Week identifier (ISO 8601: "2025-W01")
 // Branded type for compile-time distinction
+// IMPORTANT: Always construct via parseWeekId() or weekId() to ensure valid format.
+// Manual string casting bypasses validation and can introduce invalid identifiers.
 export type WeekId = string & { readonly __brand: 'WeekId' };
 
 /**
@@ -269,9 +272,10 @@ export function isValidISOTimestamp(value: string): boolean {
  * @property weekStartDate - Derived from week (Monday). Must match getWeekBoundaries(week).start
  * @property weekEndDate - Derived from week (Sunday). Must match getWeekBoundaries(week).end
  *
- * IMPORTANT: Always construct via aggregateTransactionsByWeek() to ensure date consistency.
- * Manual construction requires calling getWeekBoundaries() to populate weekStartDate/weekEndDate.
- * Use validateWeeklyData() to verify consistency if constructing manually.
+ * IMPORTANT: This type contains derived fields that must stay consistent with the week identifier.
+ * ALWAYS construct via aggregateTransactionsByWeek() factory to ensure date consistency.
+ * Manual construction risks creating inconsistent instances. Use validateWeeklyData() to verify
+ * consistency if manual construction is unavoidable.
  */
 export interface WeeklyData {
   readonly week: WeekId;
@@ -328,7 +332,16 @@ export function validateWeeklyData(
   }
 }
 
-// Budget vs actual comparison
+/**
+ * Budget vs actual comparison with derived fields
+ * @property variance - Derived: actual - target
+ * @property effectiveTarget - Derived: target + rolloverAccumulated
+ *
+ * IMPORTANT: This type contains derived fields that must be calculated correctly.
+ * ALWAYS construct via createWeeklyBudgetComparison() factory to ensure correct
+ * variance and effectiveTarget calculations. Manual construction risks arithmetic
+ * errors or invalid numeric values.
+ */
 export interface WeeklyBudgetComparison {
   readonly week: WeekId;
   readonly category: Category;
@@ -484,4 +497,14 @@ export function createCashFlowPrediction(
     historicAvgExpense,
     variance,
   };
+}
+
+/**
+ * Historic average for a specific category
+ * @property category - The budget category
+ * @property averageWeekly - Average weekly amount for this category
+ */
+export interface CategoryHistoricAverage {
+  readonly category: Category;
+  readonly averageWeekly: number;
 }

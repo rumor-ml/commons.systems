@@ -23,9 +23,12 @@ describe('StateManager', () => {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       });
     });
 
@@ -38,9 +41,12 @@ describe('StateManager', () => {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       });
     });
   });
@@ -55,9 +61,12 @@ describe('StateManager', () => {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       });
     });
 
@@ -70,9 +79,12 @@ describe('StateManager', () => {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       });
     });
 
@@ -87,9 +99,12 @@ describe('StateManager', () => {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       });
     });
   });
@@ -317,120 +332,50 @@ describe('StateManager', () => {
     });
   });
 
-  describe('load() - viewGranularity Validation', () => {
-    it('preserves valid "week" granularity', () => {
+  describe('load() - currentView Validation', () => {
+    it('preserves currentView when "planning"', () => {
       const storedState = {
-        viewGranularity: 'week',
+        currentView: 'planning',
       };
       localStorage.setItem('budget-state', JSON.stringify(storedState));
 
       const state = StateManager.load();
 
-      expect(state.viewGranularity).toBe('week');
+      expect(state.currentView).toBe('planning');
     });
 
-    it('preserves valid "month" granularity', () => {
+    it('preserves currentView when "main"', () => {
       const storedState = {
-        viewGranularity: 'month',
+        currentView: 'main',
       };
       localStorage.setItem('budget-state', JSON.stringify(storedState));
 
       const state = StateManager.load();
 
-      expect(state.viewGranularity).toBe('month');
+      expect(state.currentView).toBe('main');
     });
 
-    it('defaults to "month" for invalid granularity', () => {
-      const storedState = {
-        viewGranularity: 'year',
-      };
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.viewGranularity).toBe('month');
-    });
-
-    it('defaults to "month" when viewGranularity is missing', () => {
+    it('defaults to "main" when currentView is missing', () => {
       const storedState = {};
       localStorage.setItem('budget-state', JSON.stringify(storedState));
 
       const state = StateManager.load();
 
-      expect(state.viewGranularity).toBe('month');
+      expect(state.currentView).toBe('main');
     });
-  });
 
-  describe('load() - selectedWeek Validation', () => {
-    it('preserves valid ISO week format (2025-W01)', () => {
+    it('defaults to "main" when currentView is invalid', () => {
       const storedState = {
-        selectedWeek: '2025-W01',
-        viewGranularity: 'week',
+        currentView: 'invalid',
       };
       localStorage.setItem('budget-state', JSON.stringify(storedState));
 
       const state = StateManager.load();
 
-      expect(state.selectedWeek).toBe('2025-W01');
+      expect(state.currentView).toBe('main');
     });
 
-    it('preserves valid ISO week format (2025-W52)', () => {
-      const storedState = {
-        selectedWeek: '2025-W52',
-        viewGranularity: 'week',
-      };
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.selectedWeek).toBe('2025-W52');
-    });
-
-    it('returns null for invalid week format (missing W)', () => {
-      const storedState = {
-        selectedWeek: '2025-01',
-      };
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.selectedWeek).toBeNull();
-    });
-
-    it('returns null for invalid week format (wrong pattern)', () => {
-      const storedState = {
-        selectedWeek: 'Week-01-2025',
-      };
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.selectedWeek).toBeNull();
-    });
-
-    it('returns null when selectedWeek is not a string', () => {
-      const storedState = {
-        selectedWeek: 12345,
-      };
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.selectedWeek).toBeNull();
-    });
-
-    it('returns null when selectedWeek is missing', () => {
-      const storedState = {};
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.selectedWeek).toBeNull();
-    });
-  });
-
-  describe('load() - planningMode Validation', () => {
-    it('preserves planningMode when true', () => {
+    it('migrates old planningMode=true to currentView="planning"', () => {
       const storedState = {
         planningMode: true,
       };
@@ -438,10 +383,10 @@ describe('StateManager', () => {
 
       const state = StateManager.load();
 
-      expect(state.planningMode).toBe(true);
+      expect(state.currentView).toBe('planning');
     });
 
-    it('preserves planningMode when false', () => {
+    it('migrates old planningMode=false to currentView="main"', () => {
       const storedState = {
         planningMode: false,
       };
@@ -449,27 +394,7 @@ describe('StateManager', () => {
 
       const state = StateManager.load();
 
-      expect(state.planningMode).toBe(false);
-    });
-
-    it('defaults to false when planningMode is missing', () => {
-      const storedState = {};
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.planningMode).toBe(false);
-    });
-
-    it('defaults to false when planningMode is not boolean', () => {
-      const storedState = {
-        planningMode: 'true',
-      };
-      localStorage.setItem('budget-state', JSON.stringify(storedState));
-
-      const state = StateManager.load();
-
-      expect(state.planningMode).toBe(false);
+      expect(state.currentView).toBe('main');
     });
   });
 
@@ -479,20 +404,23 @@ describe('StateManager', () => {
         hiddenCategories: ['groceries'],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       };
       localStorage.setItem('budget-state', JSON.stringify(initialState));
 
-      const updated = StateManager.save({ planningMode: true });
+      const updated = StateManager.save({ currentView: 'planning' });
 
-      expect(updated.planningMode).toBe(true);
+      expect(updated.currentView).toBe('planning');
       expect(updated.hiddenCategories).toEqual(['groceries']);
 
       // Verify it was persisted
       const loaded = StateManager.load();
-      expect(loaded.planningMode).toBe(true);
+      expect(loaded.currentView).toBe('planning');
       expect(loaded.hiddenCategories).toEqual(['groceries']);
     });
 
@@ -501,37 +429,45 @@ describe('StateManager', () => {
         hiddenCategories: ['dining', 'entertainment'],
         showVacation: false,
         budgetPlan: null,
-        viewGranularity: 'week',
-        selectedWeek: weekId('2025-W05'),
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'weekly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       };
       localStorage.setItem('budget-state', JSON.stringify(initialState));
 
       const updated = StateManager.save({
         hiddenCategories: ['income'],
-        viewGranularity: 'month',
+        barAggregation: 'monthly',
       });
 
-      // selectedWeek is nulled out when viewGranularity changes to 'month' (enforces invariant)
       expect(updated).toEqual({
         hiddenCategories: ['income'],
         showVacation: false,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       });
     });
 
     it('returns updated state after save', () => {
       const updated = StateManager.save({
         showVacation: false,
-        viewGranularity: 'week',
-        selectedWeek: weekId('2025-W10'),
+        barAggregation: 'weekly',
+        dateRangeStart: '2025-01-01',
+        dateRangeEnd: '2025-01-31',
       });
 
       expect(updated.showVacation).toBe(false);
-      expect(updated.selectedWeek).toBe('2025-W10');
+      expect(updated.barAggregation).toBe('weekly');
+      expect(updated.dateRangeStart).toBe('2025-01-01');
+      expect(updated.dateRangeEnd).toBe('2025-01-31');
     });
   });
 
@@ -541,9 +477,12 @@ describe('StateManager', () => {
         hiddenCategories: [],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       };
       localStorage.setItem('budget-state', JSON.stringify(initialState));
 
@@ -553,7 +492,7 @@ describe('StateManager', () => {
 
       // When save fails, it should throw an error
       expect(() => {
-        StateManager.save({ planningMode: true });
+        StateManager.save({ currentView: 'planning' });
       }).toThrow('State save failed: QuotaExceededError');
     });
 
@@ -573,9 +512,12 @@ describe('StateManager', () => {
         hiddenCategories: ['income'],
         showVacation: true,
         budgetPlan: null,
-        viewGranularity: 'month',
-        selectedWeek: null,
-        planningMode: false,
+        currentView: 'main',
+        dateRangeStart: null,
+        dateRangeEnd: null,
+        barAggregation: 'monthly',
+        visibleIndicators: [],
+        showNetIncomeIndicator: true,
       };
       localStorage.setItem('budget-state', JSON.stringify(initialState));
 
@@ -587,7 +529,7 @@ describe('StateManager', () => {
       expect(() => {
         StateManager.save({
           hiddenCategories: ['groceries', 'dining'],
-          viewGranularity: 'week',
+          barAggregation: 'weekly',
         });
       }).toThrow('State save failed: Write failed');
     });
@@ -601,17 +543,22 @@ describe('StateManager', () => {
       expect(loaded.hiddenCategories).toEqual(['groceries']);
 
       // Second save
-      StateManager.save({ planningMode: true });
+      StateManager.save({ currentView: 'planning' });
       loaded = StateManager.load();
       expect(loaded.hiddenCategories).toEqual(['groceries']);
-      expect(loaded.planningMode).toBe(true);
+      expect(loaded.currentView).toBe('planning');
 
       // Third save
-      StateManager.save({ viewGranularity: 'week', selectedWeek: weekId('2025-W08') });
+      StateManager.save({
+        barAggregation: 'weekly',
+        dateRangeStart: '2025-01-01',
+        dateRangeEnd: '2025-01-31',
+      });
       loaded = StateManager.load();
-      expect(loaded.viewGranularity).toBe('week');
-      expect(loaded.selectedWeek).toBe('2025-W08');
-      expect(loaded.planningMode).toBe(true);
+      expect(loaded.barAggregation).toBe('weekly');
+      expect(loaded.dateRangeStart).toBe('2025-01-01');
+      expect(loaded.dateRangeEnd).toBe('2025-01-31');
+      expect(loaded.currentView).toBe('planning');
       expect(loaded.hiddenCategories).toEqual(['groceries']);
     });
 
@@ -624,12 +571,12 @@ describe('StateManager', () => {
       expect(loaded.hiddenCategories).toEqual([]);
 
       // Save new state
-      StateManager.save({ hiddenCategories: ['dining'], planningMode: true });
+      StateManager.save({ hiddenCategories: ['dining'], currentView: 'planning' });
 
       // Load again - should have the saved state
       loaded = StateManager.load();
       expect(loaded.hiddenCategories).toEqual(['dining']);
-      expect(loaded.planningMode).toBe(true);
+      expect(loaded.currentView).toBe('planning');
     });
 
     it('handles partial budgetPlan updates', () => {
@@ -913,7 +860,7 @@ describe('StateManager', () => {
       });
 
       try {
-        StateManager.save({ planningMode: true });
+        StateManager.save({ currentView: 'planning' });
       } catch {
         // Expected to throw
       }
@@ -1075,9 +1022,12 @@ describe('StateManager', () => {
             hiddenCategories: [],
             showVacation: true,
             budgetPlan: null,
-            viewGranularity: 'month',
-            selectedWeek: null,
-            planningMode: false,
+            currentView: 'main',
+            dateRangeStart: null,
+            dateRangeEnd: null,
+            barAggregation: 'monthly',
+            visibleIndicators: [],
+            showNetIncomeIndicator: true,
           });
         } else if (callCount === 2) {
           // Verification load() call - return different data to simulate mismatch
@@ -1125,10 +1075,14 @@ describe('StateManager', () => {
     it('handles race between save and load during rapid state updates', () => {
       // Simulate rapid state updates
       const updates = [
-        { hiddenCategories: ['groceries'] },
+        { hiddenCategories: ['groceries' as const] },
         { showVacation: false },
-        { planningMode: true },
-        { viewGranularity: 'week' as const, selectedWeek: weekId('2025-W01') },
+        { currentView: 'planning' as const },
+        {
+          barAggregation: 'weekly' as const,
+          dateRangeStart: '2025-01-01',
+          dateRangeEnd: '2025-01-31',
+        },
       ];
 
       // Apply updates sequentially
@@ -1141,9 +1095,10 @@ describe('StateManager', () => {
 
       expect(final.hiddenCategories).toEqual(['groceries']);
       expect(final.showVacation).toBe(false);
-      expect(final.planningMode).toBe(true);
-      expect(final.viewGranularity).toBe('week');
-      expect(final.selectedWeek).toBe('2025-W01');
+      expect(final.currentView).toBe('planning');
+      expect(final.barAggregation).toBe('weekly');
+      expect(final.dateRangeStart).toBe('2025-01-01');
+      expect(final.dateRangeEnd).toBe('2025-01-31');
     });
 
     it('handles localStorage.setItem succeeding but verification failing', () => {
@@ -1309,9 +1264,10 @@ describe('StateManager', () => {
         budgetPlan,
         hiddenCategories: ['income', 'utilities'],
         showVacation: false,
-        viewGranularity: 'week',
-        selectedWeek: weekId('2025-W02'),
-        planningMode: true,
+        barAggregation: 'weekly',
+        dateRangeStart: '2025-01-01',
+        dateRangeEnd: '2025-01-31',
+        currentView: 'planning',
       });
 
       // Simulate page reload
@@ -1323,9 +1279,10 @@ describe('StateManager', () => {
       // Verify other state properties also persisted
       expect(loadedState.hiddenCategories).toEqual(['income', 'utilities']);
       expect(loadedState.showVacation).toBe(false);
-      expect(loadedState.viewGranularity).toBe('week');
-      expect(loadedState.selectedWeek).toBe('2025-W02');
-      expect(loadedState.planningMode).toBe(true);
+      expect(loadedState.barAggregation).toBe('weekly');
+      expect(loadedState.dateRangeStart).toBe('2025-01-01');
+      expect(loadedState.dateRangeEnd).toBe('2025-01-31');
+      expect(loadedState.currentView).toBe('planning');
     });
 
     it('handles budget plan validation during reload with partially corrupted data', () => {

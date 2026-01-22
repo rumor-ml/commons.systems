@@ -536,6 +536,166 @@ func TestRegistry_FindParser_PathPassed(t *testing.T) {
 	}
 }
 
+func TestMustNew_PanicContext(t *testing.T) {
+	tests := []struct {
+		name          string
+		parsers       []parser.Parser
+		panicContains []string
+	}{
+		{
+			name:    "nil custom parser",
+			parsers: []parser.Parser{&mockParser{name: "test-parser"}, nil},
+			panicContains: []string{
+				"failed to register custom parser 2 of 2",
+				"cannot register nil parser",
+				"Successfully registered: ofx, csv-pnc, test-parser",
+				"programmer error",
+				"check your parser initialization",
+			},
+		},
+		{
+			name: "duplicate name",
+			parsers: []parser.Parser{
+				&mockParser{name: "test-parser"},
+				&mockParser{name: "test-parser"},
+			},
+			panicContains: []string{
+				"failed to register custom parser 2 of 2",
+				"already registered",
+				"Successfully registered: ofx, csv-pnc, test-parser",
+				"programmer error",
+				"check your parser initialization",
+			},
+		},
+		{
+			name:    "built-in conflict",
+			parsers: []parser.Parser{&mockParser{name: "ofx"}},
+			panicContains: []string{
+				"failed to register custom parser 1 of 1",
+				"already registered",
+				"ofx",
+				"Successfully registered: ofx, csv-pnc",
+				"programmer error",
+				"check your parser initialization",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatal("Expected panic, got none")
+				}
+
+				panicMsg, ok := r.(string)
+				if !ok {
+					t.Fatalf("Expected string panic, got %T: %v", r, r)
+				}
+
+				for _, expected := range tt.panicContains {
+					if !strings.Contains(panicMsg, expected) {
+						t.Errorf("Panic message missing %q: %s", expected, panicMsg)
+					}
+				}
+			}()
+			MustNew(tt.parsers...)
+		})
+	}
+}
+
+func TestMustNew_PanicMessageFormat(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic, got none")
+		}
+
+		panicMsg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+
+		assertions := []string{
+			"failed to create parser registry:",
+			"failed to register custom parser 1 of 1",
+			"cannot register nil parser",
+			"\n\n",
+			"This is a programmer error - check your parser initialization.",
+		}
+		for _, expected := range assertions {
+			if !strings.Contains(panicMsg, expected) {
+				t.Errorf("Panic message missing %q\nFull message: %s", expected, panicMsg)
+			}
+		}
+
+		// Verify order: registry error comes before programmer message
+		registryIdx := strings.Index(panicMsg, "failed to create parser registry:")
+		programmerIdx := strings.Index(panicMsg, "This is a programmer error")
+		if registryIdx == -1 || programmerIdx == -1 || registryIdx >= programmerIdx {
+			t.Errorf("Panic message has incorrect structure. Expected 'failed to create parser registry' before 'programmer error'.\nGot: %s", panicMsg)
+		}
+	}()
+
+	MustNew(nil) // Should panic with well-structured message
+}
+
+func TestNew_EnhancedErrorContext(t *testing.T) {
+	tests := []struct {
+		name          string
+		customParsers []parser.Parser
+		errorContains []string
+	}{
+		{
+			name:          "nil custom parser",
+			customParsers: []parser.Parser{&mockParser{name: "valid"}, nil},
+			errorContains: []string{
+				"failed to register custom parser 2 of 2",
+				"cannot register nil parser",
+				"Successfully registered: ofx, csv-pnc, valid",
+			},
+		},
+		{
+			name: "duplicate name",
+			customParsers: []parser.Parser{
+				&mockParser{name: "dup"},
+				&mockParser{name: "dup"},
+			},
+			errorContains: []string{
+				"failed to register custom parser 2 of 2",
+				"already registered",
+				"Successfully registered: ofx, csv-pnc, dup",
+			},
+		},
+		{
+			name:          "first parser fails (1 of 1)",
+			customParsers: []parser.Parser{nil},
+			errorContains: []string{
+				"failed to register custom parser 1 of 1",
+				"cannot register nil parser",
+				"Successfully registered: ofx, csv-pnc",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := New(tt.customParsers...)
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+
+			errMsg := err.Error()
+			for _, expected := range tt.errorContains {
+				if !strings.Contains(errMsg, expected) {
+					t.Errorf("Error missing %q: %s", expected, errMsg)
+				}
+			}
+		})
+	}
+}
+
 // Helper functions
 
 func createTempFile(t *testing.T, content string) string {
