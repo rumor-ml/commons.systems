@@ -19,6 +19,11 @@ import {
 } from './tools/remove-label-if-exists.js';
 import { addBlocker, AddBlockerInputSchema } from './tools/add-blocker.js';
 import { checkTodoInMain, CheckTodoInMainInputSchema } from './tools/check-todo-in-main.js';
+import { prioritizeIssues, PrioritizeIssuesInputSchema } from './tools/prioritize-issues.js';
+import {
+  checkIssueDependencies,
+  CheckIssueDependenciesInputSchema,
+} from './tools/check-issue-dependencies.js';
 
 import { createErrorResult } from './utils/errors.js';
 import {
@@ -271,6 +276,56 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path', 'todo_pattern'],
         },
       },
+      {
+        name: 'gh_prioritize_issues',
+        description:
+          'Prioritize GitHub issues using four-tier system with priority scoring. Categorizes issues into Tier 1 (Bug), Tier 2 (Code Reviewer), Tier 3 (Code Simplifier), and Tier 4 (Other). Within each tier, sorts by priority score calculated from comment count and "Found while working on" references.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            label: {
+              type: 'string',
+              description: 'Issue label to filter by (default: "enhancement")',
+              default: 'enhancement',
+            },
+            state: {
+              type: 'string',
+              enum: ['open', 'closed', 'all'],
+              description: 'Issue state filter (default: "open")',
+              default: 'open',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of issues to fetch (default: 1000, max: 1000)',
+              default: 1000,
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'gh_check_issue_dependencies',
+        description:
+          'Check if an issue has open blocking dependencies. Returns actionability status (ACTIONABLE or BLOCKED) based on whether blocking issues are still open. Helps determine if an issue is ready to work on.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            issue_number: {
+              type: 'number',
+              description: 'Issue number to check for blocking dependencies',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['issue_number'],
+        },
+      },
     ],
   };
 });
@@ -319,6 +374,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case 'gh_check_todo_in_main': {
         const validated = CheckTodoInMainInputSchema.parse(args);
         return await checkTodoInMain(validated);
+      }
+
+      case 'gh_prioritize_issues': {
+        const validated = PrioritizeIssuesInputSchema.parse(args);
+        return await prioritizeIssues(validated);
+      }
+
+      case 'gh_check_issue_dependencies': {
+        const validated = CheckIssueDependenciesInputSchema.parse(args);
+        return await checkIssueDependencies(validated);
       }
 
       default:
