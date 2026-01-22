@@ -385,8 +385,8 @@ test.describe('Budget Indicator Lines', () => {
     await page.screenshot({ path: 'test-results/indicators-monthly-switch.png', fullPage: true });
 
     // Switch to weekly
-    const weeklyBarsRadio = page.locator('input[type="radio"][value="weekly"]');
-    await weeklyBarsRadio.click();
+    const weeklyBarsButton = page.locator('button:has-text("Weekly Bars")');
+    await weeklyBarsButton.click();
     await page.waitForTimeout(800);
 
     // Verify lines still visible and x-axis is valid
@@ -402,8 +402,8 @@ test.describe('Budget Indicator Lines', () => {
     await page.screenshot({ path: 'test-results/indicators-weekly-switch.png', fullPage: true });
 
     // Switch back to monthly
-    const monthlyBarsRadio = page.locator('input[type="radio"][value="monthly"]');
-    await monthlyBarsRadio.click();
+    const monthlyBarsButton = page.locator('button:has-text("Monthly Bars")');
+    await monthlyBarsButton.click();
     await page.waitForTimeout(800);
 
     // Verify lines still visible

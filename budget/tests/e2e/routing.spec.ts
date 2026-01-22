@@ -45,7 +45,7 @@ test.describe('Router Navigation', () => {
 
     // Verify planning-specific elements are visible
     const housingInput = page
-      .locator('.budget-input-row', { hasText: 'Housing' })
+      .locator('.category-row', { hasText: 'Housing' })
       .locator('input[type="number"]');
     await expect(housingInput).toBeVisible();
   });
