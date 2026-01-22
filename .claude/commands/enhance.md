@@ -29,11 +29,12 @@ mcp__gh-workflow__gh_prioritize_issues({
 
 - If no issues found, return: "No open enhancement issues found"
 - The tool returns issues categorized into four tiers with priority scores
-- Tier 1: Bug (highest priority)
-- Tier 2: Code Reviewer
-- Tier 3: Code Simplifier
-- Tier 4: Other enhancements
+- Tier 1: Issues with `bug` label (highest priority)
+- Tier 2: Issues with `code-reviewer` label (but not `bug`)
+- Tier 3: Issues with `code-simplifier` label (but not `bug` or `code-reviewer`)
+- Tier 4: All other enhancement issues
 - Within each tier, issues are sorted by priority score (max of comment count and "found while working on" count)
+- See Step 2 for detailed tier descriptions
 
 ## Step 2: Parse Prioritization Results
 

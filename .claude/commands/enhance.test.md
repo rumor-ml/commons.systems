@@ -41,7 +41,7 @@ This document specifies the test scenarios for the `/enhance` skill workflow def
 
 <!-- TODO(#1491): Reference section headers instead of line numbers for maintainability -->
 
-**Validates:** "in progress" skip logic (Step 3, lines 86-87 in enhance.md)
+**Validates:** "in progress" skip logic (Step 3: Select Priority Issue - Selection Criteria)
 
 ---
 
@@ -60,7 +60,7 @@ This document specifies the test scenarios for the `/enhance` skill workflow def
 - Logs: "Skipped #100 - blocked by open issue(s)"
 - Proceeds to Step 4
 
-**Validates:** Dependency blocking logic (Step 3, lines 88-91 in enhance.md)
+**Validates:** Dependency blocking logic (Step 3: Select Priority Issue - Algorithm step 2b)
 
 ---
 
@@ -111,7 +111,7 @@ This document specifies the test scenarios for the `/enhance` skill workflow def
 - Step 6.2 calls `gh issue comment <issue> --body "Verified issue..."`
 - Step 7 is executed (worktree creation)
 
-**Validates:** Issue update workflow (Step 6, lines 180-236)
+**Validates:** Issue update workflow (Step 6: Verify Issue Relevance and Update with Current Code State)
 
 ---
 
@@ -130,7 +130,7 @@ This document specifies the test scenarios for the `/enhance` skill workflow def
 - Step 3 selects Issue #101
 - Proceeds to Step 4 for Issue #101
 
-**Validates:** Non-relevant issue handling and loop-back logic (Step 6.3, lines 238-260)
+**Validates:** Non-relevant issue handling and loop-back logic (Step 6.3: Handle Non-Relevant Issues)
 
 ---
 

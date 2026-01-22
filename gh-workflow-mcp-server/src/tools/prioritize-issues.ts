@@ -134,11 +134,11 @@ export function determineTier(labels: ReadonlyArray<{ readonly name: string }>):
     return 1;
   }
 
-  if (hasCodeReviewer && !hasBug) {
+  if (hasCodeReviewer) {
     return 2;
   }
 
-  if (hasCodeSimplifier && !hasBug && !hasCodeReviewer) {
+  if (hasCodeSimplifier) {
     return 3;
   }
 

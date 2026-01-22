@@ -603,7 +603,7 @@ describe('PrioritizeIssues - Integration Tests', () => {
    * They test helper functions and validation logic but do NOT test the actual prioritizeIssues()
    * function with mocked GitHub CLI responses.
    *
-   * TODO(#1474): Add real integration tests with gh CLI mocking
+   * TODO(#1498): Add real integration tests with gh CLI mocking
    *
    * Required mocking infrastructure:
    * - Mock ghCliJson() to return controlled GitHub API responses
