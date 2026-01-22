@@ -11,7 +11,7 @@ test.describe('Router Navigation', () => {
     await expect(page).toHaveURL(/\/#\//);
 
     // Navigate to planning page
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
@@ -44,7 +44,9 @@ test.describe('Router Navigation', () => {
     await expect(planningHeading).toBeVisible();
 
     // Verify planning-specific elements are visible
-    const housingInput = page.locator('input[name="housing-budget"]');
+    const housingInput = page
+      .locator('.budget-input-row', { hasText: 'Housing' })
+      .locator('input[type="number"]');
     await expect(housingInput).toBeVisible();
   });
 
@@ -71,7 +73,7 @@ test.describe('Router Navigation', () => {
     expect(parseFloat(opacityBefore)).toBeLessThan(0.6);
 
     // Navigate to planning page
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
@@ -115,7 +117,7 @@ test.describe('Router Navigation', () => {
 
   test('should navigate from planning to main via Cancel button', async ({ page }) => {
     // Navigate to planning page
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
@@ -130,7 +132,7 @@ test.describe('Router Navigation', () => {
 
   test('should navigate from planning to main via Save button', async ({ page }) => {
     // Navigate to planning page
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
@@ -153,7 +155,7 @@ test.describe('Router Navigation', () => {
     await page.waitForTimeout(500); // Wait for chart re-render
 
     // Navigate to planning page
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
@@ -172,12 +174,12 @@ test.describe('Router Navigation', () => {
 
   test('should preserve bar aggregation when navigating', async ({ page }) => {
     // Switch to weekly bars
-    const weeklyRadio = page.locator('input[type="radio"][value="weekly"]');
-    await weeklyRadio.click();
+    const weeklyButton = page.locator('button:has-text("Weekly Bars")');
+    await weeklyButton.click();
     await page.waitForTimeout(500);
 
     // Navigate to planning page
-    const planButton = page.locator('button:has-text("Plan Budget")');
+    const planButton = page.locator('button:has-text("Set Budget Targets")');
     await planButton.click();
     await page.waitForURL(/\/#\/plan/);
 
@@ -187,8 +189,8 @@ test.describe('Router Navigation', () => {
     await page.waitForURL(/\/#\//);
     await page.waitForTimeout(300);
 
-    // Verify weekly bars are still selected
-    const isChecked = await weeklyRadio.isChecked();
-    expect(isChecked).toBe(true);
+    // Verify weekly bars button has primary styling (indicating it's selected)
+    const buttonClass = await weeklyButton.getAttribute('class');
+    expect(buttonClass).toContain('btn-primary');
   });
 });

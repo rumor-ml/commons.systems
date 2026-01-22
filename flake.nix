@@ -115,6 +115,10 @@
             # Install via pnpm instead: pnpm add -g firebase-tools
             nodejs
             pnpm
+            # Firebase emulators require Java runtime
+            jdk
+            # Playwright for E2E tests (NixOS-patched browsers)
+            playwright-test
             # Go toolchain
             go
             gopls
