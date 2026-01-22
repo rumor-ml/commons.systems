@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -533,6 +534,128 @@ func TestRegistry_FindParser_PathPassed(t *testing.T) {
 
 	if receivedPath != tmpFile {
 		t.Errorf("Expected path '%s', got '%s'", tmpFile, receivedPath)
+	}
+}
+
+func TestMustNew_PanicContext_NilCustomParser(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic, got none")
+		}
+		panicMsg := fmt.Sprint(r)
+
+		// Verify enhanced context
+		assertions := []string{
+			"failed to register custom parser 2 of 2",
+			"cannot register nil parser",
+			"Successfully registered: [ofx csv-pnc test-parser]",
+		}
+		for _, expected := range assertions {
+			if !strings.Contains(panicMsg, expected) {
+				t.Errorf("Panic message missing %q: %s", expected, panicMsg)
+			}
+		}
+	}()
+
+	validParser := &mockParser{name: "test-parser"}
+	MustNew(validParser, nil) // Should panic
+}
+
+func TestMustNew_PanicContext_DuplicateName(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic, got none")
+		}
+		panicMsg := fmt.Sprint(r)
+
+		assertions := []string{
+			"failed to register custom parser 2 of 2",
+			"already registered",
+			"test-parser",
+			"Successfully registered: [ofx csv-pnc test-parser]",
+		}
+		for _, expected := range assertions {
+			if !strings.Contains(panicMsg, expected) {
+				t.Errorf("Panic message missing %q: %s", expected, panicMsg)
+			}
+		}
+	}()
+
+	p1 := &mockParser{name: "test-parser"}
+	p2 := &mockParser{name: "test-parser"}
+	MustNew(p1, p2) // Should panic
+}
+
+func TestMustNew_PanicContext_BuiltInConflict(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic, got none")
+		}
+		panicMsg := fmt.Sprint(r)
+
+		assertions := []string{
+			"failed to register custom parser 1 of 1",
+			"already registered",
+			"ofx",
+			"Successfully registered: [ofx csv-pnc]",
+		}
+		for _, expected := range assertions {
+			if !strings.Contains(panicMsg, expected) {
+				t.Errorf("Panic message missing %q: %s", expected, panicMsg)
+			}
+		}
+	}()
+
+	ofxConflict := &mockParser{name: "ofx"}
+	MustNew(ofxConflict) // Should panic
+}
+
+func TestNew_EnhancedErrorContext(t *testing.T) {
+	tests := []struct {
+		name          string
+		customParsers []parser.Parser
+		errorContains []string
+	}{
+		{
+			name:          "nil custom parser",
+			customParsers: []parser.Parser{&mockParser{name: "valid"}, nil},
+			errorContains: []string{
+				"failed to register custom parser 2 of 2",
+				"cannot register nil parser",
+				"Successfully registered: [ofx csv-pnc valid]",
+			},
+		},
+		{
+			name: "duplicate name",
+			customParsers: []parser.Parser{
+				&mockParser{name: "dup"},
+				&mockParser{name: "dup"},
+			},
+			errorContains: []string{
+				"failed to register custom parser 2 of 2",
+				"already registered",
+				"Successfully registered: [ofx csv-pnc dup]",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := New(tt.customParsers...)
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+
+			errMsg := err.Error()
+			for _, expected := range tt.errorContains {
+				if !strings.Contains(errMsg, expected) {
+					t.Errorf("Error missing %q: %s", expected, errMsg)
+				}
+			}
+		})
 	}
 }
 

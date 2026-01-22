@@ -25,17 +25,22 @@ func New(customParsers ...parser.Parser) (*Registry, error) {
 
 	// Register built-in parsers
 	if err := r.register(ofx.NewParser()); err != nil {
-		return nil, fmt.Errorf("failed to register ofx parser: %w", err)
+		registered := r.ListParsers()
+		return nil, fmt.Errorf("failed to register ofx parser: %w\n  Successfully registered: %v", err, registered)
 	}
 
 	if err := r.register(csv.NewParser()); err != nil {
-		return nil, fmt.Errorf("failed to register csv-pnc parser: %w", err)
+		registered := r.ListParsers()
+		return nil, fmt.Errorf("failed to register csv-pnc parser: %w\n  Successfully registered: %v", err, registered)
 	}
 
 	// Register custom parsers
-	for _, p := range customParsers {
+	for i, p := range customParsers {
 		if err := r.register(p); err != nil {
-			return nil, fmt.Errorf("failed to register custom parser: %w", err)
+			// Include context: which parsers were successfully registered before failure
+			registered := r.ListParsers()
+			return nil, fmt.Errorf("failed to register custom parser %d of %d: %w\n  Successfully registered: %v",
+				i+1, len(customParsers), err, registered)
 		}
 	}
 
@@ -47,7 +52,7 @@ func New(customParsers ...parser.Parser) (*Registry, error) {
 func MustNew(customParsers ...parser.Parser) *Registry {
 	r, err := New(customParsers...)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create registry: %v", err))
+		panic(fmt.Sprintf("failed to create parser registry: %v\n\nThis is a programmer error - check your parser initialization.", err))
 	}
 	return r
 }
