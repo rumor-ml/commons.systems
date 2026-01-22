@@ -91,11 +91,11 @@ test.describe('Budget Visualization', () => {
     await page.waitForSelector('.app-container');
 
     // Wait for the legend section with "Filters" heading
-    const legend = page.locator('text=Filters');
+    const legend = page.getByRole('heading', { name: 'Filters' });
     await expect(legend).toBeVisible({ timeout: 10000 });
 
     // Check for vacation checkbox
-    const vacationCheckbox = page.locator('input[type="checkbox"]');
+    const vacationCheckbox = page.getByRole('checkbox', { name: 'Show Vacation Expenses' });
     await expect(vacationCheckbox).toBeVisible();
 
     // Check for category summaries (should show categories with their totals)

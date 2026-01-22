@@ -5,13 +5,15 @@ import React from 'react';
 import { BudgetChart } from './BudgetChart';
 import { Legend } from './Legend';
 import { BudgetPlanEditor } from './BudgetPlanEditor';
-import { TimeSelector } from './TimeSelector';
+import { BudgetPlanningPage } from './BudgetPlanningPage';
+import { DateRangeSelector } from './DateRangeSelector';
 
 const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetChart,
   Legend,
   BudgetPlanEditor,
-  TimeSelector,
+  BudgetPlanningPage,
+  DateRangeSelector,
 };
 
 // Store React roots for re-rendering
