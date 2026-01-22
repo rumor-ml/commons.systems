@@ -127,8 +127,8 @@ export class StateDetectionError extends McpError {
  * the specific state operation that failed. Use this for failures during state
  * reads/writes rather than generic GitHubCliError.
  *
- * Note: Constructor validates resourceId if provided (must be positive integer).
- * Invalid resourceId throws ValidationError during construction.
+ * Note: Use StateApiError.create() factory to construct instances.
+ * The factory validates resourceId and throws ValidationError if invalid.
  */
 export class StateApiError extends McpError {
   /**

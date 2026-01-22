@@ -41,7 +41,12 @@ import {
   generateWorkflowTriageInstructions,
 } from '../constants.js';
 import type { ToolResult } from '../types.js';
-import { GitHubCliError, StateApiError, extractZodValidationDetails } from '../utils/errors.js';
+import {
+  GitHubCliError,
+  StateApiError,
+  ValidationError,
+  extractZodValidationDetails,
+} from '../utils/errors.js';
 import { classifyGitHubError } from '@commons/mcp-common/errors';
 import { sanitizeErrorMessage } from '../utils/security.js';
 
@@ -207,6 +212,15 @@ export async function safeUpdatePRBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // Validate prNumber parameter (must be positive integer for valid PR number)
+  // CRITICAL: Invalid prNumber would cause StateApiError.create() to throw ValidationError
+  // inside catch blocks (line 255), potentially masking the original error
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    throw new ValidationError(
+      `safeUpdatePRBodyState: prNumber must be a positive integer, got: ${prNumber} (type: ${typeof prNumber})`
+    );
+  }
+
   // Validate maxRetries to ensure retry loop executes correctly (issue #625)
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
@@ -424,6 +438,15 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // Validate issueNumber parameter (must be positive integer for valid issue number)
+  // CRITICAL: Invalid issueNumber would cause StateApiError.create() to throw ValidationError
+  // inside catch blocks (line 472), potentially masking the original error
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+    throw new ValidationError(
+      `safeUpdateIssueBodyState: issueNumber must be a positive integer, got: ${issueNumber} (type: ${typeof issueNumber})`
+    );
+  }
+
   // Validate maxRetries to ensure retry loop executes correctly (issue #625)
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)

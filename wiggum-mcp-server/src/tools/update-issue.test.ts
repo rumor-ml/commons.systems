@@ -560,6 +560,7 @@ describe('update-issue behavioral tests', () => {
       // Skip on macOS - directory read-only permissions don't prevent writing to existing files
       // On macOS, only creating/deleting files is blocked by directory permissions
       // Skip on WSL2 - WSL2 has different permission handling than native Linux
+      // TODO(#1508): Test skip comment could be more specific about WSL2 permission behavior
       if (process.platform === 'darwin') {
         t.skip('macOS directory permissions do not prevent writing to existing files');
         return;
@@ -573,6 +574,8 @@ describe('update-issue behavioral tests', () => {
           return;
         }
       } catch {
+        // TODO(#1505): Add logging to catch block to prevent silent failure
+        // TODO(#1507): Empty catch block comment could explain assumption rationale
         // If we can't read /proc/version, assume not WSL and continue
       }
 

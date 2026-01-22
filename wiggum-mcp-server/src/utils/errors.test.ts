@@ -366,4 +366,19 @@ describe('StateApiError.create() factory function', () => {
       'Should throw ValidationError for invalid resourceId'
     );
   });
+
+  it('should enforce factory pattern via private constructor', () => {
+    // This test documents that direct instantiation is not allowed.
+    // If someone attempts: new StateApiError('msg', 'read', 'pr', 123)
+    // TypeScript will fail compilation with: "Constructor of class 'StateApiError' is private"
+    // This prevents the dual-pattern problem described in issue #852.
+
+    // Must use factory method instead
+    const error = StateApiError.create('msg', 'read', 'pr', 123);
+    assert.ok(error instanceof StateApiError);
+    assert.strictEqual(error.message, 'msg');
+    assert.strictEqual(error.operation, 'read');
+    assert.strictEqual(error.resourceType, 'pr');
+    assert.strictEqual(error.resourceId, 123);
+  });
 });
