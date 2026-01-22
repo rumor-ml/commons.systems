@@ -20,20 +20,28 @@ export const FindDuplicateIssuesInputSchema = z
 export type FindDuplicateIssuesInput = z.infer<typeof FindDuplicateIssuesInputSchema>;
 
 interface GitHubIssue {
-  number: number;
-  title: string;
-  url: string;
-  labels: Array<{ name: string }>;
+  readonly number: number;
+  readonly title: string;
+  readonly url: string;
+  readonly labels: ReadonlyArray<{ readonly name: string }>;
 }
 
-interface DuplicateMatch {
-  issue_number: number;
-  title: string;
-  url: string;
-  match_type: 'exact' | 'similar';
-  similarity_score?: number;
-  has_in_progress_label: boolean;
-}
+type DuplicateMatch =
+  | {
+      readonly issue_number: number;
+      readonly title: string;
+      readonly url: string;
+      readonly match_type: 'exact';
+      readonly has_in_progress_label: boolean;
+    }
+  | {
+      readonly issue_number: number;
+      readonly title: string;
+      readonly url: string;
+      readonly match_type: 'similar';
+      readonly similarity_score: number; // Required for similar matches
+      readonly has_in_progress_label: boolean;
+    };
 
 /**
  * Normalize title for exact comparison
@@ -96,11 +104,23 @@ function calculateJaccardSimilarity(title1: string, title2: string): number {
   const tokens2 = tokenizeTitle(title2);
 
   if (tokens1.size === 0 && tokens2.size === 0) {
-    return 1.0; // Both empty = identical
+    // Two empty titles are not meaningful duplicates - they may be data quality issues
+    // Return 0.0 to avoid false positive duplicate detection
+    console.warn(
+      `[gh-workflow] WARN calculateJaccardSimilarity: Both titles are empty after tokenization. ` +
+        `This may indicate data quality issues (empty titles or titles with only special characters). ` +
+        `Returning 0.0 to avoid false positive duplicate match.`
+    );
+    return 0.0;
   }
 
   if (tokens1.size === 0 || tokens2.size === 0) {
-    return 0.0; // One empty = no similarity
+    // One empty title - log warning as this suggests data quality issue
+    console.warn(
+      `[gh-workflow] WARN calculateJaccardSimilarity: One title is empty after tokenization. ` +
+        `This may indicate data quality issues. Returning 0.0.`
+    );
+    return 0.0;
   }
 
   // Calculate intersection
@@ -118,7 +138,7 @@ function calculateJaccardSimilarity(title1: string, title2: string): number {
  * @param labels - Issue labels array
  * @returns True if "in progress" label is present (case insensitive)
  */
-function hasInProgressLabel(labels: Array<{ name: string }>): boolean {
+function hasInProgressLabel(labels: ReadonlyArray<{ readonly name: string }>): boolean {
   return labels.some((label) => label.name.toLowerCase() === 'in progress');
 }
 
@@ -153,16 +173,49 @@ export async function findDuplicateIssues(input: FindDuplicateIssuesInput): Prom
   try {
     const resolvedRepo = await resolveRepo(input.repo);
 
+    // Validate that at least one candidate issue is provided
+    if (input.candidate_issues.length === 0) {
+      return createErrorResult(
+        new Error(
+          'No candidate issues provided. The candidate_issues array must contain at least one issue number to check for duplicates.'
+        )
+      );
+    }
+
     // Fetch all issues (reference + candidates) in one batch
     const issueNumbers = [input.reference_issue, ...input.candidate_issues];
-    const issuePromises = issueNumbers.map((num) =>
-      ghCliJson<GitHubIssue>(
-        ['issue', 'view', num.toString(), '--json', 'number,title,url,labels'],
-        { repo: resolvedRepo }
+    const issueResults = await Promise.allSettled(
+      issueNumbers.map((num) =>
+        ghCliJson<GitHubIssue>(
+          ['issue', 'view', num.toString(), '--json', 'number,title,url,labels'],
+          { repo: resolvedRepo }
+        )
       )
     );
 
-    const issues = await Promise.all(issuePromises);
+    const issues: GitHubIssue[] = [];
+    const failedIssues: Array<{ number: number; error: string }> = [];
+
+    issueResults.forEach((result, idx) => {
+      if (result.status === 'fulfilled') {
+        issues.push(result.value);
+      } else {
+        failedIssues.push({
+          number: issueNumbers[idx],
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    });
+
+    // Validate we have at least the reference issue
+    if (issues.length === 0 || issues[0].number !== input.reference_issue) {
+      const refError = failedIssues.find((f) => f.number === input.reference_issue);
+      return createErrorResult(
+        new Error(
+          `Failed to fetch reference issue #${input.reference_issue}: ${refError?.error || 'Unknown error'}`
+        )
+      );
+    }
 
     // Extract reference issue
     const referenceIssue = issues[0];
@@ -212,6 +265,15 @@ export async function findDuplicateIssues(input: FindDuplicateIssuesInput): Prom
       '',
     ];
 
+    // Include failedIssues in output if any exist
+    if (failedIssues.length > 0) {
+      lines.push('Skipped Issues (failed to fetch):');
+      failedIssues.forEach(({ number, error }) => {
+        lines.push(`  - #${number}: ${error}`);
+      });
+      lines.push('');
+    }
+
     if (exactMatches.length === 0 && similarMatches.length === 0) {
       lines.push('No duplicates found.');
       return {
@@ -235,7 +297,8 @@ export async function findDuplicateIssues(input: FindDuplicateIssuesInput): Prom
       );
       similarMatches.forEach((match) => {
         const inProgressFlag = match.has_in_progress_label ? ' [IN PROGRESS - DO NOT CLOSE]' : '';
-        const similarityPercent = Math.round((match.similarity_score || 0) * 100);
+        const similarityPercent =
+          match.match_type === 'similar' ? Math.round(match.similarity_score * 100) : 0;
         lines.push(
           `  - #${match.issue_number}: ${match.title} (${similarityPercent}% similar)${inProgressFlag}`
         );

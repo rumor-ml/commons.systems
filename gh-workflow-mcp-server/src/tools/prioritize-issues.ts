@@ -20,23 +20,23 @@ export const PrioritizeIssuesInputSchema = z
 export type PrioritizeIssuesInput = z.infer<typeof PrioritizeIssuesInputSchema>;
 
 interface GitHubIssue {
-  number: number;
-  title: string;
-  labels: Array<{ name: string }>;
-  url: string;
-  comments: number;
-  body: string | null;
+  readonly number: number;
+  readonly title: string;
+  readonly labels: ReadonlyArray<{ readonly name: string }>;
+  readonly url: string;
+  readonly comments: number;
+  readonly body: string | null;
 }
 
 interface PrioritizedIssue {
-  number: number;
-  title: string;
-  url: string;
-  tier: 1 | 2 | 3;
-  priority_score: number;
-  comment_count: number;
-  found_while_working_count: number;
-  labels: string[];
+  readonly number: number;
+  readonly title: string;
+  readonly url: string;
+  readonly tier: 1 | 2 | 3;
+  readonly priority_score: number;
+  readonly comment_count: number;
+  readonly found_while_working_count: number;
+  readonly labels: ReadonlyArray<string>;
 }
 
 /**
@@ -61,6 +61,17 @@ function extractFoundWhileWorkingCount(body: string | null): number {
 
   // Count issue number references (#123, #456, etc.)
   const issueRefs = match[1].match(/#\d+/g);
+
+  // Log warning if "Found while working on" exists but no issue references found
+  if (!issueRefs || issueRefs.length === 0) {
+    console.warn(
+      `[gh-workflow] WARN extractFoundWhileWorkingCount found "Found while working on" pattern but no issue references. ` +
+        `Issue body may have malformed references (missing # symbols). ` +
+        `Pattern match: "${match[1]}" ` +
+        `Expected format: "Found while working on #123, #456"`
+    );
+  }
+
   return issueRefs ? issueRefs.length : 0;
 }
 
@@ -93,10 +104,13 @@ function calculatePriorityScore(issue: GitHubIssue): {
  * Determine which tier an issue belongs to
  *
  * Tier 1: Has both 'enhancement' AND 'bug' labels
- * Tier 2: Has both 'enhancement' AND 'high priority' labels
- * Tier 3: All other enhancement issues
+ * Tier 2: Has 'enhancement' AND 'high priority' labels (but not 'bug')
+ * Tier 3: Has 'enhancement' label only (without 'bug' or 'high priority')
+ *
+ * Note: This function is typically called on issues pre-filtered by the enhancement label,
+ * so all inputs are expected to have the enhancement label.
  */
-function determineTier(labels: Array<{ name: string }>): 1 | 2 | 3 {
+function determineTier(labels: ReadonlyArray<{ readonly name: string }>): 1 | 2 | 3 {
   const labelNames = labels.map((l) => l.name.toLowerCase());
 
   const hasEnhancement = labelNames.includes('enhancement');
@@ -138,19 +152,19 @@ function determineTier(labels: Array<{ name: string }>): 1 | 2 | 3 {
  * @throws {ValidationError} If GitHub CLI fails or returns invalid data
  *
  * @example
- * // Prioritize open enhancement issues
+ * // Prioritize open enhancement issues in current repo
  * await prioritizeIssues({ label: 'enhancement', state: 'open' });
  *
  * @example
- * // Prioritize bug issues in specific repo
- * await prioritizeIssues({ label: 'bug', repo: 'owner/repo' });
+ * // Prioritize feature requests in specific repo
+ * await prioritizeIssues({ label: 'feature-request', state: 'open', repo: 'owner/repo' });
  */
 export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<ToolResult> {
   try {
     const resolvedRepo = await resolveRepo(input.repo);
 
-    // Fetch issues from GitHub
-    const issues = await ghCliJson<GitHubIssue[]>(
+    // Fetch issues from GitHub (use any[] initially since we'll validate and normalize)
+    const rawIssues = await ghCliJson<any[]>(
       [
         'issue',
         'list',
@@ -166,9 +180,40 @@ export async function prioritizeIssues(input: PrioritizeIssuesInput): Promise<To
       { repo: resolvedRepo }
     );
 
-    if (!Array.isArray(issues)) {
+    if (!Array.isArray(rawIssues)) {
       throw new ValidationError('GitHub CLI returned invalid issue data (not an array)');
     }
+
+    // Validate and normalize each issue
+    const issues: GitHubIssue[] = rawIssues.map((issue) => {
+      if (typeof issue.number !== 'number') {
+        throw new ValidationError(
+          `GitHub CLI returned issue without valid 'number' field. Issue data: ${JSON.stringify(issue).substring(0, 200)}`
+        );
+      }
+      if (!Array.isArray(issue.labels)) {
+        throw new ValidationError(
+          `GitHub CLI returned issue #${issue.number} without valid 'labels' array. This may indicate a GitHub API schema change.`
+        );
+      }
+      if (typeof issue.comments !== 'number') {
+        console.warn(
+          `[gh-workflow] WARN Issue #${issue.number} missing 'comments' field, defaulting to 0`
+        );
+        issue.comments = 0;
+      }
+      if (typeof issue.title !== 'string') {
+        throw new ValidationError(
+          `GitHub CLI returned issue #${issue.number} without valid 'title' field`
+        );
+      }
+      if (typeof issue.url !== 'string') {
+        throw new ValidationError(
+          `GitHub CLI returned issue #${issue.number} without valid 'url' field`
+        );
+      }
+      return issue as GitHubIssue;
+    });
 
     if (issues.length === 0) {
       return {

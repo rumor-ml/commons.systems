@@ -10,7 +10,7 @@ model: haiku
 Use the MCP tool to fetch and prioritize all open enhancement issues:
 
 ```
-mcp__gh-issue__gh_prioritize_issues({
+mcp__gh-workflow__gh_prioritize_issues({
   label: "enhancement",
   state: "open",
   limit: 1000
@@ -86,7 +86,7 @@ For each tier (Tier 1, then Tier 2, then Tier 3):
      a. Check if issue has "in progress" label → Skip if yes
 
      b. Check if issue has open blocking dependencies:
-        - Use: mcp__gh-issue__gh_check_issue_dependencies({ issue_number: <num> })
+        - Use: mcp__gh-workflow__gh_check_issue_dependencies({ issue_number: <num> })
         - If status is "BLOCKED" → Skip this issue
         - Log: "Skipped #<num> - blocked by open issue(s)"
 
@@ -110,7 +110,7 @@ Store the selected issue as `PRIORITY_ISSUE` (number, title, url, comments, prio
 Use the MCP tool to find duplicates among remaining enhancement issues (excluding the priority issue):
 
 ```
-mcp__gh-issue__gh_find_duplicate_issues({
+mcp__gh-workflow__gh_find_duplicate_issues({
   reference_issue: <PRIORITY_ISSUE_NUMBER>,
   candidate_issues: [<all other issue numbers from Step 1>],
   similarity_threshold: 0.7

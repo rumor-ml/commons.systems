@@ -20,7 +20,7 @@ export type CheckIssueDependenciesInput = z.infer<typeof CheckIssueDependenciesI
 interface BlockingIssue {
   id: number;
   number: number;
-  state: string;
+  state: 'open' | 'closed';
   title: string;
   url: string;
 }
@@ -56,6 +56,24 @@ export async function checkIssueDependencies(
   try {
     const resolvedRepo = await resolveRepo(input.repo);
 
+    // Verify issue exists first to provide better error messages
+    try {
+      await ghCli(['issue', 'view', input.issue_number.toString(), '--json', 'number'], {
+        repo: resolvedRepo,
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes('404') || error.message.includes('Not Found'))
+      ) {
+        throw new ValidationError(
+          `Issue #${input.issue_number} does not exist in repository ${resolvedRepo}. ` +
+            `Please verify the issue number is correct.`
+        );
+      }
+      throw error;
+    }
+
     // Fetch blocking dependencies via GitHub API
     // Note: This endpoint returns an array of issues that block the specified issue
     let blockingIssuesJson: string;
@@ -67,8 +85,9 @@ export async function checkIssueDependencies(
         '.',
       ]);
     } catch (error) {
-      // If the endpoint returns 404 or the issue has no dependencies, treat as empty array
-      // GitHub returns 404 if dependencies feature is not enabled or no dependencies exist
+      // If the dependencies endpoint returns 404, treat as empty array
+      // GitHub returns 404 if the dependencies feature is not enabled for this repository
+      // (Note: If the issue exists but has no dependencies, GitHub returns [] not 404)
       if (
         error instanceof Error &&
         (error.message.includes('404') || error.message.includes('Not Found'))

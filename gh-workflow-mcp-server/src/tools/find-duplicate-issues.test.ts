@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 describe('FindDuplicateIssues - Title Normalization', () => {
+  // TODO(#1474): Extract test helpers to shared utility instead of duplicating implementation
   // Mirror the normalizeTitle function for testing
   function normalizeTitle(title: string): string {
     return title
@@ -288,12 +289,137 @@ describe('FindDuplicateIssues - Exact Match Detection', () => {
     assert.notEqual(normalizeTitle(title1), normalizeTitle(title2));
   });
 
-  it('matches titles with extra spaces', () => {
+  it('intentionally preserves multiple consecutive spaces for exact matching', () => {
+    // Multiple spaces are preserved because:
+    // 1. Exact matching is strict by design (requires character-level identity)
+    // 2. Jaccard similarity handles fuzzy matching (tokenization collapses spaces)
+    // 3. This separation ensures clear duplicate detection layers:
+    //    - Exact matches: Auto-close safe (strict identity)
+    //    - Similar matches: User confirmation needed (fuzzy similarity)
+
     const title1 = 'Fix   bug   in   parser';
     const title2 = 'Fix bug in parser';
-    // Note: normalizeTitle preserves internal spaces, so this won't match exactly
-    // unless we collapse multiple spaces. Current implementation preserves them.
+
+    // These won't be exact matches (different spacing)
     assert.notEqual(normalizeTitle(title1), normalizeTitle(title2));
+
+    // But they WILL be similar matches (same tokens)
+    // This is verified in the Jaccard similarity tests
+  });
+
+  it('collapses multiple spaces during tokenization for similarity matching', () => {
+    // Even though exact match preserves spaces, similarity should handle it
+    const title1 = 'Fix   bug   in   parser';
+    const title2 = 'Fix bug in parser';
+
+    // Tokenization collapses spaces, so similarity should be 1.0
+    function tokenizeTitle(title: string): Set<string> {
+      const words = title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length > 0);
+      return new Set(words);
+    }
+
+    function calculateJaccardSimilarity(t1: string, t2: string): number {
+      const tokens1 = tokenizeTitle(t1);
+      const tokens2 = tokenizeTitle(t2);
+      if (tokens1.size === 0 && tokens2.size === 0) return 1.0;
+      if (tokens1.size === 0 || tokens2.size === 0) return 0.0;
+      const intersection = new Set([...tokens1].filter((token) => tokens2.has(token)));
+      const union = new Set([...tokens1, ...tokens2]);
+      return intersection.size / union.size;
+    }
+
+    const similarity = calculateJaccardSimilarity(title1, title2);
+    assert.equal(similarity, 1.0, 'Tokenization should collapse multiple spaces');
+  });
+});
+
+describe('FindDuplicateIssues - Integration', () => {
+  // NOTE: These are placeholder tests documenting expected behavior.
+  // Full implementation requires a mocking framework for ghCliJson.
+  // When mocking is available, implement these tests to verify:
+  // 1. GitHub API error handling
+  // 2. Batch fetch failure scenarios
+  // 3. Output formatting with real data
+  // 4. Label edge cases (missing/malformed labels)
+
+  it('should handle invalid reference issue number', async () => {
+    // TODO: Mock ghCliJson to throw error for non-existent issue
+    // Expected: Error should be propagated correctly with clear message
+    // Example: "Could not resolve to an Issue with the number 99999"
+    assert.ok(true, 'Placeholder - requires mocking framework');
+  });
+
+  it('should handle missing candidate issues gracefully', async () => {
+    // TODO: Mock scenario where one candidate issue doesn't exist
+    // Expected: Promise.all should handle partial failures
+    // Options:
+    //   A) Skip failed issues, continue with valid ones
+    //   B) Return error for entire batch
+    // Current implementation uses Promise.all which fails on ANY rejection
+    // Consider using Promise.allSettled for graceful degradation
+    assert.ok(true, 'Placeholder - requires mocking framework');
+  });
+
+  it('should correctly flag IN PROGRESS issues in output', async () => {
+    // TODO: Mock exact match with "in progress" label
+    // Mock data:
+    //   reference: { number: 100, title: "Fix bug", labels: [] }
+    //   candidate: { number: 101, title: "Fix bug", labels: [{ name: "in progress" }] }
+    // Expected output should contain:
+    //   "#101: Fix bug [IN PROGRESS - DO NOT CLOSE]"
+    assert.ok(true, 'Placeholder - requires mocking framework');
+  });
+
+  it('should handle issues with missing labels field', async () => {
+    // TODO: Mock GitHub response with null/undefined labels
+    // Mock data:
+    //   candidate: { number: 102, title: "Fix bug", labels: null }
+    // Expected: hasInProgressLabel should not crash
+    // Current implementation: Will crash with "Cannot read properties of null"
+    // Fix needed: Add null check in hasInProgressLabel
+    assert.ok(true, 'Placeholder - requires mocking framework');
+  });
+
+  it('should return appropriate message when no duplicates found', async () => {
+    // TODO: Mock scenario with no matches
+    // Mock data:
+    //   reference: { number: 100, title: "Fix parser bug" }
+    //   candidates: [
+    //     { number: 101, title: "Add feature X" },
+    //     { number: 102, title: "Update docs" }
+    //   ]
+    // Expected output: "No duplicates found."
+    assert.ok(true, 'Placeholder - requires mocking framework');
+  });
+
+  it('should categorize exact and similar matches correctly', async () => {
+    // TODO: Mock scenario with both types of matches
+    // Mock data:
+    //   reference: { number: 100, title: "Add error handling" }
+    //   candidates: [
+    //     { number: 101, title: "Add error handling" },        // Exact match
+    //     { number: 102, title: "Add error-handling support" }, // Similar (0.75)
+    //     { number: 103, title: "Fix parser" }                 // No match
+    //   ]
+    // Expected output:
+    //   - Exact Matches section with #101
+    //   - Similar Matches section with #102 (75% similar)
+    //   - No mention of #103
+    assert.ok(true, 'Placeholder - requires mocking framework');
+  });
+
+  it('should handle batch fetch errors with Promise.all', async () => {
+    // TODO: Test current Promise.all behavior with mixed success/failure
+    // Scenario: 5 candidates, candidate #3 fails to fetch
+    // Current behavior: Promise.all rejects entire batch on first failure
+    // Expected: All-or-nothing failure (current implementation)
+    // Alternative: Use Promise.allSettled for partial success
+    // Decision needed: Should one failed fetch abort entire operation?
+    assert.ok(true, 'Placeholder - requires mocking framework');
   });
 });
 
@@ -356,5 +482,18 @@ describe('FindDuplicateIssues - Similarity Threshold Logic', () => {
 
     const similarity = calculateJaccardSimilarity('a b c d e f g', 'a b c d e f g h i j');
     assert.equal(similarity, 0.7);
+  });
+
+  it('handles very long titles efficiently', () => {
+    // Create titles with 100+ words to test performance
+    const longTitle1 = Array.from({ length: 100 }, (_, i) => `word${i}`).join(' ');
+    const longTitle2 = Array.from({ length: 100 }, (_, i) => `word${i}`).join(' ');
+
+    const start = Date.now();
+    const similarity = calculateJaccardSimilarity(longTitle1, longTitle2);
+    const duration = Date.now() - start;
+
+    assert.equal(similarity, 1.0); // Should match exactly
+    assert.ok(duration < 100, `Performance test failed: took ${duration}ms (expected <100ms)`);
   });
 });

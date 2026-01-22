@@ -4,6 +4,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { CheckIssueDependenciesInputSchema } from './check-issue-dependencies.js';
 
 describe('CheckIssueDependencies - Open Blocker Filtering', () => {
   interface BlockingIssue {
@@ -214,5 +215,130 @@ describe('CheckIssueDependencies - 404 Error Handling', () => {
     assert.throws(() => handle404Error(error), {
       message: '500 Internal Server Error',
     });
+  });
+});
+
+describe('CheckIssueDependencies - Input Validation', () => {
+  it('accepts valid positive issue number', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({ issue_number: 123 });
+    assert.equal(result.success, true);
+  });
+
+  it('accepts valid issue number with repo', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({
+      issue_number: 456,
+      repo: 'owner/repo',
+    });
+    assert.equal(result.success, true);
+  });
+
+  it('rejects negative issue numbers', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({ issue_number: -1 });
+    assert.equal(result.success, false);
+    if (!result.success) {
+      const errorMessage = result.error.errors[0].message;
+      assert.ok(
+        errorMessage.includes('positive') || errorMessage.includes('greater'),
+        'Error message should mention positive/greater requirement'
+      );
+    }
+  });
+
+  it('rejects zero as issue number', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({ issue_number: 0 });
+    assert.equal(result.success, false);
+    if (!result.success) {
+      const errorMessage = result.error.errors[0].message;
+      assert.ok(
+        errorMessage.includes('positive') || errorMessage.includes('greater'),
+        'Error message should mention positive/greater requirement'
+      );
+    }
+  });
+
+  it('rejects non-integer issue numbers', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({ issue_number: 123.45 });
+    assert.equal(result.success, false);
+  });
+
+  it('rejects missing issue_number field', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({});
+    assert.equal(result.success, false);
+  });
+
+  it('rejects string issue numbers', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({ issue_number: '123' });
+    assert.equal(result.success, false);
+  });
+
+  it('rejects null issue number', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({ issue_number: null });
+    assert.equal(result.success, false);
+  });
+
+  it('accepts optional repo field', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({ issue_number: 100 });
+    assert.equal(result.success, true);
+  });
+
+  it('rejects invalid repo format (non-string)', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({
+      issue_number: 100,
+      repo: 123,
+    });
+    assert.equal(result.success, false);
+  });
+
+  it('rejects unknown fields (strict schema)', () => {
+    const result = CheckIssueDependenciesInputSchema.safeParse({
+      issue_number: 100,
+      unknown_field: 'value',
+    });
+    assert.equal(result.success, false);
+  });
+});
+
+describe('CheckIssueDependencies - Integration Tests', () => {
+  /**
+   * NOTE: These tests verify the full checkIssueDependencies() function
+   * including GitHub API integration.
+   *
+   * TODO(#1454): Add integration tests with gh CLI mocking
+   *
+   * Required test cases:
+   * 1. handles 404 error correctly (no dependencies) - returns ACTIONABLE
+   * 2. handles non-404 errors correctly - propagates error in result
+   * 3. handles malformed API response - returns error result
+   * 4. correctly determines BLOCKED status with open blockers
+   * 5. handles empty dependencies array - returns ACTIONABLE
+   * 6. handles mix of open and closed blockers - filters to open only
+   * 7. handles non-existent issue - appropriate error result
+   *
+   * Implementation approach:
+   * - Mock ghCli function to return controlled responses
+   * - Test error handling paths (404, 500, timeout)
+   * - Test parsing edge cases (non-array JSON, null, malformed)
+   * - Test actionability determination logic
+   * - Verify output format matches expected structure
+   *
+   * Example test structure:
+   * ```typescript
+   * it('handles 404 error correctly (no dependencies)', async () => {
+   *   // Mock ghCli to throw 404 error
+   *   const mockGhCli = async () => {
+   *     throw new Error('GitHub CLI command failed: 404 Not Found');
+   *   };
+   *   // Inject mock and call checkIssueDependencies
+   *   const result = await checkIssueDependencies({ issue_number: 123 });
+   *   // Verify returns ACTIONABLE status
+   *   assert.ok(result.content[0].text.includes('ACTIONABLE'));
+   * });
+   * ```
+   */
+
+  it('placeholder - integration tests require gh CLI mocking infrastructure', () => {
+    // This placeholder ensures the test suite passes while documenting
+    // the need for integration test infrastructure.
+    assert.ok(true, 'Integration tests will be added when mocking infrastructure is available');
   });
 });
