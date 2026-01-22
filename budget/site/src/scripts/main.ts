@@ -6,7 +6,6 @@ import { Transaction, BudgetPlan, WeekId, Category } from '../islands/types';
 import transactionsData from '../data/transactions.json';
 import {
   aggregateTransactionsByWeek,
-  getAvailableWeeks,
   calculateCategoryHistoricAverages,
 } from './weeklyAggregation';
 import { setupRouteListener, getCurrentRoute, navigateTo, Route } from './router';

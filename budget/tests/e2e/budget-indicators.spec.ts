@@ -85,9 +85,6 @@ test.describe('Budget Indicator Lines', () => {
     await page.waitForTimeout(500);
 
     // Verify indicator lines are rendered
-    const chartSvg = page.locator('#chart-island svg');
-    const svgContent = await chartSvg.innerHTML();
-
     // Observable Plot renders lines as path elements
     // We should have 3 lines per category: actual (solid), trailing (dashed), target (dotted)
     const paths = page.locator('#chart-island svg path[stroke]');
@@ -182,9 +179,6 @@ test.describe('Budget Indicator Lines', () => {
     const groceriesIndicatorToggle = groceriesLegendItem.locator('button:has-text("📊")');
     await groceriesIndicatorToggle.click();
     await page.waitForTimeout(500);
-
-    // Get the SVG element
-    const chartSvg = page.locator('#chart-island svg');
 
     // Get bar positions
     const bars = page.locator('#chart-island svg rect[fill]');

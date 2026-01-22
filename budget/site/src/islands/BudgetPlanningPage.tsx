@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { BudgetPlan, CategoryBudget, WeeklyData, Category, CategoryHistoricAverage } from './types';
 import { CATEGORIES, CATEGORY_LABELS } from './constants';
 import { predictCashFlow } from '../scripts/weeklyAggregation';
