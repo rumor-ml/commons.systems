@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # PreToolUse Hook: Verify git operations match worktree branch
 # Prevents accidental commits/pushes to wrong branch when working across multiple worktrees.
@@ -70,23 +70,92 @@ if [[ "$base_cmd" != "git" ]]; then
   allow  # Not a git command
 fi
 
-# Check if this is a destructive remote operation
+# Check if we're in a worktree directory (need to check this early)
+current_dir=$(pwd)
+log "Current directory: $current_dir"
+
+in_worktree=false
+if [[ "$current_dir" == "$HOME/worktrees/"* ]]; then
+  in_worktree=true
+  log "Detected worktree directory"
+fi
+
+# Determine operation type and whether to validate
+needs_validation=false
+operation_type=""
+
 case "$first_arg" in
   push|pull|merge)
     log "Detected destructive git operation: $first_arg"
+    needs_validation=true
+    operation_type="branch_match_required"
+    ;;
+  stash)
+    # Only block stash creation, not read operations like "stash list"
+    # Parse: git stash [subcommand] - need to skip "git" and "stash" to get subcommand
+    read -r _ _ stash_subcommand _ <<< "$command"
+    if [[ -z "$stash_subcommand" || "$stash_subcommand" == "push" || "$stash_subcommand" == "save" ]]; then
+      log "Detected stash creation operation (stash, stash push, stash save)"
+      if [[ "$in_worktree" == true ]]; then
+        deny "WORKTREE SAFETY: git stash is blocked in worktree directories to prevent stashing work from parallel agents.
+
+Current directory: $current_dir
+
+To stash changes, work in the main repository directory instead:
+  cd ~/commons.systems/
+
+This safety check prevents accidentally stashing uncommitted changes from other agents working in parallel."
+      fi
+    else
+      allow  # stash list, stash show, etc. are read-only
+    fi
+    ;;
+  checkout)
+    # Block branch switching, allow file restoration (checkout -- <file>)
+    # Parse: git checkout [branch|--] - need to skip "git" and "checkout" to get target
+    read -r _ _ checkout_target _ <<< "$command"
+    if [[ "$checkout_target" == "--" ]]; then
+      allow  # git checkout -- <file> is safe (file restoration)
+    else
+      log "Detected checkout operation (potential branch switch)"
+      if [[ "$in_worktree" == true ]]; then
+        deny "WORKTREE SAFETY: git checkout <branch> is blocked in worktree directories to prevent switching branches.
+
+Current directory: $current_dir
+
+Worktree directories are branch-specific. To work on a different branch:
+  cd ~/worktrees/<branch-name>
+
+This safety check prevents accidentally destroying work from other agents in parallel."
+      fi
+    fi
+    ;;
+  switch)
+    log "Detected switch operation (branch switching)"
+    if [[ "$in_worktree" == true ]]; then
+      deny "WORKTREE SAFETY: git switch is blocked in worktree directories to prevent switching branches.
+
+Current directory: $current_dir
+
+Worktree directories are branch-specific. To work on a different branch:
+  cd ~/worktrees/<branch-name>
+
+This safety check prevents accidentally destroying work from other agents in parallel."
+    fi
     ;;
   *)
     allow  # Not a destructive operation (fetch, log, commit, add, etc. are safe)
     ;;
 esac
 
-# Check if we're in a worktree directory
-current_dir=$(pwd)
-log "Current directory: $current_dir"
-
-# Only validate if in ~/worktrees/ directory
-if [[ "$current_dir" != "$HOME/worktrees/"* ]]; then
+# Only validate branch matching if in worktree and operation requires it
+if [[ "$in_worktree" == false ]]; then
   log "Not in ~/worktrees/ directory, skipping validation"
+  allow
+fi
+
+if [[ "$needs_validation" == false ]]; then
+  # Already handled above (stash/checkout/switch block or allow)
   allow
 fi
 
@@ -112,14 +181,14 @@ Current situation:
   - Expected:  $expected_branch
 
 To fix this issue:
-  1. Switch to the correct branch:
-     git checkout $expected_branch
-
-  2. Or navigate to the correct worktree for branch '$current_branch':
+  1. Navigate to the correct worktree for branch '$current_branch':
      cd ~/worktrees/$current_branch
 
-  3. Or if the branch doesn't exist yet:
-     git checkout -b $expected_branch
+  2. Or if you need to work on branch '$expected_branch':
+     Use the correct worktree directory that matches the branch
+
+Note: This hook blocks branch-switching operations (checkout, switch) and stash operations
+in worktree directories to prevent interference with parallel agent work.
 
 This safety check prevents accidental commits/pushes to the wrong branch when working across multiple worktrees."
 fi

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Tests for worktree-branch-guard.sh
 # Tests the hook's ability to parse input and validate operations
 
@@ -182,6 +182,97 @@ if [[ "$reason" =~ "WORKTREE BRANCH MISMATCH" ]]; then
 else
   echo "✗ FAIL: Deny message should include WORKTREE BRANCH MISMATCH"
   echo "  Got: $reason"
+  ((FAILURES++))
+fi
+
+# Switch back to matching branch for next tests
+git checkout -q test-branch
+
+# Test 17: git stash in worktree should deny (to prevent stashing parallel agent work)
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git stash"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "deny" ]]; then
+  echo "✓ PASS: git stash in worktree should deny"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git stash in worktree should deny (got: $decision)"
+  ((FAILURES++))
+fi
+
+# Test 18: git stash push variant should also deny
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git stash push -m test"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "deny" ]]; then
+  echo "✓ PASS: git stash push in worktree should deny"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git stash push in worktree should deny (got: $decision)"
+  ((FAILURES++))
+fi
+
+# Test 19: git checkout <branch> in worktree should deny (to prevent switching branches)
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git checkout main"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "deny" ]]; then
+  echo "✓ PASS: git checkout <branch> in worktree should deny"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git checkout <branch> in worktree should deny (got: $decision)"
+  ((FAILURES++))
+fi
+
+# Test 20: git checkout -b variant should also deny
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git checkout -b new-branch"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "deny" ]]; then
+  echo "✓ PASS: git checkout -b in worktree should deny"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git checkout -b in worktree should deny (got: $decision)"
+  ((FAILURES++))
+fi
+
+# Test 21: git switch <branch> in worktree should deny
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git switch main"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "deny" ]]; then
+  echo "✓ PASS: git switch <branch> in worktree should deny"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git switch <branch> in worktree should deny (got: $decision)"
+  ((FAILURES++))
+fi
+
+# Test 22: git switch -c variant should also deny
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git switch -c new-branch"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "deny" ]]; then
+  echo "✓ PASS: git switch -c in worktree should deny"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git switch -c in worktree should deny (got: $decision)"
+  ((FAILURES++))
+fi
+
+# Test 23: git checkout -- <file> (non-branch operation) should allow
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git checkout -- file.txt"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "allow" ]]; then
+  echo "✓ PASS: git checkout -- <file> in worktree should allow"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git checkout -- <file> in worktree should allow (got: $decision)"
+  ((FAILURES++))
+fi
+
+# Test 24: git stash list (read-only) should allow
+HOME=$FAKE_HOME output=$(echo '{"tool_input":{"command":"git stash list"}}' | "$HOOK" 2>/dev/null)
+decision=$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+if [[ "$decision" == "allow" ]]; then
+  echo "✓ PASS: git stash list in worktree should allow"
+  ((PASSES++))
+else
+  echo "✗ FAIL: git stash list in worktree should allow (got: $decision)"
   ((FAILURES++))
 fi
 
