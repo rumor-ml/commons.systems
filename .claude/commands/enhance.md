@@ -22,7 +22,12 @@ gh issue list \
 
 ## Step 2: Three-Tier Prioritization
 
-Analyze fetched issues and categorize into three tiers:
+**IMPORTANT**: During selection (Step 3), we will skip:
+
+- Issues with "in progress" label (already being worked on)
+- Issues blocked by open dependencies (not ready to work on)
+
+Analyze fetched issues and categorize into three tiers (categorization includes all issues, filtering happens in Step 3):
 
 **Tier 1 (Highest Priority)**: Issues with BOTH `enhancement` AND `bug` labels
 
@@ -38,14 +43,33 @@ Analyze fetched issues and categorize into three tiers:
 
 ## Step 3: Select Priority Issue
 
-From the prioritized tiers:
+From the prioritized tiers (all excluding "in progress" issues):
 
-1. If Tier 1 has issues: Select the first Tier 1 issue
-2. Else if Tier 2 has issues: Select the first Tier 2 issue
-3. Else if Tier 3 has issues: Select the first Tier 3 issue
-4. Else: Return "No enhancement issues to work on"
+1. If Tier 1 has issues: Select the first available Tier 1 issue (see selection criteria below)
+2. Else if Tier 2 has issues: Select the first available Tier 2 issue (see selection criteria below)
+3. Else if Tier 3 has issues: Select the first available Tier 3 issue (see selection criteria below)
+4. Else: Return "No enhancement issues to work on (all may be in progress or blocked)"
+
+**Selection Criteria** - Skip issues that have:
+
+- "in progress" label (already being worked on)
+- Open blocking dependencies (check with `gh api repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by`)
+
+**Algorithm**:
+
+```
+For each issue in tier (highest to lowest priority):
+  1. Check if issue has "in progress" label → Skip if yes
+  2. Check if issue has open blocking dependencies:
+     - Run: gh api repos/rumor-ml/commons.systems/issues/{number}/dependencies/blocked_by
+     - If response contains any issues with state="open" → Skip this issue
+  3. If issue passes both checks → Select it
+  4. If all issues in tier are skipped → Move to next tier
+```
 
 Store the selected issue as `PRIORITY_ISSUE` (number, title, url).
+
+**Note**: If an issue is skipped due to blockers, consider logging: "Skipped #<num> - blocked by open issue(s)"
 
 ## Step 4: Duplicate Detection
 
@@ -163,11 +187,13 @@ If the Explore agent determines the issue is **still relevant BUT needs updating
    - Maintains any "Duplicates Closed" section at the end
 
 2. Update the issue:
+
    ```bash
    gh issue edit <priority-number> --body-file <temp-file-with-updated-body>
    ```
 
 3. Add a comment explaining the update:
+
    ```bash
    gh issue comment <priority-number> \
      --body "Updated issue with current code references. Core issue remains valid. Changes: <brief summary>"
