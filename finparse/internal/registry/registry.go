@@ -20,12 +20,15 @@ type Registry struct {
 }
 
 // New creates a registry with built-in parsers and optional custom parsers.
-// Returns an error with context (successfully registered parsers, failure point) if registration fails
+// Returns an error including: (1) list of successfully registered parser names, (2) which parser
+// failed (for custom parsers: "parser X of Y"), and (3) the underlying error. Registration can fail
 // due to duplicate names or nil parsers.
 func New(customParsers ...parser.Parser) (*Registry, error) {
 	r := &Registry{parsers: []parser.Parser{}}
 
 	// getRegisteredNames returns comma-separated parser names, or "none" if empty.
+	// Using "none" instead of empty string makes error messages clearer when no parsers
+	// have been registered yet (e.g., "Successfully registered: none" vs "Successfully registered: ").
 	getRegisteredNames := func() string {
 		if len(r.parsers) == 0 {
 			return "none"
@@ -63,7 +66,8 @@ func New(customParsers ...parser.Parser) (*Registry, error) {
 
 // MustNew creates a registry with built-in parsers and optional custom parsers.
 // Panics with detailed context (successfully registered parsers, failure point) if registration fails.
-// This indicates a programmer error in parser initialization.
+// Registration failures typically indicate programmer error (nil parser, duplicate names), so MustNew()
+// is intended for use in initialization code where panics are acceptable.
 func MustNew(customParsers ...parser.Parser) *Registry {
 	r, err := New(customParsers...)
 	if err != nil {
@@ -114,7 +118,6 @@ func (r *Registry) FindParser(path string) (parser.Parser, error) {
 		}
 	}
 
-	// TODO(#1470): Enhance error message with file extension and available parsers list
 	return nil, fmt.Errorf("no parser found for file: %s", path)
 }
 
