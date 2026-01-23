@@ -21,9 +21,23 @@ export const AddBlockerInputSchema = z
   .object({
     blocked_issue_number: z
       .union([z.string(), z.number()])
+      .refine(
+        (val) => {
+          const parsed = typeof val === 'string' ? parseInt(val, 10) : val;
+          return Number.isInteger(parsed) && parsed > 0;
+        },
+        { message: 'must be a positive integer' }
+      )
       .describe('Issue number that is blocked'),
     blocker_issue_number: z
       .union([z.string(), z.number()])
+      .refine(
+        (val) => {
+          const parsed = typeof val === 'string' ? parseInt(val, 10) : val;
+          return Number.isInteger(parsed) && parsed > 0;
+        },
+        { message: 'must be a positive integer' }
+      )
       .describe('Issue number that is blocking'),
     repo: z
       .string()
@@ -39,18 +53,18 @@ export async function addBlocker(input: AddBlockerInput): Promise<ToolResult> {
   const blocked_issue_number = parseIssueNumber(input.blocked_issue_number, 'blocked_issue_number');
   const blocker_issue_number = parseIssueNumber(input.blocker_issue_number, 'blocker_issue_number');
 
+  const resolvedRepo = await resolveRepo(input.repo);
+
+  // Get blocker issue's internal ID (not issue number)
+  const blockerIssue = await ghCliJson<{ id: string }>(
+    ['issue', 'view', blocker_issue_number.toString(), '--json', 'id'],
+    { repo: resolvedRepo }
+  );
+
   try {
-    const resolvedRepo = await resolveRepo(input.repo);
-
-    // Get blocker issue's internal ID (not issue number)
-    const blockerIssue = await ghCliJson<{ id: string }>(
-      ['issue', 'view', blocker_issue_number.toString(), '--json', 'id'],
-      { repo: resolvedRepo }
-    );
-
     // Add blocker relationship via GitHub API
-    // Use --field to pass issue_id as JSON integer (not -f which would stringify it)
-    // GitHub API requires issue_id to be numeric type, not string
+    // Use --field to pass issue_id as a JSON integer
+    // The -f flag would stringify it, causing a 422 error from this endpoint
     await ghCli(
       [
         'api',
@@ -79,26 +93,32 @@ export async function addBlocker(input: AddBlockerInput): Promise<ToolResult> {
   } catch (error) {
     // Handle "relationship already exists" gracefully
     if (error instanceof GitHubCliError && error.message.includes('422')) {
-      // Check if this is specifically a duplicate relationship error
-      const isDuplicateRelationship =
-        error.stderr?.includes('already exists') ||
-        error.stderr?.includes('Duplicate') ||
-        error.message.includes('relationship already exists');
+      // Verify the relationship actually exists by querying dependencies
+      try {
+        const dependencies = await ghCliJson<Array<{ id: string }>>(
+          ['api', `repos/${resolvedRepo}/issues/${blocked_issue_number}/dependencies/blocked_by`],
+          {}
+        );
 
-      if (isDuplicateRelationship) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `Blocker relationship already exists between #${blocker_issue_number} and #${blocked_issue_number}`,
+        const relationshipExists = dependencies.some((dep) => dep.id === blockerIssue.id);
+
+        if (relationshipExists) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Blocker relationship already exists between #${blocker_issue_number} and #${blocked_issue_number}`,
+              },
+            ],
+            _meta: {
+              alreadyExists: true,
+              blocked_issue_number,
+              blocker_issue_number,
             },
-          ],
-          _meta: {
-            alreadyExists: true,
-            blocked_issue_number,
-            blocker_issue_number,
-          },
-        };
+          };
+        }
+      } catch (verifyError) {
+        // If verification fails, fall through to re-throw original error
       }
 
       // Not a duplicate - this is a different validation error, re-throw to expose it

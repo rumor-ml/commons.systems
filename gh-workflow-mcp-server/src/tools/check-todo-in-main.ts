@@ -5,8 +5,14 @@ import { GitHubCliError, ParsingError, createErrorResult } from '../utils/errors
 
 export const CheckTodoInMainInputSchema = z
   .object({
-    file_path: z.string().describe('File path to check in the repository'),
-    todo_pattern: z.string().describe("TODO pattern to search for (e.g., 'TODO(#123)')"),
+    file_path: z
+      .string()
+      .min(1, 'file_path cannot be empty')
+      .describe('File path to check in the repository'),
+    todo_pattern: z
+      .string()
+      .min(1, 'todo_pattern cannot be empty')
+      .describe("TODO pattern to search for (e.g., 'TODO(#123)')"),
     repo: z
       .string()
       .optional()
@@ -60,27 +66,14 @@ export async function checkTodoInMain(input: CheckTodoInMainInput): Promise<Tool
   } catch (error) {
     // Handle file not found gracefully, but distinguish from repository errors
     if (error instanceof GitHubCliError && error.message.includes('404')) {
-      // Check if this is specifically a file-not-found vs repository-not-found
-      const isFileNotFound =
-        error.message.includes('/contents/') ||
-        (error.stderr?.includes('Not Found') && error.message.includes(input.file_path));
+      // Use sequential verification to correctly classify the error
+      const resolvedRepo = await resolveRepo(input.repo);
 
-      const isRepoNotFound =
-        error.message.includes('repos/') && !error.message.includes('/contents/');
+      // First, verify the repository exists
+      try {
+        await ghCli(['api', `repos/${resolvedRepo}`], {});
 
-      if (isRepoNotFound) {
-        // Re-throw repository errors - these are configuration issues
-        const resolvedRepo = await resolveRepo(input.repo);
-        throw new GitHubCliError(
-          `Repository not found or access denied: ${resolvedRepo}. Check repository name and permissions.`,
-          error.exitCode,
-          error.stderr,
-          undefined,
-          error
-        );
-      }
-
-      if (isFileNotFound) {
+        // Repository exists, so this must be a file-not-found error
         return {
           content: [
             {
@@ -95,10 +88,16 @@ export async function checkTodoInMain(input: CheckTodoInMainInput): Promise<Tool
             pattern: input.todo_pattern,
           },
         };
+      } catch (repoError) {
+        // Repository verification failed - this is a repository error
+        throw new GitHubCliError(
+          `Repository not found or access denied: ${resolvedRepo}. Check repository name and permissions.`,
+          error.exitCode,
+          error.stderr,
+          undefined,
+          error
+        );
       }
-
-      // Unknown 404 - re-throw for visibility
-      throw error;
     }
     return createErrorResult(error);
   }

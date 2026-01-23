@@ -557,6 +557,7 @@ describe('update-issue behavioral tests', () => {
     });
 
     it('should throw FilesystemError when directory becomes read-only before write', async (t) => {
+      // TODO(#1549): Test skip explanation inaccurately describes platform behavior
       // Skip this test - directory write permissions only affect creating/deleting files,
       // not modifying existing files. This is true on both Linux and macOS.
       // To test write failures, use file-level permissions instead (see previous test).
@@ -568,7 +569,7 @@ describe('update-issue behavioral tests', () => {
       writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issue]);
 
       try {
-        // This would need to test something else - directory perms don't prevent file writes
+        // TODO(#1548): This would need to test something else - directory perms don't prevent file writes
         chmodSync(manifestDir, 0o555);
 
         await assert.rejects(

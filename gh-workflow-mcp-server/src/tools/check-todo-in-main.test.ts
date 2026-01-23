@@ -2,21 +2,21 @@
  * Tests for check-todo-in-main tool
  */
 
-import { describe, it, mock } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkTodoInMain } from './check-todo-in-main.js';
 import * as ghCli from '../utils/gh-cli.js';
 import { GitHubCliError, ParsingError } from '../utils/errors.js';
 
 describe('checkTodoInMain - Integration Tests', () => {
-  it('finds pattern when it exists in file', async () => {
+  it('finds pattern when it exists in file', async (t) => {
     // Mock resolveRepo to return a valid repo
-    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
 
     // Mock ghCli to return base64-encoded content with pattern
     const content = 'const x = 1;\n// TODO(#123): Fix this\nconst y = 2;';
     const base64Content = Buffer.from(content).toString('base64');
-    mock.method(ghCli, 'ghCli', () => Promise.resolve(base64Content));
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve(base64Content));
 
     const result = await checkTodoInMain({
       file_path: 'src/test.ts',
@@ -35,14 +35,14 @@ describe('checkTodoInMain - Integration Tests', () => {
     assert.match(result.content[0].text, /Pattern "TODO\(#123\)" found in src\/test\.ts/);
   });
 
-  it('returns not found when pattern is missing', async () => {
+  it('returns not found when pattern is missing', async (t) => {
     // Mock resolveRepo
-    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
 
     // Mock ghCli to return base64-encoded content without pattern
     const content = 'const x = 1;\nconst y = 2;';
     const base64Content = Buffer.from(content).toString('base64');
-    mock.method(ghCli, 'ghCli', () => Promise.resolve(base64Content));
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve(base64Content));
 
     const result = await checkTodoInMain({
       file_path: 'src/test.ts',
@@ -60,12 +60,12 @@ describe('checkTodoInMain - Integration Tests', () => {
     assert.match(result.content[0].text, /Pattern "TODO\(#999\)" not found in src\/test\.ts/);
   });
 
-  it('handles file not found gracefully (404 error)', async () => {
+  it('handles file not found gracefully (404 error)', async (t) => {
     // Mock resolveRepo
-    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
 
     // Mock ghCli to throw 404 error with file path in message
-    mock.method(ghCli, 'ghCli', () => {
+    t.mock.method(ghCli, 'ghCli', () => {
       throw new GitHubCliError(
         'GET https://api.github.com/repos/owner/repo/contents/missing.ts: 404 Not Found',
         1,
@@ -89,12 +89,12 @@ describe('checkTodoInMain - Integration Tests', () => {
     assert.match(result.content[0].text, /File missing\.ts not found on main branch/);
   });
 
-  it('throws error for repository not found (404 error)', async () => {
+  it('throws error for repository not found (404 error)', async (t) => {
     // Mock resolveRepo
-    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/invalid-repo'));
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/invalid-repo'));
 
     // Mock ghCli to throw 404 error for repository (no /contents/ in path)
-    mock.method(ghCli, 'ghCli', () => {
+    t.mock.method(ghCli, 'ghCli', () => {
       throw new GitHubCliError(
         'GET https://api.github.com/repos/owner/invalid-repo: 404 Not Found',
         1,
@@ -119,12 +119,12 @@ describe('checkTodoInMain - Integration Tests', () => {
     );
   });
 
-  it('throws ParsingError for base64 decoding failure', async () => {
+  it('throws ParsingError for base64 decoding failure', async (t) => {
     // Mock resolveRepo
-    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
 
     // Mock ghCli to return invalid base64 content
-    mock.method(ghCli, 'ghCli', () => Promise.resolve('!!!invalid-base64!!!'));
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve('!!!invalid-base64!!!'));
 
     // Verify ParsingError is thrown
     await assert.rejects(
@@ -143,12 +143,12 @@ describe('checkTodoInMain - Integration Tests', () => {
     );
   });
 
-  it('propagates non-404 errors through createErrorResult', async () => {
+  it('propagates non-404 errors through createErrorResult', async (t) => {
     // Mock resolveRepo
-    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
 
     // Mock ghCli to throw a non-404 error
-    mock.method(ghCli, 'ghCli', () => {
+    t.mock.method(ghCli, 'ghCli', () => {
       throw new GitHubCliError('Rate limit exceeded', 1, 'API rate limit exceeded');
     });
 
@@ -161,13 +161,138 @@ describe('checkTodoInMain - Integration Tests', () => {
     assert.ok(result.isError === true || result.content?.[0]?.text?.includes('Rate limit'));
   });
 
-  it('calls GitHub API with explicit ref=main parameter', async () => {
+  it('handles malformed API response (null content) gracefully', async (t) => {
     // Mock resolveRepo
-    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+
+    // Mock ghCli to return null (malformed API response)
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve(null as any));
+
+    // Verify ParsingError is thrown with appropriate message
+    await assert.rejects(
+      async () => {
+        await checkTodoInMain({
+          file_path: 'src/test.ts',
+          todo_pattern: 'TODO(#123)',
+        });
+      },
+      (error: Error) => {
+        assert.ok(error instanceof ParsingError);
+        assert.match(error.message, /Failed to decode file content from GitHub API/);
+        assert.match(error.message, /src\/test\.ts/);
+        return true;
+      }
+    );
+  });
+
+  it('handles malformed API response (undefined content) gracefully', async (t) => {
+    // Mock resolveRepo
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+
+    // Mock ghCli to return undefined (malformed API response)
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve(undefined as any));
+
+    // Verify ParsingError is thrown
+    await assert.rejects(
+      async () => {
+        await checkTodoInMain({
+          file_path: 'src/test.ts',
+          todo_pattern: 'TODO(#123)',
+        });
+      },
+      (error: Error) => {
+        assert.ok(error instanceof ParsingError);
+        assert.match(error.message, /Failed to decode file content from GitHub API/);
+        return true;
+      }
+    );
+  });
+
+  it('handles malformed API response (non-string content) gracefully', async (t) => {
+    // Mock resolveRepo
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+
+    // Mock ghCli to return an object instead of string
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve({ content: 'base64data' } as any));
+
+    // Verify ParsingError is thrown when trying to call .trim() on non-string
+    await assert.rejects(
+      async () => {
+        await checkTodoInMain({
+          file_path: 'src/test.ts',
+          todo_pattern: 'TODO(#123)',
+        });
+      },
+      (error: Error) => {
+        assert.ok(error instanceof ParsingError);
+        assert.match(error.message, /Failed to decode file content from GitHub API/);
+        return true;
+      }
+    );
+  });
+
+  it('uses substring matching for pattern search (not exact matching)', async (t) => {
+    // Mock resolveRepo
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+
+    // Content with pattern plus additional text
+    const content = 'const x = 1; // TODO(#123): fix this later\nconst y = 2;';
+    const base64Content = Buffer.from(content).toString('base64');
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve(base64Content));
+
+    // Should match even with additional text after pattern
+    const result = await checkTodoInMain({
+      file_path: 'src/test.ts',
+      todo_pattern: 'TODO(#123)',
+    });
+
+    assert.strictEqual((result._meta as any).found, true);
+    assert.match(result.content[0].text, /Pattern "TODO\(#123\)" found/);
+  });
+
+  it('verifies substring matching matches pattern anywhere in line', async (t) => {
+    // Mock resolveRepo
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+
+    // Pattern in middle of line with prefix and suffix
+    const content = 'prefix TODO(#123) suffix';
+    const base64Content = Buffer.from(content).toString('base64');
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve(base64Content));
+
+    const result = await checkTodoInMain({
+      file_path: 'src/test.ts',
+      todo_pattern: 'TODO(#123)',
+    });
+
+    assert.strictEqual((result._meta as any).found, true);
+  });
+
+  it('verifies substring matching does not match partial issue numbers', async (t) => {
+    // Mock resolveRepo
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+
+    // File contains TODO(#1234) but we search for TODO(#123)
+    const content = 'const x = 1; // TODO(#1234): different issue\nconst y = 2;';
+    const base64Content = Buffer.from(content).toString('base64');
+    t.mock.method(ghCli, 'ghCli', () => Promise.resolve(base64Content));
+
+    // Substring matching means TODO(#123) will match TODO(#1234)
+    const result = await checkTodoInMain({
+      file_path: 'src/test.ts',
+      todo_pattern: 'TODO(#123)',
+    });
+
+    // This is the documented behavior - substring match will find it
+    assert.strictEqual((result._meta as any).found, true);
+  });
+
+  it('calls GitHub API with explicit ref=main parameter', async (t) => {
+    // Mock resolveRepo
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
 
     // Mock ghCli and capture the arguments
     let capturedArgs: string[] = [];
-    mock.method(ghCli, 'ghCli', (args: string[]) => {
+    t.mock.method(ghCli, 'ghCli', (args: string[]) => {
       capturedArgs = args;
       const content = 'const x = 1;';
       return Promise.resolve(Buffer.from(content).toString('base64'));
@@ -185,15 +310,15 @@ describe('checkTodoInMain - Integration Tests', () => {
     assert.match(apiPath, /\?ref=main/, 'API path should include ?ref=main parameter');
   });
 
-  it('resolves repo parameter correctly', async () => {
+  it('resolves repo parameter correctly', async (t) => {
     // Test with explicit repo
     let resolvedRepo = '';
-    mock.method(ghCli, 'resolveRepo', (repo?: string) => {
+    t.mock.method(ghCli, 'resolveRepo', (repo?: string) => {
       resolvedRepo = repo || 'default/repo';
       return Promise.resolve(resolvedRepo);
     });
 
-    mock.method(ghCli, 'ghCli', () => {
+    t.mock.method(ghCli, 'ghCli', () => {
       const content = 'const x = 1;';
       return Promise.resolve(Buffer.from(content).toString('base64'));
     });
@@ -367,4 +492,6 @@ describe('CheckTodoInMain - Edge Cases', () => {
       assert.equal(path.length > 0, true);
     });
   });
+
+  // TODO(#1550): Consider testing checkTodoInMain with binary files
 });

@@ -5,7 +5,16 @@ import { createErrorResult, ValidationError } from '../utils/errors.js';
 
 export const RemoveLabelIfExistsInputSchema = z
   .object({
-    issue_number: z.union([z.string(), z.number()]).describe('Issue or PR number'),
+    issue_number: z
+      .union([z.string(), z.number()])
+      .refine(
+        (val) => {
+          const parsed = typeof val === 'string' ? parseInt(val, 10) : val;
+          return Number.isInteger(parsed) && parsed > 0;
+        },
+        { message: 'must be a positive integer' }
+      )
+      .describe('Issue or PR number'),
     label: z.string().describe('Label name to remove'),
     repo: z
       .string()

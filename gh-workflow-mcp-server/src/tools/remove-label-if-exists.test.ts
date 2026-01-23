@@ -10,15 +10,10 @@ import { ValidationError } from '../utils/errors.js';
 
 describe('removeLabelIfExists', () => {
   it('removes label when it exists on the issue', async () => {
-    // Mock resolveRepo to return a valid repo
     mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
-
-    // Mock ghCliJson to return labels including target label
     mock.method(ghCli, 'ghCliJson', () =>
       Promise.resolve([{ name: 'bug' }, { name: 'enhancement' }, { name: 'documentation' }])
     );
-
-    // Mock ghCli to succeed on issue edit
     mock.method(ghCli, 'ghCli', () => Promise.resolve(''));
 
     const result = await removeLabelIfExists({
@@ -41,15 +36,10 @@ describe('removeLabelIfExists', () => {
   });
 
   it('skips removal when label does not exist (idempotent)', async () => {
-    // Mock resolveRepo to return a valid repo
     mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
-
-    // Mock ghCliJson to return labels not including target label
     mock.method(ghCli, 'ghCliJson', () =>
       Promise.resolve([{ name: 'enhancement' }, { name: 'documentation' }])
     );
-
-    // Mock ghCli (should not be called, but mock anyway)
     const ghCliMock = mock.method(ghCli, 'ghCli', () => Promise.resolve(''));
 
     const result = await removeLabelIfExists({
@@ -75,13 +65,8 @@ describe('removeLabelIfExists', () => {
   });
 
   it('converts string issue numbers to integers', async () => {
-    // Mock resolveRepo to return a valid repo
     mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
-
-    // Mock ghCliJson to return labels
     const ghCliJsonMock = mock.method(ghCli, 'ghCliJson', () => Promise.resolve([{ name: 'bug' }]));
-
-    // Mock ghCli
     const ghCliMock = mock.method(ghCli, 'ghCli', () => Promise.resolve(''));
 
     await removeLabelIfExists({
@@ -103,15 +88,10 @@ describe('removeLabelIfExists', () => {
   });
 
   it('handles exact label name matching', async () => {
-    // Mock resolveRepo to return a valid repo
     mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
-
-    // Mock ghCliJson to return labels with similar names
     mock.method(ghCli, 'ghCliJson', () =>
       Promise.resolve([{ name: 'bugfix' }, { name: 'critical-bug' }, { name: 'enhancement' }])
     );
-
-    // Mock ghCli (should not be called since exact match "bug" is not present)
     const ghCliMock = mock.method(ghCli, 'ghCli', () => Promise.resolve(''));
 
     const result = await removeLabelIfExists({
@@ -128,13 +108,8 @@ describe('removeLabelIfExists', () => {
   });
 
   it('resolves repo parameter correctly', async () => {
-    // Mock resolveRepo
     const resolveRepoMock = mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
-
-    // Mock ghCliJson
     mock.method(ghCli, 'ghCliJson', () => Promise.resolve([{ name: 'bug' }]));
-
-    // Mock ghCli
     mock.method(ghCli, 'ghCli', () => Promise.resolve(''));
 
     // Test with explicit repo
@@ -160,7 +135,6 @@ describe('removeLabelIfExists', () => {
   });
 
   it('validates issue_number is a positive integer', async () => {
-    // Mock resolveRepo (will be called before validation)
     mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
 
     // Test with NaN (from parsing invalid string)
@@ -225,10 +199,7 @@ describe('removeLabelIfExists', () => {
   });
 
   it('propagates errors through createErrorResult', async () => {
-    // Mock resolveRepo to succeed
     mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
-
-    // Mock ghCliJson to throw error
     mock.method(ghCli, 'ghCliJson', () => {
       throw new Error('gh CLI command failed');
     });
@@ -244,5 +215,42 @@ describe('removeLabelIfExists', () => {
     assert.strictEqual(result.content.length, 1);
     assert.strictEqual(result.content[0].type, 'text');
     assert.match(result.content[0].text, /gh CLI command failed/);
+  });
+
+  it('returns error when gh CLI fails to fetch labels', async () => {
+    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    mock.method(ghCli, 'ghCliJson', () => {
+      throw new Error('API rate limit exceeded');
+    });
+
+    const result = await removeLabelIfExists({
+      issue_number: 123,
+      label: 'bug',
+    });
+
+    assert.ok(result.isError);
+    assert.ok(result.content);
+    assert.strictEqual(result.content.length, 1);
+    assert.strictEqual(result.content[0].type, 'text');
+    assert.match(result.content[0].text, /API rate limit exceeded/);
+  });
+
+  it('returns error when label removal fails', async () => {
+    mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+    mock.method(ghCli, 'ghCliJson', () => Promise.resolve([{ name: 'bug' }]));
+    mock.method(ghCli, 'ghCli', () => {
+      throw new Error('Permission denied');
+    });
+
+    const result = await removeLabelIfExists({
+      issue_number: 123,
+      label: 'bug',
+    });
+
+    assert.ok(result.isError);
+    assert.ok(result.content);
+    assert.strictEqual(result.content.length, 1);
+    assert.strictEqual(result.content[0].type, 'text');
+    assert.match(result.content[0].text, /Permission denied/);
   });
 });

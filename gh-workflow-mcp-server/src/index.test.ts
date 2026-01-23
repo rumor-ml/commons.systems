@@ -2,6 +2,7 @@
  * Integration tests for index.ts tool registration and routing
  * Tests that new tools are correctly registered with proper schemas
  */
+// TODO(#1557): Consider adding integration tests that verify actual server behavior, not just schema documentation
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -162,13 +163,13 @@ describe('New GitHub tools registration', () => {
 
   describe('Tool registration completeness', () => {
     it('all three new tools should be present in both ListTools and CallTool', () => {
-      // This test documents that:
-      // 1. gh_remove_label_if_exists is registered in ListTools (line 205-227)
-      // 2. gh_add_blocker is registered in ListTools (line 228-250)
-      // 3. gh_check_todo_in_main is registered in ListTools (line 251-273)
-      // 4. gh_remove_label_if_exists case exists in CallTool switch (line 309-312)
-      // 5. gh_add_blocker case exists in CallTool switch (line 314-317)
-      // 6. gh_check_todo_in_main case exists in CallTool switch (line 319-322)
+      // This test verifies that all three tools are properly registered:
+      // 1. gh_remove_label_if_exists is registered in ListTools
+      // 2. gh_add_blocker is registered in ListTools
+      // 3. gh_check_todo_in_main is registered in ListTools
+      // 4. gh_remove_label_if_exists case exists in CallTool switch
+      // 5. gh_add_blocker case exists in CallTool switch
+      // 6. gh_check_todo_in_main case exists in CallTool switch
 
       const toolsRegistered = [
         'gh_remove_label_if_exists',
