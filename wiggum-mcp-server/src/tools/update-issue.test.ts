@@ -557,19 +557,34 @@ describe('update-issue behavioral tests', () => {
     });
 
     it('should throw FilesystemError when directory becomes read-only before write', async (t) => {
-      // TODO(#1549): Test skip explanation inaccurately describes platform behavior
-      // Skip this test - directory write permissions only affect creating/deleting files,
-      // not modifying existing files. This is true on both Linux and macOS.
-      // To test write failures, use file-level permissions instead (see previous test).
-      t.skip('Directory permissions do not prevent writing to existing files on any platform');
-      return;
+      // Skip on macOS - directory read-only permissions don't prevent writing to existing files
+      // On macOS, only creating/deleting files is blocked by directory permissions
+      // Skip on WSL2 - WSL2 has different permission handling than native Linux
+      // TODO(#1508): Test skip comment could be more specific about WSL2 permission behavior
+      if (process.platform === 'darwin') {
+        t.skip('macOS directory permissions do not prevent writing to existing files');
+        return;
+      }
+
+      // Check for WSL2 by reading /proc/version
+      try {
+        const procVersion = readFileSync('/proc/version', 'utf-8');
+        if (procVersion.includes('microsoft') || procVersion.includes('WSL')) {
+          t.skip('WSL2 directory permissions do not prevent writing to existing files');
+          return;
+        }
+      } catch {
+        // TODO(#1505): Add logging to catch block to prevent silent failure
+        // TODO(#1507): Empty catch block comment could explain assumption rationale
+        // If we can't read /proc/version, assume not WSL and continue
+      }
 
       const manifestDir = join(testDir, 'tmp', 'wiggum');
       const issue = createIssueRecord({ title: 'Test Issue' });
       writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issue]);
 
       try {
-        // TODO(#1548): This would need to test something else - directory perms don't prevent file writes
+        // Make directory read-only (prevents file updates on Linux, not macOS or WSL)
         chmodSync(manifestDir, 0o555);
 
         await assert.rejects(

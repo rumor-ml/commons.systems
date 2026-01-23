@@ -13,6 +13,7 @@ import { monitorPRChecks, MonitorPRChecksInputSchema } from './tools/monitor-pr-
 import { monitorMergeQueue, MonitorMergeQueueInputSchema } from './tools/monitor-merge-queue.js';
 import { getDeploymentUrls, GetDeploymentUrlsInputSchema } from './tools/get-deployment-urls.js';
 import { getFailureDetails, GetFailureDetailsInputSchema } from './tools/get-failure-details.js';
+import { createWorktreeCmd, CreateWorktreeInputSchema } from './tools/create-worktree.js';
 import {
   removeLabelIfExists,
   RemoveLabelIfExistsInputSchema,
@@ -208,73 +209,48 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'gh_remove_label_if_exists',
+        name: 'gh_create_worktree',
         description:
-          'Remove a label from an issue or PR only if it exists (no error if missing). Idempotent operation that checks for label existence before removal.',
+          'Create a new git worktree with full setup. Validates environment, ' +
+          'creates worktree, configures git hooks, updates issue labels, and optionally ' +
+          'opens tmux window with claude. Accepts issue number or task description. ' +
+          'Requires dangerouslyDisableSandbox: true for git/gh/direnv/tmux operations.',
         inputSchema: {
           type: 'object',
           properties: {
             issue_number: {
-              type: ['string', 'number'],
-              description: 'Issue or PR number',
+              type: 'number',
+              description: 'GitHub issue number (e.g., 1500)',
             },
-            label: {
+            description: {
               type: 'string',
-              description: 'Label name to remove',
+              description: 'Task description (used if no issue number)',
             },
             repo: {
               type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
+              description: 'Repository in format "owner/repo" (defaults to current)',
             },
           },
-          required: ['issue_number', 'label'],
+          required: [],
         },
+      },
+      {
+        name: 'gh_remove_label_if_exists',
+        description:
+          'Remove a label from an issue or PR only if it exists (no error if missing). Idempotent operation that checks for label existence before removal.',
+        inputSchema: zodToJsonSchema(RemoveLabelIfExistsInputSchema),
       },
       {
         name: 'gh_add_blocker',
         description:
           'Add a blocker relationship between two issues using GitHub dependencies API. Creates a "blocked by" relationship where one issue blocks another. Handles duplicate relationships gracefully.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            blocked_issue_number: {
-              type: ['string', 'number'],
-              description: 'Issue number that is blocked',
-            },
-            blocker_issue_number: {
-              type: ['string', 'number'],
-              description: 'Issue number that is blocking',
-            },
-            repo: {
-              type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
-            },
-          },
-          required: ['blocked_issue_number', 'blocker_issue_number'],
-        },
+        inputSchema: zodToJsonSchema(AddBlockerInputSchema),
       },
       {
         name: 'gh_check_todo_in_main',
         description:
           'Check if a TODO pattern exists in a file on the origin/main branch using GitHub API (no git checkout required). Returns whether the pattern was found.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            file_path: {
-              type: 'string',
-              description: 'File path to check in the repository',
-            },
-            todo_pattern: {
-              type: 'string',
-              description: "TODO pattern to search for (e.g., 'TODO(#123)')",
-            },
-            repo: {
-              type: 'string',
-              description: 'Repository in format "owner/repo" (defaults to current repository)',
-            },
-          },
-          required: ['file_path', 'todo_pattern'],
-        },
+        inputSchema: zodToJsonSchema(CheckTodoInMainInputSchema),
       },
       {
         name: 'gh_prioritize_issues',
@@ -361,19 +337,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await getFailureDetails(validated);
       }
 
+      case 'gh_create_worktree': {
+        const validated = CreateWorktreeInputSchema.parse(args);
+        return await createWorktreeCmd(validated);
+      }
+
       case 'gh_remove_label_if_exists': {
-        const validated = RemoveLabelIfExistsInputSchema.parse(args);
-        return await removeLabelIfExists(validated);
+        const input = RemoveLabelIfExistsInputSchema.parse(params.arguments);
+        return await removeLabelIfExists(input);
       }
 
       case 'gh_add_blocker': {
-        const validated = AddBlockerInputSchema.parse(args);
-        return await addBlocker(validated);
+        const input = AddBlockerInputSchema.parse(params.arguments);
+        return await addBlocker(input);
       }
 
       case 'gh_check_todo_in_main': {
-        const validated = CheckTodoInMainInputSchema.parse(args);
-        return await checkTodoInMain(validated);
+        const input = CheckTodoInMainInputSchema.parse(params.arguments);
+        return await checkTodoInMain(input);
       }
 
       case 'gh_prioritize_issues': {
