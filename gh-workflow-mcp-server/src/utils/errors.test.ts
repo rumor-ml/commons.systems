@@ -131,7 +131,7 @@ describe('createErrorResult', () => {
 describe('formatError', () => {
   it('should format Error object', () => {
     const error = new Error('Test error');
-    assert.strictEqual(formatError(error), 'Test error');
+    assert.strictEqual(formatError(error), '[Error] Test error');
   });
 
   it('should format string error', () => {
