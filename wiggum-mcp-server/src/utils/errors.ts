@@ -58,15 +58,55 @@ export {
  *
  * Note: This extends McpError, so it's automatically handled by createErrorResult()
  * from mcp-common (falls through to the McpError base case).
+ *
+ * Use GitError.create() factory to construct instances.
+ * The factory validates exitCode and stderr parameters.
  */
 export class GitError extends McpError {
-  constructor(
+  /**
+   * Create a GitError
+   *
+   * @param message - Human-readable error description
+   * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
+   * @param stderr - Optional stderr output (use undefined for no stderr, empty strings throw)
+   */
+  private constructor(
     message: string,
     public readonly exitCode?: number,
     public readonly stderr?: string
   ) {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
+  }
+
+  /**
+   * Factory function to create GitError with validation
+   *
+   * Validates exitCode and stderr parameters and throws ValidationError if invalid.
+   * This is the only way to construct a GitError instance.
+   *
+   * @param message - Human-readable error description
+   * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
+   * @param stderr - Optional stderr output (use undefined for no stderr, empty strings throw)
+   * @returns GitError instance
+   * @throws {ValidationError} If exitCode is not an integer in 0-255 range or stderr is empty string
+   */
+  static create(message: string, exitCode?: number, stderr?: string): GitError {
+    // Validate exitCode: must be integer in 0-255 range (Unix exit code standard)
+    if (exitCode !== undefined) {
+      if (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255) {
+        throw new ValidationError(
+          `GitError: exitCode must be an integer in range 0-255, got: ${exitCode}`
+        );
+      }
+    }
+
+    // Validate stderr: empty strings should throw, use undefined for no stderr
+    if (stderr === '') {
+      throw new ValidationError('GitError: stderr cannot be empty string, use undefined instead');
+    }
+
+    return new GitError(message, exitCode, stderr);
   }
 }
 

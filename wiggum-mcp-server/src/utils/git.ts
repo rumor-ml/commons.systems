@@ -37,7 +37,7 @@ export async function getGitRoot(): Promise<string> {
     }
 
     // Non-zero exit code means we're not in a git repository or git failed
-    throw new GitError(
+    throw GitError.create(
       `Not in a git repository or git command failed (exit code ${result.exitCode}). ` +
         `This tool requires running from within a git repository. ` +
         `Command: git rev-parse --show-toplevel. ` +
@@ -54,7 +54,7 @@ export async function getGitRoot(): Promise<string> {
     // Wrap unexpected errors
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorType = error instanceof Error ? error.constructor.name : typeof error;
-    throw new GitError(
+    throw GitError.create(
       `Failed to execute git rev-parse --show-toplevel: ${errorMsg}. ` +
         `Error type: ${errorType}. ` +
         `This tool requires running from within a git repository. ` +
@@ -94,7 +94,7 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
 
     if (result.exitCode !== 0) {
       const errorOutput = result.stderr || result.stdout || 'no error output';
-      throw new GitError(
+      throw GitError.create(
         `Git command failed (exit code ${result.exitCode}): ${errorOutput}. ` +
           `Command: git ${args.join(' ')}`,
         result.exitCode,
@@ -110,13 +110,13 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
     }
     if (error instanceof Error) {
       const errorType = error.constructor.name;
-      throw new GitError(
+      throw GitError.create(
         `Failed to execute git command (${errorType}): ${error.message}. ` +
           `Command: git ${args.join(' ')}`
       );
     }
     const errorType = typeof error;
-    throw new GitError(
+    throw GitError.create(
       `Failed to execute git command (unexpected error type: ${errorType}): ${String(error)}. ` +
         `Command: git ${args.join(' ')}`
     );
@@ -275,7 +275,7 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
         mainError: errorMsg,
         masterError: masterErrorMsg,
       });
-      throw new GitError(
+      throw GitError.create(
         'Could not find main or master branch. ' +
           'Ensure at least one of these branches exists in the repository. ' +
           `Errors: main (${errorMsg}), master (${masterErrorMsg})`

@@ -71,27 +71,27 @@ describe('Git Utilities - Exports', () => {
 
 describe('GitError', () => {
   it('should preserve exit code and stderr', () => {
-    const error = new GitError('Command failed', 1, 'stderr output');
+    const error = GitError.create('Command failed', 1, 'stderr output');
     assert.strictEqual(error.exitCode, 1);
     assert.strictEqual(error.stderr, 'stderr output');
     assert.strictEqual(error.message, 'Command failed');
   });
 
   it('should work without exit code and stderr', () => {
-    const error = new GitError('Command failed');
+    const error = GitError.create('Command failed');
     assert.strictEqual(error.exitCode, undefined);
     assert.strictEqual(error.stderr, undefined);
     assert.strictEqual(error.message, 'Command failed');
   });
 
   it('should be an instance of Error', () => {
-    const error = new GitError('Test error');
+    const error = GitError.create('Test error');
     assert.ok(error instanceof Error);
     assert.ok(error instanceof GitError);
   });
 
   it('should have correct name property', () => {
-    const error = new GitError('Test error');
+    const error = GitError.create('Test error');
     assert.strictEqual(error.name, 'GitError');
   });
 });
