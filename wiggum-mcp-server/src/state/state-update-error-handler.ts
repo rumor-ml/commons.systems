@@ -24,12 +24,18 @@ import type { StateUpdateResult } from './router.js';
  */
 // TODO(#1510): Consider testing readonly type constraints on StateUpdateFailureParams
 export interface StateUpdateFailureParams {
-  readonly stateResult: StateUpdateResult & { readonly success: false };
+  readonly stateResult: StateUpdateResult & { success: false };
   readonly newState: WiggumState;
   readonly step: WiggumStep;
   readonly targetType: 'issue' | 'pr';
+  // TODO(#1523): Consider using branded types to encode positive integer constraint in type system
   readonly targetNumber: number;
 }
+
+/**
+ * Guaranteed error result type - handleStateUpdateFailure always returns errors
+ */
+type GuaranteedError = ToolResult & { isError: true };
 
 /**
  * Handle state update failures with standardized logging and error messages
@@ -41,10 +47,17 @@ export interface StateUpdateFailureParams {
  * - Returns standardized ToolResult with isError: true
  *
  * @param params - State update failure parameters
- * @returns ToolResult with formatted error message and isError: true
+ * @returns GuaranteedError with formatted error message
  */
-export function handleStateUpdateFailure(params: StateUpdateFailureParams): ToolResult {
+export function handleStateUpdateFailure(params: StateUpdateFailureParams): GuaranteedError {
   const { stateResult, newState, step, targetType, targetNumber } = params;
+
+  // Validate stateResult is actually a failure
+  if (stateResult.success !== false) {
+    throw new Error(
+      'Cannot handle successful state update - this function should only be called for failures'
+    );
+  }
 
   // Validate targetNumber is a positive integer
   if (!Number.isInteger(targetNumber) || targetNumber < 1) {
@@ -59,7 +72,7 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Tool
     ...(targetType === 'issue' ? { issueNumber: targetNumber } : { prNumber: targetNumber }),
     step,
     iteration: newState.iteration,
-    phase: newState.phase,
+    phase: phase,
     reason: stateResult.reason,
     lastError: stateResult.lastError?.message,
     attemptCount: stateResult.attemptCount,
@@ -68,6 +81,7 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Tool
   };
 
   logger.error('Critical: State update failed - halting workflow', logContext);
+  // TODO(#1510): Add test verifying logger.error is called with correct context fields for issue/PR targets
 
   // Build detailed error context for user-facing message
   const errorDetails = stateResult.lastError
@@ -89,25 +103,65 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Tool
 
   // NOTE: formatWiggumResponse can throw FormattingError if data is invalid.
   // This is acceptable because it indicates a programming error in this function's data construction,
-  // not a user error. The original error is already logged above (line 68).
+  // not a user error. The original error is already logged above.
   // If formatting fails, the error will propagate and be handled by the caller.
-  return {
-    content: [
-      {
-        type: 'text',
-        text: formatWiggumResponse({
-          current_step: STEP_NAMES[step],
-          step_number: step,
-          iteration_count: newState.iteration,
-          instructions: `ERROR: Failed to update state in ${targetRef} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming ${targetRef} exists: \`${verifyCommand}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-          steps_completed_by_tool: [
-            'Attempted to update state in body',
-            `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
-          ],
-          context,
-        }),
-      },
-    ],
-    isError: true,
-  };
+  // TODO(#1510): Add test verifying formatWiggumResponse error path triggers fallback message
+  try {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: formatWiggumResponse({
+            current_step: STEP_NAMES[step],
+            step_number: step,
+            iteration_count: newState.iteration,
+            instructions: `ERROR: Failed to update state in ${targetRef} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming ${targetRef} exists: \`${verifyCommand}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
+            steps_completed_by_tool: [
+              'Attempted to update state in body',
+              `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
+            ],
+            context,
+          }),
+        },
+      ],
+      isError: true,
+    };
+  } catch (formattingError) {
+    // Log the formatting error as a programming error
+    logger.error('CRITICAL: Failed to format state update error message', {
+      formattingError:
+        formattingError instanceof Error ? formattingError.message : String(formattingError),
+      step,
+      targetType,
+      targetNumber,
+      impact: 'Error message formatting failed - providing fallback message',
+    });
+
+    // Return a plain text fallback error message
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `ERROR: State update failed in ${targetRef} (${STEP_NAMES[step]}, iteration ${newState.iteration})
+
+Failure reason: ${stateResult.reason}${errorDetails}${retryInfo}
+
+This is typically caused by:
+- GitHub API rate limiting (429)
+- Network connectivity issues
+- Temporary GitHub API unavailability
+
+Please retry after:
+1. Checking rate limits: \`gh api rate_limit\`
+2. Verifying network connectivity
+3. Confirming ${targetRef} exists: \`${verifyCommand}\`
+
+The workflow will resume from this step once the issue is resolved.
+
+(Note: Error message formatting failed - this is a fallback message. Please report this as a bug.)`,
+        },
+      ],
+      isError: true,
+    };
+  }
 }
