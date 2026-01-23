@@ -238,19 +238,70 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: 'gh_remove_label_if_exists',
         description:
           'Remove a label from an issue or PR only if it exists (no error if missing). Idempotent operation that checks for label existence before removal.',
-        inputSchema: zodToJsonSchema(RemoveLabelIfExistsInputSchema),
+        inputSchema: {
+          type: 'object',
+          properties: {
+            issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue or PR number',
+            },
+            label: {
+              type: 'string',
+              description: 'Label name to remove',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['issue_number', 'label'],
+        },
       },
       {
         name: 'gh_add_blocker',
         description:
           'Add a blocker relationship between two issues using GitHub dependencies API. Creates a "blocked by" relationship where one issue blocks another. Handles duplicate relationships gracefully.',
-        inputSchema: zodToJsonSchema(AddBlockerInputSchema),
+        inputSchema: {
+          type: 'object',
+          properties: {
+            blocked_issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue number that is blocked',
+            },
+            blocker_issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue number that is blocking',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['blocked_issue_number', 'blocker_issue_number'],
+        },
       },
       {
         name: 'gh_check_todo_in_main',
         description:
           'Check if a TODO pattern exists in a file on the origin/main branch using GitHub API (no git checkout required). Returns whether the pattern was found.',
-        inputSchema: zodToJsonSchema(CheckTodoInMainInputSchema),
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'File path to check in the repository',
+            },
+            todo_pattern: {
+              type: 'string',
+              description: "TODO pattern to search for (e.g., 'TODO(#123)')",
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['file_path', 'todo_pattern'],
+        },
       },
       {
         name: 'gh_prioritize_issues',
@@ -343,17 +394,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       }
 
       case 'gh_remove_label_if_exists': {
-        const input = RemoveLabelIfExistsInputSchema.parse(params.arguments);
+        const input = RemoveLabelIfExistsInputSchema.parse(args);
         return await removeLabelIfExists(input);
       }
 
       case 'gh_add_blocker': {
-        const input = AddBlockerInputSchema.parse(params.arguments);
+        const input = AddBlockerInputSchema.parse(args);
         return await addBlocker(input);
       }
 
       case 'gh_check_todo_in_main': {
-        const input = CheckTodoInMainInputSchema.parse(params.arguments);
+        const input = CheckTodoInMainInputSchema.parse(args);
         return await checkTodoInMain(input);
       }
 
