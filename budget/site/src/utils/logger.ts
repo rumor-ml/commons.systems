@@ -3,6 +3,8 @@
  *
  * Provides structured logging with level filtering and browser console output.
  * Uses console.error/warn/info/log for native browser devtools filtering.
+ * This allows developers to filter logs by severity in DevTools without custom parsing.
+ * Alternative approaches (single console method with styled prefixes) lose native filtering.
  * Log level is configurable via localStorage BUDGET_LOG_LEVEL.
  */
 
@@ -18,7 +20,15 @@ export class Logger {
 
   constructor() {
     // Read log level from localStorage (default: WARN)
-    const storedLevel = localStorage.getItem('BUDGET_LOG_LEVEL')?.toUpperCase();
+    // Wrapped in try-catch to handle SecurityError in private browsing mode
+    // or when localStorage is unavailable in sandboxed contexts
+    let storedLevel: string | null = null;
+    try {
+      storedLevel = localStorage.getItem('BUDGET_LOG_LEVEL')?.toUpperCase() ?? null;
+    } catch (error) {
+      // localStorage access denied in restricted context - use default
+      console.warn('Failed to read log level from localStorage, using default WARN level', error);
+    }
     this.level = LogLevel[storedLevel as keyof typeof LogLevel] ?? LogLevel.WARN;
   }
 
@@ -35,13 +45,12 @@ export class Logger {
     // This enables native browser devtools filtering
     switch (level) {
       case LogLevel.ERROR:
-        // Auto-capture stack trace for errors
-        if (data instanceof Error) {
-          console.error(logMessage, data);
-        } else if (data !== undefined) {
+        // Auto-capture stack trace for errors without explicit data
+        // Note: Creating Error objects is expensive; prefer passing explicit data for hot paths
+        if (data !== undefined) {
           console.error(logMessage, data);
         } else {
-          // Capture stack trace by creating temporary Error
+          // Capture stack trace by creating temporary Error (CPU cost)
           const stack = new Error().stack;
           console.error(logMessage, stack);
         }

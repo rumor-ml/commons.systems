@@ -30,7 +30,9 @@ function ThrowError({ shouldThrow = true }: { shouldThrow?: boolean }) {
 describe('ErrorBoundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Suppress console.error in tests (React logs errors caught by error boundaries)
+    // Suppress console.error in tests (React logs errors caught by error boundaries to the console
+    // even when they're successfully caught. This is expected React behavior to help developers
+    // notice errors during development. See: https://reactjs.org/docs/error-boundaries.html)
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -51,8 +53,7 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
 
-    // Look for "Component Error" since componentName defaults to "Unknown Component"
-    // but the render shows just "Component Error"
+    // ErrorBoundary defaults to "Component" for display when componentName prop is undefined (line 55 in ErrorBoundary.tsx)
     expect(screen.getByText(/Component Error/i)).toBeInTheDocument();
     expect(screen.getByText('Test error')).toBeInTheDocument();
   });
@@ -78,6 +79,23 @@ describe('ErrorBoundary', () => {
       expect.stringContaining('Error in TestComponent'),
       expect.objectContaining({
         error: 'Test error',
+      })
+    );
+  });
+
+  it('should log error with stack and componentStack', () => {
+    render(
+      <ErrorBoundary componentName="TestComponent">
+        <ThrowError />
+      </ErrorBoundary>
+    );
+
+    expect(loggerModule.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Error in TestComponent'),
+      expect.objectContaining({
+        error: 'Test error',
+        stack: expect.stringContaining('ThrowError'), // Verify stack trace logged
+        componentStack: expect.stringContaining('ThrowError'), // Verify React component stack logged
       })
     );
   });
@@ -152,8 +170,8 @@ describe('ErrorBoundary', () => {
     const tryAgainBtn = screen.getByRole('button', { name: /try again/i });
     await user.click(tryAgainBtn);
 
-    // Component should re-render (still with error in this case since we didn't fix the condition)
-    // But the error boundary state was reset
+    // Clicking "Try Again" resets the error boundary state and re-renders the children.
+    // Since the error condition is still true, the error is thrown again and caught.
     expect(screen.getByText(/Component Error/i)).toBeInTheDocument();
   });
 

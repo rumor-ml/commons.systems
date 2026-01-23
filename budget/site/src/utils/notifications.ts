@@ -1,8 +1,8 @@
 /**
  * Notification system for Budget module
  *
- * Wraps existing banner pattern from StateManager for consistent user notifications.
  * Provides programmatic API for showing/dismissing notifications with optional actions.
+ * Uses a banner pattern similar to StateManager for visual consistency.
  */
 
 import { logger } from './logger';
@@ -11,7 +11,7 @@ export type NotificationType = 'error' | 'warning' | 'info' | 'success';
 
 export interface ActionConfig {
   label: string;
-  onClick: () => void;
+  onClick: () => void | Promise<void>;
 }
 
 export interface NotificationConfig {
@@ -33,7 +33,17 @@ export function showNotification(config: NotificationConfig): () => void {
 
   logger.debug('Showing notification', { type, message, autoDismiss });
 
+  // Check if DOM is ready
+  if (!document.body) {
+    logger.error('Cannot show notification: document.body not available', { message, type });
+    if (type === 'error') {
+      console.error(`[NOTIFICATION ERROR] ${message}`);
+    }
+    return () => {};
+  }
+
   // Create banner element
+  // TODO(#1538): Consider testing notification accessibility (ARIA attributes)
   const banner = document.createElement('div');
   banner.className = `fixed top-4 left-1/2 -translate-x-1/2 z-50 ${getBackgroundClass(type)} text-white px-6 py-3 rounded-lg shadow-lg max-w-2xl`;
 
@@ -61,14 +71,33 @@ export function showNotification(config: NotificationConfig): () => void {
   container.appendChild(text);
 
   // Add action button if provided
-  if (action) {
+  if (action && action.label.trim().length > 0) {
     const actionBtn = document.createElement('button');
     actionBtn.className =
       'ml-2 px-3 py-1 bg-white text-bg-base rounded hover:bg-gray-200 text-sm font-medium';
     actionBtn.textContent = action.label;
     actionBtn.onclick = () => {
-      action.onClick();
-      dismiss();
+      try {
+        const result = action.onClick();
+        // Handle both sync and async callbacks
+        if (result instanceof Promise) {
+          result
+            .then(() => {
+              dismiss();
+            })
+            .catch((error) => {
+              logger.error(`Notification action "${action.label}" failed`, error);
+              dismiss();
+              showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
+            });
+        } else {
+          dismiss();
+        }
+      } catch (error) {
+        logger.error(`Notification action "${action.label}" failed`, error);
+        dismiss();
+        showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
+      }
     };
     container.appendChild(actionBtn);
   }
@@ -78,12 +107,24 @@ export function showNotification(config: NotificationConfig): () => void {
   document.body.appendChild(banner);
 
   // Auto-dismiss if enabled
+  let timerId: number | undefined;
+
   if (autoDismiss) {
-    setTimeout(dismiss, 10000);
+    timerId = setTimeout(dismiss, 10000) as unknown as number;
   }
 
   function dismiss() {
-    banner.remove();
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+      timerId = undefined;
+    }
+    try {
+      if (banner.parentNode) {
+        banner.remove();
+      }
+    } catch (error) {
+      logger.debug('Failed to remove notification banner', { error });
+    }
   }
 
   return dismiss;
@@ -92,7 +133,8 @@ export function showNotification(config: NotificationConfig): () => void {
 /**
  * Show error notification with optional action button
  *
- * Error notifications do not auto-dismiss by default.
+ * Error notifications do not auto-dismiss by default, but can be configured
+ * to auto-dismiss by passing autoDismiss option through NotificationConfig.
  *
  * @param message - Error message to display
  * @param action - Optional action button configuration

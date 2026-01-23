@@ -155,4 +155,37 @@ describe('formatBudgetError', () => {
 
     expect(formatted).not.toContain('Context:');
   });
+
+  it('should handle circular references in context', () => {
+    const circular: any = { name: 'test' };
+    circular.self = circular;
+
+    const error = new BudgetError('Test error', 'DATA_VALIDATION', {
+      circular,
+      nested: { ref: circular },
+    });
+
+    // Should not throw when formatting
+    expect(() => formatBudgetError(error)).not.toThrow();
+
+    const formatted = formatBudgetError(error);
+
+    // Should include some indication of the error
+    expect(formatted).toContain('Context:');
+    expect(formatted).toContain('Unable to serialize');
+  });
+
+  it('should handle Error objects in context', () => {
+    const innerError = new Error('Inner error');
+    const error = new BudgetError('Outer error', 'UNEXPECTED', {
+      error: innerError,
+      errorMessage: innerError.message,
+    });
+
+    expect(() => formatBudgetError(error)).not.toThrow();
+
+    const formatted = formatBudgetError(error);
+    expect(formatted).toContain('Context:');
+    expect(formatted).toContain('Inner error');
+  });
 });

@@ -2,13 +2,14 @@
  * React Error Boundary for Budget module islands
  *
  * Catches render errors in child component tree and displays fallback UI.
- * Logs errors via structured logger with stack traces.
+ * Logs errors via structured logger. Includes stack traces for Error instances
+ * and React component stack for all errors.
  * Fallback UI matches BudgetChart error styling for consistency.
  */
 
 import React from 'react';
 import { logger } from '../utils/logger';
-import { BudgetError, formatBudgetError } from '../utils/errors';
+import { formatBudgetError } from '../utils/errors';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -33,16 +34,29 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     const componentName = this.props.componentName || 'Unknown Component';
 
-    // Log error with stack trace
+    // Log error with stack trace (if available)
     logger.error(`Error in ${componentName}:`, {
       error: error.message,
-      stack: error.stack,
+      stack: error.stack ?? 'No stack trace available',
       componentStack: errorInfo.componentStack,
     });
   }
 
   handleRefresh = (): void => {
-    window.location.reload();
+    try {
+      window.location.reload();
+    } catch (error) {
+      logger.error('Failed to reload page', error);
+      // Fallback: try to navigate to current URL
+      try {
+        window.location.href = window.location.href;
+      } catch (fallbackError) {
+        logger.error('Failed to navigate to current URL', fallbackError);
+        alert(
+          'Unable to refresh the page automatically. Please refresh manually using your browser (Ctrl+R or Cmd+R).'
+        );
+      }
+    }
   };
 
   handleReset = (): void => {

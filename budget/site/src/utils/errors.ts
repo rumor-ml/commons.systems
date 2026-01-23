@@ -1,7 +1,7 @@
 /**
  * Typed error class for Budget module errors
  *
- * Provides a typed error hierarchy for categorizing failures in the Budget module.
+ * Provides a typed error class for categorizing failures in the Budget module.
  * Error codes enable structured error handling and recovery strategies.
  */
 
@@ -18,6 +18,27 @@ export type BudgetErrorCode =
   | 'UNEXPECTED'; // Unknown error
 
 /**
+ * Structured context for BudgetError instances
+ *
+ * Provides type-safe fields for common error context patterns while
+ * maintaining flexibility through index signature.
+ */
+export interface BudgetErrorContext {
+  // Error details
+  error?: Error | unknown;
+  stack?: string;
+  componentStack?: string;
+
+  // Location context
+  file?: string;
+  line?: number;
+  component?: string;
+
+  // Additional structured data
+  [key: string]: unknown;
+}
+
+/**
  * Budget module error with typed error code and optional context
  *
  * Extends standard Error with Budget-specific context including:
@@ -28,7 +49,7 @@ export class BudgetError extends Error {
   constructor(
     message: string,
     public readonly code: BudgetErrorCode,
-    public readonly context?: Record<string, unknown>
+    public readonly context?: BudgetErrorContext
   ) {
     super(message);
     this.name = 'BudgetError';
@@ -60,7 +81,14 @@ export function formatBudgetError(error: unknown, includeStack = false): string 
     const parts = [`[${error.name}]`, `(${error.code})`, error.message];
 
     if (error.context && Object.keys(error.context).length > 0) {
-      parts.push(`\nContext: ${JSON.stringify(error.context, null, 2)}`);
+      try {
+        parts.push(`\nContext: ${JSON.stringify(error.context, null, 2)}`);
+      } catch (stringifyError) {
+        // Handle circular references or non-serializable objects
+        const errorMessage =
+          stringifyError instanceof Error ? stringifyError.message : String(stringifyError);
+        parts.push(`\nContext: [Unable to serialize: ${errorMessage}]`);
+      }
     }
 
     if (includeStack && error.stack) {

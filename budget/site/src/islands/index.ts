@@ -21,6 +21,7 @@ const COMPONENTS: Record<string, React.ComponentType<any>> = {
 // Store React roots for re-rendering
 const roots = new Map<HTMLElement, ReturnType<typeof createRoot>>();
 
+// TODO(#1539): Add error handling for DOM manipulation failures
 function showErrorInContainer(element: HTMLElement, title: string, message: string): void {
   const errorContainer = document.createElement('div');
   errorContainer.className = 'p-4 bg-error text-white rounded';
@@ -51,7 +52,9 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       invalidJSON: element.dataset.islandProps,
     });
 
-    // Show user-facing error in the island container
+    // Show user-facing error banner in the island container
+    // Displays a styled error message in place of the failed component
+    // (Alternative: ErrorBoundary for React-level errors, notifications for temporary alerts)
     showErrorInContainer(
       element,
       `Failed to load ${componentName}`,
@@ -68,7 +71,9 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       element: element.outerHTML.substring(0, 200),
     });
 
-    // Show user-facing error in the island container
+    // Show user-facing error banner in the island container
+    // Displays a styled error message in place of the failed component
+    // (Alternative: ErrorBoundary for React-level errors, notifications for temporary alerts)
     showErrorInContainer(
       element,
       `Component "${componentName}" not found`,
@@ -81,11 +86,24 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
     // Get or create root
     let root = roots.get(element);
     if (!root) {
-      root = createRoot(element);
-      roots.set(element, root);
+      try {
+        root = createRoot(element);
+        roots.set(element, root);
+      } catch (rootError) {
+        const errorMessage = rootError instanceof Error ? rootError.message : String(rootError);
+        const errorStack = rootError instanceof Error ? rootError.stack : undefined;
+        logger.error(`Failed to create React root for "${componentName}"`, {
+          error: errorMessage,
+          stack: errorStack,
+          elementId: element.id,
+          elementClasses: element.className,
+        });
+        throw new Error(`Failed to create React root: ${errorMessage}`);
+      }
     }
 
-    // Wrap component in ErrorBoundary
+    // Wrap component in ErrorBoundary to catch React render/lifecycle errors
+    // (Island-level errors like props parsing are caught above by try-catch)
     const wrappedComponent = React.createElement(
       ErrorBoundary,
       { componentName },
@@ -93,10 +111,27 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
     );
 
     // Render (or re-render) with new props
-    root.render(wrappedComponent);
-    element.dataset.islandHydrated = 'true';
+    try {
+      root.render(wrappedComponent);
+      element.dataset.islandHydrated = 'true';
+    } catch (renderError) {
+      const errorMessage = renderError instanceof Error ? renderError.message : String(renderError);
+      const errorStack = renderError instanceof Error ? renderError.stack : undefined;
+      logger.error(`Failed to render component "${componentName}"`, {
+        error: errorMessage,
+        stack: errorStack,
+        elementId: element.id,
+        elementClasses: element.className,
+      });
+      throw new Error(`Failed to render component: ${errorMessage}`);
+    }
   } catch (error) {
-    logger.error(`Failed to render island "${componentName}"`, error);
+    logger.error(`Failed to hydrate island "${componentName}"`, {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      elementId: element.id,
+      elementClasses: element.className,
+    });
 
     showErrorInContainer(
       element,

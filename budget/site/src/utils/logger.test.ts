@@ -114,6 +114,30 @@ describe('Logger', () => {
       expect(consoleWarnSpy).toHaveBeenCalled();
       expect(consoleInfoSpy).not.toHaveBeenCalled();
     });
+
+    it('should handle localStorage access errors gracefully', () => {
+      const getItemSpy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+        throw new Error('SecurityError: localStorage is not available');
+      });
+
+      // Should not throw during construction
+      expect(() => new Logger()).not.toThrow();
+
+      const logger = new Logger();
+
+      // Should default to WARN level when localStorage fails
+      logger.error('error');
+      logger.warn('warn');
+      logger.info('info');
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      // Note: console.warn is called twice - once by the logger constructor error handler
+      // and once by the logger.warn() call
+      expect(consoleWarnSpy).toHaveBeenCalled();
+      expect(consoleInfoSpy).not.toHaveBeenCalled();
+
+      getItemSpy.mockRestore();
+    });
   });
 
   describe('log message formatting', () => {
@@ -204,7 +228,7 @@ describe('Logger', () => {
       const logger = new Logger();
       logger.error('error with undefined', undefined);
 
-      // When data is undefined, logger captures stack trace instead
+      // When data is undefined, logger auto-captures stack trace as the data argument
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining('[ERROR]'),
         expect.stringContaining('Error')
@@ -234,5 +258,7 @@ describe('Logger', () => {
       const errorCall = consoleErrorSpy.mock.calls[0][0] as string;
       expect(errorCall).toContain(longMessage);
     });
+
+    // TODO(#1542): Consider testing Logger with very large data objects
   });
 });
