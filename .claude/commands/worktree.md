@@ -7,7 +7,7 @@ model: haiku
 
 Call the `gh_create_worktree` MCP tool based on the argument: "{{args}}"
 
-- If argument is empty: Call with `{}` (the tool doesn't support auto-fetch from "ready" label yet, so return an error asking user to provide either an issue number or description)
+- If argument is empty: Ask the user to provide either an issue number (e.g., `#1500`) or a task description
 - If argument starts with `#` followed by a number (e.g., `#66`): Extract the number and call with `{ "issue_number": 66 }`
 - Otherwise: Call with `{ "description": "{{args}}" }`
 

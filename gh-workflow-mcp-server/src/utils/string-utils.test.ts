@@ -50,6 +50,14 @@ describe('slugify', () => {
     assert.strictEqual(slugify('!!!'), '');
   });
 
+  test('handles whitespace-only string', () => {
+    assert.strictEqual(slugify('   '), '');
+  });
+
+  test('handles mixed whitespace and special characters', () => {
+    assert.strictEqual(slugify('  !!!  '), '');
+  });
+
   test('collapses hyphens from consecutive special chars', () => {
     assert.strictEqual(slugify('hello!!!world'), 'hello-world');
   });

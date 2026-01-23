@@ -16,7 +16,6 @@ import {
   isWorkingDirectoryClean,
   fetchAndPullMain,
   createWorktree,
-  setUpstream,
   configureHooksPath,
   worktreeExists,
 } from '../utils/git-commands.js';
@@ -96,10 +95,11 @@ async function updateIssueLabels(
   repo: string
 ): Promise<{ success: boolean; warning?: string }> {
   try {
-    // Remove "ready" label if it exists (best effort)
+    // Remove "ready" label if it exists (best effort, non-critical)
     await ghCli(['issue', 'edit', issueNumber.toString(), '--remove-label', 'ready'], { repo });
-  } catch (error) {
-    // Ignore errors - label might not exist
+  } catch {
+    // Ignore errors - label might not exist, or user lacks permission.
+    // This is best-effort and not critical to worktree creation.
   }
 
   try {
@@ -228,16 +228,8 @@ export async function createWorktreeCmd(input: CreateWorktreeInput): Promise<Too
     await createWorktree(worktreePath, branchName);
 
     // ===== POST-CREATION SETUP (BEST EFFORT) =====
-
-    // Set upstream
-    try {
-      await setUpstream(branchName, worktreePath);
-    } catch (error) {
-      warnings.push(
-        `Failed to set upstream: ${error instanceof Error ? error.message : String(error)}\n` +
-          `You can set it manually: cd ${worktreePath} && git branch --set-upstream-to origin/${branchName}`
-      );
-    }
+    // Note: We don't set upstream here because the remote branch doesn't exist yet.
+    // Git will prompt to set upstream on first push: git push -u origin {branchName}
 
     // Configure hooks path
     try {
