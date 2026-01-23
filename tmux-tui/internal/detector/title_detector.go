@@ -24,7 +24,7 @@ const (
 	// 1. Monitor detection failures via treeErrors counter in metrics
 	// 2. Add integration test validating prefix with actual Claude Code instance
 	// 3. Make prefix configurable via TMUX_TUI_IDLE_PREFIX env var for forward compatibility
-	// 4. TODO(#1529): Add automated check against Claude Code source in CI pipeline
+	// 4. TODO(#1566): Add automated check against Claude Code source in CI pipeline
 	//
 	// Last verified: 2026-01-23 against Claude Code internal title system
 	idlePrefix = "✳ " // U+2733 EIGHT SPOKED ASTERISK + space

@@ -1,7 +1,10 @@
 package detector
 
 import (
+	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
@@ -116,11 +119,36 @@ func (d *HookDetector) convertEvents(alertCh <-chan watcher.AlertEvent) {
 					event.PaneID, state, event.EventType, event.Created)
 			}
 
-			// Forward the converted event
+			// Forward the converted event with timeout to prevent silent drops
 			select {
 			case d.eventCh <- stateEvent:
+				// Successfully forwarded
 			case <-d.done:
+				// Shutdown - log if we're dropping a state event
+				if !stateEvent.IsError() {
+					debug.Log("HOOK_DETECTOR_SHUTDOWN_DROP paneID=%s state=%s",
+						stateEvent.PaneID(), stateEvent.State())
+				}
 				return
+			case <-time.After(5 * time.Second):
+				// Event channel is full or blocked - drop with warning
+				if !stateEvent.IsError() {
+					errMsg := fmt.Sprintf("Event channel full - dropping state change for pane %s (state=%s)",
+						stateEvent.PaneID(), stateEvent.State())
+					fmt.Fprintf(os.Stderr, "WARNING: %s\n", errMsg)
+					debug.Log("HOOK_DETECTOR_EVENT_DROPPED paneID=%s state=%s",
+						stateEvent.PaneID(), stateEvent.State())
+
+					// Try to emit error event about the drop (with short timeout to avoid recursion)
+					select {
+					case d.eventCh <- NewStateErrorEvent(fmt.Errorf("%s", errMsg)):
+					case <-d.done:
+						return
+					case <-time.After(100 * time.Millisecond):
+						// Can't even report the drop - system is severely degraded
+						fmt.Fprintf(os.Stderr, "CRITICAL: Cannot report dropped event - event channel deadlocked\n")
+					}
+				}
 			}
 		}
 	}
@@ -134,8 +162,7 @@ func (d *HookDetector) Stop() error {
 	})
 
 	// Close the underlying watcher
-	if d.watcher != nil {
-		return d.watcher.Close()
-	}
-	return nil
+	// No nil check - watcher is always non-nil after successful construction.
+	// If watcher is nil, it indicates a bug that should be caught in testing.
+	return d.watcher.Close()
 }

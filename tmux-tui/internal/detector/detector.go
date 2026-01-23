@@ -36,6 +36,7 @@ func NewState(value int) (State, error) {
 	case StateWorking, StateIdle:
 		return State(value), nil
 	default:
+		// Return zero value (StateWorking) with error per Go conventions
 		return StateWorking, fmt.Errorf("invalid state value: %d (must be StateWorking=0 or StateIdle=1)", value)
 	}
 }
@@ -53,6 +54,7 @@ func NewStateFromString(s string) (State, error) {
 }
 
 // StateEvent represents either a successful state change or an error.
+// IMMUTABLE: Once constructed, the event type and fields must not be modified.
 // Use NewStateChangeEvent or NewStateErrorEvent to create instances.
 type StateEvent struct {
 	paneID string

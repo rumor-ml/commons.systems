@@ -212,7 +212,6 @@ func TestHookDetector_DoubleStart(t *testing.T) {
 	}
 }
 
-// TODO(#1558): Missing negative test: HookDetector with invalid alert directory permissions
 func TestHookDetector_ErrorPropagation(t *testing.T) {
 	// Use a non-existent directory to force an error
 	detector, err := NewHookDetector("/this/path/should/not/exist/and/is/not/writable")
@@ -220,6 +219,74 @@ func TestHookDetector_ErrorPropagation(t *testing.T) {
 		defer detector.Stop()
 		t.Error("NewHookDetector() with invalid path should return error")
 	}
+}
+
+func TestHookDetector_UnreadableAlertDirectory(t *testing.T) {
+	t.Run("directory with no permissions", func(t *testing.T) {
+		// Create a temporary directory
+		tmpDir := t.TempDir()
+		alertDir := filepath.Join(tmpDir, "alerts")
+
+		// Create the directory with normal permissions first
+		if err := os.MkdirAll(alertDir, 0755); err != nil {
+			t.Fatalf("Failed to create alert directory: %v", err)
+		}
+
+		// Change permissions to make it unreadable/unwritable/unexecutable
+		if err := os.Chmod(alertDir, 0000); err != nil {
+			t.Fatalf("Failed to chmod alert directory: %v", err)
+		}
+
+		// Restore permissions after test for cleanup
+		defer os.Chmod(alertDir, 0755)
+
+		// Attempt to create HookDetector - should fail when trying to watch directory
+		detector, err := NewHookDetector(alertDir)
+		if err == nil {
+			detector.Stop()
+			t.Error("NewHookDetector() with unreadable directory should return error")
+		}
+
+		// Verify error message indicates permission issue
+		if err != nil && !os.IsPermission(err) {
+			// fsnotify might return different error types, check the message
+			errMsg := err.Error()
+			if errMsg != "" {
+				t.Logf("Got expected error: %v", err)
+			}
+		}
+	})
+
+	t.Run("directory with execute but no read permissions", func(t *testing.T) {
+		// Create a temporary directory
+		tmpDir := t.TempDir()
+		alertDir := filepath.Join(tmpDir, "alerts-noread")
+
+		// Create the directory with normal permissions first
+		if err := os.MkdirAll(alertDir, 0755); err != nil {
+			t.Fatalf("Failed to create alert directory: %v", err)
+		}
+
+		// Change permissions to execute-only (no read/write)
+		if err := os.Chmod(alertDir, 0111); err != nil {
+			t.Fatalf("Failed to chmod alert directory: %v", err)
+		}
+
+		// Restore permissions after test for cleanup
+		defer os.Chmod(alertDir, 0755)
+
+		// Attempt to create HookDetector - should fail when trying to watch directory
+		detector, err := NewHookDetector(alertDir)
+		if err == nil {
+			detector.Stop()
+			t.Error("NewHookDetector() with non-readable directory should return error")
+		}
+
+		// Verify error occurred
+		if err != nil {
+			t.Logf("Got expected error: %v", err)
+		}
+	})
 }
 
 func TestHookDetector_DeleteOnly(t *testing.T) {

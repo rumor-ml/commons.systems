@@ -296,8 +296,10 @@ type AlertDaemon struct {
 	// Idle state detection (strategy pattern for hook-based vs title-based detection)
 	detector detector.IdleStateDetector
 
-	// Note: Previously used AlertWatcher directly. Now abstracted behind IdleStateDetector interface.
-	// Hook-based detector (deprecated) manages its own AlertWatcher lifecycle when TMUX_TUI_DETECTOR=hook.
+	// Note: Previously used AlertWatcher directly for hook-based detection.
+	// Now abstracted behind IdleStateDetector interface with two implementations:
+	// - HookDetector (deprecated): Uses AlertWatcher for file-based notifications (TMUX_TUI_DETECTOR=hook)
+	// - TitleDetector (default): Polls pane titles directly, no AlertWatcher involved
 	paneFocusWatcher *watcher.PaneFocusWatcher
 	alerts           map[string]string // Current alert state: paneID -> eventType
 	previousState    map[string]string // Previous state for bell firing logic
@@ -503,7 +505,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		debug.Log("DAEMON_INIT detector=title - using TitleDetector")
 		// Title-based detection requires a working collector to query pane titles.
 		// We defer detector initialization until after collector creation (see detector initialization below).
-		// For now, set to nil and initialize later once collector is available.
+		// Leave idleDetector unassigned (nil) - will be initialized after collector creation (lines 603-612)
 		existingAlerts = make(map[string]string) // No existing alerts for title-based detection
 	}
 
@@ -531,7 +533,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		alertDir, socketPath, len(existingAlerts), len(blockedBranches))
 
 	daemon := &AlertDaemon{
-		detector:         idleDetector, // May be nil for title detector (initialized later after collector is created)
+		detector:         idleDetector, // May be nil for title detector (requires working collector, initialized at lines 603-612 after collector creation)
 		paneFocusWatcher: paneFocusWatcher,
 		alerts:           existingAlerts,
 		previousState:    make(map[string]string),
@@ -1853,7 +1855,9 @@ func (d *AlertDaemon) Stop() error {
 	debug.Log("DAEMON_STOPPING")
 	close(d.done)
 
-	// Close idle state detector (HookDetector internally manages alertWatcher cleanup)
+	// Close idle state detector
+	// - HookDetector: Internally manages AlertWatcher cleanup via watcher.Close()
+	// - TitleDetector: Stops polling goroutine, no watcher cleanup needed
 	if d.detector != nil {
 		if err := d.detector.Stop(); err != nil {
 			debug.Log("DAEMON_DETECTOR_STOP_ERROR error=%v", err)
