@@ -1,0 +1,31 @@
+{
+  "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
+  "Sources": [
+    {
+      "Packages": [
+        {
+          "PackageIdentifier": "wez.wezterm"
+        },
+        {
+          "PackageIdentifier": "GIMP.GIMP.3"
+        },
+        {
+          "PackageIdentifier": "Mozilla.Firefox"
+        },
+        {
+          "PackageIdentifier": "Anthropic.Claude"
+        },
+        {
+          "PackageIdentifier": "Inkscape.Inkscape"
+        }
+      ],
+      "SourceDetails": {
+        "Argument": "https://cdn.winget.microsoft.com/cache",
+        "Identifier": "Microsoft.Winget.Source_8wekyb3d8bbwe",
+        "Name": "winget",
+        "Type": "Microsoft.PreIndexed.Package"
+      }
+    }
+  ],
+  "WinGetVersion": "1.4.11071"
+}
