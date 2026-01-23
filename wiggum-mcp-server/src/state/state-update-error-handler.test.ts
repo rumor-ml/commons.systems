@@ -44,6 +44,30 @@ function createMockState(overrides?: { phase?: WiggumPhase; iteration?: number }
 
 describe('handleStateUpdateFailure', () => {
   describe('validation', () => {
+    it('should throw error when called with stateResult.success = true', () => {
+      // This test catches a critical integration bug where handleStateUpdateFailure
+      // is called at one of the 5 callsites in router.ts with success: true
+      const invalidResult = {
+        success: true as const,
+        newState: {},
+      } as unknown as StateUpdateResult & { readonly success: false };
+
+      assert.throws(
+        () => {
+          handleStateUpdateFailure({
+            stateResult: invalidResult,
+            newState: createMockState(),
+            step: STEP_PHASE1_MONITOR_WORKFLOW,
+            targetType: 'issue',
+            targetNumber: 123,
+          });
+        },
+        {
+          message: /Cannot handle successful state update/,
+        }
+      );
+    });
+
     it('should throw error for targetNumber = 0', () => {
       assert.throws(
         () => {
@@ -215,6 +239,32 @@ describe('handleStateUpdateFailure', () => {
 
       const responseText = result.content[0].text;
       assert.ok(responseText.includes('Actual error: API rate limit exceeded'));
+    });
+
+    it('should exclude error details when lastError is undefined', () => {
+      // Explicitly test that undefined lastError doesn't append "Actual error:"
+      // This verifies the conditional logic at line 73-75 of the implementation
+
+      // Manually construct failure with undefined lastError using type assertion
+      // (can't use createMockFailure because it has a default)
+      // Note: TypeScript requires lastError: Error, but implementation is defensive
+      const failureWithoutError = {
+        success: false as const,
+        reason: 'network' as const,
+        lastError: undefined as unknown as Error,
+        attemptCount: 2,
+      };
+
+      const result = handleStateUpdateFailure({
+        stateResult: failureWithoutError,
+        newState: createMockState(),
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'issue',
+        targetNumber: 123,
+      });
+
+      const responseText = result.content[0].text;
+      assert.ok(!responseText.includes('Actual error:'));
     });
 
     it('should include retry count when attemptCount > 0', () => {

@@ -647,7 +647,7 @@ describe('State Update Retry Logic', () => {
 describe('handleStateUpdateFailure integration', () => {
   describe('Phase 1 Monitor Workflow callsite', () => {
     it('should pass correct parameters when state update fails after success', () => {
-      // This test verifies router.ts:804-810 callsite
+      // This test verifies Phase 1 Monitor Workflow success path callsite
       // Tests that Phase 1 Monitor Workflow passes correct params to handleStateUpdateFailure
 
       // Mock StateUpdateResult failure
@@ -684,7 +684,7 @@ describe('handleStateUpdateFailure integration', () => {
     });
 
     it('should pass correct parameters when state update fails after failure', () => {
-      // This test verifies router.ts:837-843 callsite
+      // This test verifies Phase 1 Monitor Workflow failure path callsite
       // Tests state update failure during iteration increment (workflow failed)
 
       const mockStateResult = createStateUpdateFailure('network', new Error('ECONNREFUSED'), 3);
@@ -712,7 +712,7 @@ describe('handleStateUpdateFailure integration', () => {
 
   describe('Phase 2 Monitor Workflow callsite', () => {
     it('should pass correct parameters with PR target type', () => {
-      // This test verifies router.ts:1101-1108 callsite
+      // This test verifies Phase 2 Monitor Workflow callsite
       // Tests that Phase 2 Monitor Workflow uses 'pr' instead of 'issue'
 
       const mockStateResult = createStateUpdateFailure(
@@ -743,7 +743,7 @@ describe('handleStateUpdateFailure integration', () => {
 
   describe('Phase 2 Monitor Checks callsites', () => {
     it('should pass correct parameters from first callsite (success path)', () => {
-      // This test verifies router.ts:1160-1167 callsite
+      // This test verifies Phase 2 Monitor Checks success path callsite
       // Tests state update failure after PR checks succeed (marking step complete)
 
       const mockStateResult = createStateUpdateFailure('network', new Error('Timeout'), 3);
@@ -771,7 +771,7 @@ describe('handleStateUpdateFailure integration', () => {
     });
 
     it('should pass correct parameters from second callsite (standalone path)', () => {
-      // This test verifies router.ts:1240-1247 callsite
+      // This test verifies Phase 2 Monitor Checks standalone path callsite
       // Tests standalone handlePhase2MonitorPRChecks when called after fixes
 
       const mockStateResult = createStateUpdateFailure('rate_limit', new Error('429'), 3);
@@ -797,7 +797,7 @@ describe('handleStateUpdateFailure integration', () => {
 
   describe('Phase 2 Code Quality callsite', () => {
     it('should pass correct parameters for code quality step', () => {
-      // This test verifies router.ts:1344-1351 callsite
+      // This test verifies Phase 2 Code Quality callsite
       // Tests state update failure when marking code quality step complete
 
       const mockStateResult = createStateUpdateFailure('network', new Error('ETIMEDOUT'), 2);
