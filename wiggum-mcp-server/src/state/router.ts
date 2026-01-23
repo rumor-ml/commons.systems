@@ -7,11 +7,9 @@
  */
 
 // TODO(#942): Extract verbose error handling pattern in router.ts state update failures
-// TODO(#941): Extract duplicate state update pattern in router.ts (safeUpdatePRBodyState and safeUpdateIssueBodyState)
 // TODO(#932): Add retry history tracking to StateUpdateResult for better diagnostics
 // TODO(#858): Improve state update retry loop error context capture
 // TODO(#811): Extract verbose state update error message formatting
-// TODO(#810): Extract duplicate safeUpdate functions in router.ts
 // TODO(#716): Migrate error classification in router.ts to structured error types
 // TODO(#710): Extract type alias for TransientFailureReason
 import { getPRReviewComments, sleep } from '../utils/gh-cli.js';
@@ -56,6 +54,42 @@ import { sanitizeErrorMessage } from '../utils/security.js';
  */
 type CurrentStateWithPR = CurrentState & {
   pr: PRExists;
+};
+
+/**
+ * Configuration for resource-specific state update operations
+ *
+ * This interface enables the generic safeUpdateBodyState function to operate
+ * on both PRs and issues with resource-specific behavior for:
+ * - Error messages (using resourceLabel)
+ * - Verification commands (using verifyCommand)
+ * - State persistence (using updateFn)
+ */
+interface ResourceConfig {
+  readonly resourceType: 'pr' | 'issue';
+  readonly resourceLabel: string; // "PR" or "Issue" for error messages
+  readonly verifyCommand: string; // "gh pr view" or "gh issue view"
+  readonly updateFn: (resourceId: number, state: WiggumState) => Promise<void>;
+}
+
+/**
+ * Configuration for PR state updates
+ */
+const PR_CONFIG: ResourceConfig = {
+  resourceType: 'pr',
+  resourceLabel: 'PR',
+  verifyCommand: 'gh pr view',
+  updateFn: updatePRBodyState,
+};
+
+/**
+ * Configuration for issue state updates
+ */
+const ISSUE_CONFIG: ResourceConfig = {
+  resourceType: 'issue',
+  resourceLabel: 'Issue',
+  verifyCommand: 'gh issue view',
+  updateFn: updateIssueBodyState,
 };
 
 /**
@@ -182,11 +216,8 @@ function checkBranchPushed(
   return null;
 }
 
-// TODO(#984): Extract common logic between safeUpdatePRBodyState and safeUpdateIssueBodyState
-// into a generic safeUpdateBodyState<T> function to reduce ~480 lines of duplication to ~250 lines.
-
 /**
- * Safely update wiggum state in PR body with error handling and retry logic
+ * Generic state update with error handling and retry logic
  *
  * State persistence is CRITICAL for race condition fix (issue #388). Without
  * successful state updates, workflow state may become inconsistent when tools
@@ -199,25 +230,29 @@ function checkBranchPushed(
  * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
- * @param prNumber - PR number to update
+ * @param config - Resource configuration (PR or issue)
+ * @param resourceId - PR number or issue number to update
  * @param state - New wiggum state to save
  * @param step - Step identifier for logging context
  * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
-export async function safeUpdatePRBodyState(
-  prNumber: number,
+async function safeUpdateBodyState(
+  config: ResourceConfig,
+  resourceId: number,
   state: WiggumState,
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  // Validate prNumber parameter (must be positive integer for valid PR number)
-  // CRITICAL: Invalid prNumber would cause StateApiError.create() to throw ValidationError
-  // inside catch blocks (line 255), potentially masking the original error
-  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+  const fnName = `safeUpdate${config.resourceLabel}BodyState`;
+
+  // Validate resourceId parameter (must be positive integer for valid resource number)
+  // CRITICAL: Invalid resourceId would cause StateApiError.create() to throw ValidationError
+  // inside catch blocks, potentially masking the original error
+  if (!Number.isInteger(resourceId) || resourceId <= 0) {
     throw new ValidationError(
-      `safeUpdatePRBodyState: prNumber must be a positive integer, got: ${prNumber} (type: ${typeof prNumber})`
+      `${fnName}: resourceId must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
     );
   }
 
@@ -228,8 +263,9 @@ export async function safeUpdatePRBodyState(
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
-    logger.error('safeUpdatePRBodyState: Invalid maxRetries parameter', {
-      prNumber,
+    logger.error(`${fnName}: Invalid maxRetries parameter`, {
+      resourceType: config.resourceType,
+      resourceId,
       step,
       maxRetries,
       maxRetriesType: typeof maxRetries,
@@ -237,7 +273,7 @@ export async function safeUpdatePRBodyState(
       impact: 'Cannot execute retry loop with invalid parameter',
     });
     throw new Error(
-      `safeUpdatePRBodyState: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
+      `${fnName}: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
         `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
         `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
         `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
@@ -246,17 +282,19 @@ export async function safeUpdatePRBodyState(
 
   // Validate state before attempting to post (issue #799: state validation errors)
   // This catches invalid states early and provides clear error messages rather than
-  // opaque GitHub API errors when posting malformed state to PR body
+  // opaque GitHub API errors when posting malformed state to body
   try {
     WiggumStateSchema.parse(state);
   } catch (validationError) {
     const { details, originalError } = extractZodValidationDetails(validationError, {
-      prNumber,
+      resourceType: config.resourceType,
+      resourceId,
       step,
     });
 
-    logger.error('safeUpdatePRBodyState: State validation failed before posting', {
-      prNumber,
+    logger.error(`${fnName}: State validation failed before posting`, {
+      resourceType: config.resourceType,
+      resourceId,
       step,
       state,
       validationDetails: details,
@@ -269,20 +307,21 @@ export async function safeUpdatePRBodyState(
     throw StateApiError.create(
       `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
       'write',
-      'pr',
-      prNumber,
+      config.resourceType,
+      resourceId,
       originalError ?? new Error(String(validationError))
     );
   }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await updatePRBodyState(prNumber, state);
+      await config.updateFn(resourceId, state);
 
       // Log recovery on retry success
       if (attempt > 1) {
         logger.info('State update succeeded after retry', {
-          prNumber,
+          resourceType: config.resourceType,
+          resourceId,
           step,
           attempt,
           maxRetries,
@@ -310,7 +349,8 @@ export async function safeUpdatePRBodyState(
 
       // Build error context including classification results for debugging
       const errorContext = {
-        prNumber,
+        resourceType: config.resourceType,
+        resourceId,
         step,
         attempt,
         maxRetries,
@@ -325,13 +365,13 @@ export async function safeUpdatePRBodyState(
         classification,
       };
 
-      // Critical errors: PR not found or authentication failures - throw immediately (no retry)
+      // Critical errors: Resource not found or authentication failures - throw immediately (no retry)
       if (classification.is404) {
-        logger.error('Critical: PR not found - cannot update state in body', {
+        logger.error(`Critical: ${config.resourceLabel} not found - cannot update state in body`, {
           ...errorContext,
           impact: 'Workflow state persistence failed',
-          recommendation: `Verify PR #${prNumber} exists: gh pr view ${prNumber}`,
-          nextSteps: 'Workflow cannot continue without valid PR',
+          recommendation: `Verify ${config.resourceLabel} #${resourceId} exists: ${config.verifyCommand} ${resourceId}`,
+          nextSteps: `Workflow cannot continue without valid ${config.resourceLabel.toLowerCase()}`,
           isTransient: false,
         });
         throw updateError;
@@ -385,20 +425,24 @@ export async function safeUpdatePRBodyState(
       }
 
       // Unexpected errors: Programming errors or unknown failures - throw immediately
-      logger.error('Unexpected error updating state in PR body - re-throwing', {
-        ...errorContext,
-        impact: 'Unknown failure type - may indicate programming error',
-        recommendation: 'Review error message and stack trace',
-        nextSteps: 'Workflow halted - manual investigation required',
-        isTransient: false,
-      });
+      logger.error(
+        `Unexpected error updating state in ${config.resourceLabel.toLowerCase()} body - re-throwing`,
+        {
+          ...errorContext,
+          impact: 'Unknown failure type - may indicate programming error',
+          recommendation: 'Review error message and stack trace',
+          nextSteps: 'Workflow halted - manual investigation required',
+          isTransient: false,
+        }
+      );
       throw updateError;
     }
   }
   // Fallback: TypeScript cannot prove all catch paths return/throw.
   // If this executes, investigate gap in error classification (issue #625).
-  logger.error('INTERNAL: safeUpdatePRBodyState retry loop completed without returning', {
-    prNumber,
+  logger.error(`INTERNAL: ${fnName} retry loop completed without returning`, {
+    resourceType: config.resourceType,
+    resourceId,
     step,
     maxRetries,
     phase: state.phase,
@@ -407,23 +451,39 @@ export async function safeUpdatePRBodyState(
     impact: 'Programming error in retry logic',
   });
   throw new Error(
-    `INTERNAL ERROR: safeUpdatePRBodyState retry loop completed without returning. ` +
-      `PR: #${prNumber}, Step: ${step}, maxRetries: ${maxRetries}, ` +
+    `INTERNAL ERROR: ${fnName} retry loop completed without returning. ` +
+      `${config.resourceLabel}: #${resourceId}, Step: ${step}, maxRetries: ${maxRetries}, ` +
       `Phase: ${state.phase}, Iteration: ${state.iteration}`
   );
 }
 
 /**
+ * Safely update wiggum state in PR body with error handling and retry logic
+ *
+ * Thin wrapper around safeUpdateBodyState that provides PR-specific configuration.
+ * See safeUpdateBodyState for full documentation on retry strategy and error handling.
+ *
+ * @param prNumber - PR number to update
+ * @param state - New wiggum state to save
+ * @param step - Step identifier for logging context
+ * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
+ * @returns Result indicating success or transient failure with reason
+ * @throws Critical errors (404, 401/403) and unexpected errors
+ */
+export async function safeUpdatePRBodyState(
+  prNumber: number,
+  state: WiggumState,
+  step: string,
+  maxRetries = 3
+): Promise<StateUpdateResult> {
+  return safeUpdateBodyState(PR_CONFIG, prNumber, state, step, maxRetries);
+}
+
+/**
  * Safely update wiggum state in issue body with error handling and retry logic
  *
- * State persistence is CRITICAL for race condition fix (issue #388). Without
- * successful state updates, workflow state may become inconsistent when tools
- * are called out-of-order or GitHub API returns stale data.
- *
- * Retry strategy (issue #799):
- * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
- * - Critical errors (404, 401/403): Throw immediately - no retry
- * - Unexpected errors: Re-throw - programming errors or unknown failures
+ * Thin wrapper around safeUpdateBodyState that provides issue-specific configuration.
+ * See safeUpdateBodyState for full documentation on retry strategy and error handling.
  *
  * @param issueNumber - Issue number to update
  * @param state - New wiggum state to save
@@ -438,199 +498,7 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  // Validate issueNumber parameter (must be positive integer for valid issue number)
-  // CRITICAL: Invalid issueNumber would cause StateApiError.create() to throw ValidationError
-  // inside catch blocks (line 472), potentially masking the original error
-  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-    throw new ValidationError(
-      `safeUpdateIssueBodyState: issueNumber must be a positive integer, got: ${issueNumber} (type: ${typeof issueNumber})`
-    );
-  }
-
-  // Validate maxRetries to ensure retry loop executes correctly (issue #625)
-  // CRITICAL: Invalid maxRetries would break retry logic:
-  //   - maxRetries < 1: Loop would not execute (no retries attempted)
-  //   - maxRetries > 100: Excessive delays due to uncapped exponential backoff (attempt 10 = ~17 min)
-  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
-  const MAX_RETRIES_LIMIT = 100;
-  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
-    logger.error('safeUpdateIssueBodyState: Invalid maxRetries parameter', {
-      issueNumber,
-      step,
-      maxRetries,
-      maxRetriesType: typeof maxRetries,
-      phase: state.phase,
-      impact: 'Cannot execute retry loop with invalid parameter',
-    });
-    throw new Error(
-      `safeUpdateIssueBodyState: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
-        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
-        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
-        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
-    );
-  }
-
-  // Validate state before attempting to post (issue #799: state validation errors)
-  // This catches invalid states early and provides clear error messages rather than
-  // opaque GitHub API errors when posting malformed state to issue body
-  try {
-    WiggumStateSchema.parse(state);
-  } catch (validationError) {
-    const { details, originalError } = extractZodValidationDetails(validationError, {
-      issueNumber,
-      step,
-    });
-
-    logger.error('safeUpdateIssueBodyState: State validation failed before posting', {
-      issueNumber,
-      step,
-      state,
-      validationDetails: details,
-      error: originalError?.message ?? String(validationError),
-      errorStack: originalError?.stack,
-      impact: 'Invalid state cannot be persisted to GitHub',
-    });
-    // Include state summary in error message for debugging without log access (issue #625)
-    const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
-    throw StateApiError.create(
-      `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
-      'write',
-      'issue',
-      issueNumber,
-      originalError ?? new Error(String(validationError))
-    );
-  }
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await updateIssueBodyState(issueNumber, state);
-
-      // Log recovery on retry success
-      if (attempt > 1) {
-        logger.info('State update succeeded after retry', {
-          issueNumber,
-          step,
-          attempt,
-          maxRetries,
-          impact: 'Transient failure recovered automatically',
-        });
-      }
-
-      return { success: true };
-    } catch (updateError) {
-      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching
-      const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
-      const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
-      const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
-      const stateJson = JSON.stringify(state);
-
-      // Classify error type using shared utility
-      // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      const classification = classifyGitHubError(updateError, exitCode);
-
-      // Build error context including classification results for debugging
-      const errorContext = {
-        issueNumber,
-        step,
-        attempt,
-        maxRetries,
-        iteration: state.iteration,
-        phase: state.phase,
-        completedSteps: state.completedSteps,
-        stateJson,
-        error: errorMsg,
-        errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
-        exitCode,
-        stderr,
-        classification,
-      };
-
-      // Critical errors: Issue not found or authentication failures - throw immediately (no retry)
-      if (classification.is404) {
-        logger.error('Critical: Issue not found - cannot update state in body', {
-          ...errorContext,
-          impact: 'Workflow state persistence failed',
-          recommendation: `Verify issue #${issueNumber} exists: gh issue view ${issueNumber}`,
-          nextSteps: 'Workflow cannot continue without valid issue',
-          isTransient: false,
-        });
-        throw updateError;
-      }
-
-      if (classification.isAuth) {
-        logger.error('Critical: Authentication failed - cannot update state in body', {
-          ...errorContext,
-          impact: 'Workflow state persistence failed - insufficient permissions',
-          recommendation: 'Check gh auth status and token scopes: gh auth status',
-          nextSteps: 'Re-authenticate or update token permissions',
-          isTransient: false,
-        });
-        throw updateError;
-      }
-
-      // Transient errors: Rate limits or network issues - retry with backoff
-      if (classification.isTransient) {
-        const reason = classification.isRateLimit ? 'rate_limit' : 'network';
-
-        if (attempt < maxRetries) {
-          // Exponential backoff: 2^attempt seconds, capped at 60s
-          const MAX_DELAY_MS = 60000;
-          const uncappedDelayMs = Math.pow(2, attempt) * 1000;
-          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
-          logger.info('Transient error updating state - retrying with backoff', {
-            ...errorContext,
-            reason,
-            delayMs,
-            wasCapped: uncappedDelayMs > MAX_DELAY_MS,
-            remainingAttempts: maxRetries - attempt,
-          });
-          await sleep(delayMs);
-          continue; // Retry
-        }
-
-        // All retries exhausted - return failure result with error context for debugging
-        const lastErrorObj =
-          updateError instanceof Error ? updateError : new Error(String(updateError));
-        logger.warn('State update failed after all retries', {
-          ...errorContext,
-          reason,
-          impact: 'Workflow halted - manual retry required',
-          recommendation:
-            reason === 'rate_limit'
-              ? 'Check rate limit status: gh api rate_limit'
-              : 'Check network connection and GitHub API status',
-          isTransient: true,
-        });
-        return createStateUpdateFailure(reason, lastErrorObj, maxRetries);
-      }
-
-      // Unexpected errors: Programming errors or unknown failures - throw immediately
-      logger.error('Unexpected error updating state in issue body - re-throwing', {
-        ...errorContext,
-        impact: 'Unknown failure type - may indicate programming error',
-        recommendation: 'Review error message and stack trace',
-        nextSteps: 'Workflow halted - manual investigation required',
-        isTransient: false,
-      });
-      throw updateError;
-    }
-  }
-  // Fallback: TypeScript cannot prove all catch paths return/throw.
-  // If this executes, investigate gap in error classification (issue #625).
-  logger.error('INTERNAL: safeUpdateIssueBodyState retry loop completed without returning', {
-    issueNumber,
-    step,
-    maxRetries,
-    phase: state.phase,
-    iteration: state.iteration,
-    stateJson: JSON.stringify(state),
-    impact: 'Programming error in retry logic',
-  });
-  throw new Error(
-    `INTERNAL ERROR: safeUpdateIssueBodyState retry loop completed without returning. ` +
-      `Issue: #${issueNumber}, Step: ${step}, maxRetries: ${maxRetries}, ` +
-      `Phase: ${state.phase}, Iteration: ${state.iteration}`
-  );
+  return safeUpdateBodyState(ISSUE_CONFIG, issueNumber, state, step, maxRetries);
 }
 
 /**
