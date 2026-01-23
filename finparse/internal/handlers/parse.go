@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,7 +93,9 @@ func (h *ParseHandlers) StartParse(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Save to temp location
-			tmpPath := fmt.Sprintf("/tmp/%s-%s", sessionID, fileHeader.Filename)
+			// Use filepath.Base() to prevent path traversal attacks
+			safeName := filepath.Base(fileHeader.Filename)
+			tmpPath := filepath.Join("/tmp", fmt.Sprintf("%s-%s", sessionID, safeName))
 			dst, err := os.Create(tmpPath)
 			if err != nil {
 				file.Close()
