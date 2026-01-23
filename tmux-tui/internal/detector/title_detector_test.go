@@ -11,6 +11,11 @@ import (
 )
 
 // TODO(#1544): Add mutex protection to addPane and removePane methods for better test reliability
+// Current issue: Tests that call addPane/removePane concurrently with detector polling can race
+// Observed failure: TestTitleDetector_ConcurrentStateTransitions occasionally sees stale tree state
+// Impact: Low (only affects test flakiness, not production code)
+// Note: mockCollector.mu already protects GetTree/GetPaneTitle, but addPane/removePane modify
+// paneTitles map without the lock, creating a window for races.
 // mockCollector implements a mock tmux.Collector for testing
 type mockCollector struct {
 	mu         sync.RWMutex
@@ -150,16 +155,19 @@ func TestTitleDetector_IdleDetection(t *testing.T) {
 	// Wait for initial state event
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
-		if event.PaneID != "%1" {
-			t.Errorf("StateEvent.PaneID = %v, want %v", event.PaneID, "%1")
+		if event.PaneID() != "%1" {
+			t.Errorf("StateEvent.PaneID = %v, want %v", event.PaneID(), "%1")
 		}
-		if event.State != StateIdle {
-			t.Errorf("StateEvent.State = %v, want %v (idle prefix '✳ ' should trigger idle state)", event.State, StateIdle)
+		if event.State() != StateIdle {
+			t.Errorf("StateEvent.State = %v, want %v (idle prefix '✳ ' should trigger idle state)", event.State(), StateIdle)
 		}
 	// TODO(#1541): Test sleep timing could be reduced with notification mechanism
+	// Current: Tests sleep for 2 seconds waiting for polling to detect state
+	// Proposed: Add channel notification from checkAllPanes() completion for immediate test feedback
+	// Expected improvement: Test execution time reduced from 2s to ~50ms per state check
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial state event")
 	}
@@ -184,14 +192,14 @@ func TestTitleDetector_WorkingDetection(t *testing.T) {
 	// Wait for initial state event
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
-		if event.PaneID != "%1" {
-			t.Errorf("StateEvent.PaneID = %v, want %v", event.PaneID, "%1")
+		if event.PaneID() != "%1" {
+			t.Errorf("StateEvent.PaneID = %v, want %v", event.PaneID(), "%1")
 		}
-		if event.State != StateWorking {
-			t.Errorf("StateEvent.State = %v, want %v (no idle prefix should trigger working state)", event.State, StateWorking)
+		if event.State() != StateWorking {
+			t.Errorf("StateEvent.State = %v, want %v (no idle prefix should trigger working state)", event.State(), StateWorking)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial state event")
@@ -217,11 +225,11 @@ func TestTitleDetector_StateTransition(t *testing.T) {
 	// Wait for initial working state
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
-		if event.State != StateWorking {
-			t.Fatalf("Initial state = %v, want %v", event.State, StateWorking)
+		if event.State() != StateWorking {
+			t.Fatalf("Initial state = %v, want %v", event.State(), StateWorking)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial state event")
@@ -233,14 +241,14 @@ func TestTitleDetector_StateTransition(t *testing.T) {
 	// Wait for transition to idle
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
-		if event.PaneID != "%1" {
-			t.Errorf("StateEvent.PaneID = %v, want %v", event.PaneID, "%1")
+		if event.PaneID() != "%1" {
+			t.Errorf("StateEvent.PaneID = %v, want %v", event.PaneID(), "%1")
 		}
-		if event.State != StateIdle {
-			t.Errorf("StateEvent.State = %v, want %v (transition to idle)", event.State, StateIdle)
+		if event.State() != StateIdle {
+			t.Errorf("StateEvent.State = %v, want %v (transition to idle)", event.State(), StateIdle)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for idle transition")
@@ -252,11 +260,11 @@ func TestTitleDetector_StateTransition(t *testing.T) {
 	// Wait for transition to working
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
-		if event.State != StateWorking {
-			t.Errorf("StateEvent.State = %v, want %v (transition back to working)", event.State, StateWorking)
+		if event.State() != StateWorking {
+			t.Errorf("StateEvent.State = %v, want %v (transition back to working)", event.State(), StateWorking)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for working transition")
@@ -282,11 +290,11 @@ func TestTitleDetector_NoRepeatedEvents(t *testing.T) {
 	// Wait for initial event
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
-		if event.State != StateIdle {
-			t.Fatalf("Initial state = %v, want %v", event.State, StateIdle)
+		if event.State() != StateIdle {
+			t.Fatalf("Initial state = %v, want %v", event.State(), StateIdle)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial state event")
@@ -296,9 +304,9 @@ func TestTitleDetector_NoRepeatedEvents(t *testing.T) {
 	// Wait longer than poll interval to ensure we'd see duplicate if it was emitted
 	select {
 	case event := <-stateCh:
-		if event.Error == nil {
+		if event.Error() == nil {
 			t.Errorf("Received duplicate event: paneID=%v state=%v (should not emit when state unchanged)",
-				event.PaneID, event.State)
+				event.PaneID(), event.State())
 		}
 	case <-time.After(1 * time.Second):
 		// Expected - no event should be emitted
@@ -324,8 +332,8 @@ func TestTitleDetector_PaneRemoval(t *testing.T) {
 	// Wait for initial event
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial state event")
@@ -340,9 +348,9 @@ func TestTitleDetector_PaneRemoval(t *testing.T) {
 	// This tests that removed panes are cleaned from lastStates
 	select {
 	case event := <-stateCh:
-		if event.Error == nil {
+		if event.Error() == nil {
 			t.Errorf("Received event for removed pane: paneID=%v state=%v",
-				event.PaneID, event.State)
+				event.PaneID(), event.State())
 		}
 	case <-time.After(1 * time.Second):
 		// Expected - no event for removed pane
@@ -364,7 +372,7 @@ func TestTitleDetector_TreeError(t *testing.T) {
 	// Wait for error event
 	select {
 	case event := <-stateCh:
-		if event.Error == nil {
+		if event.Error() == nil {
 			t.Error("Expected error event when GetTree fails")
 		}
 	case <-time.After(2 * time.Second):
@@ -372,6 +380,7 @@ func TestTitleDetector_TreeError(t *testing.T) {
 	}
 }
 
+// TODO(#1560): Test quality issue: TestTitleDetector_TitleError uses global mock error state
 func TestTitleDetector_TitleError(t *testing.T) {
 	mock := newMockCollector()
 
@@ -391,14 +400,15 @@ func TestTitleDetector_TitleError(t *testing.T) {
 
 	stateCh := detector.Start()
 
-	// Should not emit an event because GetPaneTitle fails
-	// But also should not emit an error event (just logged)
+	// Should emit an error event because GetPaneTitle fails with unexpected error
 	select {
 	case event := <-stateCh:
-		t.Errorf("Should not emit event when GetPaneTitle fails, got: error=%v paneID=%v state=%v",
-			event.Error, event.PaneID, event.State)
+		if event.Error() == nil {
+			t.Errorf("Expected error event when GetPaneTitle fails unexpectedly, got state event: paneID=%v state=%v",
+				event.PaneID(), event.State())
+		}
 	case <-time.After(1 * time.Second):
-		// Expected - no event when title fetch fails
+		t.Fatal("Timeout waiting for error event")
 	}
 }
 
@@ -476,10 +486,10 @@ func TestTitleDetector_MultiplePanes(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		select {
 		case event := <-stateCh:
-			if event.Error != nil {
-				t.Fatalf("Received error event: %v", event.Error)
+			if event.Error() != nil {
+				t.Fatalf("Received error event: %v", event.Error())
 			}
-			events[event.PaneID] = event.State
+			events[event.PaneID()] = event.State()
 		case <-timeout:
 			t.Fatalf("Timeout waiting for event %d/3", i+1)
 		}
@@ -524,10 +534,10 @@ func TestTitleDetector_ConcurrentStateTransitions(t *testing.T) {
 	for i := 0; i < 15; i++ {
 		select {
 		case event := <-stateCh:
-			if event.Error != nil {
-				t.Fatalf("Received error event: %v", event.Error)
+			if event.Error() != nil {
+				t.Fatalf("Received error event: %v", event.Error())
 			}
-			initialEvents[event.PaneID] = event.State
+			initialEvents[event.PaneID()] = event.State()
 		case <-timeout:
 			t.Fatalf("Timeout waiting for initial event %d/15", i+1)
 		}
@@ -559,10 +569,10 @@ collectLoop:
 	for {
 		select {
 		case event := <-stateCh:
-			if event.Error != nil {
-				t.Fatalf("Received error event during concurrent updates: %v", event.Error)
+			if event.Error() != nil {
+				t.Fatalf("Received error event during concurrent updates: %v", event.Error())
 			}
-			stateChanges[event.PaneID] = event.State
+			stateChanges[event.PaneID()] = event.State()
 			// Check if we've received updates for all changed panes
 			if len(stateChanges) >= 15 {
 				break collectLoop
@@ -737,11 +747,11 @@ func TestTitleDetector_EmptyTree(t *testing.T) {
 	// Wait for initial event
 	select {
 	case event := <-stateCh:
-		if event.Error != nil {
-			t.Fatalf("Received error event: %v", event.Error)
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
 		}
-		if event.PaneID != "%1" {
-			t.Errorf("Expected event for pane %%1, got %s", event.PaneID)
+		if event.PaneID() != "%1" {
+			t.Errorf("Expected event for pane %%1, got %s", event.PaneID())
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial event")
@@ -759,9 +769,9 @@ func TestTitleDetector_EmptyTree(t *testing.T) {
 	// Verify no events emitted for empty tree
 	select {
 	case event := <-stateCh:
-		if event.Error == nil {
+		if event.Error() == nil {
 			t.Errorf("Should not emit event for empty tree, got: paneID=%s state=%s",
-				event.PaneID, event.State)
+				event.PaneID(), event.State())
 		}
 	case <-time.After(500 * time.Millisecond):
 		// Expected - no events for empty tree
@@ -770,6 +780,156 @@ func TestTitleDetector_EmptyTree(t *testing.T) {
 	// Verify detector still works after empty tree
 	if err := detector.Stop(); err != nil {
 		t.Errorf("Stop() after empty tree error = %v, want nil", err)
+	}
+}
+
+// TestTitleDetector_EmptyTitle tests behavior with empty title string
+func TestTitleDetector_EmptyTitle(t *testing.T) {
+	mock := newMockCollector()
+
+	// Add pane with empty title
+	if err := mock.addPane("test-repo", "main", "%1", ""); err != nil {
+		t.Fatalf("Failed to add pane: %v", err)
+	}
+
+	detector, err := NewTitleDetector(mock)
+	if err != nil {
+		t.Fatalf("NewTitleDetector() error = %v", err)
+	}
+	defer detector.Stop()
+
+	stateCh := detector.Start()
+
+	select {
+	case event := <-stateCh:
+		if event.Error() != nil {
+			t.Fatalf("Received error event: %v", event.Error())
+		}
+		if event.State() != StateWorking {
+			t.Errorf("Empty title should map to StateWorking, got %v", event.State())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for state event")
+	}
+}
+
+// TestTitleDetector_StopDuringIteration tests Stop() called while checkAllPanes() is iterating
+func TestTitleDetector_StopDuringIteration(t *testing.T) {
+	mock := newMockCollector()
+
+	// Add many panes to increase iteration time
+	for i := 0; i < 50; i++ {
+		paneID := fmt.Sprintf("%%%d", i)
+		if err := mock.addPane("repo", "main", paneID, "✳ idle"); err != nil {
+			t.Fatalf("Failed to add pane: %v", err)
+		}
+	}
+
+	detector, err := NewTitleDetector(mock)
+	if err != nil {
+		t.Fatalf("NewTitleDetector() error = %v", err)
+	}
+
+	stateCh := detector.Start()
+
+	// Read a few events to ensure detector is running
+	for i := 0; i < 5; i++ {
+		<-stateCh
+	}
+
+	// Call Stop() while detector is likely mid-iteration
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Stop() during iteration error = %v, want nil", err)
+	}
+
+	// Drain remaining events and verify channel closes gracefully without panic
+	timeout := time.After(1 * time.Second)
+	channelClosed := false
+	for !channelClosed {
+		select {
+		case _, ok := <-stateCh:
+			if !ok {
+				channelClosed = true
+			}
+		case <-timeout:
+			t.Error("Timeout waiting for channel close")
+			return
+		}
+	}
+
+	// Verify no goroutine panic by sleeping briefly
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestTitleDetector_IdlePrefixExactMatch tests Unicode prefix matching with similar characters
+func TestTitleDetector_IdlePrefixExactMatch(t *testing.T) {
+	tests := []struct {
+		name      string
+		title     string
+		wantState State
+		reason    string
+	}{
+		{
+			name:      "Correct prefix with space",
+			title:     "✳ Claude Code is idle",
+			wantState: StateIdle,
+			reason:    "U+2733 + space should trigger idle",
+		},
+		{
+			name:      "Correct prefix no space",
+			title:     "✳Claude Code is idle",
+			wantState: StateWorking,
+			reason:    "Missing space after U+2733 should NOT trigger idle",
+		},
+		{
+			name:      "ASCII asterisk",
+			title:     "* Claude Code is idle",
+			wantState: StateWorking,
+			reason:    "ASCII asterisk should NOT trigger idle",
+		},
+		{
+			name:      "Similar unicode asterisk U+2731",
+			title:     "✱ Claude Code is idle",
+			wantState: StateWorking,
+			reason:    "U+2731 (different asterisk) should NOT trigger idle",
+		},
+		{
+			name:      "Prefix in middle of string",
+			title:     "Status: ✳ idle",
+			wantState: StateWorking,
+			reason:    "Prefix must be at start of title",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockCollector()
+
+			if err := mock.addPane("repo", "main", "%1", tt.title); err != nil {
+				t.Fatalf("Failed to add pane: %v", err)
+			}
+
+			detector, err := NewTitleDetector(mock)
+			if err != nil {
+				t.Fatalf("NewTitleDetector() error = %v", err)
+			}
+			defer detector.Stop()
+
+			stateCh := detector.Start()
+
+			select {
+			case event := <-stateCh:
+				if event.Error() != nil {
+					t.Fatalf("Received error event: %v", event.Error())
+				}
+				if event.State() != tt.wantState {
+					t.Errorf("Title %q: got state %v, want %v - %s",
+						tt.title, event.State(), tt.wantState, tt.reason)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Timeout waiting for state event")
+			}
+		})
 	}
 }
 
@@ -801,10 +961,10 @@ func TestTitleDetector_Integration(t *testing.T) {
 	for !receivedEvent {
 		select {
 		case event := <-stateCh:
-			if event.Error != nil {
-				t.Logf("Received error event (may be expected): %v", event.Error)
+			if event.Error() != nil {
+				t.Logf("Received error event (may be expected): %v", event.Error())
 			} else {
-				t.Logf("Received state event: paneID=%s state=%s", event.PaneID, event.State)
+				t.Logf("Received state event: paneID=%s state=%s", event.PaneID(), event.State())
 				receivedEvent = true
 			}
 		case <-timeout:

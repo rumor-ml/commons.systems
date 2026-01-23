@@ -16,9 +16,18 @@ const (
 
 	// idlePrefix is the UTF-8 character prefix that Claude Code sets in pane titles to indicate idle state.
 	// This character appears at the start of the pane title when Claude is waiting for user input.
-	// Source: Claude Code's pane title system (verify implementation matches before deploying changes).
-	// Breaking change risk: If Claude Code changes this prefix, idle detection will fail.
-	idlePrefix = "✳ " // U+2733 EIGHT SPOKED ASTERISK
+	//
+	// CRITICAL DEPENDENCY: This prefix is defined by Claude Code's title system.
+	// Breaking change risk: If Claude Code changes this prefix, idle detection will fail silently.
+	//
+	// Mitigation strategies:
+	// 1. Monitor detection failures via treeErrors counter in metrics
+	// 2. Add integration test validating prefix with actual Claude Code instance
+	// 3. Make prefix configurable via TMUX_TUI_IDLE_PREFIX env var for forward compatibility
+	// 4. TODO(#1529): Add automated check against Claude Code source in CI pipeline
+	//
+	// Last verified: 2026-01-23 against Claude Code internal title system
+	idlePrefix = "✳ " // U+2733 EIGHT SPOKED ASTERISK + space
 )
 
 // PaneCollector is the interface required by TitleDetector to query pane information.
@@ -99,7 +108,7 @@ func (d *TitleDetector) checkAllPanes() {
 	if err != nil {
 		// Emit error event
 		select {
-		case d.eventCh <- StateEvent{Error: fmt.Errorf("failed to get pane tree: %w", err)}:
+		case d.eventCh <- NewStateErrorEvent(fmt.Errorf("failed to get pane tree: %w", err)):
 		case <-d.done:
 			return
 		}
@@ -125,8 +134,19 @@ func (d *TitleDetector) checkAllPanes() {
 				// Get the pane's current title
 				title, err := d.collector.GetPaneTitle(paneID)
 				if err != nil {
-					// Log but don't emit error - pane may have been deleted
+					// Check if this is an expected pane-not-found error (race condition during deletion)
+					if isPaneNotFoundError(err) {
+						debug.Log("TITLE_DETECTOR_PANE_DELETED paneID=%s", paneID)
+						continue
+					}
+
+					// Unexpected error - notify user via error event
 					debug.Log("TITLE_DETECTOR_TITLE_ERROR paneID=%s error=%v", paneID, err)
+					select {
+					case d.eventCh <- NewStateErrorEvent(fmt.Errorf("failed to get title for pane %s: %w", paneID, err)):
+					case <-d.done:
+						return
+					}
 					continue
 				}
 
@@ -144,10 +164,7 @@ func (d *TitleDetector) checkAllPanes() {
 					d.mu.Unlock()
 
 					// Emit state change event
-					event := StateEvent{
-						PaneID: paneID,
-						State:  state,
-					}
+					event := NewStateChangeEvent(paneID, state)
 
 					select {
 					case d.eventCh <- event:
@@ -182,15 +199,23 @@ func (d *TitleDetector) stateFromTitle(title string) State {
 	return StateWorking
 }
 
+// isPaneNotFoundError checks if an error indicates a pane was not found.
+// This is expected during pane deletion and should be silently ignored.
+func isPaneNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for common pane not found error messages
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "no pane")
+}
+
 // Stop halts the detector and releases resources
 func (d *TitleDetector) Stop() error {
-	// Close done channel to signal goroutines
-	select {
-	case <-d.done:
-		// Already closed
-	default:
+	// Use sync.Once to ensure done channel is closed exactly once
+	d.closeOnce.Do(func() {
 		close(d.done)
-	}
+	})
 
 	return nil
 }

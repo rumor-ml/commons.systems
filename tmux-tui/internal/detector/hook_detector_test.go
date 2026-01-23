@@ -122,8 +122,8 @@ func TestHookDetector_ConvertAlertToState(t *testing.T) {
 				// For created events, expect exactly one event
 				select {
 				case event := <-stateCh:
-					if event.Error != nil {
-						t.Fatalf("Received error event: %v", event.Error)
+					if event.IsError() {
+						t.Fatalf("Received error event: %v", event.Error())
 					}
 					events = append(events, event)
 				case <-time.After(2 * time.Second):
@@ -134,8 +134,8 @@ func TestHookDetector_ConvertAlertToState(t *testing.T) {
 				for {
 					select {
 					case event := <-stateCh:
-						if event.Error != nil {
-							t.Fatalf("Received error event: %v", event.Error)
+						if event.IsError() {
+							t.Fatalf("Received error event: %v", event.Error())
 						}
 						events = append(events, event)
 					case <-timeout:
@@ -151,11 +151,11 @@ func TestHookDetector_ConvertAlertToState(t *testing.T) {
 		done:
 			// Verify the final state
 			lastEvent := events[len(events)-1]
-			if lastEvent.PaneID != tt.wantPaneID {
-				t.Errorf("StateEvent.PaneID = %v, want %v", lastEvent.PaneID, tt.wantPaneID)
+			if lastEvent.PaneID() != tt.wantPaneID {
+				t.Errorf("StateEvent.PaneID() = %v, want %v", lastEvent.PaneID(), tt.wantPaneID)
 			}
-			if lastEvent.State != tt.wantState {
-				t.Errorf("StateEvent.State = %v, want %v (%s), received %d events", lastEvent.State, tt.wantState, tt.description, len(events))
+			if lastEvent.State() != tt.wantState {
+				t.Errorf("StateEvent.State() = %v, want %v (%s), received %d events", lastEvent.State(), tt.wantState, tt.description, len(events))
 			}
 
 			// Cleanup
@@ -212,11 +212,65 @@ func TestHookDetector_DoubleStart(t *testing.T) {
 	}
 }
 
+// TODO(#1558): Missing negative test: HookDetector with invalid alert directory permissions
 func TestHookDetector_ErrorPropagation(t *testing.T) {
 	// Use a non-existent directory to force an error
 	detector, err := NewHookDetector("/this/path/should/not/exist/and/is/not/writable")
 	if err == nil {
 		defer detector.Stop()
 		t.Error("NewHookDetector() with invalid path should return error")
+	}
+}
+
+func TestHookDetector_DeleteOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Pre-create the file before detector starts
+	filename := filepath.Join(tmpDir, "tui-alert-%100")
+	if err := os.WriteFile(filename, []byte(watcher.EventTypeIdle), 0644); err != nil {
+		t.Fatalf("Failed to pre-create alert file: %v", err)
+	}
+
+	detector, err := NewHookDetector(tmpDir)
+	if err != nil {
+		t.Fatalf("NewHookDetector() error = %v", err)
+	}
+	defer detector.Stop()
+
+	stateCh := detector.Start()
+
+	// Wait for initial file detection to settle
+	time.Sleep(100 * time.Millisecond)
+
+	// Drain any initial events
+	drainTimeout := time.After(200 * time.Millisecond)
+drainLoop:
+	for {
+		select {
+		case <-stateCh:
+		case <-drainTimeout:
+			break drainLoop
+		}
+	}
+
+	// NOW delete the file - should generate only ONE event
+	if err := os.Remove(filename); err != nil {
+		t.Fatalf("Failed to remove alert file: %v", err)
+	}
+
+	// Verify deletion maps to StateWorking
+	select {
+	case event := <-stateCh:
+		if event.IsError() {
+			t.Fatalf("Received error event: %v", event.Error())
+		}
+		if event.PaneID() != "%100" {
+			t.Errorf("PaneID() = %v, want %%100", event.PaneID())
+		}
+		if event.State() != StateWorking {
+			t.Errorf("Delete event mapped to %v, want StateWorking", event.State())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for delete event")
 	}
 }

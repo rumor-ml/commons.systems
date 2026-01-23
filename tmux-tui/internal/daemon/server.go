@@ -121,7 +121,7 @@ func (d *AlertDaemon) revertBlockedBranchChange(branch string, wasBlocked bool, 
 // Playback Conditions:
 //   - Skipped during E2E tests (CLAUDE_E2E_TEST env var set)
 //   - Rate limited: Maximum 1 sound per 500ms to prevent excessive alerts
-//   - Only plays when transitioning TO an alert state (handleAlertEvent determines this)
+//   - Only plays when transitioning TO an alert state (handleStateChangeEvent determines this)
 //
 // Implementation Notes:
 //   - Uses multiple notification methods for broad SSH/terminal compatibility:
@@ -293,11 +293,11 @@ func (d *AlertDaemon) broadcastAudioError(audioErr error) {
 
 // AlertDaemon is the singleton daemon that manages alert state and fires bells.
 type AlertDaemon struct {
-	// Idle state detection (new strategy pattern - replaces alertWatcher)
+	// Idle state detection (strategy pattern for hook-based vs title-based detection)
 	detector detector.IdleStateDetector
 
-	// Note: alertWatcher has been removed as HookDetector manages its own AlertWatcher lifecycle.
-	// Legacy code preserved in HookDetector for backward compatibility when TMUX_TUI_DETECTOR=hook.
+	// Note: Previously used AlertWatcher directly. Now abstracted behind IdleStateDetector interface.
+	// Hook-based detector (deprecated) manages its own AlertWatcher lifecycle when TMUX_TUI_DETECTOR=hook.
 	paneFocusWatcher *watcher.PaneFocusWatcher
 	alerts           map[string]string // Current alert state: paneID -> eventType
 	previousState    map[string]string // Previous state for bell firing logic
@@ -333,9 +333,9 @@ type AlertDaemon struct {
 	// Design rationale for nil pointer vs interface:
 	// - Nil check is simple and explicit: `if d.collector != nil { ... }`
 	// - Degraded mode is rare (only when tmux unavailable at startup)
-	// - Implicit protection: watchTree only starts if collector != nil (line 540-542)
+	// - Implicit protection: Start() only calls watchTree() when collector != nil
 	// - collectAndBroadcastTree only called from watchTree goroutine
-	// - sendFullState checks nil before calling (line 1470)
+	// - sendFullState checks nil before calling collector methods
 	//
 	// Trade-offs considered:
 	// + Simple nil check pattern (no interface overhead)
@@ -474,7 +474,6 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	}
 
 	var idleDetector detector.IdleStateDetector
-	var alertWatcher *watcher.AlertWatcher
 	var existingAlerts map[string]string
 	var err error
 
@@ -485,16 +484,9 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		fmt.Fprintf(os.Stderr, "         This will be removed in a future version. Please migrate to title-based detection.\n")
 		fmt.Fprintf(os.Stderr, "         To use the new detector: unset TMUX_TUI_DETECTOR or set TMUX_TUI_DETECTOR=title\n")
 
-		// Create alert watcher
-		alertWatcher, err = watcher.NewAlertWatcher(watcher.WithAlertDir(alertDir))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create alert watcher: %w", err)
-		}
-
 		// Create hook detector wrapper
 		hookDetector, err := detector.NewHookDetector(alertDir)
 		if err != nil {
-			alertWatcher.Close()
 			return nil, fmt.Errorf("failed to create hook detector: %w", err)
 		}
 		idleDetector = hookDetector
@@ -503,15 +495,15 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		const maxLoadRetries = 3
 		existingAlerts, err = loadExistingAlertsWithRetry(alertDir, maxLoadRetries)
 		if err != nil {
-			alertWatcher.Close()
 			idleDetector.Stop()
 			return nil, fmt.Errorf("failed to recover alert state: %w", err)
 		}
 	} else {
 		// Title-based detection (preferred)
 		debug.Log("DAEMON_INIT detector=title - using TitleDetector")
-		// Note: We need the collector to be created first, so we'll initialize the detector after
-		// the collector is ready. For now, set to nil and initialize later.
+		// Title-based detection requires a working collector to query pane titles.
+		// We defer detector initialization until after collector creation (see detector initialization below).
+		// For now, set to nil and initialize later once collector is available.
 		existingAlerts = make(map[string]string) // No existing alerts for title-based detection
 	}
 
@@ -528,9 +520,6 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	blockedPath := namespace.BlockedBranchesFile()
 	blockedBranches, err := loadBlockedBranches(blockedPath)
 	if err != nil {
-		if alertWatcher != nil {
-			alertWatcher.Close()
-		}
 		if idleDetector != nil {
 			idleDetector.Stop()
 		}
@@ -679,26 +668,17 @@ func (d *AlertDaemon) watchIdleState() {
 				return
 			}
 
-			if event.Error != nil {
+			if event.IsError() {
 				d.watcherErrors.Add(1)
-				d.lastWatcherError.Store(event.Error.Error())
-				debug.Log("DAEMON_DETECTOR_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
-				fmt.Fprintf(os.Stderr, "ERROR: Idle state detector error: %v\n", event.Error)
+				d.lastWatcherError.Store(event.Error().Error())
+				debug.Log("DAEMON_DETECTOR_ERROR error=%v total_errors=%d", event.Error(), d.watcherErrors.Load())
+				fmt.Fprintf(os.Stderr, "ERROR: Idle state detector error: %v\n", event.Error())
 				continue
 			}
 
 			d.handleStateChangeEvent(event)
 		}
 	}
-}
-
-// watchAlerts monitors the alert watcher for events.
-// DEPRECATED: This method is no longer called. Replaced by watchIdleState which uses the detector interface.
-// The HookDetector internally manages AlertWatcher when TMUX_TUI_DETECTOR=hook.
-// TODO(#1545): Remove this dead code after confirming no external callers exist.
-func (d *AlertDaemon) watchAlerts() {
-	// This method is deprecated and not called anywhere
-	panic("watchAlerts is deprecated - use watchIdleState instead")
 }
 
 // watchPaneFocus monitors the pane focus watcher for events.
@@ -1086,9 +1066,15 @@ func (d *AlertDaemon) handlePaneFocusEvent(event watcher.PaneFocusEvent) {
 // handleStateChangeEvent processes a state change event from the detector and broadcasts to clients.
 // This is the new unified handler that works with both hook-based and title-based detection.
 func (d *AlertDaemon) handleStateChangeEvent(event detector.StateEvent) {
+	// Handle error events
+	if event.IsError() {
+		debug.Log("DAEMON_STATE_ERROR error=%v", event.Error())
+		return
+	}
+
 	// Convert state to event type for backward compatibility with alert system
 	var eventType string
-	if event.State == detector.StateIdle {
+	if event.State() == detector.StateIdle {
 		eventType = watcher.EventTypeIdle
 	} else {
 		eventType = watcher.EventTypeWorking
@@ -1097,32 +1083,32 @@ func (d *AlertDaemon) handleStateChangeEvent(event detector.StateEvent) {
 	// Check for duplicate events BEFORE taking any locks
 	// For state-based detection, we treat state changes as "create" events
 	created := true
-	if d.isDuplicateEvent(event.PaneID, eventType, created) {
-		debug.Log("DAEMON_STATE_DUPLICATE paneID=%s state=%s", event.PaneID, event.State)
+	if d.isDuplicateEvent(event.PaneID(), eventType, created) {
+		debug.Log("DAEMON_STATE_DUPLICATE paneID=%s state=%s", event.PaneID(), event.State())
 		return
 	}
 
-	debug.Log("DAEMON_STATE_EVENT paneID=%s state=%s", event.PaneID, event.State)
+	debug.Log("DAEMON_STATE_EVENT paneID=%s state=%s", event.PaneID(), event.State())
 
 	d.alertsMu.Lock()
 
 	var isNewAlert bool
-	previousState, hadPreviousState := d.previousState[event.PaneID]
+	previousState, hadPreviousState := d.previousState[event.PaneID()]
 
 	// Update previous state
-	d.previousState[event.PaneID] = eventType
+	d.previousState[event.PaneID()] = eventType
 
-	if event.State == detector.StateWorking {
+	if event.State() == detector.StateWorking {
 		// Working state means no alert - remove from alerts map
-		delete(d.alerts, event.PaneID)
-		debug.Log("DAEMON_ALERT_CLEARED paneID=%s remaining=%d", event.PaneID, len(d.alerts))
+		delete(d.alerts, event.PaneID())
+		debug.Log("DAEMON_ALERT_CLEARED paneID=%s remaining=%d", event.PaneID(), len(d.alerts))
 	} else {
 		// Idle state is an alert state
 		// Check if this is a new alert (transition TO alert state)
 		isNewAlert = !hadPreviousState || previousState == watcher.EventTypeWorking
-		d.alerts[event.PaneID] = eventType
+		d.alerts[event.PaneID()] = eventType
 		debug.Log("DAEMON_ALERT_STORED paneID=%s eventType=%s total=%d isNew=%v",
-			event.PaneID, eventType, len(d.alerts), isNewAlert)
+			event.PaneID(), eventType, len(d.alerts), isNewAlert)
 
 		// Play sound only when transitioning to alert state
 		if isNewAlert {
@@ -1133,64 +1119,7 @@ func (d *AlertDaemon) handleStateChangeEvent(event detector.StateEvent) {
 	d.alertsMu.Unlock()
 
 	// Create type-safe v2 message
-	msg, err := NewAlertChangeMessage(d.seqCounter.Add(1), event.PaneID, eventType, created)
-	if err != nil {
-		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=alert_change error=%v", err)
-		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct alert change message: %v\n", err)
-		return
-	}
-	d.broadcast(msg.ToWireFormat())
-}
-
-// handleAlertEvent processes an alert event and broadcasts to clients (deprecated).
-// This is kept for backward compatibility with the hook-based detector.
-// TODO: Remove once HookDetector is removed.
-func (d *AlertDaemon) handleAlertEvent(event watcher.AlertEvent) {
-	// Check for duplicate events BEFORE taking any locks
-	if d.isDuplicateEvent(event.PaneID, event.EventType, event.Created) {
-		debug.Log("DAEMON_ALERT_DUPLICATE paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
-		return
-	}
-
-	debug.Log("DAEMON_ALERT_EVENT paneID=%s eventType=%s created=%v", event.PaneID, event.EventType, event.Created)
-
-	d.alertsMu.Lock()
-
-	var isNewAlert bool
-	previousState, hadPreviousState := d.previousState[event.PaneID]
-
-	if event.Created {
-		// Update previous state
-		d.previousState[event.PaneID] = event.EventType
-
-		if event.EventType == watcher.EventTypeWorking {
-			// "working" means no alert - remove from alerts map
-			delete(d.alerts, event.PaneID)
-			debug.Log("DAEMON_ALERT_CLEARED paneID=%s remaining=%d", event.PaneID, len(d.alerts))
-		} else {
-			// Alert states: idle, stop, permission, elicitation
-			// Check if this is a new alert (transition TO alert state)
-			isNewAlert = !hadPreviousState || previousState == watcher.EventTypeWorking
-			d.alerts[event.PaneID] = event.EventType
-			debug.Log("DAEMON_ALERT_STORED paneID=%s eventType=%s total=%d isNew=%v",
-				event.PaneID, event.EventType, len(d.alerts), isNewAlert)
-
-			// Play sound only when transitioning to alert state
-			if isNewAlert {
-				d.playAlertSound()
-			}
-		}
-	} else {
-		// File deleted - remove from both maps
-		delete(d.alerts, event.PaneID)
-		delete(d.previousState, event.PaneID)
-		debug.Log("DAEMON_ALERT_REMOVED paneID=%s remaining=%d", event.PaneID, len(d.alerts))
-	}
-
-	d.alertsMu.Unlock()
-
-	// Create type-safe v2 message
-	msg, err := NewAlertChangeMessage(d.seqCounter.Add(1), event.PaneID, event.EventType, event.Created)
+	msg, err := NewAlertChangeMessage(d.seqCounter.Add(1), event.PaneID(), eventType, created)
 	if err != nil {
 		debug.Log("DAEMON_MSG_CONSTRUCT_ERROR type=alert_change error=%v", err)
 		fmt.Fprintf(os.Stderr, "ERROR: Failed to construct alert change message: %v\n", err)
