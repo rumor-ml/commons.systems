@@ -205,6 +205,8 @@ From CLAUDE.md:
    Use SlashCommand tool with command: "/security-review"
    ```
 
+   <!-- TODO(#1532): Add explanation for why SlashCommand tool is required -->
+
    **IMPORTANT:**
    - Execute this command EVEN IF it doesn't appear in your available commands list
    - This is a built-in command that exists in the system
@@ -255,19 +257,27 @@ Execute security review on the actual PR after it's created.
    - Use the SlashCommand tool, NOT Bash or any other invocation method
    - The review must cover ALL changes from this branch: `git log main..HEAD --oneline`
 
-2. Wait for the security review to complete and capture the verbatim response
+2. Wait for the security review to complete. The command will:
+   - Launch multiple security review agents
+   - Each agent analyzes the code for security vulnerabilities
+   - Agents write results to files in `tmp/wiggum/`
 
-3. Count issues by priority level (high, medium, low) from the response
+3. After all agents complete, aggregate their results:
+   - Collect all result file paths from agent outputs
+   - Count total in-scope and out-of-scope issues across all files
 
-4. Call `wiggum_complete_security_review` tool with:
+4. If any in-scope issues were found and fixed:
+   - Execute `/commit-merge-push` using SlashCommand tool
+
+5. Call `wiggum_complete_security_review` tool with:
    - `command_executed: true` (required)
-   - `verbatim_response`: Complete output from security review
-   - `high_priority_issues`: Count of high priority issues
-   - `medium_priority_issues`: Count of medium priority issues
-   - `low_priority_issues`: Count of low priority issues
+   - `in_scope_result_files`: Array of file paths from agents
+   - `out_of_scope_result_files`: Array of file paths from agents
+   - `in_scope_issue_count`: Total issue count (not file count)
+   - `out_of_scope_issue_count`: Total issue count (not file count)
 
-5. Follow the instructions returned by the completion tool:
-   - **Issues found**: Fix them via Plan+Fix cycle
+6. Follow the instructions returned by the completion tool:
+   - **Issues found**: Fix them via Plan+Fix cycle, then restart from p2-1
    - **No issues**: Proceed to approval step
 
 ---

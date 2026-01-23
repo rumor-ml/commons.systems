@@ -49,7 +49,7 @@ describe('Rate Limit Retry Logic', () => {
       await sleep(100);
       const duration = Date.now() - start;
 
-      // Allow 50ms tolerance for timer precision
+      // Allow 50ms tolerance for fixed duration tests
       assert.ok(duration >= 100 && duration < 150, `Expected ~100ms, got ${duration}ms`);
     });
 
@@ -61,7 +61,13 @@ describe('Rate Limit Retry Logic', () => {
         await sleep(ms);
         const duration = Date.now() - start;
 
-        assert.ok(duration >= ms && duration < ms + 100, `Expected ~${ms}ms, got ${duration}ms`);
+        // Allow 50ms tolerance in fast environments, 100ms in CI
+        // This maintains stricter timing validation while accounting for CI variability
+        const tolerance = process.env.CI ? 100 : 50;
+        assert.ok(
+          duration >= ms && duration < ms + tolerance,
+          `Expected ~${ms}ms ±${tolerance}ms, got ${duration}ms`
+        );
       }
     });
   });

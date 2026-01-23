@@ -22,10 +22,17 @@ import {
   STEP_PHASE2_APPROVAL,
   PHASE1_PR_REVIEW_COMMAND,
   PHASE2_PR_REVIEW_COMMAND,
+  SECURITY_REVIEW_COMMAND,
 } from '../constants.js';
 
-const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInstructions } =
-  _testExports;
+const {
+  hasExistingPR,
+  checkUncommittedChanges,
+  checkBranchPushed,
+  formatFixInstructions,
+  handlePhase1SecurityReview,
+  handlePhase2SecurityReview,
+} = _testExports;
 
 /**
  * Create a mock CurrentState for testing
@@ -639,6 +646,159 @@ describe('State Update Retry Logic', () => {
       // When exitCode is undefined, classification falls back to message patterns
       const exitCode = undefined;
       assert.strictEqual(exitCode, undefined, 'Undefined exitCode should trigger fallback');
+    });
+  });
+});
+
+describe('Security Review Instructions', () => {
+  describe('Phase 1 Security Review', () => {
+    it('should include SlashCommand invocation guidance', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 552);
+      const instructions = result.content[0].text;
+
+      // Verify critical SlashCommand guidance is present
+      assert.ok(
+        instructions.includes('SlashCommand tool'),
+        'Instructions should mention SlashCommand tool'
+      );
+      assert.ok(
+        instructions.includes("EVEN IF it doesn't appear in your available commands list"),
+        'Instructions should include warning about command list'
+      );
+      assert.ok(
+        instructions.includes('Do NOT attempt to run this as a bash command'),
+        'Instructions should warn against bash execution'
+      );
+      assert.ok(
+        instructions.includes(SECURITY_REVIEW_COMMAND),
+        'Instructions should include the security review command'
+      );
+    });
+
+    it('should reference wiggum_complete_security_review tool', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 552);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('wiggum_complete_security_review'),
+        'Instructions should reference completion tool'
+      );
+      assert.ok(
+        instructions.includes('in_scope_result_files'),
+        'Instructions should mention in_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_result_files'),
+        'Instructions should mention out_of_scope_result_files parameter'
+      );
+    });
+
+    it('should include issue number in instructions', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 789);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('issue #789'),
+        'Instructions should reference the correct issue number'
+      );
+    });
+  });
+
+  describe('Phase 2 Security Review', () => {
+    it('should include SlashCommand invocation guidance', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      // Type guard ensures state has PR
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      // Verify critical SlashCommand guidance is present
+      assert.ok(
+        instructions.includes('SlashCommand tool'),
+        'Instructions should mention SlashCommand tool'
+      );
+      assert.ok(
+        instructions.includes("EVEN IF it doesn't appear in your available commands list"),
+        'Instructions should include warning about command list'
+      );
+      assert.ok(
+        instructions.includes('Do NOT attempt to run this as a bash command'),
+        'Instructions should warn against bash execution'
+      );
+      assert.ok(
+        instructions.includes(SECURITY_REVIEW_COMMAND),
+        'Instructions should include the security review command'
+      );
+    });
+
+    it('should reference wiggum_complete_security_review tool', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      // Type guard ensures state has PR
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('wiggum_complete_security_review'),
+        'Instructions should reference completion tool (not pr_review)'
+      );
+      assert.ok(
+        instructions.includes('command_executed'),
+        'Instructions should mention command_executed parameter'
+      );
+    });
+
+    it('should warn about reviewing all commits', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      // Type guard ensures state has PR
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('ALL changes from this branch'),
+        'Instructions should emphasize reviewing all changes'
+      );
+      assert.ok(
+        instructions.includes('git log main..HEAD'),
+        'Instructions should include git log command'
+      );
     });
   });
 });

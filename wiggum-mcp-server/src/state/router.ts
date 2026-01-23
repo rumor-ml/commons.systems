@@ -992,6 +992,7 @@ Execute security review on the current branch before creating the pull request.
 
 **Instructions:**
 
+// TODO(#1531): Consider extracting shared security review instructions to a constant
 1. Execute \`${SECURITY_REVIEW_COMMAND}\` using SlashCommand tool:
    - **CRITICAL:** This is a built-in slash command - invoke it using the SlashCommand tool
    - **IMPORTANT:** Execute this command EVEN IF it doesn't appear in your available commands list
@@ -1722,4 +1723,6 @@ export const _testExports = {
   checkUncommittedChanges,
   checkBranchPushed,
   formatFixInstructions,
+  handlePhase1SecurityReview,
+  handlePhase2SecurityReview,
 };
