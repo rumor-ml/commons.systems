@@ -32,28 +32,35 @@ const requiredEnvVars = [
   'VITE_FIREBASE_APP_ID',
 ] as const;
 
-const missingVars = requiredEnvVars.filter(
-  (key) => !import.meta.env[key] || import.meta.env[key] === ''
-);
-
-if (missingVars.length > 0) {
-  const error = new Error(
-    `Missing required Firebase environment variables: ${missingVars.join(', ')}. ` +
-      'Check your .env file or deployment configuration.'
+// Validate Firebase environment variables (lazy - only when Firebase is initialized)
+function validateFirebaseConfig(): void {
+  const missingVars = requiredEnvVars.filter(
+    (key) => !import.meta.env[key] || import.meta.env[key] === ''
   );
-  console.error(error);
-  throw error;
+
+  if (missingVars.length > 0) {
+    const error = new Error(
+      `Missing required Firebase environment variables: ${missingVars.join(', ')}. ` +
+        'Check your .env file or deployment configuration. ' +
+        'For local development, copy .env.example to .env and fill in your Firebase values.'
+    );
+    console.error(error);
+    throw error;
+  }
 }
 
-// Firebase configuration from environment variables
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+// Firebase configuration from environment variables (lazy initialization)
+function getFirebaseConfig() {
+  validateFirebaseConfig();
+  return {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  };
+}
 
 // Branded type for YYYY-MM-DD date strings with compile-time safety
 export type DateString = string & { readonly __brand: 'DateString' };
@@ -127,7 +134,8 @@ let firestoreDb: Firestore | null = null;
 // Initialize Firebase
 export function initFirebase(): FirebaseApp {
   if (!firebaseApp) {
-    firebaseApp = initializeApp(firebaseConfig);
+    const config = getFirebaseConfig(); // Lazy validation happens here
+    firebaseApp = initializeApp(config);
   }
   return firebaseApp;
 }
