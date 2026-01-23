@@ -64,7 +64,7 @@ describe('Error Classes', () => {
   });
 
   it('should create GitError with exit code and stderr', () => {
-    const error = new GitError('Git failed', 128, 'fatal error');
+    const error = GitError.create('Git failed', 128, 'fatal error');
     assert.strictEqual(error.message, 'Git failed');
     assert.strictEqual(error.code, 'GIT_ERROR');
     assert.strictEqual(error.exitCode, 128);
@@ -166,7 +166,7 @@ describe('createErrorResult', () => {
   });
 
   it('should create error result for GitError', () => {
-    const error = new GitError('Git failed');
+    const error = GitError.create('Git failed');
     const result = createErrorResult(error);
 
     // GitError extends McpError, so it's handled as McpError with specific code
@@ -380,5 +380,141 @@ describe('StateApiError.create() factory function', () => {
     assert.strictEqual(error.operation, 'read');
     assert.strictEqual(error.resourceType, 'pr');
     assert.strictEqual(error.resourceId, 123);
+  });
+});
+
+describe('GitError.create() factory function', () => {
+  it('should return GitError for valid exitCode 0 with stderr', () => {
+    const result = GitError.create('Git failed', 0, 'error output');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 0);
+    assert.strictEqual(result.stderr, 'error output');
+    assert.strictEqual(result.message, 'Git failed');
+  });
+
+  it('should return GitError for valid exitCode 128 with stderr', () => {
+    const result = GitError.create('Git failed', 128, 'fatal: not a git repository');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 128);
+    assert.strictEqual(result.stderr, 'fatal: not a git repository');
+  });
+
+  it('should return GitError for valid exitCode 255 with stderr', () => {
+    const result = GitError.create('Git failed', 255, 'error');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 255);
+    assert.strictEqual(result.stderr, 'error');
+  });
+
+  it('should return GitError for undefined exitCode and stderr', () => {
+    const result = GitError.create('Git failed');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, undefined);
+    assert.strictEqual(result.stderr, undefined);
+  });
+
+  it('should return GitError for exitCode without stderr', () => {
+    const result = GitError.create('Git failed', 1);
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 1);
+    assert.strictEqual(result.stderr, undefined);
+  });
+
+  it('should throw ValidationError for negative exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', -1, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('-1')
+        );
+      },
+      'Should throw ValidationError for negative exitCode'
+    );
+  });
+
+  it('should throw ValidationError for exitCode greater than 255', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 256, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('256')
+        );
+      },
+      'Should throw ValidationError for exitCode > 255'
+    );
+  });
+
+  it('should throw ValidationError for non-integer exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1.5, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('1.5')
+        );
+      },
+      'Should throw ValidationError for non-integer exitCode'
+    );
+  });
+
+  it('should throw ValidationError for NaN exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', NaN, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('NaN')
+        );
+      },
+      'Should throw ValidationError for NaN exitCode'
+    );
+  });
+
+  it('should throw ValidationError for empty string stderr', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1, ''),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty string') &&
+          error.message.includes('use undefined instead')
+        );
+      },
+      'Should throw ValidationError for empty string stderr'
+    );
+  });
+
+  it('should throw ValidationError for empty string stderr without exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', undefined, ''),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty string') &&
+          error.message.includes('use undefined instead')
+        );
+      },
+      'Should throw ValidationError for empty string stderr'
+    );
+  });
+
+  it('should enforce factory pattern via private constructor', () => {
+    // This test documents that direct instantiation is not allowed.
+    // If someone attempts: new GitError('msg', 128, 'error')
+    // TypeScript will fail compilation with: "Constructor of class 'GitError' is private"
+    // This prevents the dual-pattern problem described in issue #852.
+
+    // Must use factory method instead
+    const error = GitError.create('msg', 128, 'fatal error');
+    assert.ok(error instanceof GitError);
+    assert.strictEqual(error.message, 'msg');
+    assert.strictEqual(error.exitCode, 128);
+    assert.strictEqual(error.stderr, 'fatal error');
   });
 });
