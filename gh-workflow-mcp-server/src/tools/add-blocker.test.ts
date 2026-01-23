@@ -241,6 +241,49 @@ describe('addBlocker - Duplicate Handling', () => {
       }
     );
   });
+
+  it('re-throws 422 error when verification call fails', async (t) => {
+    t.mock.method(ghCli, 'resolveRepo', () => Promise.resolve('owner/repo'));
+
+    // First call succeeds (blocker issue lookup), second call fails (verification)
+    let ghCliJsonCallCount = 0;
+    t.mock.method(ghCli, 'ghCliJson', () => {
+      ghCliJsonCallCount++;
+      if (ghCliJsonCallCount === 1) {
+        return Promise.resolve({ id: '999' });
+      } else {
+        throw new GitHubCliError(
+          'GET repos/owner/repo/issues/100/dependencies/blocked_by: 500 Internal Server Error',
+          1,
+          'Verification failed'
+        );
+      }
+    });
+
+    // Initial blocker creation throws 422
+    t.mock.method(ghCli, 'ghCli', () => {
+      throw new GitHubCliError(
+        'POST repos/owner/repo/issues/100/dependencies/blocked_by: 422 Validation Failed',
+        1,
+        'Some validation error'
+      );
+    });
+
+    await assert.rejects(
+      async () => {
+        await addBlocker({
+          blocked_issue_number: 100,
+          blocker_issue_number: 200,
+        });
+      },
+      (error: Error) => {
+        assert.ok(error instanceof GitHubCliError);
+        assert.match(error.message, /422 Validation Failed/);
+        assert.match(error.message, /Some validation error/);
+        return true;
+      }
+    );
+  });
 });
 
 describe('addBlocker - Error Handling', () => {

@@ -63,8 +63,7 @@ export async function addBlocker(input: AddBlockerInput): Promise<ToolResult> {
 
   try {
     // Add blocker relationship via GitHub API
-    // Use --field to pass issue_id as a JSON integer
-    // The -f flag would stringify it, causing a 422 error from this endpoint
+    // Use --field to pass issue_id - gh api auto-converts numeric values to JSON integers
     await ghCli(
       [
         'api',
@@ -118,7 +117,14 @@ export async function addBlocker(input: AddBlockerInput): Promise<ToolResult> {
           };
         }
       } catch (verifyError) {
-        // If verification fails, fall through to re-throw original error
+        // Log verification failure before falling through to re-throw original error
+        console.error('[gh_add_blocker] Verification query failed, re-throwing original error:', {
+          verifyError: verifyError instanceof Error ? verifyError.message : String(verifyError),
+          blocked_issue_number,
+          blocker_issue_number,
+          originalError: error instanceof Error ? error.message : String(error),
+        });
+        // Falls through to re-throw original error
       }
 
       // Not a duplicate - this is a different validation error, re-throw to expose it
