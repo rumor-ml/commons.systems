@@ -84,6 +84,12 @@ export async function removeLabelIfExists(input: RemoveLabelIfExistsInput): Prom
       },
     };
   } catch (error) {
+    console.error('[gh_remove_label_if_exists] Operation failed:', {
+      issue_number: input.issue_number,
+      label: input.label,
+      repo: input.repo,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return createErrorResult(error);
   }
 }

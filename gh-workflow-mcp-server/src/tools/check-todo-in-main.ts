@@ -35,8 +35,44 @@ export async function checkTodoInMain(input: CheckTodoInMainInput): Promise<Tool
     // GitHub API returns base64-encoded content - decode with error handling
     let decoded: string;
     try {
-      decoded = Buffer.from(fileContent.trim(), 'base64').toString('utf-8');
+      const trimmedContent = fileContent.trim();
+
+      // Validate content is a string and not null/undefined
+      if (typeof fileContent !== 'string' || !fileContent) {
+        throw new ParsingError(
+          `GitHub API returned invalid content type. Expected base64 string.\n` +
+            `File: ${input.file_path}\n` +
+            `Content type: ${typeof fileContent}\n` +
+            `Content: ${String(fileContent).substring(0, 100)}`
+        );
+      }
+
+      // Validate content looks like base64 (contains only valid base64 characters)
+      const base64Regex = /^[A-Za-z0-9+/=\n\r\s]+$/;
+      if (!base64Regex.test(trimmedContent)) {
+        throw new ParsingError(
+          `GitHub API response is not valid base64. The file may be binary or the API response may be malformed.\n` +
+            `File: ${input.file_path}\n` +
+            `Response preview: ${trimmedContent.substring(0, 200)}...`
+        );
+      }
+
+      decoded = Buffer.from(trimmedContent, 'base64').toString('utf-8');
+
+      // Validate decoded content is valid UTF-8 (no replacement characters)
+      if (decoded.includes('\ufffd')) {
+        throw new ParsingError(
+          `Decoded content contains invalid UTF-8 sequences. File may be binary: ${input.file_path}\n` +
+            `This usually indicates the file is not a text file or the API response is corrupted.`
+        );
+      }
     } catch (decodeError) {
+      // If it's already a ParsingError, re-throw it
+      if (decodeError instanceof ParsingError) {
+        throw decodeError;
+      }
+
+      // Otherwise, wrap in ParsingError
       throw new ParsingError(
         `Failed to decode file content from GitHub API. The file may be binary or the API response may be malformed.\n` +
           `File: ${input.file_path}\n` +
@@ -89,14 +125,27 @@ export async function checkTodoInMain(input: CheckTodoInMainInput): Promise<Tool
           },
         };
       } catch (repoError) {
-        // Repository verification failed - this is a repository error
-        throw new GitHubCliError(
-          `Repository not found or access denied: ${resolvedRepo}. Check repository name and permissions.`,
-          error.exitCode,
-          error.stderr,
-          undefined,
-          error
-        );
+        // Log the verification failure for debugging
+        console.error('[gh_check_todo_in_main] Repository verification failed:', {
+          repo: resolvedRepo,
+          file_path: input.file_path,
+          verifyError: repoError instanceof Error ? repoError.message : String(repoError),
+          originalError: error.message,
+        });
+
+        // Only treat as repo not found if verification also got 404
+        if (repoError instanceof GitHubCliError && repoError.message.includes('404')) {
+          throw new GitHubCliError(
+            `Repository not found or access denied: ${resolvedRepo}. Check repository name and permissions.`,
+            error.exitCode,
+            error.stderr,
+            undefined,
+            error
+          );
+        }
+
+        // Otherwise, re-throw original error - it might be rate limiting or network issue
+        throw error;
       }
     }
     return createErrorResult(error);

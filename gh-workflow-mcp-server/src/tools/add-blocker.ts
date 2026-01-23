@@ -130,6 +130,14 @@ export async function addBlocker(input: AddBlockerInput): Promise<ToolResult> {
       // Not a duplicate - this is a different validation error, re-throw to expose it
       throw error;
     }
+
+    // Log non-422 API errors before converting to error result
+    console.error('[gh_add_blocker] API error creating blocker relationship:', {
+      blocked_issue_number,
+      blocker_issue_number,
+      error: error instanceof Error ? error.message : String(error),
+      exitCode: error instanceof GitHubCliError ? error.exitCode : undefined,
+    });
     return createErrorResult(error);
   }
 }
