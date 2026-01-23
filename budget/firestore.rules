@@ -60,8 +60,43 @@ service cloud.firestore {
     }
 
     // Budget Demo Transactions - publicly readable, user-owned writes
-    match /budget-demo-transactions/{transactionId} {
-      allow read: if isAuthenticated();
+    // Matches: budget-demo-transactions, budget-demo-transactions-worker-0,
+    //          budget-demo-transactions_pr_123, budget-demo-transactions_preview_branch
+    match /budget-demo-transactions{suffix}/{transactionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Statements - publicly readable, user-owned writes
+    match /budget-demo-statements{suffix}/{statementId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Accounts - publicly readable, user-owned writes
+    match /budget-demo-accounts{suffix}/{accountId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Institutions - publicly readable, user-owned writes
+    match /budget-demo-institutions{suffix}/{institutionId} {
+      allow read: if true; // Publicly readable demo data
       allow create: if isAuthenticated()
                     && request.resource.data.userId == request.auth.uid
                     && request.resource.data.createdAt == request.time;

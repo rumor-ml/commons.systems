@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Transaction, loadUserTransactions, loadDemoTransactions } from '../scripts/firestore';
+import {
+  Transaction,
+  loadUserTransactions,
+  loadDemoTransactions,
+  isFirebaseConfigured,
+  getFirestoreDebugInfo,
+} from '../scripts/firestore';
 import { getCurrentUser } from '../scripts/auth';
 import { TransactionRow } from './TransactionRow';
 import { TransactionFilters } from './TransactionFilters';
+import { FirebaseSetupGuide } from './FirebaseSetupGuide';
 
 export function TransactionList() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -17,10 +24,20 @@ export function TransactionList() {
 
   // Load transactions on mount
   useEffect(() => {
+    // Log debug info on mount
+    const debugInfo = getFirestoreDebugInfo();
+    console.log('Firestore Debug Info:', debugInfo);
+
     loadTransactions();
   }, []);
 
   const loadTransactions = async () => {
+    // Check if Firebase is configured before attempting to load
+    if (!isFirebaseConfigured()) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -39,9 +56,11 @@ export function TransactionList() {
       }
 
       setTransactions(data);
+      console.log(`Successfully loaded ${data.length} transactions`);
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error('Error loading transactions:', err);
-      setError('Failed to load transactions. Please try again.');
+      setError(`Failed to load transactions: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -104,6 +123,11 @@ export function TransactionList() {
     setCategory('all');
     setSearchQuery('');
   };
+
+  // Show setup guide if Firebase is not configured
+  if (!isFirebaseConfigured()) {
+    return <FirebaseSetupGuide />;
+  }
 
   if (loading) {
     return (

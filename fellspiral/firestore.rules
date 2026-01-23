@@ -103,6 +103,41 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isOwner(userId);
     }
 
+    // Budget Demo Collections - Publicly readable demo data
+    // Matches budget-demo-* collections with any suffix:
+    //   - budget-demo-transactions (base)
+    //   - budget-demo-transactions-worker-0 (emulator)
+    //   - budget-demo-transactions_pr_123 (PR preview)
+    //   - budget-demo-transactions_preview_branch (branch preview)
+    match /{budgetCollection}/{docId} {
+      allow read: if budgetCollection.matches('budget-demo-transactions(-worker-[0-9]+)?')
+                  || budgetCollection.matches('budget-demo-transactions_pr_[0-9]+')
+                  || budgetCollection.matches('budget-demo-transactions_preview_[a-z0-9-]+')
+                  || budgetCollection.matches('budget-demo-statements(-worker-[0-9]+)?')
+                  || budgetCollection.matches('budget-demo-statements_pr_[0-9]+')
+                  || budgetCollection.matches('budget-demo-statements_preview_[a-z0-9-]+')
+                  || budgetCollection.matches('budget-demo-accounts(-worker-[0-9]+)?')
+                  || budgetCollection.matches('budget-demo-accounts_pr_[0-9]+')
+                  || budgetCollection.matches('budget-demo-accounts_preview_[a-z0-9-]+')
+                  || budgetCollection.matches('budget-demo-institutions(-worker-[0-9]+)?')
+                  || budgetCollection.matches('budget-demo-institutions_pr_[0-9]+')
+                  || budgetCollection.matches('budget-demo-institutions_preview_[a-z0-9-]+');
+
+      allow write: if isAuthenticated()
+                   && (budgetCollection.matches('budget-demo-transactions(-worker-[0-9]+)?')
+                       || budgetCollection.matches('budget-demo-transactions_pr_[0-9]+')
+                       || budgetCollection.matches('budget-demo-transactions_preview_[a-z0-9-]+')
+                       || budgetCollection.matches('budget-demo-statements(-worker-[0-9]+)?')
+                       || budgetCollection.matches('budget-demo-statements_pr_[0-9]+')
+                       || budgetCollection.matches('budget-demo-statements_preview_[a-z0-9-]+')
+                       || budgetCollection.matches('budget-demo-accounts(-worker-[0-9]+)?')
+                       || budgetCollection.matches('budget-demo-accounts_pr_[0-9]+')
+                       || budgetCollection.matches('budget-demo-accounts_preview_[a-z0-9-]+')
+                       || budgetCollection.matches('budget-demo-institutions(-worker-[0-9]+)?')
+                       || budgetCollection.matches('budget-demo-institutions_pr_[0-9]+')
+                       || budgetCollection.matches('budget-demo-institutions_preview_[a-z0-9-]+'));
+    }
+
     // Default: deny all access to other collections
     match /{document=**} {
       allow read, write: if false;

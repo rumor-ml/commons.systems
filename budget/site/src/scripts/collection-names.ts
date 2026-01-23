@@ -8,14 +8,20 @@
  * Used by the browser (client-side) environment
  *
  * @param baseCollectionName - Base collection name (e.g., 'budget-demo-transactions')
- * @param config - Configuration object with prNumber and branchName
+ * @param config - Configuration object with prNumber, branchName, and useEmulator
  * @returns Collection name based on environment
  */
 function getCollectionNameFromConfig(
   baseCollectionName: string,
-  config: { prNumber?: string; branchName?: string }
+  config: { prNumber?: string; branchName?: string; useEmulator?: boolean }
 ): string {
-  const { prNumber, branchName } = config;
+  const { prNumber, branchName, useEmulator } = config;
+
+  // Emulator mode: Use worker-0 suffix to match seed script behavior
+  // When running with emulator, always use {collection}-worker-0
+  if (useEmulator) {
+    return `${baseCollectionName}-worker-0`;
+  }
 
   // Check for PR number
   if (prNumber) {
@@ -43,10 +49,11 @@ function getCollectionNameFromConfig(
  * Get environment configuration from Vite environment variables
  * In production, these are set at build time by the deployment script
  */
-function getEnvironmentConfig(): { prNumber?: string; branchName?: string } {
+function getEnvironmentConfig(): { prNumber?: string; branchName?: string; useEmulator?: boolean } {
   return {
     prNumber: import.meta.env.VITE_PR_NUMBER,
     branchName: import.meta.env.VITE_BRANCH_NAME,
+    useEmulator: import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true',
   };
 }
 

@@ -10,6 +10,7 @@ import {
   getDocs,
   QueryConstraint,
   DocumentData,
+  connectFirestoreEmulator,
 } from 'firebase/firestore';
 import {
   getTransactionsCollectionName,
@@ -47,6 +48,26 @@ function validateFirebaseConfig(): void {
     console.error(error);
     throw error;
   }
+}
+
+// Check if Firebase is properly configured (non-throwing variant for UI checks)
+export function isFirebaseConfigured(): boolean {
+  // Check if all required environment variables are present and not empty
+  const hasAllVars = requiredEnvVars.every(
+    (key) => import.meta.env[key] && import.meta.env[key] !== ''
+  );
+
+  if (!hasAllVars) {
+    return false;
+  }
+
+  // Check if any values contain placeholder text from .env.example
+  const hasPlaceholders = requiredEnvVars.some((key) => {
+    const value = import.meta.env[key] as string;
+    return value.includes('your-');
+  });
+
+  return !hasPlaceholders;
 }
 
 // Firebase configuration from environment variables (lazy initialization)
@@ -130,6 +151,7 @@ export interface Institution {
 // Firestore client singleton
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
+let emulatorConnected = false;
 
 // Initialize Firebase
 export function initFirebase(): FirebaseApp {
@@ -145,12 +167,46 @@ export function getFirestoreDb(): Firestore {
   if (!firestoreDb) {
     const app = initFirebase();
     firestoreDb = getFirestore(app);
+
+    // Connect to Firestore emulator if configured
+    if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && !emulatorConnected) {
+      const port = import.meta.env.VITE_FIREBASE_EMULATOR_FIRESTORE_PORT || '8081';
+      try {
+        connectFirestoreEmulator(firestoreDb, 'localhost', parseInt(port, 10));
+        emulatorConnected = true;
+        console.log(`✓ Connected to Firestore emulator on localhost:${port}`);
+      } catch (error) {
+        // Ignore "already initialized" errors from hot reload
+        if (
+          error instanceof Error &&
+          error.message.includes('Firestore has already been started')
+        ) {
+          console.log('Firestore emulator connection already established');
+        } else {
+          console.error('Failed to connect to Firestore emulator:', error);
+          throw error;
+        }
+      }
+    }
   }
   return firestoreDb;
 }
 
 // Map Firestore document data to Transaction object
 function mapDocumentToTransaction(data: DocumentData): Transaction {
+  // Handle createdAt - could be Timestamp, Date, or undefined
+  let createdAt: Date | undefined;
+  if (data.createdAt) {
+    if (typeof data.createdAt.toDate === 'function') {
+      // Firestore Timestamp
+      createdAt = data.createdAt.toDate();
+    } else if (data.createdAt instanceof Date) {
+      // Already a Date
+      createdAt = data.createdAt;
+    }
+    // Ignore other types (strings, etc.)
+  }
+
   return {
     id: data.id,
     userId: data.userId,
@@ -164,14 +220,15 @@ function mapDocumentToTransaction(data: DocumentData): Transaction {
     redemptionRate: data.redemptionRate,
     linkedTransactionId: data.linkedTransactionId,
     statementIds: data.statementIds || [],
-    createdAt: data.createdAt?.toDate(),
+    createdAt,
   };
 }
 
 // Validate Transaction data from Firestore
 export function validateTransaction(data: any): Transaction | null {
   // Validate required fields
-  if (!data.id || !data.userId || !data.date || !data.description) {
+  // Note: userId is optional for demo transactions (shared data without ownership)
+  if (!data.id || !data.date || !data.description) {
     console.warn('Transaction missing required fields:', {
       hasId: !!data.id,
       hasUserId: !!data.userId,
@@ -289,7 +346,10 @@ export async function loadDemoTransactions(options?: {
   limitCount?: number;
 }): Promise<Transaction[]> {
   const db = getFirestoreDb();
-  const transactionsRef = collection(db, getTransactionsCollectionName());
+  const collectionName = getTransactionsCollectionName();
+  console.log(`Loading demo transactions from collection: ${collectionName}`);
+
+  const transactionsRef = collection(db, collectionName);
 
   const constraints: QueryConstraint[] = [orderBy('date', 'desc')];
 
@@ -304,11 +364,12 @@ export async function loadDemoTransactions(options?: {
     querySnapshot = await getDocs(q);
   } catch (error) {
     console.error('Failed to load demo transactions:', {
+      collection: collectionName,
       options,
       error: error instanceof Error ? error.message : String(error),
     });
     throw new Error(
-      `Failed to load demo transactions: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to load demo transactions from ${collectionName}: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
   }
 
@@ -321,6 +382,7 @@ export async function loadDemoTransactions(options?: {
     }
   });
 
+  console.log(`Loaded ${transactions.length} demo transactions from ${collectionName}`);
   return transactions;
 }
 
@@ -429,4 +491,32 @@ export async function loadUserInstitutions(userId: string): Promise<Institution[
   });
 
   return institutions;
+}
+
+/**
+ * Get diagnostic information about Firestore configuration
+ * Useful for debugging collection name issues
+ */
+export function getFirestoreDebugInfo(): {
+  collections: {
+    transactions: string;
+    statements: string;
+    accounts: string;
+    institutions: string;
+  };
+  emulatorMode: boolean;
+  prNumber: string | undefined;
+  branchName: string | undefined;
+} {
+  return {
+    collections: {
+      transactions: getTransactionsCollectionName(),
+      statements: getStatementsCollectionName(),
+      accounts: getAccountsCollectionName(),
+      institutions: getInstitutionsCollectionName(),
+    },
+    emulatorMode: import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true',
+    prNumber: import.meta.env.VITE_PR_NUMBER,
+    branchName: import.meta.env.VITE_BRANCH_NAME,
+  };
 }

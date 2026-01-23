@@ -10,6 +10,18 @@ import { Transaction, createDateString } from '../scripts/firestore';
 vi.mock('../scripts/firestore', () => ({
   loadUserTransactions: vi.fn(),
   loadDemoTransactions: vi.fn(),
+  isFirebaseConfigured: vi.fn(() => true), // Default to true for most tests
+  getFirestoreDebugInfo: vi.fn(() => ({
+    collections: {
+      transactions: 'budget-demo-transactions-worker-0',
+      statements: 'budget-demo-statements-worker-0',
+      accounts: 'budget-demo-accounts-worker-0',
+      institutions: 'budget-demo-institutions-worker-0',
+    },
+    emulatorMode: true,
+    prNumber: undefined,
+    branchName: undefined,
+  })),
   createDateString: (s: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
       throw new Error(`Invalid date format: ${s}. Expected YYYY-MM-DD format.`);
@@ -23,7 +35,7 @@ vi.mock('../scripts/auth', () => ({
   getCurrentUser: vi.fn(),
 }));
 
-// Mock TransactionFilters and TransactionRow components
+// Mock TransactionFilters, TransactionRow, and FirebaseSetupGuide components
 vi.mock('./TransactionFilters', () => ({
   TransactionFilters: ({ onReset }: any) => (
     <div data-testid="transaction-filters">
@@ -39,6 +51,15 @@ vi.mock('./TransactionRow', () => ({
     <tr data-testid={`transaction-row-${transaction.id}`}>
       <td>{transaction.description}</td>
     </tr>
+  ),
+}));
+
+vi.mock('./FirebaseSetupGuide', () => ({
+  FirebaseSetupGuide: () => (
+    <div data-testid="firebase-setup-guide">
+      <h2>Firebase Setup Required</h2>
+      <p>Please configure Firebase to continue</p>
+    </div>
   ),
 }));
 
@@ -730,6 +751,48 @@ describe('TransactionList', () => {
 
       // Component shows empty state when filteredTransactions.length === 0
       // This is already tested by the component's conditional rendering
+    });
+  });
+
+  describe('Firebase Configuration Check', () => {
+    it('should show setup guide when Firebase is not configured', async () => {
+      vi.mocked(firestore.isFirebaseConfigured).mockReturnValue(false);
+      vi.mocked(auth.getCurrentUser).mockReturnValue(null);
+
+      render(<TransactionList />);
+
+      // Should show setup guide immediately without loading
+      expect(screen.getByTestId('firebase-setup-guide')).toBeInTheDocument();
+      expect(screen.getByText('Firebase Setup Required')).toBeInTheDocument();
+
+      // Should not attempt to load transactions
+      expect(firestore.loadUserTransactions).not.toHaveBeenCalled();
+      expect(firestore.loadDemoTransactions).not.toHaveBeenCalled();
+
+      // Should not show loading spinner
+      expect(screen.queryByText('Loading transactions...')).not.toBeInTheDocument();
+    });
+
+    it('should load transactions normally when Firebase is configured', async () => {
+      const mockTransactions = [createTransaction({ id: 'txn-1', description: 'Test' })];
+
+      vi.mocked(firestore.isFirebaseConfigured).mockReturnValue(true);
+      vi.mocked(auth.getCurrentUser).mockReturnValue(null);
+      vi.mocked(firestore.loadDemoTransactions).mockResolvedValue(mockTransactions);
+
+      render(<TransactionList />);
+
+      // Should not show setup guide
+      expect(screen.queryByTestId('firebase-setup-guide')).not.toBeInTheDocument();
+
+      // Should load transactions
+      await waitFor(() => {
+        expect(firestore.loadDemoTransactions).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Test')).toBeInTheDocument();
+      });
     });
   });
 });

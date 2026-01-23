@@ -6,6 +6,7 @@ import {
   signOut,
   onAuthStateChanged,
   User,
+  connectAuthEmulator,
 } from 'firebase/auth';
 import { initFirebase } from './firestore';
 import { logError } from '../utils/logger';
@@ -13,12 +14,36 @@ import { errorIds } from '../constants/errorIds';
 
 // Auth singleton
 let authInstance: Auth | null = null;
+let emulatorConnected = false;
 
 // Get Auth instance
 export function getAuthInstance(): Auth {
   if (!authInstance) {
     const app = initFirebase();
     authInstance = getAuth(app);
+
+    // Connect to Auth emulator if configured
+    if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && !emulatorConnected) {
+      const port = import.meta.env.VITE_FIREBASE_EMULATOR_AUTH_PORT || '9099';
+      try {
+        connectAuthEmulator(authInstance, `http://localhost:${port}`, {
+          disableWarnings: true,
+        });
+        emulatorConnected = true;
+        console.log(`✓ Connected to Auth emulator on localhost:${port}`);
+      } catch (error) {
+        // Ignore "already initialized" errors from hot reload
+        if (
+          error instanceof Error &&
+          error.message.includes('Auth instance has already been used')
+        ) {
+          console.log('Auth emulator connection already established');
+        } else {
+          console.error('Failed to connect to Auth emulator:', error);
+          throw error;
+        }
+      }
+    }
   }
   return authInstance;
 }
