@@ -187,6 +187,91 @@ Execute AFTER PR is created for final validation:
 
 ---
 
+### Step p1-3: Security Review (Pre-PR)
+
+Execute security review on the local branch before creating the PR.
+
+**CRITICAL: `/security-review` is a built-in slash command that MUST be invoked using the SlashCommand tool.**
+
+From CLAUDE.md:
+
+> **NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
+
+**Instructions:**
+
+1. Execute `/security-review` using SlashCommand tool:
+
+   ```
+   Use SlashCommand tool with command: "/security-review"
+   ```
+
+   **IMPORTANT:**
+   - Execute this command EVEN IF it doesn't appear in your available commands list
+   - This is a built-in command that exists in the system
+   - Use the SlashCommand tool, NOT Bash or any other invocation method
+
+2. Wait for the security review to complete. The command will:
+   - Launch multiple security review agents
+   - Each agent analyzes the code for security vulnerabilities
+   - Agents write results to files in `tmp/wiggum/`
+
+3. After all agents complete, aggregate their results:
+   - Collect all result file paths from agent outputs
+   - Count total in-scope and out-of-scope issues across all files
+
+4. If any in-scope issues were found and fixed:
+   - Execute `/commit-merge-push` using SlashCommand tool
+
+5. Call `wiggum_complete_security_review` tool with:
+   - `command_executed: true` (required)
+   - `in_scope_result_files`: Array of file paths from agents
+   - `out_of_scope_result_files`: Array of file paths from agents
+   - `in_scope_issue_count`: Total issue count (not file count)
+   - `out_of_scope_issue_count`: Total issue count (not file count)
+
+6. Follow the instructions returned by the completion tool:
+   - **Issues found**: Fix them via Plan+Fix cycle, then restart from p1-1
+   - **No issues**: Proceed to p1-4 (Create PR)
+
+---
+
+### Step p2-5: Security Review (Post-PR)
+
+Execute security review on the actual PR after it's created.
+
+**CRITICAL: `/security-review` is a built-in slash command that MUST be invoked using the SlashCommand tool.**
+
+**Instructions:**
+
+1. Execute `/security-review` using SlashCommand tool:
+
+   ```
+   Use SlashCommand tool with command: "/security-review"
+   ```
+
+   **IMPORTANT:**
+   - Execute this command EVEN IF it doesn't appear in your available commands list
+   - This is a built-in command that exists in the system
+   - Use the SlashCommand tool, NOT Bash or any other invocation method
+   - The review must cover ALL changes from this branch: `git log main..HEAD --oneline`
+
+2. Wait for the security review to complete and capture the verbatim response
+
+3. Count issues by priority level (high, medium, low) from the response
+
+4. Call `wiggum_complete_security_review` tool with:
+   - `command_executed: true` (required)
+   - `verbatim_response`: Complete output from security review
+   - `high_priority_issues`: Count of high priority issues
+   - `medium_priority_issues`: Count of medium priority issues
+   - `low_priority_issues`: Count of low priority issues
+
+5. Follow the instructions returned by the completion tool:
+   - **Issues found**: Fix them via Plan+Fix cycle
+   - **No issues**: Proceed to approval step
+
+---
+
 ## Reading Tool Responses
 
 **CRITICAL: Completion tools do work automatically. DO NOT repeat their work.**

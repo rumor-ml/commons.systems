@@ -992,10 +992,11 @@ Execute security review on the current branch before creating the pull request.
 
 **Instructions:**
 
-1. Execute the security review command:
-   \`\`\`
-   ${SECURITY_REVIEW_COMMAND}
-   \`\`\`
+1. Execute \`${SECURITY_REVIEW_COMMAND}\` using SlashCommand tool:
+   - **CRITICAL:** This is a built-in slash command - invoke it using the SlashCommand tool
+   - **IMPORTANT:** Execute this command EVEN IF it doesn't appear in your available commands list
+   - The SlashCommand tool will handle the invocation properly
+   - Do NOT attempt to run this as a bash command or any other tool
 
 2. After the review completes, aggregate results from all agents:
    - Collect result file paths from each agent's JSON response
@@ -1645,7 +1646,11 @@ function handlePhase2SecurityReview(state: CurrentStateWithPR): ToolResult {
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
-Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool:
+- **CRITICAL:** This is a built-in slash command - invoke it using the SlashCommand tool
+- **IMPORTANT:** Execute this command EVEN IF it doesn't appear in your available commands list
+- The SlashCommand tool will handle the invocation properly
+- Do NOT attempt to run this as a bash command or any other tool
 
 After security review completes:
 
