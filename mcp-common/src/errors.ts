@@ -215,6 +215,7 @@ export function isUnixExitCode(exitCode: number): boolean {
   return getExitCodeDomain(exitCode) === 'unix';
 }
 
+// TODO(#1535): Consider using discriminated union to express exitCode dual semantics (Unix exit code OR HTTP status code)
 export class GitHubCliError extends McpError {
   public readonly exitCode: number;
 

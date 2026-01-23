@@ -10,9 +10,8 @@ import {
   type GhCliWithRetryOptions,
 } from '@commons/mcp-common/gh-retry';
 
-export interface GhCliOptions {
-  repo?: string;
-  timeout?: number;
+export interface GhCliOptions extends GhCliWithRetryOptions {
+  // Inherits: repo?, timeout?, cwd?
 }
 
 /**
@@ -108,21 +107,18 @@ export async function resolveRepo(repo?: string): Promise<string> {
 }
 
 /**
- * Sleep for a specified number of milliseconds
+ * Re-exported from mcp-common for backward compatibility.
  *
- * Re-exports from mcp-common for backward compatibility.
+ * Sleeps for a specified number of milliseconds.
  */
 export const sleep = sharedSleep;
 
 /**
- * Execute gh CLI command with retry logic
+ * Execute gh CLI command with retry logic for transient errors.
  *
- * Retries gh CLI commands for transient errors (network issues, timeouts, 5xx errors, rate limits).
- * Uses exponential backoff (2s, 4s, 8s). Logs retry attempts and final failures.
- * Non-retryable errors (like validation errors) fail immediately.
- *
- * This is a wrapper around the shared ghCliWithRetry from mcp-common,
- * injecting the local ghCli function.
+ * This is a wrapper around the shared ghCliWithRetry from mcp-common that
+ * injects the local ghCli function. See mcp-common/src/gh-retry.ts for
+ * retry behavior, backoff strategy, and error classification logic.
  *
  * @param args - GitHub CLI command arguments
  * @param options - Optional execution options
@@ -141,5 +137,5 @@ export async function ghCliWithRetry(
   options?: GhCliOptions,
   maxRetries = 3
 ): Promise<string> {
-  return sharedGhCliWithRetry(ghCli, args, options as GhCliWithRetryOptions, maxRetries);
+  return sharedGhCliWithRetry(ghCli, args, options, maxRetries);
 }

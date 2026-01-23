@@ -18,6 +18,9 @@ export interface GhCliWithRetryOptions {
 
 /**
  * Function signature for executing GitHub CLI commands
+ *
+ * @throws {GitHubCliError} When the gh command fails
+ * @returns Promise resolving to stdout on success
  */
 export type GhCliFn = (args: string[], options?: GhCliWithRetryOptions) => Promise<string>;
 
@@ -67,12 +70,17 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
   //   1. error.exitCode property (e.g., GitHubCliError)
   //   2. HTTP status extracted from error messages (fallback in ghCliWithRetry)
   // We check for retryable HTTP status codes: 429 (rate limit), 502-504 (server errors).
-  // IMPORTANT: If exitCode is defined (HTTP status extracted), use it definitively.
-  // Don't fall through to message pattern matching which could find a different status.
+  // IMPORTANT: If exitCode is retryable, return true immediately.
+  // If exitCode is non-retryable, fall through to check Node.js error codes (but not HTTP status patterns).
+  // This handles edge cases where the error is network-related (e.g., ECONNREFUSED during request)
+  // but gh CLI reports the last HTTP status before connection failure. This is intentionally conservative.
   if (exitCode !== undefined) {
-    // Return true only for retryable HTTP status codes
-    // Return false for any other HTTP status code - don't fall through to pattern matching
-    return [429, 502, 503, 504].includes(exitCode);
+    // Return true immediately only for known retryable HTTP codes
+    if ([429, 502, 503, 504].includes(exitCode)) {
+      return true;
+    }
+    // For non-retryable HTTP codes, fall through to check Node.js error codes
+    // but DO NOT check HTTP status patterns (exitCode is already the authoritative HTTP status)
   }
 
   if (error instanceof Error) {
@@ -89,27 +97,46 @@ function isRetryableError(error: unknown, exitCode?: number): boolean {
     //   2. Update patterns based on observed error messages in logs
     //   3. Consider contributing to issue #453 for structured error types
     const msg = error.message.toLowerCase();
-    const patterns = [
-      // Network errors
-      'network',
-      'timeout',
-      'socket',
-      'connection',
-      // Error codes as text - catches when error.code is missing or gh CLI wraps Node error in Error
-      'econnreset',
-      'econnrefused',
-      // HTTP status codes (in case exitCode not provided)
-      '429',
-      '502',
-      '503',
-      '504',
-      // Rate limit messages (multiple phrasings for coverage)
-      'rate limit',
-      'api rate limit exceeded',
-      'rate_limit_exceeded',
-      'quota exceeded',
-      'too many requests',
-    ];
+
+    // When exitCode is defined, skip HTTP status code patterns since exitCode is authoritative
+    // Only check non-HTTP patterns (network errors, rate limit text)
+    const patterns =
+      exitCode !== undefined
+        ? [
+            // Network errors only (no HTTP status codes)
+            'network',
+            'timeout',
+            'socket',
+            'connection',
+            // Error codes as text - catches when error.code is missing or gh CLI wraps Node error in Error
+            'econnreset',
+            'econnrefused',
+            // Rate limit messages (but not status codes)
+            'rate limit',
+            'api rate limit exceeded',
+            'rate_limit_exceeded',
+            'quota exceeded',
+            'too many requests',
+          ]
+        : [
+            // All patterns including HTTP status codes (when no exitCode available)
+            'network',
+            'timeout',
+            'socket',
+            'connection',
+            'econnreset',
+            'econnrefused',
+            // HTTP status codes (only checked when exitCode unavailable)
+            '429',
+            '502',
+            '503',
+            '504',
+            'rate limit',
+            'api rate limit exceeded',
+            'rate_limit_exceeded',
+            'quota exceeded',
+            'too many requests',
+          ];
 
     return patterns.some((pattern) => msg.includes(pattern));
   }

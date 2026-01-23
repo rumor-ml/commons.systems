@@ -310,7 +310,9 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
           # Use --frozen-lockfile to fail if lockfile doesn't match package.json
           # Use --prefer-offline to avoid network calls and use local cache for speed
-          # Use --ignore-scripts to skip postinstall scripts (e.g. playwright browser downloads that fail in nix sandbox)
+          # Use --ignore-scripts to skip postinstall scripts that require network access (e.g. playwright browser downloads)
+          # The nix sandbox intentionally blocks network during builds for reproducibility
+          # TODO(#1536): pnpm lockfile check discards diagnostic output, making debugging harder
           if ! ${pkgs.pnpm}/bin/pnpm install --frozen-lockfile --prefer-offline --ignore-scripts > /dev/null 2>&1; then
             echo ""
             echo "ERROR: pnpm lockfile is out of sync with package.json files"
