@@ -4,12 +4,18 @@ import userEvent from '@testing-library/user-event';
 import { TransactionList } from './TransactionList';
 import * as firestore from '../scripts/firestore';
 import * as auth from '../scripts/auth';
-import { Transaction } from '../scripts/firestore';
+import { Transaction, createDateString } from '../scripts/firestore';
 
 // Mock the firestore module
 vi.mock('../scripts/firestore', () => ({
   loadUserTransactions: vi.fn(),
   loadDemoTransactions: vi.fn(),
+  createDateString: (s: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      throw new Error(`Invalid date format: ${s}. Expected YYYY-MM-DD format.`);
+    }
+    return s as any;
+  },
 }));
 
 // Mock the auth module
@@ -40,7 +46,7 @@ vi.mock('./TransactionRow', () => ({
 const createTransaction = (overrides: Partial<Transaction> = {}): Transaction => ({
   id: 'txn-1',
   userId: 'user-1',
-  date: '2025-01-15',
+  date: createDateString('2025-01-15'),
   description: 'Test transaction',
   amount: -100,
   category: 'groceries',
@@ -120,10 +126,10 @@ describe('TransactionList', () => {
   describe('Date Range Filter', () => {
     const setupFilterTest = async () => {
       const mockTransactions = [
-        createTransaction({ id: 'txn-1', date: '2025-01-10' }),
-        createTransaction({ id: 'txn-2', date: '2025-01-15' }),
-        createTransaction({ id: 'txn-3', date: '2025-01-20' }),
-        createTransaction({ id: 'txn-4', date: '2025-01-25' }),
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-10') }),
+        createTransaction({ id: 'txn-2', date: createDateString('2025-01-15') }),
+        createTransaction({ id: 'txn-3', date: createDateString('2025-01-20') }),
+        createTransaction({ id: 'txn-4', date: createDateString('2025-01-25') }),
       ];
 
       vi.mocked(auth.getCurrentUser).mockReturnValue(null);
@@ -162,8 +168,16 @@ describe('TransactionList', () => {
 
     it('should include transactions on boundary dates (start date)', async () => {
       const mockTransactions = [
-        createTransaction({ id: 'txn-1', date: '2025-01-15', description: 'On boundary' }),
-        createTransaction({ id: 'txn-2', date: '2025-01-14', description: 'Before boundary' }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-15'),
+          description: 'On boundary',
+        }),
+        createTransaction({
+          id: 'txn-2',
+          date: createDateString('2025-01-14'),
+          description: 'Before boundary',
+        }),
       ];
 
       vi.mocked(auth.getCurrentUser).mockReturnValue(null);
@@ -179,8 +193,16 @@ describe('TransactionList', () => {
 
     it('should include transactions on boundary dates (end date)', async () => {
       const mockTransactions = [
-        createTransaction({ id: 'txn-1', date: '2025-01-20', description: 'On boundary' }),
-        createTransaction({ id: 'txn-2', date: '2025-01-21', description: 'After boundary' }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-20'),
+          description: 'On boundary',
+        }),
+        createTransaction({
+          id: 'txn-2',
+          date: createDateString('2025-01-21'),
+          description: 'After boundary',
+        }),
       ];
 
       vi.mocked(auth.getCurrentUser).mockReturnValue(null);
@@ -300,19 +322,19 @@ describe('TransactionList', () => {
       const mockTransactions = [
         createTransaction({
           id: 'txn-1',
-          date: '2025-01-15',
+          date: createDateString('2025-01-15'),
           category: 'groceries',
           description: 'Whole Foods',
         }),
         createTransaction({
           id: 'txn-2',
-          date: '2025-01-16',
+          date: createDateString('2025-01-16'),
           category: 'dining',
           description: 'Restaurant',
         }),
         createTransaction({
           id: 'txn-3',
-          date: '2025-01-17',
+          date: createDateString('2025-01-17'),
           category: 'groceries',
           description: 'Trader Joes',
         }),
@@ -368,7 +390,7 @@ describe('TransactionList', () => {
       const mockTransactions = [
         createTransaction({
           id: 'txn-1',
-          date: '2025-01-15',
+          date: createDateString('2025-01-15'),
           description: 'Test transaction',
           amount: -123.45,
           category: 'groceries',
@@ -607,13 +629,13 @@ describe('TransactionList', () => {
       const mockTransactions = [
         createTransaction({
           id: 'txn-1',
-          date: '2025-01-10',
+          date: createDateString('2025-01-10'),
           category: 'groceries',
           description: 'Grocery',
         }),
         createTransaction({
           id: 'txn-2',
-          date: '2025-01-20',
+          date: createDateString('2025-01-20'),
           category: 'dining',
           description: 'Restaurant',
         }),

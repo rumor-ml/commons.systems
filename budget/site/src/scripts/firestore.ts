@@ -55,21 +55,37 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+// Branded type for YYYY-MM-DD date strings with compile-time safety
+export type DateString = string & { readonly __brand: 'DateString' };
+
+// Type guard to validate date string format
+export function isValidDateString(s: string): s is DateString {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+// Factory function to create validated DateString
+export function createDateString(s: string): DateString {
+  if (!isValidDateString(s)) {
+    throw new Error(`Invalid date format: ${s}. Expected YYYY-MM-DD format.`);
+  }
+  return s;
+}
+
 // Transaction interface matching Firestore schema
 export interface Transaction {
-  id: string;
-  userId: string;
-  date: string; // Date-only string in YYYY-MM-DD format (no time or timezone)
-  description: string;
-  amount: number; // Positive = income, Negative = expense (normalized after parsing)
-  category: string;
-  redeemable?: boolean;
-  vacation?: boolean;
-  transfer?: boolean;
-  redemptionRate?: number;
-  linkedTransactionId?: string;
-  statementIds: string[];
-  createdAt?: Date;
+  readonly id: string;
+  readonly userId: string;
+  readonly date: DateString; // Type-safe date string in YYYY-MM-DD format
+  readonly description: string;
+  readonly amount: number; // Positive = income, Negative = expense (normalized after parsing)
+  readonly category: string;
+  readonly redeemable?: boolean;
+  readonly vacation?: boolean;
+  readonly transfer?: boolean;
+  readonly redemptionRate?: number;
+  readonly linkedTransactionId?: string;
+  readonly statementIds: string[];
+  readonly createdAt?: Date;
 }
 
 // Statement interface
@@ -130,7 +146,7 @@ function mapDocumentToTransaction(data: DocumentData): Transaction {
   return {
     id: data.id,
     userId: data.userId,
-    date: data.date,
+    date: data.date as DateString, // Already validated by validateTransaction
     description: data.description,
     amount: data.amount,
     category: data.category,
@@ -157,8 +173,8 @@ export function validateTransaction(data: any): Transaction | null {
     return null;
   }
 
-  // Validate date format
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) {
+  // Validate date format using type guard
+  if (!isValidDateString(data.date)) {
     console.warn('Transaction has invalid date format:', data.date);
     return null;
   }
@@ -176,6 +192,29 @@ export function validateTransaction(data: any): Transaction | null {
   }
 
   return mapDocumentToTransaction(data);
+}
+
+// Factory function to create a Transaction with validation
+export function createTransaction(data: {
+  id: string;
+  userId: string;
+  date: string;
+  description: string;
+  amount: number;
+  category: string;
+  redeemable?: boolean;
+  vacation?: boolean;
+  transfer?: boolean;
+  redemptionRate?: number;
+  linkedTransactionId?: string;
+  statementIds?: string[];
+  createdAt?: Date;
+}): Transaction | null {
+  // Use existing validation logic
+  return validateTransaction({
+    ...data,
+    statementIds: data.statementIds || [],
+  });
 }
 
 // Load transactions for a user
