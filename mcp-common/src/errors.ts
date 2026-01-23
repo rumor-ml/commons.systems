@@ -569,6 +569,23 @@ export function isSystemError(error: unknown): boolean {
 }
 
 /**
+ * Context data for parsing errors
+ *
+ * Provides structured metadata about parsing failures to aid in debugging
+ * and error classification.
+ */
+export interface ParsingErrorContext {
+  totalLines?: number;
+  skippedLines?: number;
+  successRate?: number;
+  minSuccessRate?: number;
+  parsedCount?: number;
+  parseType?: string;
+  outputSnippet?: string;
+  [key: string]: unknown;
+}
+
+/**
  * ParsingError - Error thrown when parsing data fails
  *
  * Used for JSON parsing failures, malformed responses, and data format errors.
@@ -584,7 +601,11 @@ export function isSystemError(error: unknown): boolean {
  * ```
  */
 export class ParsingError extends McpError {
-  constructor(message: string, cause?: Error) {
+  constructor(
+    message: string,
+    cause?: Error,
+    public readonly context?: ParsingErrorContext
+  ) {
     super(message, 'PARSING_ERROR');
     this.name = 'ParsingError';
     if (cause) {

@@ -352,7 +352,17 @@ export function parseFailedStepLogs(output: string): FailedStepLogsResult {
         `Check for:\n` +
         `  1. Recent gh CLI version updates (run: gh --version)\n` +
         `  2. Workflow log corruption (check: gh run view --log-failed manually)\n` +
-        `  3. Non-standard workflow step output (custom actions, binary data)`
+        `  3. Non-standard workflow step output (custom actions, binary data)`,
+      undefined,
+      {
+        totalLines,
+        skippedLines: skippedCount,
+        successRate,
+        minSuccessRate: MIN_SUCCESS_RATE,
+        parsedSteps: steps.size,
+        parsedLines: successCount,
+        parseType: 'workflow-logs',
+      }
     );
   }
 

@@ -510,6 +510,80 @@ describe('ParsingError', () => {
     assert.ok('cause' in error);
     assert.equal((error as any).cause.message, 'Invalid JSON structure');
   });
+
+  it('accepts optional context parameter', () => {
+    const error = new ParsingError('Parse failed', undefined, {
+      totalLines: 100,
+      skippedLines: 30,
+      successRate: 0.7,
+      minSuccessRate: 0.7,
+      parsedCount: 70,
+      parseType: 'workflow-logs',
+    });
+
+    assert.ok(error.context);
+    assert.equal(error.context.totalLines, 100);
+    assert.equal(error.context.skippedLines, 30);
+    assert.equal(error.context.successRate, 0.7);
+    assert.equal(error.context.minSuccessRate, 0.7);
+    assert.equal(error.context.parsedCount, 70);
+    assert.equal(error.context.parseType, 'workflow-logs');
+  });
+
+  it('works without context for backward compatibility', () => {
+    const error = new ParsingError('Parse failed');
+
+    assert.strictEqual(error.context, undefined);
+    assert.equal(error.message, 'Parse failed');
+    assert.equal(error.name, 'ParsingError');
+  });
+
+  it('accepts cause and context together', () => {
+    const cause = new SyntaxError('Unexpected token');
+    const error = new ParsingError('Failed to parse', cause, {
+      totalLines: 50,
+      skippedLines: 10,
+      parseType: 'json',
+    });
+
+    assert.strictEqual(error.cause, cause);
+    assert.ok(error.context);
+    assert.equal(error.context.totalLines, 50);
+    assert.equal(error.context.skippedLines, 10);
+    assert.equal(error.context.parseType, 'json');
+  });
+
+  it('supports custom properties via index signature', () => {
+    const error = new ParsingError('Parse failed', undefined, {
+      totalLines: 100,
+      customField: 'custom value',
+      nestedObject: { foo: 'bar' },
+      numberArray: [1, 2, 3],
+    });
+
+    assert.ok(error.context);
+    assert.equal(error.context.totalLines, 100);
+    assert.equal(error.context['customField'], 'custom value');
+    assert.deepEqual(error.context['nestedObject'], { foo: 'bar' });
+    assert.deepEqual(error.context['numberArray'], [1, 2, 3]);
+  });
+
+  it('context property is readonly', () => {
+    const error = new ParsingError('Parse failed', undefined, {
+      totalLines: 100,
+    });
+
+    // TypeScript enforces readonly, but verify the property exists and is accessible
+    assert.ok(error.context);
+    assert.equal(error.context.totalLines, 100);
+  });
+
+  it('accepts empty context object', () => {
+    const error = new ParsingError('Parse failed', undefined, {});
+
+    assert.ok(error.context);
+    assert.deepEqual(error.context, {});
+  });
 });
 
 describe('FormattingError', () => {
