@@ -13,6 +13,7 @@ import {
   NetworkError,
   GitHubCliError,
   ParsingError,
+  ParsingErrorContext,
   FormattingError,
   isTerminalError,
   analyzeRetryability,
@@ -583,6 +584,84 @@ describe('ParsingError', () => {
 
     assert.ok(error.context);
     assert.deepEqual(error.context, {});
+  });
+});
+
+describe('ParsingError context serialization and inspection', () => {
+  it('context serializes to JSON for metrics/logging', () => {
+    const error = new ParsingError('Parse failed', undefined, {
+      totalLines: 100,
+      skippedLines: 30,
+      successRate: 0.7,
+      parseType: 'workflow-logs',
+    });
+
+    const serialized = JSON.stringify(error.context);
+    const parsed = JSON.parse(serialized);
+
+    assert.equal(parsed.totalLines, 100);
+    assert.equal(parsed.skippedLines, 30);
+    assert.equal(parsed.successRate, 0.7);
+    assert.equal(parsed.parseType, 'workflow-logs');
+  });
+
+  it('error handler can safely check for context existence', () => {
+    const errorWithContext = new ParsingError('Parse failed', undefined, {
+      totalLines: 100,
+    });
+    const errorWithoutContext = new ParsingError('Parse failed');
+
+    // Pattern: error handlers should check context existence
+    if (errorWithContext.context) {
+      assert.equal(errorWithContext.context.totalLines, 100);
+    } else {
+      assert.fail('Context should exist');
+    }
+
+    if (errorWithoutContext.context) {
+      assert.fail('Context should not exist');
+    } else {
+      assert.ok(true);
+    }
+  });
+
+  it('type guard pattern for ParsingError with context', () => {
+    function hasParsingContext(
+      error: unknown
+    ): error is ParsingError & { context: ParsingErrorContext } {
+      return error instanceof ParsingError && error.context !== undefined;
+    }
+
+    const errorWithContext = new ParsingError('Parse failed', undefined, {
+      totalLines: 100,
+    });
+    const errorWithoutContext = new ParsingError('Parse failed');
+    const otherError = new Error('Other error');
+
+    assert.ok(hasParsingContext(errorWithContext));
+    assert.ok(!hasParsingContext(errorWithoutContext));
+    assert.ok(!hasParsingContext(otherError));
+  });
+
+  it('accepts context with all optional fields undefined', () => {
+    const error = new ParsingError('Parse failed', undefined, {
+      totalLines: undefined,
+      skippedLines: undefined,
+      successRate: undefined,
+      minSuccessRate: undefined,
+      parsedCount: undefined,
+      parseType: undefined,
+      outputSnippet: undefined,
+    });
+
+    assert.ok(error.context, 'Context should exist even with all undefined fields');
+    assert.strictEqual(error.context.totalLines, undefined);
+    assert.strictEqual(error.context.skippedLines, undefined);
+    assert.strictEqual(error.context.successRate, undefined);
+
+    // Verify it serializes without throwing
+    const serialized = JSON.stringify(error.context);
+    assert.ok(serialized);
   });
 });
 

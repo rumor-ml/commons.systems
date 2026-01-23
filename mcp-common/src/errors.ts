@@ -575,13 +575,25 @@ export function isSystemError(error: unknown): boolean {
  * and error classification.
  */
 export interface ParsingErrorContext {
+  /** Total number of lines/items attempted to parse */
   totalLines?: number;
+  /** Number of lines/items that failed to parse or were skipped */
   skippedLines?: number;
+  /** Success rate as a decimal (0.0 to 1.0) */
   successRate?: number;
+  /** Minimum acceptable success rate threshold (0.0 to 1.0) */
   minSuccessRate?: number;
+  /** Generic count of successfully parsed items (deprecated: use parsedLines or parsedSteps) */
   parsedCount?: number;
+  /** Number of successfully parsed lines */
+  parsedLines?: number;
+  /** Number of successfully parsed steps */
+  parsedSteps?: number;
+  /** Type of parsing operation (e.g., 'workflow-logs', 'json', 'csv') */
   parseType?: string;
+  /** Sample of the input that failed to parse (truncated for safety) */
   outputSnippet?: string;
+  /** Additional context-specific properties */
   [key: string]: unknown;
 }
 
@@ -596,8 +608,28 @@ export interface ParsingErrorContext {
  * try {
  *   return JSON.parse(output);
  * } catch (error) {
- *   throw new ParsingError(`Failed to parse JSON: ${error.message}`, error);
+ *   throw new ParsingError(
+ *     `Failed to parse JSON: ${error.message}`,
+ *     error,
+ *     { parseType: 'json', outputSnippet: output.slice(0, 100) }
+ *   );
  * }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // With structured context for metrics
+ * throw new ParsingError(
+ *   'Failed to parse workflow logs',
+ *   undefined,
+ *   {
+ *     successRate: 0.65,
+ *     minSuccessRate: 0.7,
+ *     totalLines: 100,
+ *     parsedLines: 65,
+ *     parseType: 'workflow-logs'
+ *   }
+ * );
  * ```
  */
 export class ParsingError extends McpError {
