@@ -7,6 +7,7 @@
 # This configuration includes:
 # - Git configuration (git.nix)
 # - Tmux configuration (tmux.nix)
+# - WezTerm terminal emulator (wezterm.nix)
 # - Development tools: direnv, neovim (tools.nix)
 # - Claude Code CLI (claude-code.nix)
 # - Nix settings: experimental features (nix.nix)
@@ -38,6 +39,7 @@
   imports = [
     ./git.nix
     ./tmux.nix
+    ./wezterm.nix
     ./tools.nix
     ./claude-code.nix
     ./nix.nix
