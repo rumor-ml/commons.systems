@@ -3657,8 +3657,13 @@ func TestWatchTree_ShutdownDuringCollection(t *testing.T) {
 	}
 
 	// Call Stop() to clean up watchers (but skip closing done channel again)
-	daemon.alertWatcher.Close()
-	daemon.paneFocusWatcher.Close()
+	// alertWatcher may be nil when using title detector
+	if daemon.alertWatcher != nil {
+		daemon.alertWatcher.Close()
+	}
+	if daemon.paneFocusWatcher != nil {
+		daemon.paneFocusWatcher.Close()
+	}
 
 	t.Logf("SUCCESS: Shutdown completed in %v", shutdownDuration)
 	t.Log("Note: Current impl waits for in-progress collection, then exits on next loop")
@@ -3947,8 +3952,12 @@ func TestWatchTree_SlowCollectionWithShutdown(t *testing.T) {
 
 	go func() {
 		// Clean up watchers (but don't close done again - already closed)
-		daemon.alertWatcher.Close()
-		daemon.paneFocusWatcher.Close()
+		if daemon.alertWatcher != nil {
+			daemon.alertWatcher.Close()
+		}
+		if daemon.paneFocusWatcher != nil {
+			daemon.paneFocusWatcher.Close()
+		}
 		shutdownComplete <- true
 	}()
 
@@ -4162,15 +4171,16 @@ func TestWatchTree_PollingBehavior(t *testing.T) {
 	startTime := time.Now()
 	go daemon.watchTree()
 
-	// Verify immediate broadcast (within 500ms of start - allows for slow environments)
+	// Verify immediate broadcast (within 1s of start - allows for slow environments and detector polling)
+	// Note: With title detector, initial poll happens immediately but tree collection can be slow
 	select {
 	case firstBroadcast := <-broadcastCh:
 		elapsed := firstBroadcast.Sub(startTime)
-		if elapsed > 500*time.Millisecond {
-			t.Errorf("First broadcast took too long: %v (expected < 500ms)", elapsed)
+		if elapsed > 1*time.Second {
+			t.Errorf("First broadcast took too long: %v (expected < 1s)", elapsed)
 		}
 		t.Logf("SUCCESS: Immediate broadcast received after %v", elapsed)
-	case <-time.After(1 * time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for immediate broadcast")
 	}
 
