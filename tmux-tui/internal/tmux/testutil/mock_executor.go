@@ -17,10 +17,11 @@ func (e *GitError) Error() string {
 
 // MockCommandExecutor implements CommandExecutor for testing
 type MockCommandExecutor struct {
-	TmuxOutput string
-	GitOutputs map[string]string // key: command args, value: output
-	PgrepPIDs  string
-	PsCommands map[string]string // key: PID, value: command
+	TmuxOutput     string
+	GitOutputs     map[string]string // key: command args, value: output
+	PgrepPIDs      string
+	PsCommands     map[string]string                         // key: PID, value: command
+	CustomHandlers map[string]func([]string) ([]byte, error) // key: command name, value: handler function
 }
 
 func (m *MockCommandExecutor) ExecCommand(name string, args ...string) ([]byte, error) {
@@ -28,6 +29,13 @@ func (m *MockCommandExecutor) ExecCommand(name string, args ...string) ([]byte, 
 }
 
 func (m *MockCommandExecutor) ExecCommandOutput(name string, args ...string) ([]byte, error) {
+	// Check for custom handler first
+	if m.CustomHandlers != nil {
+		if handler, ok := m.CustomHandlers[name]; ok {
+			return handler(args)
+		}
+	}
+
 	switch name {
 	case "tmux":
 		if m.TmuxOutput == "" {

@@ -55,6 +55,17 @@ func NewPane(id, path, windowID string, windowIndex int, windowActive, windowBel
 		return Pane{}, fmt.Errorf("window index must be non-negative: %d", windowIndex)
 	}
 
+	// Sanitize title to remove control characters that could cause display issues
+	// Remove null bytes, newlines, and carriage returns which are not valid in tmux pane titles
+	if strings.ContainsAny(title, "\x00\n\r") {
+		title = strings.Map(func(r rune) rune {
+			if r == '\x00' || r == '\n' || r == '\r' {
+				return -1 // Remove character
+			}
+			return r
+		}, title)
+	}
+
 	return Pane{
 		id:           id,
 		path:         path,
@@ -128,6 +139,27 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 
 	*p = validated
 	return nil
+}
+
+// WithWindowActive returns a new Pane with the windowActive field set to the given value.
+// This method does not modify the original Pane (immutable update pattern).
+func (p Pane) WithWindowActive(active bool) Pane {
+	newPane := p
+	newPane.windowActive = active
+	return newPane
+}
+
+// WithActiveAndTitle returns a new Pane with both windowActive and title modified.
+// Used when handling pane focus events to update both fields atomically.
+// This method does not modify the original Pane (immutable update pattern).
+// Title is sanitized through NewPane constructor to maintain validation consistency.
+// TODO(#1485): Consider consolidating WithWindowActive and WithActiveAndTitle methods
+func (p Pane) WithActiveAndTitle(active bool, title string) Pane {
+	// Delegate to constructor for validation and sanitization
+	// This ensures consistent title validation across all construction paths
+	// Safe to ignore error because we're reconstructing from a valid Pane
+	newPane, _ := NewPane(p.id, p.path, p.windowID, p.windowIndex, active, p.windowBell, p.command, title, p.isClaudePane)
+	return newPane
 }
 
 // Window represents a tmux window with validated panes.
@@ -367,4 +399,41 @@ func (rt *RepoTree) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+// UpdatePaneActiveAndTitle finds a pane by ID and updates both active state and title.
+// Returns nil if updated successfully, error otherwise.
+// Uses defensive copy pattern consistent with SetPanes to maintain type-level safety.
+func (rt *RepoTree) UpdatePaneActiveAndTitle(paneID string, active bool, title string) error {
+	for repo := range rt.tree {
+		for branch := range rt.tree[repo] {
+			panes := rt.tree[repo][branch]
+			for i := range panes {
+				if panes[i].ID() == paneID {
+					// Make defensive copy consistent with SetPanes pattern
+					updatedPanes := make([]Pane, len(panes))
+					copy(updatedPanes, panes)
+					updatedPanes[i] = updatedPanes[i].WithActiveAndTitle(active, title)
+					rt.tree[repo][branch] = updatedPanes
+					return nil
+				}
+			}
+		}
+	}
+	return fmt.Errorf("pane %s not found in tree", paneID)
+}
+
+// FindPaneByID searches for a pane by ID and returns (pane, repo, branch, found).
+// Returns empty pane and empty strings if not found (found=false).
+func (rt RepoTree) FindPaneByID(paneID string) (Pane, string, string, bool) {
+	for repo := range rt.tree {
+		for branch := range rt.tree[repo] {
+			for _, pane := range rt.tree[repo][branch] {
+				if pane.ID() == paneID {
+					return pane, repo, branch, true
+				}
+			}
+		}
+	}
+	return Pane{}, "", "", false
 }

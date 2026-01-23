@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	teatest "github.com/charmbracelet/x/exp/teatest"
+	"github.com/commons-systems/tmux-tui/internal/daemon"
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 	"github.com/commons-systems/tmux-tui/internal/ui"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
@@ -1025,6 +1026,178 @@ func TestIntegration_WorkingEventDoesNotClearOtherAlerts(t *testing.T) {
 	t.Log("Working event correctly cleared only target pane's alert, leaving others intact")
 }
 
+// TestPaneFocusImmediateHighlighting verifies that pane focus changes trigger
+// immediate tree updates instead of waiting for the 30-second polling interval.
+// This is the regression test for issue #1472.
+//
+// This test requires a full daemon instance and is skipped by default to avoid
+// file descriptor exhaustion in CI. To run manually:
+//
+//	RUN_INTEGRATION_TESTS=1 go test -v -run TestPaneFocusImmediateHighlighting
+func TestPaneFocusImmediateHighlighting(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") == "" {
+		t.Skip("Set RUN_INTEGRATION_TESTS=1 to run full daemon integration tests")
+	}
+
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	socketName := uniqueSocketName()
+	sessionName := "pane-focus-test"
+
+	// Create a test session with two panes
+	if err := tmuxCmd(socketName, "new-session", "-d", "-s", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+
+	// Split window to create second pane
+	if err := tmuxCmd(socketName, "split-window", "-h", "-t", sessionName).Run(); err != nil {
+		t.Fatalf("Failed to split window: %v", err)
+	}
+
+	defer func() {
+		if err := tmuxCmd(socketName, "kill-session", "-t", sessionName).Run(); err != nil {
+			t.Logf("WARNING: Cleanup failed to kill session %s: %v", sessionName, err)
+		}
+	}()
+
+	// Get pane IDs
+	pane0IDCmd := tmuxCmd(socketName, "list-panes", "-t", sessionName, "-F", "#{pane_id}", "-f", "#{==:#{pane_index},0}")
+	pane0Output, err := pane0IDCmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane 0 ID: %v", err)
+	}
+	pane0ID := strings.TrimSpace(string(pane0Output))
+
+	pane1IDCmd := tmuxCmd(socketName, "list-panes", "-t", sessionName, "-F", "#{pane_id}", "-f", "#{==:#{pane_index},1}")
+	pane1Output, err := pane1IDCmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane 1 ID: %v", err)
+	}
+	pane1ID := strings.TrimSpace(string(pane1Output))
+
+	t.Logf("Created panes: %s, %s", pane0ID, pane1ID)
+
+	// Start daemon
+	cleanupDaemon := startDaemon(t, socketName, sessionName)
+	defer cleanupDaemon()
+	defer cleanupStaleSockets()
+
+	// Set TMUX env so client connects to test socket
+	cleanupEnv := setTestTmuxEnv(socketName)
+	defer cleanupEnv()
+
+	// Connect client
+	client := daemon.NewDaemonClient()
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Client failed to connect: %v", err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("WARNING: Cleanup failed to close client: %v", err)
+		}
+	}()
+
+	// Wait for full_state message
+	err = waitForCondition(t, WaitCondition{
+		Name: "client receives full_state",
+		CheckFunc: func() (bool, error) {
+			select {
+			case msg := <-client.Events():
+				if msg.Type == daemon.MsgTypeFullState {
+					t.Logf("Received full_state")
+					return true, nil
+				}
+			default:
+			}
+			return false, nil
+		},
+		Interval: 50 * time.Millisecond,
+		Timeout:  5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Did not receive full_state: %v", err)
+	}
+
+	// Wait for initial tree_update and drain it
+	err = waitForCondition(t, WaitCondition{
+		Name: "client receives initial tree_update",
+		CheckFunc: func() (bool, error) {
+			select {
+			case msg := <-client.Events():
+				if msg.Type == daemon.MsgTypeTreeUpdate {
+					t.Logf("Received initial tree_update")
+					return true, nil
+				}
+			default:
+			}
+			return false, nil
+		},
+		Interval: 100 * time.Millisecond,
+		Timeout:  5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Did not receive initial tree_update: %v", err)
+	}
+
+	// Switch to pane 1 and measure latency
+	t.Logf("Switching to pane %s", pane1ID)
+	switchStart := time.Now()
+	if err := tmuxCmd(socketName, "select-pane", "-t", fmt.Sprintf("%s.%s", sessionName, pane1ID)).Run(); err != nil {
+		t.Fatalf("Failed to switch pane: %v", err)
+	}
+
+	// Wait for tree_update with new active pane
+	var latency time.Duration
+	err = waitForCondition(t, WaitCondition{
+		Name: "client receives tree_update after pane switch",
+		CheckFunc: func() (bool, error) {
+			select {
+			case msg := <-client.Events():
+				if msg.Type == daemon.MsgTypeTreeUpdate {
+					latency = time.Since(switchStart)
+					t.Logf("Received tree_update after pane switch (latency: %v)", latency)
+
+					// Verify pane1 is active in the tree
+					if msg.Tree == nil {
+						return false, fmt.Errorf("tree is nil")
+					}
+
+					pane1, _, _, found := msg.Tree.FindPaneByID(pane1ID)
+					if !found {
+						return false, fmt.Errorf("pane %s not found in tree", pane1ID)
+					}
+
+					if !pane1.WindowActive() {
+						t.Logf("Pane %s not active yet, continuing to wait", pane1ID)
+						return false, nil
+					}
+
+					t.Logf("Pane %s is active in tree", pane1ID)
+					return true, nil
+				}
+			default:
+			}
+			return false, nil
+		},
+		Interval: 50 * time.Millisecond,
+		Timeout:  2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Did not receive tree_update after pane switch: %v", err)
+	}
+
+	// Verify latency is under 500ms (regression would be ~30s)
+	if latency > 500*time.Millisecond {
+		t.Errorf("Pane highlighting took %v, expected < 500ms (regression to polling)", latency)
+	} else {
+		t.Logf("SUCCESS: Pane switch latency %v (< 500ms threshold)", latency)
+	}
+
+	t.Log("SUCCESS: Pane focus immediate highlighting verified")
+}
+
 // containsOSCSequences checks for expected OSC notification sequences in captured output.
 // Returns true if OSC 777 (notify) and OSC 9 (macOS alert) sequences are found.
 // Checks both exact binary format and common escaped representations.
@@ -1095,7 +1268,7 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 		if !strings.Contains(string(output), "allow-passthrough on") {
 			t.Fatalf("allow-passthrough not enabled: %s", string(output))
 		}
-		t.Log("✓ Tmux configured with allow-passthrough on")
+		t.Log("Tmux configured with allow-passthrough on")
 
 		// Write notification sequences to the pane (simulating daemon output)
 		// These are the exact sequences from playAlertSound()
@@ -1129,7 +1302,7 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 			}
 			t.Error("This indicates sequences may be stripped, breaking SSH notifications")
 		} else {
-			t.Log("✓ OSC sequences present in tmux output (passthrough working)")
+			t.Log("OSC sequences present in tmux output (passthrough working)")
 		}
 	})
 
@@ -1159,7 +1332,7 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 		if !strings.Contains(string(output), "allow-passthrough off") {
 			t.Fatalf("allow-passthrough not disabled: %s", string(output))
 		}
-		t.Log("✓ Tmux configured with allow-passthrough off")
+		t.Log("Tmux configured with allow-passthrough off")
 
 		// Write same notification sequences
 		sendKeysCmd := tmuxCmd(socketName, "send-keys", "-t", sessionName2, "-l",
@@ -1183,9 +1356,9 @@ func TestIntegration_SSHPassthroughWithTmux(t *testing.T) {
 
 		// Document behavior: with passthrough off, sequences may be stripped
 		if hasOSC777 || hasOSC9 {
-			t.Log("ℹ OSC sequences present even with passthrough off (terminal behavior varies)")
+			t.Log("OSC sequences present even with passthrough off (terminal behavior varies)")
 		} else {
-			t.Log("✓ OSC sequences stripped with allow-passthrough off (expected behavior)")
+			t.Log("OSC sequences stripped with allow-passthrough off (expected behavior)")
 		}
 	})
 }
@@ -1216,7 +1389,7 @@ func TestIntegration_NotificationSequenceFormat(t *testing.T) {
 		if !strings.Contains(expectedOSC777, "notify;tmux-tui;Alert") {
 			t.Error("OSC 777 sequence has incorrect payload")
 		}
-		t.Log("✓ OSC 777 sequence format correct")
+		t.Log("OSC 777 sequence format correct")
 
 		// OSC 9 format: ESC ] 9 ; <message> BEL
 		if !strings.HasPrefix(expectedOSC9, "\x1b]9;") {
@@ -1228,13 +1401,13 @@ func TestIntegration_NotificationSequenceFormat(t *testing.T) {
 		if !strings.Contains(expectedOSC9, "tmux-tui alert") {
 			t.Error("OSC 9 sequence has incorrect payload")
 		}
-		t.Log("✓ OSC 9 sequence format correct")
+		t.Log("OSC 9 sequence format correct")
 
 		// BEL character
 		if expectedBEL != "\x07" {
 			t.Error("BEL character has incorrect value")
 		}
-		t.Log("✓ BEL character correct")
+		t.Log("BEL character correct")
 	})
 
 	// Verify sequences can be written to a pty without errors
@@ -1270,7 +1443,7 @@ func TestIntegration_NotificationSequenceFormat(t *testing.T) {
 			t.Error("Sequence corrupted during write/read cycle")
 		}
 
-		t.Log("✓ Notification sequences are pty-compatible")
+		t.Log("Notification sequences are pty-compatible")
 	})
 
 	// Document sequence lengths for debugging
@@ -1284,7 +1457,7 @@ func TestIntegration_NotificationSequenceFormat(t *testing.T) {
 		if len(combinedSequence) > 1024 {
 			t.Error("Combined sequence exceeds reasonable terminal buffer size")
 		} else {
-			t.Log("✓ Combined sequence within reasonable size limits")
+			t.Log("Combined sequence within reasonable size limits")
 		}
 	})
 }

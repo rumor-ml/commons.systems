@@ -575,6 +575,8 @@ describe('update-issue behavioral tests', () => {
     it('should throw FilesystemError when directory becomes read-only before write', async (t) => {
       // Skip on macOS - directory read-only permissions don't prevent writing to existing files
       // On macOS, only creating/deleting files is blocked by directory permissions
+      // Skip on WSL2 - WSL2 has different permission handling than native Linux
+      // TODO(#1508): Test skip comment could be more specific about WSL2 permission behavior
       if (process.platform === 'darwin') {
         t.skip('macOS directory permissions do not prevent writing to existing files');
         return;
@@ -591,7 +593,7 @@ describe('update-issue behavioral tests', () => {
       writeTestManifest(manifestDir, 'code-reviewer', 'in-scope', [issue]);
 
       try {
-        // Make directory read-only (prevents file updates on Linux, not macOS)
+        // Make directory read-only (prevents file updates on Linux, not macOS or WSL)
         chmodSync(manifestDir, 0o555);
 
         await assert.rejects(
