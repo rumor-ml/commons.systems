@@ -99,39 +99,47 @@
           # NOTE: tmux and neovim are also configured in nix/home/ for Home Manager users.
           # They are kept here for backwards compatibility with users who don't use Home Manager
           # and for CI environments. This duplication is intentional during the migration period.
-          commonPackages = with pkgs; [
-            # Core tools
-            bash
-            coreutils
-            git
-            gh
-            jq
-            curl
-            # Sandbox dependencies for Claude Code
-            socat # Network proxy for sandbox
-            bubblewrap # Unprivileged sandboxing (Linux/WSL2)
-            # Cloud tools
-            google-cloud-sdk
-            terraform
-            # Node.js ecosystem
-            # Note: firebase-tools removed - causes segfault in Nix evaluator
-            # Install via pnpm instead: pnpm add -g firebase-tools
-            nodejs
-            pnpm
-            # Firebase emulators require Java runtime
-            jdk
-            # Playwright for E2E tests (NixOS-patched browsers)
-            playwright-test
-            # Go toolchain
-            go
-            gopls
-            gotools
-            air
-            templ
-            # Dev utilities
-            tmux # Also in nix/home/tmux.nix
-            neovim # Also in nix/home/tools.nix
-          ];
+          commonPackages =
+            with pkgs;
+            [
+              # Core tools
+              bash
+              coreutils
+              git
+              gh
+              jq
+              curl
+              # Sandbox dependencies for Claude Code
+              # TODO(#1584): No documentation on how to activate new packages after flake changes
+              # TODO(#1583): Misleading comment "Network proxy for sandbox" for socat
+              socat # Network proxy for sandbox
+              # Cloud tools
+              google-cloud-sdk
+              terraform
+              # Node.js ecosystem
+              # Note: firebase-tools removed - causes segfault in Nix evaluator
+              # Install via pnpm instead: pnpm add -g firebase-tools
+              nodejs
+              pnpm
+              # Firebase emulators require Java runtime
+              jdk
+              # Playwright for E2E tests (NixOS-patched browsers)
+              playwright-test
+              # Go toolchain
+              go
+              gopls
+              gotools
+              air
+              templ
+              # Dev utilities
+              tmux # Also in nix/home/tmux.nix
+              neovim # Also in nix/home/tools.nix
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+              # Linux-only sandbox tools
+              # TODO(#1579): Incomplete comment about bubblewrap platform support
+              bubblewrap # Unprivileged sandboxing (Linux/WSL2 only)
+            ];
 
           # CI shell with inlined packages (avoiding callPackage issues)
           ciShell = pkgs.mkShell {

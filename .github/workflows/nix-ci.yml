@@ -47,6 +47,9 @@ jobs:
       - name: Run pre-push hooks integration tests
         run: ./nix/checks.test.sh
 
+      - name: Run claude-code.nix Home Manager tests
+        run: ./nix/home/claude-code.test.sh
+
       - name: Verify development shell loads
         run: |
           nix develop --command bash -c 'echo "✓ Development shell loads successfully"'

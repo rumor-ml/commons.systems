@@ -36,6 +36,24 @@ pkgs.writeShellScriptBin "check-env" ''
     EXIT_CODE=1
   fi
 
+  # Check socat availability (required for sandbox)
+  if command -v socat >/dev/null 2>&1; then
+    echo "✅ socat available (sandbox dependency)"
+  else
+    echo "❌ socat not available"
+    echo "   Fix: Ensure you're in a nix develop shell with socat package"
+    EXIT_CODE=1
+  fi
+
+  # Check bubblewrap availability (required for sandbox on Linux/WSL2)
+  if command -v bwrap >/dev/null 2>&1; then
+    echo "✅ bubblewrap available (sandbox dependency)"
+  else
+    echo "❌ bubblewrap not available"
+    echo "   Fix: Ensure you're in a nix develop shell with bubblewrap package"
+    EXIT_CODE=1
+  fi
+
   # Check gh-workflow-mcp-server
   if [ -f "gh-workflow-mcp-server/dist/index.js" ]; then
     echo "✅ gh-workflow-mcp-server built"
