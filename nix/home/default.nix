@@ -19,6 +19,7 @@
 #   First time (requires experimental features flags):
 #     nix --extra-experimental-features 'nix-command flakes' run home-manager/master -- switch --extra-experimental-features 'nix-command flakes' --flake .#default --impure
 #
+# TODO(#1576): Add note about PATH setup for home-manager command
 #   After first activation (auto-detects system architecture):
 #     home-manager switch --flake .#default --impure
 #
@@ -36,6 +37,7 @@
 }:
 
 {
+  # TODO(#1577): No tests for home-manager module integration with existing modules
   imports = [
     ./git.nix
     ./tmux.nix

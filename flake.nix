@@ -267,9 +267,17 @@
             ci = ciShell;
           };
 
-          checks = {
-            pre-commit-check = pre-commit-check;
-          };
+          checks =
+            let
+              weztermTests = pkgs.callPackage ./nix/home/wezterm.test.nix { };
+            in
+            {
+              pre-commit-check = pre-commit-check;
+
+              # WezTerm module tests
+              wezterm-test-suite = weztermTests.wezterm-test-suite;
+            }
+            // weztermTests.wezterm-tests;
         }
       );
 
