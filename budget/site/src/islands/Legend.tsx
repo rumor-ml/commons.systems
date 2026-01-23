@@ -4,6 +4,7 @@ import { CATEGORY_COLORS, CATEGORY_LABELS } from './constants';
 import { getDisplayAmount } from './qualifierUtils';
 import { dispatchBudgetEvent } from '../utils/events';
 import { formatCurrency } from '../utils/currency';
+import { logger } from '../utils/logger';
 
 interface LegendProps {
   transactions: Transaction[];
@@ -57,10 +58,13 @@ export function Legend({
   }
 
   // Calculate category summaries from transactions
-  // TODO(#1458): Add error handling for invalid transaction data in calculateMonthlySummaries
   const categorySummaries = useMemo(() => {
     // Guard clause: validate transactions prop
     if (!transactions || !Array.isArray(transactions)) {
+      logger.error('Invalid transactions prop in Legend component', {
+        transactions: typeof transactions,
+        isArray: Array.isArray(transactions),
+      });
       return [];
     }
 

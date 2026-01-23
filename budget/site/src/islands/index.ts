@@ -7,6 +7,8 @@ import { Legend } from './Legend';
 import { BudgetPlanEditor } from './BudgetPlanEditor';
 import { BudgetPlanningPage } from './BudgetPlanningPage';
 import { DateRangeSelector } from './DateRangeSelector';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { logger } from '../utils/logger';
 
 const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetChart,
@@ -44,8 +46,10 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
   try {
     props = JSON.parse(element.dataset.islandProps || '{}');
   } catch (error) {
-    console.error(`Failed to parse island props for "${componentName}":`, error);
-    console.error('Invalid JSON:', element.dataset.islandProps);
+    logger.error(`Failed to parse island props for "${componentName}"`, {
+      error,
+      invalidJSON: element.dataset.islandProps,
+    });
 
     // Show user-facing error in the island container
     showErrorInContainer(
@@ -59,9 +63,10 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
   const Component = COMPONENTS[componentName];
 
   if (!Component) {
-    console.error(`Island component "${componentName}" not found in registry`);
-    console.error('Available components:', Object.keys(COMPONENTS));
-    console.error('Element:', element);
+    logger.error(`Island component "${componentName}" not found in registry`, {
+      availableComponents: Object.keys(COMPONENTS),
+      element: element.outerHTML.substring(0, 200),
+    });
 
     // Show user-facing error in the island container
     showErrorInContainer(
@@ -80,11 +85,18 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       roots.set(element, root);
     }
 
+    // Wrap component in ErrorBoundary
+    const wrappedComponent = React.createElement(
+      ErrorBoundary,
+      { componentName },
+      React.createElement(Component, props)
+    );
+
     // Render (or re-render) with new props
-    root.render(React.createElement(Component, props));
+    root.render(wrappedComponent);
     element.dataset.islandHydrated = 'true';
   } catch (error) {
-    console.error(`Failed to render island "${componentName}":`, error);
+    logger.error(`Failed to render island "${componentName}"`, error);
 
     showErrorInContainer(
       element,

@@ -19,6 +19,7 @@ import {
   partitionByIncome,
 } from './qualifierUtils';
 import { dispatchBudgetEvent } from '../utils/events';
+import { logger } from '../utils/logger';
 
 /**
  * Render an empty state message in the chart container.
@@ -144,7 +145,7 @@ function transformToMonthlyData(
 
     // Validate slice has data before calculating mean
     if (slice.length === 0) {
-      console.warn(`No data for trailing average at index ${idx}`);
+      logger.warn(`No data for trailing average at index ${idx}`);
       return {
         month: item.month,
         trailingAvg: 0,
@@ -156,7 +157,7 @@ function transformToMonthlyData(
     // Validate mean calculation succeeded
     // d3.mean returns undefined for empty arrays or when no valid numeric values exist
     if (avg === undefined || !Number.isFinite(avg)) {
-      console.error(`Invalid trailing average at index ${idx}:`, {
+      logger.error(`Invalid trailing average at index ${idx}`, {
         slice: slice.map((d) => ({ month: d.month, netIncome: d.netIncome })),
         calculatedMean: avg,
       });
@@ -298,7 +299,7 @@ function calculateNetIncomeFromData(data: MonthlyData[]): {
 
     // Validate slice has data
     if (slice.length === 0) {
-      console.warn(`No data for trailing average at period ${item.month}`);
+      logger.warn(`No data for trailing average at period ${item.month}`);
       return { month: item.month, trailingAvg: 0 };
     }
 
@@ -306,7 +307,7 @@ function calculateNetIncomeFromData(data: MonthlyData[]): {
 
     // Validate mean calculation succeeded
     if (avg === undefined || !Number.isFinite(avg)) {
-      console.error(`Invalid trailing average for period ${item.month}:`, {
+      logger.error(`Invalid trailing average for period ${item.month}`, {
         slice: slice.map((d) => ({ month: d.month, netIncome: d.netIncome })),
         calculatedMean: avg,
       });
@@ -401,8 +402,8 @@ function calculateIndicatorLines(
 
       // Validate values array
       if (values.some((v) => !Number.isFinite(v))) {
-        console.error(
-          `Invalid values in trailing average calculation for ${category} period ${period}:`,
+        logger.error(
+          `Invalid values in trailing average calculation for ${category} period ${period}`,
           { values, periods: slice }
         );
         // Skip this data point rather than adding corrupted data
@@ -412,7 +413,7 @@ function calculateIndicatorLines(
       const avg = d3.mean(values);
 
       if (avg === undefined || !Number.isFinite(avg)) {
-        console.error(`d3.mean failed for ${category} period ${period}:`, {
+        logger.error(`d3.mean failed for ${category} period ${period}`, {
           values,
           calculatedMean: avg,
         });
@@ -456,7 +457,7 @@ function getGroupedBarMarks(
       .map((d) => {
         const periodIdx = periodToIndex.get(d.month);
         if (periodIdx === undefined) {
-          console.error(`Period not found in index map: ${d.month}`, {
+          logger.error(`Period not found in index map: ${d.month}`, {
             category: d.category,
             amount: d.amount,
             availablePeriods: Array.from(periodToIndex.keys()).slice(0, 10),
@@ -934,7 +935,7 @@ export function BudgetChart({
         indicatorCategoriesSet
       ));
     } catch (err) {
-      console.error('Failed to transform monthly data:', err);
+      logger.error('Failed to transform monthly data', err);
       setError('Failed to process transaction data for monthly view.');
       setLoading(false);
       return;
@@ -992,7 +993,7 @@ export function BudgetChart({
       incomeData = result.incomeData;
       containerRef.current.appendChild(plot);
     } catch (err) {
-      console.error('Failed to render monthly chart:', err);
+      logger.error('Failed to render monthly chart', err);
       setError('Failed to render chart visualization.');
       setLoading(false);
       return;
@@ -1009,14 +1010,14 @@ export function BudgetChart({
         setPinnedSegment
       );
     } catch (err) {
-      console.error('Failed to attach event listeners:', err);
-      console.error('DOM diagnostics at failure:', {
+      logger.error('Failed to attach event listeners', err);
+      logger.error('DOM diagnostics at failure', {
         barGroups: plot.querySelectorAll('g[aria-label="bar"]').length,
         allGroups: plot.querySelectorAll('g').length,
         svgChildren: plot.children.length,
         plotPreview: plot.innerHTML.substring(0, 300),
       });
-      console.warn('Chart rendered in static mode - no tooltip interactivity');
+      logger.warn('Chart rendered in static mode - no tooltip interactivity');
 
       // Add user-visible warning banner with recovery option
       const warningDiv = document.createElement('div');
@@ -1085,7 +1086,7 @@ export function BudgetChart({
 
   if (error) {
     // Log technical details to console for debugging
-    console.error('BudgetChart error:', error);
+    logger.error('BudgetChart error', { error });
 
     return (
       <div className="p-8 bg-error-muted rounded-lg border border-error">
