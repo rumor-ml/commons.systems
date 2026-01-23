@@ -14,8 +14,10 @@ const (
 	// pollInterval is how frequently we check pane titles
 	pollInterval = 500 * time.Millisecond
 
-	// idlePrefix is the UTF-8 character prefix that indicates idle state
-	// This is set by the Claude Code pane title system
+	// idlePrefix is the UTF-8 character prefix that Claude Code sets in pane titles to indicate idle state.
+	// This character appears at the start of the pane title when Claude is waiting for user input.
+	// Source: Claude Code's pane title system (verify implementation matches before deploying changes).
+	// Breaking change risk: If Claude Code changes this prefix, idle detection will fail.
 	idlePrefix = "✳ " // U+2733 EIGHT SPOKED ASTERISK
 )
 
@@ -33,6 +35,7 @@ type TitleDetector struct {
 	collector  PaneCollector
 	eventCh    chan StateEvent
 	done       chan struct{}
+	closeOnce  sync.Once
 	started    bool
 	mu         sync.Mutex
 	lastStates map[string]State // Track last known state per pane to detect changes

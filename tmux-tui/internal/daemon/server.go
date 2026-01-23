@@ -296,9 +296,8 @@ type AlertDaemon struct {
 	// Idle state detection (new strategy pattern - replaces alertWatcher)
 	detector detector.IdleStateDetector
 
-	// Legacy alert watcher (deprecated - only used when TMUX_TUI_DETECTOR=hook)
-	// TODO: Remove after TitleDetector is proven stable
-	alertWatcher     *watcher.AlertWatcher
+	// Note: alertWatcher has been removed as HookDetector manages its own AlertWatcher lifecycle.
+	// Legacy code preserved in HookDetector for backward compatibility when TMUX_TUI_DETECTOR=hook.
 	paneFocusWatcher *watcher.PaneFocusWatcher
 	alerts           map[string]string // Current alert state: paneID -> eventType
 	previousState    map[string]string // Previous state for bell firing logic
@@ -469,6 +468,9 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	detectorType := os.Getenv("TMUX_TUI_DETECTOR")
 	if detectorType == "" {
 		detectorType = "title" // Default to title-based detection
+	} else if detectorType != "hook" && detectorType != "title" {
+		fmt.Fprintf(os.Stderr, "WARNING: Invalid TMUX_TUI_DETECTOR=%q (expected \"hook\" or \"title\"), using default \"title\"\n", detectorType)
+		detectorType = "title"
 	}
 
 	var idleDetector detector.IdleStateDetector
@@ -516,9 +518,6 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	// Create pane focus watcher with same directory
 	paneFocusWatcher, err := watcher.NewPaneFocusWatcher(watcher.WithPaneFocusDir(alertDir))
 	if err != nil {
-		if alertWatcher != nil {
-			alertWatcher.Close()
-		}
 		if idleDetector != nil {
 			idleDetector.Stop()
 		}
@@ -529,7 +528,12 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 	blockedPath := namespace.BlockedBranchesFile()
 	blockedBranches, err := loadBlockedBranches(blockedPath)
 	if err != nil {
-		alertWatcher.Close()
+		if alertWatcher != nil {
+			alertWatcher.Close()
+		}
+		if idleDetector != nil {
+			idleDetector.Stop()
+		}
 		paneFocusWatcher.Close()
 		return nil, fmt.Errorf("failed to load blocked branches: %w", err)
 	}
@@ -538,8 +542,7 @@ func NewAlertDaemon() (*AlertDaemon, error) {
 		alertDir, socketPath, len(existingAlerts), len(blockedBranches))
 
 	daemon := &AlertDaemon{
-		detector:         idleDetector, // May be nil for title detector (initialized after collector)
-		alertWatcher:     alertWatcher,
+		detector:         idleDetector, // May be nil for title detector (initialized later after collector is created)
 		paneFocusWatcher: paneFocusWatcher,
 		alerts:           existingAlerts,
 		previousState:    make(map[string]string),
@@ -689,32 +692,13 @@ func (d *AlertDaemon) watchIdleState() {
 	}
 }
 
-// watchAlerts monitors the alert watcher for events (deprecated - only used for hook detector).
-// TODO: Remove this method once HookDetector is removed.
+// watchAlerts monitors the alert watcher for events.
+// DEPRECATED: This method is no longer called. Replaced by watchIdleState which uses the detector interface.
+// The HookDetector internally manages AlertWatcher when TMUX_TUI_DETECTOR=hook.
+// TODO(#1545): Remove this dead code after confirming no external callers exist.
 func (d *AlertDaemon) watchAlerts() {
-	alertCh := d.alertWatcher.Start()
-
-	for {
-		select {
-		case <-d.done:
-			return
-		case event, ok := <-alertCh:
-			if !ok {
-				debug.Log("DAEMON_WATCHER_STOPPED")
-				return
-			}
-
-			if event.Error != nil {
-				d.watcherErrors.Add(1)
-				d.lastWatcherError.Store(event.Error.Error())
-				debug.Log("DAEMON_WATCHER_ERROR error=%v total_errors=%d", event.Error, d.watcherErrors.Load())
-				fmt.Fprintf(os.Stderr, "ERROR: Alert watcher error: %v\n", event.Error)
-				continue
-			}
-
-			d.handleAlertEvent(event)
-		}
-	}
+	// This method is deprecated and not called anywhere
+	panic("watchAlerts is deprecated - use watchIdleState instead")
 }
 
 // watchPaneFocus monitors the pane focus watcher for events.
@@ -1940,17 +1924,12 @@ func (d *AlertDaemon) Stop() error {
 	debug.Log("DAEMON_STOPPING")
 	close(d.done)
 
-	// Close idle state detector
+	// Close idle state detector (HookDetector internally manages alertWatcher cleanup)
 	if d.detector != nil {
 		if err := d.detector.Stop(); err != nil {
 			debug.Log("DAEMON_DETECTOR_STOP_ERROR error=%v", err)
 			fmt.Fprintf(os.Stderr, "WARNING: Error stopping detector: %v\n", err)
 		}
-	}
-
-	// Close alert watcher (if using hook detector)
-	if d.alertWatcher != nil {
-		d.alertWatcher.Close()
 	}
 
 	// Close pane focus watcher

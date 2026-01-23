@@ -3,14 +3,17 @@ package detector
 import (
 	"fmt"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/commons-systems/tmux-tui/internal/tmux"
 )
 
+// TODO(#1544): Add mutex protection to addPane and removePane methods for better test reliability
 // mockCollector implements a mock tmux.Collector for testing
 type mockCollector struct {
+	mu         sync.RWMutex
 	tree       tmux.RepoTree
 	paneTitles map[string]string // paneID -> title
 	treeErr    error
@@ -25,6 +28,8 @@ func newMockCollector() *mockCollector {
 }
 
 func (m *mockCollector) GetTree() (tmux.RepoTree, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.treeErr != nil {
 		return tmux.RepoTree{}, m.treeErr
 	}
@@ -32,6 +37,8 @@ func (m *mockCollector) GetTree() (tmux.RepoTree, error) {
 }
 
 func (m *mockCollector) GetPaneTitle(paneID string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.titleErr != nil {
 		return "", m.titleErr
 	}
@@ -43,6 +50,9 @@ func (m *mockCollector) GetPaneTitle(paneID string) (string, error) {
 }
 
 func (m *mockCollector) addPane(repo, branch, paneID, title string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// Create pane with minimal required fields
 	pane, err := tmux.NewPane(paneID, "/tmp", "@1", 0, false, false, "bash", title, false)
 	if err != nil {
@@ -64,10 +74,15 @@ func (m *mockCollector) addPane(repo, branch, paneID, title string) error {
 }
 
 func (m *mockCollector) updatePaneTitle(paneID, newTitle string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.paneTitles[paneID] = newTitle
 }
 
 func (m *mockCollector) removePane(repo, branch, paneID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	panes, ok := m.tree.GetPanes(repo, branch)
 	if !ok {
 		return nil
@@ -144,6 +159,7 @@ func TestTitleDetector_IdleDetection(t *testing.T) {
 		if event.State != StateIdle {
 			t.Errorf("StateEvent.State = %v, want %v (idle prefix '✳ ' should trigger idle state)", event.State, StateIdle)
 		}
+	// TODO(#1541): Test sleep timing could be reduced with notification mechanism
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for initial state event")
 	}
@@ -478,6 +494,282 @@ func TestTitleDetector_MultiplePanes(t *testing.T) {
 	}
 	if events["%3"] != StateIdle {
 		t.Errorf("Pane %%3 state = %v, want %v", events["%3"], StateIdle)
+	}
+}
+
+// TestTitleDetector_ConcurrentStateTransitions tests thread safety with concurrent pane updates
+func TestTitleDetector_ConcurrentStateTransitions(t *testing.T) {
+	mock := newMockCollector()
+
+	// Add 15 panes to test concurrent access
+	for i := 1; i <= 15; i++ {
+		paneID := fmt.Sprintf("%%%d", i)
+		title := fmt.Sprintf("pane %d", i)
+		if err := mock.addPane("repo", "main", paneID, title); err != nil {
+			t.Fatalf("Failed to add pane %s: %v", paneID, err)
+		}
+	}
+
+	detector, err := NewTitleDetector(mock)
+	if err != nil {
+		t.Fatalf("NewTitleDetector() error = %v", err)
+	}
+	defer detector.Stop()
+
+	stateCh := detector.Start()
+
+	// Collect initial events
+	initialEvents := make(map[string]State)
+	timeout := time.After(3 * time.Second)
+	for i := 0; i < 15; i++ {
+		select {
+		case event := <-stateCh:
+			if event.Error != nil {
+				t.Fatalf("Received error event: %v", event.Error)
+			}
+			initialEvents[event.PaneID] = event.State
+		case <-timeout:
+			t.Fatalf("Timeout waiting for initial event %d/15", i+1)
+		}
+	}
+
+	// Start goroutine to rapidly update pane titles concurrently
+	done := make(chan struct{})
+	go func() {
+		for i := 1; i <= 15; i++ {
+			paneID := fmt.Sprintf("%%%d", i)
+			// Alternate between idle and working states
+			if i%2 == 0 {
+				mock.updatePaneTitle(paneID, "✳ idle state")
+			} else {
+				mock.updatePaneTitle(paneID, "working state")
+			}
+		}
+		close(done)
+	}()
+
+	// Wait for updates to complete
+	<-done
+
+	// Collect state change events
+	stateChanges := make(map[string]State)
+	eventTimeout := time.After(2 * time.Second)
+
+collectLoop:
+	for {
+		select {
+		case event := <-stateCh:
+			if event.Error != nil {
+				t.Fatalf("Received error event during concurrent updates: %v", event.Error)
+			}
+			stateChanges[event.PaneID] = event.State
+			// Check if we've received updates for all changed panes
+			if len(stateChanges) >= 15 {
+				break collectLoop
+			}
+		case <-eventTimeout:
+			break collectLoop
+		}
+	}
+
+	// Verify we received state changes (even panes should be idle, odd should be working)
+	if len(stateChanges) == 0 {
+		t.Error("Expected to receive state change events from concurrent updates")
+	}
+
+	// Verify no duplicate or incorrect events
+	for paneID, state := range stateChanges {
+		var expectedState State
+		// Extract pane number from paneID format "%d"
+		var paneNum int
+		if _, err := fmt.Sscanf(paneID, "%%%d", &paneNum); err == nil {
+			if paneNum%2 == 0 {
+				expectedState = StateIdle
+			} else {
+				expectedState = StateWorking
+			}
+			if state != expectedState {
+				t.Errorf("Pane %s final state = %v, want %v", paneID, state, expectedState)
+			}
+		}
+	}
+
+	// Call Stop() during potential ongoing checks to test race conditions
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Stop() during concurrent access error = %v, want nil", err)
+	}
+
+	// Verify channel is closed
+	select {
+	case _, ok := <-stateCh:
+		if ok {
+			t.Error("State channel should be closed after Stop()")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timeout waiting for channel close after concurrent operations")
+	}
+}
+
+// TestTitleDetector_StopBeforeStart tests that Stop() on a never-started detector is safe
+func TestTitleDetector_StopBeforeStart(t *testing.T) {
+	mock := newMockCollector()
+
+	detector, err := NewTitleDetector(mock)
+	if err != nil {
+		t.Fatalf("NewTitleDetector() error = %v", err)
+	}
+
+	// Call Stop() without Start()
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Stop() before Start() error = %v, want nil", err)
+	}
+
+	// Should be able to call Stop again
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Stop() again error = %v, want nil", err)
+	}
+}
+
+// TestTitleDetector_StopIdempotency tests that multiple Stop() calls are safe
+func TestTitleDetector_StopIdempotency(t *testing.T) {
+	mock := newMockCollector()
+
+	detector, err := NewTitleDetector(mock)
+	if err != nil {
+		t.Fatalf("NewTitleDetector() error = %v", err)
+	}
+
+	stateCh := detector.Start()
+
+	// First Stop
+	if err := detector.Stop(); err != nil {
+		t.Errorf("First Stop() error = %v, want nil", err)
+	}
+
+	// Verify channel closed
+	select {
+	case _, ok := <-stateCh:
+		if ok {
+			t.Error("State channel should be closed after first Stop()")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timeout waiting for channel close")
+	}
+
+	// Second Stop (idempotency test)
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Second Stop() error = %v, want nil", err)
+	}
+
+	// Third Stop
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Third Stop() error = %v, want nil", err)
+	}
+}
+
+// TestTitleDetector_PendingEventsDuringStop tests Stop() doesn't panic with pending state changes
+func TestTitleDetector_PendingEventsDuringStop(t *testing.T) {
+	mock := newMockCollector()
+
+	// Add multiple panes
+	for i := 1; i <= 5; i++ {
+		paneID := fmt.Sprintf("%%%d", i)
+		if err := mock.addPane("repo", "main", paneID, "initial"); err != nil {
+			t.Fatalf("Failed to add pane: %v", err)
+		}
+	}
+
+	detector, err := NewTitleDetector(mock)
+	if err != nil {
+		t.Fatalf("NewTitleDetector() error = %v", err)
+	}
+
+	stateCh := detector.Start()
+
+	// Wait for initial events
+	for i := 0; i < 5; i++ {
+		select {
+		case <-stateCh:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Timeout waiting for initial event %d", i)
+		}
+	}
+
+	// Create state changes
+	for i := 1; i <= 5; i++ {
+		paneID := fmt.Sprintf("%%%d", i)
+		mock.updatePaneTitle(paneID, "✳ changed")
+	}
+
+	// Immediately call Stop() - should not panic even with pending changes
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Stop() with pending events error = %v, want nil", err)
+	}
+
+	// Channel should eventually close
+	select {
+	case _, ok := <-stateCh:
+		if ok {
+			t.Error("Channel should close after Stop()")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timeout waiting for channel close")
+	}
+}
+
+// TestTitleDetector_EmptyTree tests behavior when GetTree() returns an empty tree
+func TestTitleDetector_EmptyTree(t *testing.T) {
+	mock := newMockCollector()
+
+	// Start with panes
+	if err := mock.addPane("repo", "main", "%1", "test"); err != nil {
+		t.Fatalf("Failed to add pane: %v", err)
+	}
+
+	detector, err := NewTitleDetector(mock)
+	if err != nil {
+		t.Fatalf("NewTitleDetector() error = %v", err)
+	}
+	defer detector.Stop()
+
+	stateCh := detector.Start()
+
+	// Wait for initial event
+	select {
+	case event := <-stateCh:
+		if event.Error != nil {
+			t.Fatalf("Received error event: %v", event.Error)
+		}
+		if event.PaneID != "%1" {
+			t.Errorf("Expected event for pane %%1, got %s", event.PaneID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for initial event")
+	}
+
+	// Update mock to return empty tree (simulate all panes closed)
+	mock.mu.Lock()
+	mock.tree = tmux.NewRepoTree()
+	mock.paneTitles = make(map[string]string)
+	mock.mu.Unlock()
+
+	// Wait for state cleanup - should not emit events or crash
+	time.Sleep(600 * time.Millisecond) // Wait for at least one poll cycle
+
+	// Verify no events emitted for empty tree
+	select {
+	case event := <-stateCh:
+		if event.Error == nil {
+			t.Errorf("Should not emit event for empty tree, got: paneID=%s state=%s",
+				event.PaneID, event.State)
+		}
+	case <-time.After(500 * time.Millisecond):
+		// Expected - no events for empty tree
+	}
+
+	// Verify detector still works after empty tree
+	if err := detector.Stop(); err != nil {
+		t.Errorf("Stop() after empty tree error = %v, want nil", err)
 	}
 }
 

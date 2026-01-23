@@ -1,9 +1,13 @@
 package detector
 
 import (
+	"sync"
+
 	"github.com/commons-systems/tmux-tui/internal/debug"
 	"github.com/commons-systems/tmux-tui/internal/watcher"
 )
+
+// TODO(#1543): Consider extracting common detector base type
 
 // HookDetector implements IdleStateDetector using the legacy hook-based AlertWatcher.
 //
@@ -14,14 +18,16 @@ import (
 //   - Depends on filesystem notifications which can be unreliable
 //   - Does not work for non-Claude panes
 //
-// To use this detector, set TMUX_TUI_DETECTOR=hook in your environment.
-// This will be removed in a future version once TitleDetector is proven stable.
+// Migration: Remove TMUX_TUI_DETECTOR=hook from your environment to use TitleDetector (default).
+// Removal timeline: Will be removed after TitleDetector is default for 2+ releases with no P1 issues.
+// To temporarily use this detector, set TMUX_TUI_DETECTOR=hook in your environment.
 type HookDetector struct {
-	watcher  *watcher.AlertWatcher
-	eventCh  chan StateEvent
-	done     chan struct{}
-	started  bool
-	alertDir string
+	watcher   *watcher.AlertWatcher
+	eventCh   chan StateEvent
+	done      chan struct{}
+	closeOnce sync.Once
+	started   bool
+	alertDir  string
 }
 
 // NewHookDetector creates a new hook-based detector that wraps AlertWatcher.
@@ -112,13 +118,10 @@ func (d *HookDetector) convertEvents(alertCh <-chan watcher.AlertEvent) {
 
 // Stop halts the detector and releases resources
 func (d *HookDetector) Stop() error {
-	// Close done channel to signal goroutines
-	select {
-	case <-d.done:
-		// Already closed
-	default:
+	// Use sync.Once to ensure done channel is closed exactly once
+	d.closeOnce.Do(func() {
 		close(d.done)
-	}
+	})
 
 	// Close the underlying watcher
 	if d.watcher != nil {
