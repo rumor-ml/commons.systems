@@ -6,7 +6,7 @@
 # The TZ environment variable:
 # - Controls timezone for date, ls -l, and other time-aware commands
 # - Format: "Area/Location" (e.g., "America/New_York")
-# - See /usr/share/zoneinfo for available timezones
+# - Refer to IANA timezone database for available timezones
 # - Automatically handles Daylight Saving Time transitions
 #
 # Examples:
@@ -15,13 +15,13 @@
 #   - "America/Denver"    → Mountain Time (MST/MDT)
 #   - "America/Los_Angeles" → Pacific Time (PST/PDT)
 #   - "UTC"               → Coordinated Universal Time
+#
+# Testing:
+# - Integration tests: ./nix/home/timezone.test.sh
+# - Pre-push hook: Automatically runs when this file changes (see nix/checks.nix)
+# - Tests verify TZ variable, date command behavior, and DST handling
 
-{
-  config,
-  pkgs,
-  lib,
-  ...
-}:
+{ ... }:
 
 {
   home.sessionVariables = {
