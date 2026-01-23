@@ -107,6 +107,9 @@
             gh
             jq
             curl
+            # Sandbox dependencies for Claude Code
+            socat # Network proxy for sandbox
+            bubblewrap # Unprivileged sandboxing (Linux/WSL2)
             # Cloud tools
             google-cloud-sdk
             terraform
