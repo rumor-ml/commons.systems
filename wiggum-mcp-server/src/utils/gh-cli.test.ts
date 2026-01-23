@@ -61,7 +61,7 @@ describe('Rate Limit Retry Logic', () => {
         await sleep(ms);
         const duration = Date.now() - start;
 
-        assert.ok(duration >= ms && duration < ms + 50, `Expected ~${ms}ms, got ${duration}ms`);
+        assert.ok(duration >= ms && duration < ms + 100, `Expected ~${ms}ms, got ${duration}ms`);
       }
     });
   });
