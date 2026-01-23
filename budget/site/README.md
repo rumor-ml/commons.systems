@@ -1,19 +1,19 @@
 # Budget Site
 
-Full-stack budget visualization app with Go backend and React/HTMX frontend.
+Budget visualization frontend using finparse as the backend API server.
 
 ## Architecture
 
-- **Backend**: Go server with Firebase Auth and Firestore
+- **Backend**: finparse server (`../../finparse`) with Firebase Auth and Firestore
 - **Frontend**: Hybrid React islands + HTMX for new features
 - **Data Storage**: Firestore (multi-user with access control)
 - **Auth**: Firebase Auth with GitHub sign-in
 
 ## Current Status
 
-This app is being migrated from frontend-only to full-stack:
+This app uses finparse as the backend server:
 
-- ✅ Go backend server with Firestore integration
+- ✅ finparse backend with Firestore integration (`../../finparse/cmd/server`)
 - ✅ REST API endpoints for transactions, statements, accounts
 - 🚧 Frontend API integration (in progress)
 - 🚧 Transaction review page (in progress)
@@ -52,16 +52,23 @@ Each transaction includes:
 ### Prerequisites
 
 - Node.js 18+ and pnpm installed
+- Go 1.25.4+ (for finparse backend)
 - This is a monorepo workspace package
 
 ### Development
 
 ```bash
-# From the budget/site directory
+# Terminal 1: Start finparse backend server
+cd ../../finparse
+make run-server
+
+# Terminal 2: Start frontend dev server
+cd budget/site
 pnpm dev
 ```
 
-The dev server will start at http://localhost:3001
+- Backend: http://localhost:8080
+- Frontend: http://localhost:5173
 
 ### Build
 
@@ -94,6 +101,16 @@ budget/site/
 ├── package.json
 ├── vite.config.js
 └── tsconfig.json
+
+../../finparse/                # Backend server
+├── cmd/
+│   ├── finparse/           # CLI tool
+│   └── server/             # HTTP API server
+└── internal/
+    ├── firestore/          # Firestore client
+    ├── handlers/           # HTTP handlers
+    ├── middleware/         # Auth, CORS
+    └── server/             # Router setup
 ```
 
 ## Technology Stack
@@ -160,10 +177,12 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 ### Running
 
 ```bash
-# Install dependencies
-make install-deps
+# Terminal 1: Start finparse backend
+cd ../../finparse
+make run-server
 
-# Run backend and frontend concurrently
+# Terminal 2: Start frontend
+cd budget/site
 make dev
 ```
 
@@ -173,9 +192,13 @@ make dev
 ### Building
 
 ```bash
-make build              # Build both backend and frontend
-make build-backend      # Build only backend
-make build-frontend     # Build only frontend
+# Backend
+cd ../../finparse
+make build-server       # Builds finparse-server binary
+
+# Frontend
+cd budget/site
+make build              # Build frontend only
 ```
 
 ## Customization
