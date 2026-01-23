@@ -13,6 +13,7 @@ import { monitorPRChecks, MonitorPRChecksInputSchema } from './tools/monitor-pr-
 import { monitorMergeQueue, MonitorMergeQueueInputSchema } from './tools/monitor-merge-queue.js';
 import { getDeploymentUrls, GetDeploymentUrlsInputSchema } from './tools/get-deployment-urls.js';
 import { getFailureDetails, GetFailureDetailsInputSchema } from './tools/get-failure-details.js';
+import { createWorktreeCmd, CreateWorktreeInputSchema } from './tools/create-worktree.js';
 import { prioritizeIssues, PrioritizeIssuesInputSchema } from './tools/prioritize-issues.js';
 import {
   checkIssueDependencies,
@@ -202,6 +203,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: 'gh_create_worktree',
+        description:
+          'Create a new git worktree with full setup. Validates environment, ' +
+          'creates worktree, configures git hooks, updates issue labels, and optionally ' +
+          'opens tmux window with claude. Accepts issue number or task description. ' +
+          'Requires dangerouslyDisableSandbox: true for git/gh/direnv/tmux operations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            issue_number: {
+              type: 'number',
+              description: 'GitHub issue number (e.g., 1500)',
+            },
+            description: {
+              type: 'string',
+              description: 'Task description (used if no issue number)',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current)',
+            },
+          },
+          required: [],
+        },
+      },
+      {
         name: 'gh_prioritize_issues',
         description:
           'Prioritize GitHub issues using four-tier system with priority scoring. Categorizes issues into Tier 1 (Bug), Tier 2 (Code Reviewer), Tier 3 (Code Simplifier), and Tier 4 (Other). Within each tier, sorts by priority score calculated from comment count and "Found while working on" references.',
@@ -284,6 +311,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case 'gh_get_failure_details': {
         const validated = GetFailureDetailsInputSchema.parse(args);
         return await getFailureDetails(validated);
+      }
+
+      case 'gh_create_worktree': {
+        const validated = CreateWorktreeInputSchema.parse(args);
+        return await createWorktreeCmd(validated);
       }
 
       case 'gh_prioritize_issues': {
