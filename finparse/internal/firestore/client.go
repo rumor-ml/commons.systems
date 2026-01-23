@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/auth"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
@@ -79,6 +80,33 @@ type Transaction struct {
 	CreatedAt           time.Time `firestore:"createdAt"`
 }
 
+// Validate checks if the Transaction has valid data
+func (t *Transaction) Validate() error {
+	if t.ID == "" {
+		return fmt.Errorf("transaction ID is required")
+	}
+	if t.UserID == "" {
+		return fmt.Errorf("user ID is required")
+	}
+
+	// Validate date format
+	if _, err := time.Parse("2006-01-02", t.Date); err != nil {
+		return fmt.Errorf("invalid date format (expected YYYY-MM-DD): %w", err)
+	}
+
+	// Validate redemption rate
+	if t.RedemptionRate < 0 || t.RedemptionRate > 1 {
+		return fmt.Errorf("redemption rate must be between 0 and 1")
+	}
+
+	// Ensure StatementIDs is not nil
+	if t.StatementIDs == nil {
+		t.StatementIDs = []string{}
+	}
+
+	return nil
+}
+
 // Statement represents a budget statement in Firestore
 type Statement struct {
 	ID             string    `firestore:"id"`
@@ -118,8 +146,11 @@ func (c *Client) GetTransactions(ctx context.Context, userID string) ([]*Transac
 	var transactions []*Transaction
 	for {
 		doc, err := iter.Next()
-		if err != nil {
+		if err == iterator.Done {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate transactions for user %s: %w", userID, err)
 		}
 
 		var txn Transaction
@@ -134,6 +165,9 @@ func (c *Client) GetTransactions(ctx context.Context, userID string) ([]*Transac
 
 // CreateTransaction creates a new transaction
 func (c *Client) CreateTransaction(ctx context.Context, txn *Transaction) error {
+	if err := txn.Validate(); err != nil {
+		return fmt.Errorf("invalid transaction: %w", err)
+	}
 	_, err := c.Firestore.Collection("budget-transactions").Doc(txn.ID).Set(ctx, txn)
 	return err
 }
@@ -148,8 +182,11 @@ func (c *Client) GetStatements(ctx context.Context, userID string) ([]*Statement
 	var statements []*Statement
 	for {
 		doc, err := iter.Next()
-		if err != nil {
+		if err == iterator.Done {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate statements for user %s: %w", userID, err)
 		}
 
 		var stmt Statement
@@ -177,8 +214,11 @@ func (c *Client) GetAccounts(ctx context.Context, userID string) ([]*Account, er
 	var accounts []*Account
 	for {
 		doc, err := iter.Next()
-		if err != nil {
+		if err == iterator.Done {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate accounts for user %s: %w", userID, err)
 		}
 
 		var acc Account
@@ -206,8 +246,11 @@ func (c *Client) GetInstitutions(ctx context.Context, userID string) ([]*Institu
 	var institutions []*Institution
 	for {
 		doc, err := iter.Next()
-		if err != nil {
+		if err == iterator.Done {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate institutions for user %s: %w", userID, err)
 		}
 
 		var inst Institution
@@ -226,16 +269,56 @@ func (c *Client) CreateInstitution(ctx context.Context, inst *Institution) error
 	return err
 }
 
+// ParseSessionStatus represents the status of a parse session
+type ParseSessionStatus string
+
+const (
+	ParseSessionStatusPending    ParseSessionStatus = "pending"
+	ParseSessionStatusProcessing ParseSessionStatus = "processing"
+	ParseSessionStatusCompleted  ParseSessionStatus = "completed"
+	ParseSessionStatusError      ParseSessionStatus = "error"
+	ParseSessionStatusCancelled  ParseSessionStatus = "cancelled"
+)
+
 // ParseSession represents a file parsing session in Firestore
 type ParseSession struct {
 	ID          string                 `firestore:"id"`
 	UserID      string                 `firestore:"userId"`
-	Status      string                 `firestore:"status"` // "pending", "processing", "completed", "error"
+	Status      ParseSessionStatus     `firestore:"status"`
 	FileCount   int                    `firestore:"fileCount"`
 	Stats       map[string]interface{} `firestore:"stats"`
 	CompletedAt *time.Time             `firestore:"completedAt,omitempty"`
 	Error       string                 `firestore:"error,omitempty"`
 	CreatedAt   time.Time              `firestore:"createdAt"`
+}
+
+// Validate checks if the ParseSession has valid data
+func (s *ParseSession) Validate() error {
+	if s.ID == "" {
+		return fmt.Errorf("session ID is required")
+	}
+	if s.UserID == "" {
+		return fmt.Errorf("user ID is required")
+	}
+
+	// Validate status is one of known values
+	validStatuses := map[ParseSessionStatus]bool{
+		ParseSessionStatusPending:    true,
+		ParseSessionStatusProcessing: true,
+		ParseSessionStatusCompleted:  true,
+		ParseSessionStatusError:      true,
+		ParseSessionStatusCancelled:  true,
+	}
+	if !validStatuses[s.Status] {
+		return fmt.Errorf("invalid status: %s", s.Status)
+	}
+
+	// Validate FileCount is non-negative
+	if s.FileCount < 0 {
+		return fmt.Errorf("file count cannot be negative")
+	}
+
+	return nil
 }
 
 // CreateParseSession creates a new parse session
@@ -276,8 +359,11 @@ func (c *Client) ListParseSessions(ctx context.Context, userID string) ([]*Parse
 	var sessions []*ParseSession
 	for {
 		doc, err := iter.Next()
-		if err != nil {
+		if err == iterator.Done {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate parse sessions for user %s: %w", userID, err)
 		}
 
 		var sess ParseSession

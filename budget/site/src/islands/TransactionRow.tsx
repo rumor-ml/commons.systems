@@ -8,7 +8,8 @@ interface TransactionRowProps {
 export function TransactionRow({ transaction }: TransactionRowProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Format amount with proper sign and color
+  // Format amount with explicit +/- sign and color based on value
+  // Note: transaction.amount is stored as positive for income, negative for expenses
   const amountColor = transaction.amount >= 0 ? 'text-success' : 'text-error';
   const formattedAmount =
     transaction.amount >= 0

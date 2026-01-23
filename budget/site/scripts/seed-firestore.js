@@ -54,8 +54,10 @@ console.log(`   Institutions: ${collectionsConfig.institutions}`);
 /**
  * Seed a collection with data
  * @param {string} collectionName - Name of the collection
- * @param {Array} items - Array of items to seed
+ * @param {Array<Object>} items - Array of items to seed (each item must have an 'id' field)
  * @param {string} itemType - Type of item (for logging)
+ * @returns {Promise<void>} Resolves when seeding is complete
+ * @throws {Error} Exits process with code 1 if validation fails, Firestore errors occur, or no items are processed
  */
 async function seedCollection(collectionName, items, itemType) {
   console.log(`\n📝 Seeding ${itemType}...`);

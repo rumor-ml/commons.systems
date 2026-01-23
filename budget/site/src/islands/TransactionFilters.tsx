@@ -1,3 +1,4 @@
+// TODO(#1526): Add header comment explaining component purpose, props, and usage
 import React from 'react';
 
 interface TransactionFiltersProps {
@@ -27,6 +28,10 @@ const CATEGORIES = [
   'investment',
   'other',
 ];
+
+function formatCategoryLabel(category: string): string {
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
 
 export function TransactionFilters({
   startDate,
@@ -92,7 +97,7 @@ export function TransactionFilters({
           >
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
-                {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                {formatCategoryLabel(cat)}
               </option>
             ))}
           </select>

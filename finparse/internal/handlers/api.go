@@ -1,20 +1,30 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/firestore"
 	"github.com/rumor-ml/commons.systems/finparse/internal/middleware"
 )
 
+// FirestoreClient interface for dependency injection
+type FirestoreClient interface {
+	GetTransactions(ctx context.Context, userID string) ([]*firestore.Transaction, error)
+	GetStatements(ctx context.Context, userID string) ([]*firestore.Statement, error)
+	GetAccounts(ctx context.Context, userID string) ([]*firestore.Account, error)
+	GetInstitutions(ctx context.Context, userID string) ([]*firestore.Institution, error)
+}
+
 // APIHandler handles API requests
 type APIHandler struct {
-	fsClient *firestore.Client
+	fsClient FirestoreClient
 }
 
 // NewAPIHandler creates a new API handler
-func NewAPIHandler(fsClient *firestore.Client) *APIHandler {
+func NewAPIHandler(fsClient FirestoreClient) *APIHandler {
 	return &APIHandler{fsClient: fsClient}
 }
 
@@ -33,7 +43,10 @@ func (h *APIHandler) GetTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(transactions)
+	if err := json.NewEncoder(w).Encode(transactions); err != nil {
+		log.Printf("ERROR: Failed to encode transactions for user %s: %v", userID, err)
+		return
+	}
 }
 
 // GetStatements handles GET /api/statements
@@ -51,7 +64,10 @@ func (h *APIHandler) GetStatements(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(statements)
+	if err := json.NewEncoder(w).Encode(statements); err != nil {
+		log.Printf("ERROR: Failed to encode statements for user %s: %v", userID, err)
+		return
+	}
 }
 
 // GetAccounts handles GET /api/accounts
@@ -69,7 +85,10 @@ func (h *APIHandler) GetAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(accounts)
+	if err := json.NewEncoder(w).Encode(accounts); err != nil {
+		log.Printf("ERROR: Failed to encode accounts for user %s: %v", userID, err)
+		return
+	}
 }
 
 // GetInstitutions handles GET /api/institutions
@@ -87,5 +106,8 @@ func (h *APIHandler) GetInstitutions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(institutions)
+	if err := json.NewEncoder(w).Encode(institutions); err != nil {
+		log.Printf("ERROR: Failed to encode institutions for user %s: %v", userID, err)
+		return
+	}
 }

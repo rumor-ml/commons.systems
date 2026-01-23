@@ -8,6 +8,8 @@ import {
   User,
 } from 'firebase/auth';
 import { initFirebase } from './firestore';
+import { logError } from '../utils/logger';
+import { errorIds } from '../constants/errorIds';
 
 // Auth singleton
 let authInstance: Auth | null = null;
@@ -30,7 +32,10 @@ export async function signInWithGitHub(): Promise<User> {
     const result = await signInWithPopup(auth, provider);
     return result.user;
   } catch (error) {
-    console.error('Error signing in with GitHub:', error);
+    logError('Failed to sign in with GitHub', {
+      errorId: errorIds.AUTH_SIGNIN_FAILED,
+      error: error instanceof Error ? error : new Error(String(error)),
+    });
     throw error;
   }
 }
@@ -41,7 +46,10 @@ export async function signOutUser(): Promise<void> {
   try {
     await signOut(auth);
   } catch (error) {
-    console.error('Error signing out:', error);
+    logError('Failed to sign out', {
+      errorId: errorIds.AUTH_SIGNOUT_FAILED,
+      error: error instanceof Error ? error : new Error(String(error)),
+    });
     throw error;
   }
 }

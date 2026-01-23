@@ -21,11 +21,13 @@ func NewClient() *Client {
 
 // SessionBroadcaster broadcasts events to multiple clients for a single parse session
 type SessionBroadcaster struct {
-	mu      sync.RWMutex
-	clients map[*Client]bool
-	events  chan SSEEvent
-	ctx     context.Context
-	cancel  context.CancelFunc
+	mu       sync.RWMutex
+	clients  map[*Client]bool
+	events   chan SSEEvent
+	ctx      context.Context
+	cancel   context.CancelFunc
+	stopOnce sync.Once
+	stopped  bool
 }
 
 // NewSessionBroadcaster creates a new session broadcaster
@@ -53,7 +55,11 @@ func (b *SessionBroadcaster) Unregister(client *Client) {
 	defer b.mu.Unlock()
 	if _, ok := b.clients[client]; ok {
 		delete(b.clients, client)
-		close(client.Events)
+		// Only close the channel if broadcaster hasn't been stopped
+		// (Stop() already closes all client channels)
+		if !b.stopped {
+			close(client.Events)
+		}
 		log.Printf("INFO: Client unregistered, total clients: %d", len(b.clients))
 	}
 }
@@ -67,6 +73,29 @@ func (b *SessionBroadcaster) ClientCount() int {
 
 // Broadcast sends an event to all registered clients
 func (b *SessionBroadcaster) Broadcast(event SSEEvent) {
+	// Check if broadcaster is stopped
+	b.mu.RLock()
+	if b.stopped {
+		b.mu.RUnlock()
+		return
+	}
+	b.mu.RUnlock()
+
+	// For critical events (Complete, Error), try harder to deliver
+	if event.Type == EventTypeComplete || event.Type == EventTypeError {
+		select {
+		case b.events <- event:
+			return
+		case <-b.ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+			// Critical event still couldn't be sent after timeout
+			log.Printf("ERROR: Failed to send critical event type %s - clients may hang. Channel capacity: %d", event.Type, cap(b.events))
+		}
+		return
+	}
+
+	// For non-critical events, drop if channel is full
 	select {
 	case b.events <- event:
 	case <-b.ctx.Done():
@@ -77,8 +106,18 @@ func (b *SessionBroadcaster) Broadcast(event SSEEvent) {
 
 // Stop stops the broadcaster and cleans up resources
 func (b *SessionBroadcaster) Stop() {
-	b.cancel()
-	close(b.events)
+	b.stopOnce.Do(func() {
+		b.mu.Lock()
+		b.stopped = true
+		// Close all client channels
+		for client := range b.clients {
+			close(client.Events)
+			delete(b.clients, client)
+		}
+		b.mu.Unlock()
+		b.cancel()
+		close(b.events)
+	})
 }
 
 // Start starts broadcasting events to all clients
@@ -110,6 +149,18 @@ func (b *SessionBroadcaster) broadcastToClients(event SSEEvent) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for client := range b.clients {
+		// For critical events (Complete, Error), try harder to deliver
+		if event.Type == EventTypeComplete || event.Type == EventTypeError {
+			select {
+			case client.Events <- event:
+			case <-time.After(50 * time.Millisecond):
+				// Critical event couldn't be sent to this client
+				log.Printf("ERROR: Failed to send critical event type %s to client - client may hang. Channel capacity: %d", event.Type, cap(client.Events))
+			}
+			continue
+		}
+
+		// For non-critical events, drop if client channel is full
 		select {
 		case client.Events <- event:
 		default:

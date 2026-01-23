@@ -137,7 +137,7 @@ func (p *Pipeline) ParseFile(ctx context.Context, filePath string, userID string
 	for _, rawTxn := range rawStatement.Transactions {
 		txnID := fmt.Sprintf("%s-%s", userID, rawTxn.ID())
 
-		// Default category mapping based on amount
+		// Categorize positive amounts as Income, all others as Other
 		category := domain.CategoryOther
 		if rawTxn.Amount() > 0 {
 			category = domain.CategoryIncome
@@ -165,6 +165,9 @@ func (p *Pipeline) ParseFile(ctx context.Context, filePath string, userID string
 // ProcessFiles parses multiple files and writes to Firestore with progress updates
 func (p *Pipeline) ProcessFiles(ctx context.Context, sessionID string, filePaths []string, userID string) error {
 	totalFiles := len(filePaths)
+	successCount := 0
+	failureCount := 0
+	var lastError error
 
 	for i, filePath := range filePaths {
 		select {
@@ -177,76 +180,83 @@ func (p *Pipeline) ProcessFiles(ctx context.Context, sessionID string, filePaths
 		fileID := fmt.Sprintf("%s-%d", sessionID, i)
 
 		// Broadcast file start event
-		p.hub.Broadcast(sessionID, streaming.SSEEvent{
-			Type: streaming.EventTypeFile,
-			Data: streaming.FileEvent{
-				ID:        fileID,
-				SessionID: sessionID,
-				FileName:  fileName,
-				Status:    "processing",
-			},
-		})
+		p.hub.Broadcast(sessionID, streaming.NewFileEvent(streaming.FileEvent{
+			ID:        fileID,
+			SessionID: sessionID,
+			FileName:  fileName,
+			Status:    "processing",
+		}))
 
 		// Parse file
 		result, err := p.ParseFile(ctx, filePath, userID)
 		if err != nil {
+			failureCount++
+			lastError = err
 			log.Printf("ERROR: Failed to parse file %s: %v", fileName, err)
-			p.hub.Broadcast(sessionID, streaming.SSEEvent{
-				Type: streaming.EventTypeFile,
-				Data: streaming.FileEvent{
-					ID:        fileID,
-					SessionID: sessionID,
-					FileName:  fileName,
-					Status:    "error",
-					Error:     err.Error(),
-				},
-			})
+			p.hub.Broadcast(sessionID, streaming.NewFileEvent(streaming.FileEvent{
+				ID:        fileID,
+				SessionID: sessionID,
+				FileName:  fileName,
+				Status:    "error",
+				Error:     err.Error(),
+			}))
 			continue
 		}
 
 		// Write to Firestore
 		if err := p.writeToFirestore(ctx, result); err != nil {
+			failureCount++
+			lastError = err
 			log.Printf("ERROR: Failed to write to Firestore for file %s: %v", fileName, err)
-			p.hub.Broadcast(sessionID, streaming.SSEEvent{
-				Type: streaming.EventTypeFile,
-				Data: streaming.FileEvent{
-					ID:        fileID,
-					SessionID: sessionID,
-					FileName:  fileName,
-					Status:    "error",
-					Error:     fmt.Sprintf("Failed to write to Firestore: %v", err),
-				},
-			})
-			continue
-		}
-
-		// Broadcast progress
-		percentage := float64(i+1) / float64(totalFiles) * 100
-		p.hub.Broadcast(sessionID, streaming.SSEEvent{
-			Type: streaming.EventTypeProgress,
-			Data: streaming.ProgressEvent{
-				FileID:     fileID,
-				FileName:   fileName,
-				Processed:  i + 1,
-				Total:      totalFiles,
-				Percentage: percentage,
-				Status:     "completed",
-			},
-		})
-
-		// Broadcast file completion
-		p.hub.Broadcast(sessionID, streaming.SSEEvent{
-			Type: streaming.EventTypeFile,
-			Data: streaming.FileEvent{
+			p.hub.Broadcast(sessionID, streaming.NewFileEvent(streaming.FileEvent{
 				ID:        fileID,
 				SessionID: sessionID,
 				FileName:  fileName,
-				Status:    "completed",
-				Metadata: map[string]interface{}{
-					"transactions": len(result.Transactions),
-				},
+				Status:    "error",
+				Error:     fmt.Sprintf("Failed to write to Firestore: %v", err),
+			}))
+			continue
+		}
+
+		// Track successful processing
+		successCount++
+
+		// Broadcast progress
+		percentage := float64(i+1) / float64(totalFiles) * 100
+		p.hub.Broadcast(sessionID, streaming.NewProgressEvent(streaming.ProgressEvent{
+			FileID:     fileID,
+			FileName:   fileName,
+			Processed:  i + 1,
+			Total:      totalFiles,
+			Percentage: percentage,
+			Status:     "completed",
+		}))
+
+		// Broadcast file completion
+		p.hub.Broadcast(sessionID, streaming.NewFileEvent(streaming.FileEvent{
+			ID:        fileID,
+			SessionID: sessionID,
+			FileName:  fileName,
+			Status:    "completed",
+			Metadata: map[string]interface{}{
+				"transactions": len(result.Transactions),
 			},
-		})
+		}))
+	}
+
+	// Log processing summary
+	log.Printf("INFO: Session %s completed: %d succeeded, %d failed out of %d total",
+		sessionID, successCount, failureCount, totalFiles)
+
+	// Return error if ALL files failed
+	if successCount == 0 && failureCount > 0 {
+		return fmt.Errorf("all %d files failed to process (last error: %w)", totalFiles, lastError)
+	}
+
+	// Log warning if SOME files failed
+	if failureCount > 0 {
+		log.Printf("WARN: Session %s had partial failures: %d of %d files failed",
+			sessionID, failureCount, totalFiles)
 	}
 
 	return nil
@@ -254,17 +264,17 @@ func (p *Pipeline) ProcessFiles(ctx context.Context, sessionID string, filePaths
 
 // writeToFirestore writes parsed data to Firestore
 func (p *Pipeline) writeToFirestore(ctx context.Context, result *ParseResult) error {
-	// Create institution (idempotent)
+	// Create institution (overwrites existing document via Set operation)
 	if err := p.fsClient.CreateInstitution(ctx, result.Institution); err != nil {
 		return fmt.Errorf("failed to create institution: %w", err)
 	}
 
-	// Create account (idempotent)
+	// Create account (overwrites existing document via Set operation)
 	if err := p.fsClient.CreateAccount(ctx, result.Account); err != nil {
 		return fmt.Errorf("failed to create account: %w", err)
 	}
 
-	// Create statement (idempotent)
+	// Create statement (overwrites existing document via Set operation)
 	if err := p.fsClient.CreateStatement(ctx, result.Statement); err != nil {
 		return fmt.Errorf("failed to create statement: %w", err)
 	}

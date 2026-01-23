@@ -11,16 +11,14 @@ export function getCurrentRoute(): Route {
   const hash = window.location.hash;
 
   // Map hash to route
-  if (hash === '#/plan' || hash === '#plan') {
-    return '/plan';
-  }
+  const routeMap: Record<string, Route> = {
+    '#/plan': '/plan',
+    '#plan': '/plan',
+    '#/review': '/review',
+    '#review': '/review',
+  };
 
-  if (hash === '#/review' || hash === '#review') {
-    return '/review';
-  }
-
-  // Default to main view
-  return '/';
+  return routeMap[hash] || '/';
 }
 
 /**

@@ -47,15 +47,19 @@ function showView(route: Route): void {
   reviewView.style.display = 'none';
 
   // Show the requested view
-  if (route === '/') {
-    mainView.style.display = 'block';
-    updateMainView();
-  } else if (route === '/plan') {
-    planningView.style.display = 'block';
-    updatePlanningView();
-  } else if (route === '/review') {
-    reviewView.style.display = 'block';
-    updateReviewView();
+  switch (route) {
+    case '/':
+      mainView.style.display = 'block';
+      updateMainView();
+      break;
+    case '/plan':
+      planningView.style.display = 'block';
+      updatePlanningView();
+      break;
+    case '/review':
+      reviewView.style.display = 'block';
+      updateReviewView();
+      break;
   }
 }
 
@@ -413,28 +417,6 @@ function initNavigationButtons(): void {
   }
 }
 
-function initPlanButton(): void {
-  // Kept for backward compatibility - now handled by initNavigationButtons
-  const planButton = document.getElementById('plan-budget-btn');
-  if (planButton) {
-    planButton.addEventListener('click', () => {
-      try {
-        // Navigate to planning view
-        navigateTo('/plan');
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Failed to navigate to planning view:', {
-          error,
-          errorMessage,
-        });
-        StateManager.showErrorBanner(
-          `Failed to open budget planner. ${errorMessage.includes('storage') || errorMessage.includes('quota') ? 'Your browser storage may be full.' : 'Please try again.'}`
-        );
-      }
-    });
-  }
-}
-
 function initDateRangeEvents(): void {
   document.addEventListener(
     'budget:date-range-change',
@@ -552,7 +534,6 @@ function init(): void {
   initCategoryToggle();
   initVacationToggle();
   initBudgetPlanEvents();
-  initPlanButton();
   initNavigationButtons();
   initDateRangeEvents();
   initAggregationToggle();
