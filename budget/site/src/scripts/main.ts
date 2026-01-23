@@ -34,20 +34,28 @@ function updateIsland(elementId: string, componentName: string, props: object): 
 function showView(route: Route): void {
   const mainView = document.getElementById('main-view');
   const planningView = document.getElementById('planning-view');
+  const reviewView = document.getElementById('review-view');
 
-  if (!mainView || !planningView) {
+  if (!mainView || !planningView || !reviewView) {
     console.error('View containers not found in DOM');
     return;
   }
 
+  // Hide all views
+  mainView.style.display = 'none';
+  planningView.style.display = 'none';
+  reviewView.style.display = 'none';
+
+  // Show the requested view
   if (route === '/') {
     mainView.style.display = 'block';
-    planningView.style.display = 'none';
     updateMainView();
   } else if (route === '/plan') {
-    mainView.style.display = 'none';
     planningView.style.display = 'block';
     updatePlanningView();
+  } else if (route === '/review') {
+    reviewView.style.display = 'block';
+    updateReviewView();
   }
 }
 
@@ -117,6 +125,15 @@ function updatePlanningView(): void {
     historicData: weeklyData,
     categoryAverages,
   });
+}
+
+/**
+ * Update the review view with transaction list
+ */
+function updateReviewView(): void {
+  // Update transaction list island
+  // The TransactionList component handles its own data loading from Firestore
+  updateIsland('transaction-list-island', 'TransactionList', {});
 }
 
 /**
@@ -378,7 +395,26 @@ function initBudgetPlanEvents(): void {
   );
 }
 
+function initNavigationButtons(): void {
+  // Plan budget button
+  const planButton = document.getElementById('plan-budget-btn');
+  if (planButton) {
+    planButton.addEventListener('click', () => {
+      navigateTo('/plan');
+    });
+  }
+
+  // Back to budget button
+  const backButton = document.getElementById('back-to-budget-btn');
+  if (backButton) {
+    backButton.addEventListener('click', () => {
+      navigateTo('/');
+    });
+  }
+}
+
 function initPlanButton(): void {
+  // Kept for backward compatibility - now handled by initNavigationButtons
   const planButton = document.getElementById('plan-budget-btn');
   if (planButton) {
     planButton.addEventListener('click', () => {
@@ -517,6 +553,7 @@ function init(): void {
   initVacationToggle();
   initBudgetPlanEvents();
   initPlanButton();
+  initNavigationButtons();
   initDateRangeEvents();
   initAggregationToggle();
   initIndicatorToggle();

@@ -2,7 +2,7 @@
  * Simple hash-based router for single-page navigation
  */
 
-export type Route = '/' | '/plan';
+export type Route = '/' | '/plan' | '/review';
 
 /**
  * Get the current route from the hash
@@ -13,6 +13,10 @@ export function getCurrentRoute(): Route {
   // Map hash to route
   if (hash === '#/plan' || hash === '#plan') {
     return '/plan';
+  }
+
+  if (hash === '#/review' || hash === '#review') {
+    return '/review';
   }
 
   // Default to main view
