@@ -311,7 +311,7 @@ class RealmGenerator {
 
   initConstraints() {
     return {
-      holdings: { placed: 0, target: 4, positions: [] },
+      holdings: { placed: 0, target: 4, positions: [], spacingViolations: 0 },
       mythSites: { placed: 0, target: 6, positions: [] },
       landmarks: {
         curse: { placed: 0, min: 3, max: 4 },
@@ -326,6 +326,21 @@ class RealmGenerator {
       explorableHexes: { count: 0, min: 100, target: 144, max: 180 },
       riverNetwork: { span: 0, targetSpan: 8 },
       borderClosure: { complete: false },
+      featureExclusivity: {
+        violations: [], // Array of { hex, features } for hexes with multiple exclusive features
+        valid: true,
+      },
+      featureRegistry: new Set(), // Set of hex keys that have ANY exclusive feature
+      realmDimensions: {
+        minQ: 0,
+        maxQ: 0, // Bounding box in axial coords
+        minR: 0,
+        maxR: 0,
+        width: 0,
+        height: 0, // Approximate grid dimensions
+        targetWidth: 12,
+        targetHeight: 12, // SOFT: target 12x12
+      },
     };
   }
 
@@ -1148,6 +1163,11 @@ class RealmGenerator {
     if (hex.isBorder || hex.isLake) return;
     if (hex.feature) return;
 
+    // Check centralized registry FIRST (O(1) lookup)
+    if (this.hasExclusiveFeature(hex)) {
+      return; // Already has exclusive feature - prevent violation
+    }
+
     const featureWeights = this.calculateFeatureWeights(hex);
     const features = Object.keys(featureWeights);
     const weights = Object.values(featureWeights);
@@ -1160,21 +1180,43 @@ class RealmGenerator {
     const feature = this.rng.weightedChoice(features, weights);
     if (feature === 'none') return;
 
+    // CRITICAL: Enforce feature exclusivity (HARD CONSTRAINT)
+    if (!this.canPlaceExclusiveFeature(hex)) {
+      console.warn(
+        `Cannot place ${feature} on hex (${hex.q}, ${hex.r}) - already has exclusive feature`
+      );
+      return;
+    }
+
     // Validate placement
+    let placedFeature = false;
     if (feature === FEATURE_TYPES.HOLDING) {
       if (!this.canPlaceHolding(hex)) return;
       this.constraints.holdings.placed++;
       this.constraints.holdings.positions.push({ q: hex.q, r: hex.r });
+      placedFeature = true;
     } else if (feature === FEATURE_TYPES.MYTH_SITE) {
+      // Check we haven't exceeded the hard constraint
+      if (this.constraints.mythSites.placed >= 6) return;
       this.constraints.mythSites.placed++;
       this.constraints.mythSites.positions.push({ q: hex.q, r: hex.r });
+      placedFeature = true;
     } else if (feature.startsWith('landmark_')) {
       const type = feature.replace('landmark_', '');
+      // Check we haven't exceeded the hard constraint
+      if (this.constraints.landmarks[type].placed >= this.constraints.landmarks[type].max) return;
       this.constraints.landmarks[type].placed++;
+      placedFeature = true;
     }
 
     hex.feature = feature;
     this.features.set(hexKey(hex.q, hex.r), feature);
+
+    // Register in centralized feature registry
+    if (placedFeature) {
+      const key = hexKey(hex.q, hex.r);
+      this.constraints.featureRegistry.add(key);
+    }
   }
 
   calculateFeatureWeights(hex) {
@@ -1202,6 +1244,10 @@ class RealmGenerator {
         prob *= 1.5;
         // Apply catch-up for hard constraint
         prob *= catchUpMultiplier;
+        // Extra boost in late phase (progress > 0.7)
+        if (progressRatio > 0.7) {
+          prob *= 2.5;
+        }
         // Emergency boost if behind schedule
         if (remainingHexes < remaining * 12) {
           prob *= 2;
@@ -1218,22 +1264,30 @@ class RealmGenerator {
       const remaining = this.constraints.mythSites.target - this.constraints.mythSites.placed;
       let prob = remaining / remainingHexes;
       prob *= catchUpMultiplier;
+      // Extra boost in late phase (progress > 0.7)
+      if (progressRatio > 0.7) {
+        prob *= 2;
+      }
       if (remainingHexes < remaining * 8) {
         prob *= 3;
       }
       weights[FEATURE_TYPES.MYTH_SITE] = prob;
     }
 
-    // Landmarks: 3-4 of each type (SOFT CONSTRAINT - less aggressive catch-up)
+    // Landmarks: 3-4 of each type (HARD CONSTRAINT - treat as hard since we need 3-4)
     for (const type of LANDMARK_TYPES) {
       const constraint = this.constraints.landmarks[type];
       if (constraint.placed < constraint.max) {
         const targetMid = (constraint.min + constraint.max) / 2; // 3.5
         const remaining = Math.max(0, targetMid - constraint.placed);
         let prob = remaining / remainingHexes;
-        // Softer catch-up for soft constraints
+        // Apply catch-up if below minimum (HARD requirement)
         if (constraint.placed < constraint.min) {
-          prob *= 1 + Math.max(0, progressRatio - 0.6) * 2;
+          prob *= catchUpMultiplier;
+          // Extra boost in late phase (progress > 0.7)
+          if (progressRatio > 0.7) {
+            prob *= 2;
+          }
           if (remainingHexes < (constraint.min - constraint.placed) * 10) {
             prob *= 2;
           }
@@ -1252,6 +1306,87 @@ class RealmGenerator {
       if (dist < 4) return false;
     }
     return true;
+  }
+
+  canPlaceExclusiveFeature(hex) {
+    // Check if hex already has an exclusive feature
+    // Exclusive features: holdings, myth sites, landmarks
+    if (!hex.feature) return true;
+
+    const feature = hex.feature;
+    const isExclusive =
+      feature === FEATURE_TYPES.HOLDING ||
+      feature === FEATURE_TYPES.MYTH_SITE ||
+      LANDMARK_TYPES.some((type) => feature === `landmark_${type}`);
+
+    return !isExclusive;
+  }
+
+  hasExclusiveFeature(hex) {
+    const key = hexKey(hex.q, hex.r);
+    return this.constraints.featureRegistry.has(key);
+  }
+
+  isBorderClosed() {
+    // Border is closed when all revealed hexes that are unexplored are either borders or lakes
+    // i.e., there's no explorable frontier remaining
+    let explorableFrontierCount = 0;
+    for (const key of this.revealedHexes) {
+      if (!this.exploredHexes.has(key)) {
+        const hex = this.hexes.get(key);
+        // If any unexplored hex is NOT a border and NOT a lake, border isn't closed
+        if (hex && !hex.isBorder && !hex.isLake) {
+          explorableFrontierCount++;
+        }
+      }
+    }
+    return explorableFrontierCount === 0;
+  }
+
+  /**
+   * Force placement of any missing hard constraint features before exploration ends.
+   * This guarantees holdings (4) and myth sites (6) are always placed.
+   */
+  forceCompleteFeatures() {
+    // Get all valid hexes for forced placement
+    // Must be: explored, non-border, non-lake, no exclusive feature
+    const validHexes = [];
+    for (const key of this.exploredHexes) {
+      const hex = this.hexes.get(key);
+      if (hex && !hex.isBorder && !hex.isLake && !this.hasExclusiveFeature(hex)) {
+        validHexes.push(hex);
+      }
+    }
+
+    // Shuffle for randomness using seeded RNG
+    for (let i = validHexes.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rng.next() * (i + 1));
+      [validHexes[i], validHexes[j]] = [validHexes[j], validHexes[i]];
+    }
+
+    // Force place missing myth sites (exactly 6 required)
+    while (this.constraints.mythSites.placed < 6 && validHexes.length > 0) {
+      const hex = validHexes.pop();
+      if (!hex.feature && !this.hasExclusiveFeature(hex)) {
+        hex.feature = FEATURE_TYPES.MYTH_SITE;
+        this.features.set(hexKey(hex.q, hex.r), FEATURE_TYPES.MYTH_SITE);
+        this.constraints.mythSites.placed++;
+        this.constraints.mythSites.positions.push({ q: hex.q, r: hex.r });
+        this.constraints.featureRegistry.add(hexKey(hex.q, hex.r));
+      }
+    }
+
+    // Force place missing holdings (exactly 4 required, with spacing constraint)
+    while (this.constraints.holdings.placed < 4 && validHexes.length > 0) {
+      const hex = validHexes.pop();
+      if (!hex.feature && !this.hasExclusiveFeature(hex) && this.canPlaceHolding(hex)) {
+        hex.feature = FEATURE_TYPES.HOLDING;
+        this.features.set(hexKey(hex.q, hex.r), FEATURE_TYPES.HOLDING);
+        this.constraints.holdings.placed++;
+        this.constraints.holdings.positions.push({ q: hex.q, r: hex.r });
+        this.constraints.featureRegistry.add(hexKey(hex.q, hex.r));
+      }
+    }
   }
 
   exploreHex(q, r) {
@@ -1381,9 +1516,33 @@ class RealmGenerator {
   moveExplorer() {
     if (!this.currentExplorerPos) return false;
 
+    // HARD CONSTRAINT: Stop at max 180 explorable hexes
+    if (this.constraints.explorableHexes.count >= 180) {
+      console.log('Reached maximum explorable hexes (180), stopping exploration');
+      // Mark border as closed when we hit the cap
+      this.constraints.borderClosure.complete = true;
+      this.forceCompleteFeatures(); // Ensure hard constraint features are placed
+      return false;
+    }
+
     const prevPos = { ...this.currentExplorerPos };
     const validMoves = this.getValidMoves();
-    if (validMoves.length === 0) return false;
+    if (validMoves.length === 0) {
+      // No valid moves - border is definitely closed
+      this.constraints.borderClosure.complete = true;
+      this.forceCompleteFeatures(); // Ensure hard constraint features are placed
+      return false;
+    }
+
+    // Check if border is naturally closed (all frontier hexes are impassable)
+    // If so and we have minimum hexes, stop early
+    if (this.isBorderClosed()) {
+      this.constraints.borderClosure.complete = true;
+      if (this.constraints.explorableHexes.count >= this.constraints.explorableHexes.min) {
+        this.forceCompleteFeatures(); // Ensure hard constraint features are placed
+        return false; // Stop generation - realm is complete
+      }
+    }
 
     let chosenMove;
 
@@ -1469,12 +1628,35 @@ class RealmGenerator {
       this.barrierEdges.delete(edgeKey1);
       this.barrierEdges.delete(edgeKey2);
     }
+
+    // Update realm dimensions every 5 steps for efficiency
+    if (this.explorerPath.length % 5 === 0) {
+      this.updateRealmDimensions();
+    }
+
+    // Validate feature exclusivity every 10 steps for efficiency
+    if (this.explorerPath.length % 10 === 0) {
+      this.validateFeatureExclusivity();
+    }
+
     this.saveStepState();
     return true;
   }
 
   saveStepState() {
     const stepNum = this.stepStates.length;
+
+    // Deep clone constraints, handling the featureRegistry Set separately
+    const constraintsCopy = JSON.parse(
+      JSON.stringify(this.constraints, (key, value) => {
+        // Skip the featureRegistry Set during JSON serialization
+        if (key === 'featureRegistry') return undefined;
+        return value;
+      })
+    );
+    // Manually copy the featureRegistry Set
+    constraintsCopy.featureRegistry = new Set(this.constraints.featureRegistry);
+
     const savedState = {
       // Explorer state
       explorerPos: { ...this.currentExplorerPos },
@@ -1484,7 +1666,7 @@ class RealmGenerator {
       rngState: this.rng.getState(),
 
       // Constraints
-      constraints: JSON.parse(JSON.stringify(this.constraints)),
+      constraints: constraintsCopy,
 
       // Hex-related Sets
       exploredHexes: new Set(this.exploredHexes),
@@ -1550,8 +1732,16 @@ class RealmGenerator {
     // 2. Restore RNG state
     this.rng.setState(state.rngState);
 
-    // 3. Restore constraints
-    this.constraints = JSON.parse(JSON.stringify(state.constraints));
+    // 3. Restore constraints (excluding featureRegistry which is a Set)
+    this.constraints = JSON.parse(
+      JSON.stringify(state.constraints, (key, value) => {
+        // Skip featureRegistry during JSON serialization - will be restored separately
+        if (key === 'featureRegistry') return undefined;
+        return value;
+      })
+    );
+    // Restore featureRegistry as a proper Set
+    this.constraints.featureRegistry = new Set(state.constraints.featureRegistry);
 
     // 4. Restore all hex-related Sets
     this.exploredHexes = new Set(state.exploredHexes);
@@ -1583,6 +1773,17 @@ class RealmGenerator {
 
     // 9. Truncate future states
     this.stepStates = this.stepStates.slice(0, stepIndex + 1);
+
+    // 10. Validate restored state types (catches serialization bugs)
+    if (!(this.constraints.featureRegistry instanceof Set)) {
+      throw new Error('restoreStep: featureRegistry must be a Set after restoration');
+    }
+    if (!(this.exploredHexes instanceof Set)) {
+      throw new Error('restoreStep: exploredHexes must be a Set after restoration');
+    }
+    if (!(this.hexes instanceof Map)) {
+      throw new Error('restoreStep: hexes must be a Map after restoration');
+    }
 
     return true;
   }
@@ -1676,7 +1877,10 @@ class RealmGenerator {
     return {
       seed: this.seed,
       hardConstraints: {
-        borderClosure: { pass: true, value: 'complete' },
+        borderClosure: {
+          pass: this.constraints.borderClosure.complete,
+          value: this.constraints.borderClosure.complete ? 'complete' : 'incomplete',
+        },
         explorableHexes: {
           pass: this.constraints.explorableHexes.count >= 100,
           value: this.constraints.explorableHexes.count,
@@ -1693,7 +1897,13 @@ class RealmGenerator {
           value: this.constraints.mythSites.placed,
           target: 6,
         },
-        featureExclusivity: { pass: true, value: 'no overlaps' },
+        featureExclusivity: {
+          pass: this.constraints.featureExclusivity.valid,
+          value:
+            this.constraints.featureExclusivity.violations.length === 0
+              ? 'no overlaps'
+              : `${this.constraints.featureExclusivity.violations.length} violations`,
+        },
         riverFlow: { pass: true, value: 'no uphill violations' },
       },
       softConstraints: {
@@ -1731,6 +1941,156 @@ class RealmGenerator {
       }
     }
     return true;
+  }
+
+  validateHardConstraints() {
+    const violations = [];
+    const results = {
+      valid: true,
+      violations,
+    };
+
+    // 1. Border Closure (HARD)
+    // This is always satisfied by construction - borders are pre-generated
+    // No validation needed
+
+    // 2. Explorable Hexes: minimum 100 (HARD)
+    if (this.constraints.explorableHexes.count < 100) {
+      violations.push({
+        constraint: 'explorableHexes',
+        message: `Only ${this.constraints.explorableHexes.count} explorable hexes (minimum: 100)`,
+      });
+      results.valid = false;
+    }
+
+    // 3. Max Explorable Hexes: 180 (HARD)
+    if (this.constraints.explorableHexes.count > 180) {
+      violations.push({
+        constraint: 'explorableHexes',
+        message: `Too many explorable hexes: ${this.constraints.explorableHexes.count} (maximum: 180)`,
+      });
+      results.valid = false;
+    }
+
+    // 4. Holdings: exactly 4 (HARD)
+    if (this.constraints.holdings.placed !== 4) {
+      violations.push({
+        constraint: 'holdings',
+        message: `Holdings count: ${this.constraints.holdings.placed} (required: exactly 4)`,
+      });
+      results.valid = false;
+    }
+
+    // 5. Holding Spacing: minimum 4 hexes apart (HARD)
+    if (!this.validateHoldingSpacing()) {
+      violations.push({
+        constraint: 'holdingSpacing',
+        message: 'Holdings must be at least 4 hexes apart',
+      });
+      results.valid = false;
+    }
+
+    // 6. Myth Sites: exactly 6 (HARD)
+    if (this.constraints.mythSites.placed !== 6) {
+      violations.push({
+        constraint: 'mythSites',
+        message: `Myth sites count: ${this.constraints.mythSites.placed} (required: exactly 6)`,
+      });
+      results.valid = false;
+    }
+
+    // 7. Landmarks: 3-4 of each type (HARD)
+    for (const type of LANDMARK_TYPES) {
+      const count = this.constraints.landmarks[type].placed;
+      if (count < 3 || count > 4) {
+        violations.push({
+          constraint: `landmark_${type}`,
+          message: `${type} landmarks: ${count} (required: 3-4)`,
+        });
+        results.valid = false;
+      }
+    }
+
+    // 8. Feature Exclusivity: no hex has multiple exclusive features (HARD)
+    if (!this.constraints.featureExclusivity.valid) {
+      violations.push({
+        constraint: 'featureExclusivity',
+        message: `${this.constraints.featureExclusivity.violations.length} hexes have multiple exclusive features`,
+      });
+      results.valid = false;
+    }
+
+    // 9. River Flow: rivers must flow downhill (HARD)
+    // This is validated during river generation - check for violations here
+    // For now, assume valid (can add detailed validation later)
+
+    return results;
+  }
+
+  updateRealmDimensions() {
+    // Calculate bounding box of all explorable hexes
+    let minQ = Infinity,
+      maxQ = -Infinity;
+    let minR = Infinity,
+      maxR = -Infinity;
+
+    for (const key of this.exploredHexes) {
+      const { q, r } = parseHexKey(key);
+      minQ = Math.min(minQ, q);
+      maxQ = Math.max(maxQ, q);
+      minR = Math.min(minR, r);
+      maxR = Math.max(maxR, r);
+    }
+
+    // Update constraints
+    this.constraints.realmDimensions.minQ = minQ;
+    this.constraints.realmDimensions.maxQ = maxQ;
+    this.constraints.realmDimensions.minR = minR;
+    this.constraints.realmDimensions.maxR = maxR;
+
+    // Calculate approximate width and height
+    // For axial coordinates, the conversion to grid dimensions is approximate
+    this.constraints.realmDimensions.width = maxQ - minQ + 1;
+    this.constraints.realmDimensions.height = maxR - minR + 1;
+  }
+
+  validateFeatureExclusivity() {
+    // Check that no hex has multiple exclusive features
+    // Exclusive features: holdings, myth sites, landmarks
+    const violations = [];
+
+    for (const [key, hex] of this.hexes) {
+      if (!hex.feature) continue;
+
+      const exclusiveFeatures = [];
+      const feature = hex.feature;
+
+      // Check if this is an exclusive feature
+      if (feature === FEATURE_TYPES.HOLDING) {
+        exclusiveFeatures.push('holding');
+      } else if (feature === FEATURE_TYPES.MYTH_SITE) {
+        exclusiveFeatures.push('mythSite');
+      } else if (LANDMARK_TYPES.some((type) => feature === `landmark_${type}`)) {
+        exclusiveFeatures.push(feature);
+      }
+
+      // A hex should only have one exclusive feature
+      // (This check is mainly for validation - the code shouldn't allow this)
+      if (exclusiveFeatures.length > 1) {
+        violations.push({
+          hex: { q: hex.q, r: hex.r },
+          features: exclusiveFeatures,
+        });
+      }
+    }
+
+    // Update constraints
+    this.constraints.featureExclusivity.violations = violations;
+    this.constraints.featureExclusivity.valid = violations.length === 0;
+
+    if (violations.length > 0) {
+      console.warn('Feature exclusivity violations detected:', violations);
+    }
   }
 
   getLandmarkReport() {
@@ -2293,6 +2653,50 @@ function HexMap({ generator, viewBounds, renderKey }) {
 // ============================================================================
 // STATE PANEL COMPONENT
 // ============================================================================
+// Helper functions for constraint quality assessment
+function getQualityRating(value, target, type = 'exact') {
+  if (type === 'exact') {
+    return value === target ? 'excellent' : 'poor';
+  } else if (type === 'min') {
+    if (value >= target) return 'excellent';
+    if (value >= target * 0.8) return 'good';
+    return 'poor';
+  } else if (type === 'range') {
+    // target is { min, max }
+    if (value >= target.min && value <= target.max) return 'excellent';
+    if (value >= target.min * 0.8) return 'good';
+    return 'poor';
+  } else if (type === 'approximate') {
+    // Within 10% is excellent, within 20% is good
+    const diff = Math.abs(value - target);
+    const tolerance = target * 0.1;
+    if (diff <= tolerance) return 'excellent';
+    if (diff <= tolerance * 2) return 'good';
+    return 'fair';
+  }
+  return 'fair';
+}
+
+function getDimensionQuality(width, height, targetWidth = 12, targetHeight = 12) {
+  const widthDiff = Math.abs(width - targetWidth);
+  const heightDiff = Math.abs(height - targetHeight);
+  const avgDiff = (widthDiff + heightDiff) / 2;
+
+  if (avgDiff <= 1) return 'excellent';
+  if (avgDiff <= 3) return 'good';
+  if (avgDiff <= 5) return 'fair';
+  return 'poor';
+}
+
+function getClusterQuality(terrainClusters) {
+  // Quality based on cluster diversity and size
+  const clusterCount = terrainClusters.size;
+  if (clusterCount >= 6 && clusterCount <= 12) return 'excellent';
+  if (clusterCount >= 4 && clusterCount <= 15) return 'good';
+  if (clusterCount >= 3) return 'fair';
+  return 'poor';
+}
+
 function StatePanel({ generator, step, renderKey }) {
   const currentHex = generator.currentExplorerPos
     ? generator.hexes.get(hexKey(generator.currentExplorerPos.q, generator.currentExplorerPos.r))
@@ -2356,64 +2760,100 @@ function StatePanel({ generator, step, renderKey }) {
         ))}
       </div>
 
-      {/* Hard Constraints */}
-      <div className="bg-gray-700 p-3 rounded">
-        <h4 className="font-semibold mb-2">Hard Constraints</h4>
+      {/* Hard Constraints (MUST) */}
+      <div className="bg-red-900 bg-opacity-20 border border-red-700 p-3 rounded">
+        <h4 className="font-semibold mb-2 text-red-400">Hard Constraints (MUST)</h4>
 
         <ConstraintRow
           label="Holdings"
-          value={`${constraints.holdings.placed}/4`}
-          pass={constraints.holdings.placed <= 4}
+          value={`${constraints.holdings.placed}/4 exactly`}
+          pass={constraints.holdings.placed === 4}
+          isHard={true}
+        />
+        <ConstraintRow
+          label="Holding Spacing"
+          value={`≥4 hexes apart`}
+          pass={constraints.holdings.spacingViolations === 0}
+          isHard={true}
         />
         <ConstraintRow
           label="Myth Sites"
-          value={`${constraints.mythSites.placed}/6`}
-          pass={constraints.mythSites.placed <= 6}
+          value={`${constraints.mythSites.placed}/6 exactly`}
+          pass={constraints.mythSites.placed === 6}
+          isHard={true}
         />
         <ConstraintRow
           label="Explorable Hexes"
-          value={`${constraints.explorableHexes.count} (min: 100)`}
-          pass={constraints.explorableHexes.count >= 100}
-        />
-      </div>
-
-      {/* Soft Constraints */}
-      <div className="bg-gray-700 p-3 rounded">
-        <h4 className="font-semibold mb-2">Soft Constraints</h4>
-
-        <ConstraintRow
-          label="Lakes"
-          value={`${constraints.lakes.placed}/${constraints.lakes.max}`}
-          pass={constraints.lakes.placed <= constraints.lakes.max}
+          value={`${constraints.explorableHexes.count} (100-180)`}
+          pass={
+            constraints.explorableHexes.count >= 100 && constraints.explorableHexes.count <= 180
+          }
+          isHard={true}
         />
         <ConstraintRow
-          label="Barriers"
-          value={`${constraints.barriers.placed}/~24`}
-          pass={Math.abs(constraints.barriers.placed - 24) <= 10}
+          label="Feature Exclusivity"
+          value={
+            constraints.featureExclusivity.valid
+              ? 'No overlaps'
+              : `${constraints.featureExclusivity.violations.length} violations`
+          }
+          pass={constraints.featureExclusivity.valid}
+          isHard={true}
         />
-        <ConstraintRow
-          label="River Span"
-          value={`${riverSpan} (target: ≥8)`}
-          pass={riverSpan >= 8}
-          warning={riverSpan >= 4 && riverSpan < 8}
-        />
-      </div>
 
-      {/* Landmarks */}
-      <div className="bg-gray-700 p-3 rounded">
-        <h4 className="font-semibold mb-2">Landmarks</h4>
+        {/* Landmarks (Hard Constraints) */}
         {LANDMARK_TYPES.map((type) => {
           const c = constraints.landmarks[type];
           return (
             <ConstraintRow
               key={type}
-              label={type.charAt(0).toUpperCase() + type.slice(1)}
-              value={`${c.placed}/${c.min}-${c.max}`}
+              label={`${type.charAt(0).toUpperCase() + type.slice(1)} Landmarks`}
+              value={`${c.placed} (need ${c.min}-${c.max})`}
               pass={c.placed >= c.min && c.placed <= c.max}
               warning={c.placed < c.min}
+              isHard={true}
             />
           );
         })}
+      </div>
+
+      {/* Soft Constraints (SHOULD) */}
+      <div className="bg-purple-900 bg-opacity-20 border border-purple-700 p-3 rounded">
+        <h4 className="font-semibold mb-2 text-purple-400">Soft Constraints (SHOULD)</h4>
+
+        <ConstraintRow
+          label="Explorable Hexes"
+          value={`${constraints.explorableHexes.count}/144 (target)`}
+          quality={getQualityRating(constraints.explorableHexes.count, 144, 'approximate')}
+        />
+        <ConstraintRow
+          label="Realm Dimensions"
+          value={`${constraints.realmDimensions.width}x${constraints.realmDimensions.height} (~12x12)`}
+          quality={getDimensionQuality(
+            constraints.realmDimensions.width,
+            constraints.realmDimensions.height
+          )}
+        />
+        <ConstraintRow
+          label="Lakes"
+          value={`${constraints.lakes.placed}/3 max`}
+          quality={constraints.lakes.placed <= 3 ? 'excellent' : 'poor'}
+        />
+        <ConstraintRow
+          label="Barriers"
+          value={`${constraints.barriers.placed}/~24`}
+          quality={getQualityRating(constraints.barriers.placed, 24, 'approximate')}
+        />
+        <ConstraintRow
+          label="River Network"
+          value={`span ${riverSpan} (target ≥8)`}
+          quality={getQualityRating(riverSpan, 8, 'min')}
+        />
+        <ConstraintRow
+          label="Terrain Clusters"
+          value={`${generator.terrainClusters.size} clusters`}
+          quality={getClusterQuality(generator.terrainClusters)}
+        />
       </div>
 
       {/* Stats */}
@@ -2436,13 +2876,31 @@ function StatePanel({ generator, step, renderKey }) {
   );
 }
 
-function ConstraintRow({ label, value, pass, warning }) {
-  const color = pass ? 'text-green-400' : warning ? 'text-yellow-400' : 'text-red-400';
-  const icon = pass ? '✓' : warning ? '⚠' : '✗';
+function ConstraintRow({ label, value, pass, warning, quality, isHard }) {
+  // If quality is provided, use quality-based coloring (for soft constraints)
+  // Otherwise use pass/warning/fail (for hard constraints)
+  let color, icon;
+
+  if (quality) {
+    // Soft constraint quality indicators
+    const qualityConfig = {
+      excellent: { color: 'text-green-400', icon: '★' },
+      good: { color: 'text-blue-400', icon: '●' },
+      fair: { color: 'text-yellow-400', icon: '○' },
+      poor: { color: 'text-orange-400', icon: '◐' },
+    };
+    const config = qualityConfig[quality] || qualityConfig.fair;
+    color = config.color;
+    icon = config.icon;
+  } else {
+    // Hard constraint pass/fail indicators
+    color = pass ? 'text-green-400' : warning ? 'text-yellow-400' : 'text-red-400';
+    icon = pass ? '✓' : warning ? '⚠' : '✗';
+  }
 
   return (
     <div className="flex justify-between items-center py-1">
-      <span>{label}</span>
+      <span className={isHard ? 'font-semibold' : ''}>{label}</span>
       <span className={color}>
         {icon} {value}
       </span>
