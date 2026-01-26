@@ -404,7 +404,9 @@ class RealmGenerator {
     for (let q = -radius; q <= radius; q++) {
       for (let r = -radius; r <= radius; r++) {
         const dist = hexDistance(0, 0, q, r);
-        if (dist >= this.realmRadius && dist <= radius) {
+
+        // Generate borders starting at distance 5
+        if (dist >= 5 && dist <= radius) {
           const borderProb = this.getBorderProbability(q, r, dist);
           if (this.rng.next() < borderProb) {
             this.createBorderHex(q, r);
@@ -415,6 +417,7 @@ class RealmGenerator {
   }
 
   getBorderProbability(q, r, dist) {
+    // Calculate cluster affinity for this position
     const angle = Math.atan2(r, q);
     let maxAffinity = 0;
 
@@ -425,8 +428,25 @@ class RealmGenerator {
       maxAffinity = Math.max(maxAffinity, affinity);
     }
 
-    const distanceFactor = (dist - this.realmRadius) / 2;
-    return Math.min(0.95, 0.3 + distanceFactor * 0.3 + maxAffinity * 0.3);
+    // Progressive border probability starting at distance 5
+    // Target: ~140-150 hexes in the explorable area (min 100, max 180)
+    // Base probabilities + cluster affinity boost (max 10%)
+    const affinityBoost = maxAffinity * 0.1;
+
+    if (dist === 5) {
+      return 0.08 + affinityBoost;
+    }
+    if (dist === 6) {
+      return 0.2 + affinityBoost;
+    }
+    if (dist === 7) {
+      return 0.5 + affinityBoost;
+    }
+    if (dist === 8) {
+      return 0.8 + affinityBoost;
+    }
+    // Distance 9+: High probability to close gaps
+    return Math.min(0.99, 0.95 + affinityBoost);
   }
 
   createBorderHex(q, r) {
@@ -766,10 +786,18 @@ class RealmGenerator {
       return false;
     }
 
-    // New lake probability with deficit compensation
+    // New lake probability with deficit compensation based on expected total
     if (this.constraints.lakes.placed < this.constraints.lakes.max) {
-      const baseProb = 0.045; // Increased from 0.03
-      const deficit = 2.5 - this.constraints.lakes.placed;
+      const expectedTotalHexes = 144; // Fixed expected count
+      const exploredRatio = Math.max(
+        0.1,
+        this.constraints.explorableHexes.count / expectedTotalHexes
+      );
+      const targetLakes = 2.5;
+      const expectedLakes = targetLakes * exploredRatio;
+      const deficit = expectedLakes - this.constraints.lakes.placed;
+
+      const baseProb = 0.045;
       const deficitBonus = deficit > 0 ? deficit * 0.015 : 0;
       return this.rng.next() < baseProb + deficitBonus;
     }
@@ -1137,20 +1165,23 @@ class RealmGenerator {
     // Dynamic barrier probability based on current count vs target
     const currentBarriers = this.constraints.barriers.placed;
     const targetBarriers = 24;
-    // Fixed: use dynamic target instead of hardcoded 144
-    const targetHexes = this.constraints.explorableHexes.target; // 144
-    const exploredRatio = Math.max(0.1, this.constraints.explorableHexes.count / targetHexes);
+    const expectedTotalHexes = 144; // Fixed expected count, not dynamic
+    const exploredRatio = Math.max(
+      0.1,
+      this.constraints.explorableHexes.count / expectedTotalHexes
+    );
 
     // Expected barriers at this point in exploration
     const expectedBarriers = targetBarriers * exploredRatio;
     const barrierDeficit = expectedBarriers - currentBarriers;
 
-    // Base probability adjusts based on deficit
-    let baseProb = 0.05;
-    if (barrierDeficit > 5) {
-      baseProb = 0.08; // Behind target, increase probability
-    } else if (barrierDeficit < -3) {
-      baseProb = 0.02; // Ahead of target, decrease probability
+    // Base probability adjusts based on deficit/surplus
+    // Increased base to hit ~24 barriers with ~147 hexes
+    let baseProb = 0.18;
+    if (barrierDeficit > 4) {
+      baseProb = 0.25; // Behind target, increase probability
+    } else if (barrierDeficit < -2) {
+      baseProb = 0.1; // Ahead of target, decrease probability
     }
 
     const adjacentDirs = this.getAdjacentEdgeDirections(direction);
@@ -1536,28 +1567,6 @@ class RealmGenerator {
       return false;
     }
 
-    // SOFT CONSTRAINT: Probabilistic early stopping at target ~144
-    if (this.constraints.explorableHexes.count >= this.constraints.explorableHexes.target) {
-      // Check if border is naturally closed - if so, always stop
-      if (this.isBorderClosed()) {
-        this.constraints.borderClosure.complete = true;
-        this.forceCompleteFeatures();
-        return false;
-      }
-
-      // Otherwise, probabilistically stop based on how much over target we are
-      const excess =
-        this.constraints.explorableHexes.count - this.constraints.explorableHexes.target;
-      const stopProb = Math.min(0.95, 0.15 + excess * 0.02); // Start at 15%, increase with excess
-
-      if (this.rng.next() < stopProb) {
-        // Force border closure and complete features
-        this.constraints.borderClosure.complete = true;
-        this.forceCompleteFeatures();
-        return false;
-      }
-    }
-
     const prevPos = { ...this.currentExplorerPos };
     const validMoves = this.getValidMoves();
     if (validMoves.length === 0) {
@@ -1587,16 +1596,9 @@ class RealmGenerator {
     if (unexploredWithFeatures.length > 0 && this.rng.next() < 0.98) {
       chosenMove = this.rng.choice(unexploredWithFeatures);
     }
-    // Priority 2: Any adjacent unexplored hex (98%) - bias toward realm center for compactness
+    // Priority 2: Any adjacent unexplored hex (98%)
     else if (unexplored.length > 0 && this.rng.next() < 0.98) {
-      // Weight unexplored hexes by distance from center - prefer closer hexes
-      const centerQ = 0,
-        centerR = 0;
-      const weights = unexplored.map((m) => {
-        const dist = hexDistance(m.q, m.r, centerQ, centerR);
-        return 1 / (1 + dist * 0.15);
-      });
-      chosenMove = this.rng.weightedChoice(unexplored, weights);
+      chosenMove = this.rng.choice(unexplored);
     }
     // Priority 3: Use pathfinding to navigate toward nearest unexplored
     else {

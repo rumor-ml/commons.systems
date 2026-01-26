@@ -137,12 +137,16 @@ class RealmGenerator {
     this.hexes = new Map();
     this.exploredHexes = new Set();
     this.revealedHexes = new Set();
-    this.borderHexes = new Set();
+    this.borderHexes = new Set(); // Frontier hexes (unexplored but revealed, non-border)
+    this.realmBorderHexes = new Set(); // Pre-generated realm boundary hexes
     this.lakes = [];
     this.riverEdges = new Set();
     this.barrierEdges = new Set();
     this.terrainClusters = [];
     this.borderClusters = [];
+
+    // Realm configuration
+    this.realmRadius = 8;
 
     // Explorer state
     this.explorerPos = { q: 0, r: 0 };
@@ -218,6 +222,9 @@ class RealmGenerator {
   initialize(withVisualization = false) {
     this.initConstraints();
 
+    // Generate border shell to constrain realm size
+    this.generateInitialBorderShell();
+
     // Create starting hex
     const startHex = {
       q: 0,
@@ -254,6 +261,61 @@ class RealmGenerator {
     });
 
     this.updateRealmDimensions();
+  }
+
+  generateInitialBorderShell() {
+    // Pre-generate border hexes to establish realm boundary
+    const radius = this.realmRadius + 2;
+
+    for (let q = -radius; q <= radius; q++) {
+      for (let r = -radius; r <= radius; r++) {
+        const dist = hexDistance(0, 0, q, r);
+
+        // Generate borders starting at distance 5
+        if (dist >= 5 && dist <= radius) {
+          const borderProb = this.getBorderProbability(q, r, dist);
+          if (this.rng.random() < borderProb) {
+            this.createRealmBorderHex(q, r);
+          }
+        }
+      }
+    }
+  }
+
+  getBorderProbability(q, r, dist) {
+    // Progressive border probability starting at distance 5
+    // Target: ~140-150 hexes in ~14×14 space (min 100, max 180)
+    // Distance 5: 8%, Distance 6: 20%, Distance 7: 50%, Distance 8: 80%, Distance 9+: 95%
+    if (dist === 5) {
+      return 0.08;
+    }
+    if (dist === 6) {
+      return 0.2;
+    }
+    if (dist === 7) {
+      return 0.5;
+    }
+    if (dist === 8) {
+      return 0.8;
+    }
+    // Distance 9+: High probability to close gaps
+    return 0.95;
+  }
+
+  createRealmBorderHex(q, r) {
+    const key = `${q},${r}`;
+    if (this.hexes.has(key)) return;
+
+    const borderHex = {
+      q,
+      r,
+      terrain: 'border',
+      isExplored: false,
+      isRevealed: false,
+      isBorder: true,
+    };
+    this.hexes.set(key, borderHex);
+    this.realmBorderHexes.add(key);
   }
 
   hexKey(hex) {
@@ -295,26 +357,6 @@ class RealmGenerator {
       return false;
     }
 
-    // SOFT CONSTRAINT: Probabilistic early stopping at target ~144
-    if (this.exploredHexes.size >= this.constraints.explorableHexes.target) {
-      // Check if border is naturally closed - if so, always stop
-      if (this.borderHexes.size === 0) {
-        this.constraints.borderClosure.complete = true;
-        this.forceCompleteFeatures();
-        return false;
-      }
-
-      // Otherwise, probabilistically stop based on how much over target we are
-      const excess = this.exploredHexes.size - this.constraints.explorableHexes.target;
-      const stopProb = Math.min(0.95, 0.15 + excess * 0.02); // Start at 15%, increase with excess
-
-      if (this.rng.random() < stopProb) {
-        this.constraints.borderClosure.complete = true;
-        this.forceCompleteFeatures();
-        return false;
-      }
-    }
-
     // Check if border closed
     if (this.constraints.borderClosure.complete) {
       if (this.exploredHexes.size >= this.constraints.explorableHexes.min) {
@@ -330,17 +372,11 @@ class RealmGenerator {
       return false;
     }
 
-    // SOFT CONSTRAINT: Compactness-biased movement - prefer hexes closer to center
+    // Simple random selection without compactness bias
     const borderArray = Array.from(this.borderHexes)
       .map((key) => this.hexes.get(key))
       .filter(Boolean);
-    const centerQ = 0,
-      centerR = 0;
-    const weights = borderArray.map((hex) => {
-      const dist = hexDistance(hex.q, hex.r, centerQ, centerR);
-      return 1 / (1 + dist * 0.15);
-    });
-    const nextHex = this.rng.weightedChoice(borderArray, weights);
+    const nextHex = this.rng.choice(borderArray);
 
     if (!nextHex) return false;
 
@@ -355,22 +391,23 @@ class RealmGenerator {
     this.borderHexes.delete(nextHexKey);
     this.constraints.explorableHexes.count = this.exploredHexes.size;
 
-    // Reveal neighbors
+    // Reveal neighbors (skip realm border hexes - they block exploration)
     this.getNeighbors(nextHex).forEach((neighbor) => {
       const nKey = this.hexKey(neighbor);
-      if (!this.hexes.has(nKey)) {
-        const revealedHex = {
-          q: neighbor.q,
-          r: neighbor.r,
-          terrain: this.generateTerrain(),
-          isExplored: false,
-          isRevealed: true,
-          isBorder: false,
-        };
-        this.hexes.set(nKey, revealedHex);
-        this.revealedHexes.add(nKey);
-        this.borderHexes.add(nKey);
-      }
+      // Skip if already exists (including realm border hexes)
+      if (this.hexes.has(nKey)) return;
+
+      const revealedHex = {
+        q: neighbor.q,
+        r: neighbor.r,
+        terrain: this.generateTerrain(),
+        isExplored: false,
+        isRevealed: true,
+        isBorder: false,
+      };
+      this.hexes.set(nKey, revealedHex);
+      this.revealedHexes.add(nKey);
+      this.borderHexes.add(nKey);
     });
 
     // Generate features (simplified)
@@ -452,10 +489,15 @@ class RealmGenerator {
       }
     }
 
-    // Lakes - increased probability with deficit compensation
+    // Lakes - deficit compensation based on expected total
     if (this.constraints.lakes.placed < this.constraints.lakes.max) {
-      const baseProb = 0.045; // Increased from 0.02
-      const deficit = 2.5 - this.constraints.lakes.placed;
+      const expectedTotalHexes = 144; // Fixed expected count
+      const exploredRatio = Math.max(0.1, this.exploredHexes.size / expectedTotalHexes);
+      const targetLakes = 2.5;
+      const expectedLakes = targetLakes * exploredRatio;
+      const deficit = expectedLakes - this.constraints.lakes.placed;
+
+      const baseProb = 0.045;
       const deficitBonus = deficit > 0 ? deficit * 0.015 : 0;
       if (this.rng.random() < baseProb + deficitBonus) {
         this.constraints.lakes.placed++;
@@ -477,13 +519,21 @@ class RealmGenerator {
       }
     }
 
-    // Barriers - dynamic probability based on exploration progress
+    // Barriers - dynamic probability based on fixed expected count
     const targetBarriers = 24;
-    const targetHexes = this.constraints.explorableHexes.target; // 144
-    const exploredRatio = Math.max(0.1, this.exploredHexes.size / targetHexes);
+    const expectedTotalHexes = 144; // Fixed expected count, not dynamic
+    const exploredRatio = Math.max(0.1, this.exploredHexes.size / expectedTotalHexes);
     const expectedBarriers = targetBarriers * exploredRatio;
     const barrierDeficit = expectedBarriers - this.constraints.barriers.placed;
-    const barrierProb = Math.max(0.05, Math.min(0.25, 0.15 + barrierDeficit * 0.01));
+
+    // Adjust base probability based on deficit/surplus
+    // Increased base to hit ~24 barriers with ~147 hexes
+    let barrierProb = 0.18;
+    if (barrierDeficit > 4) {
+      barrierProb = 0.25; // Behind target
+    } else if (barrierDeficit < -2) {
+      barrierProb = 0.1; // Ahead of target
+    }
 
     if (this.rng.random() < barrierProb) {
       this.constraints.barriers.placed++;
@@ -491,14 +541,17 @@ class RealmGenerator {
   }
 
   updateRealmDimensions() {
-    if (this.hexes.size === 0) return;
+    if (this.exploredHexes.size === 0) return;
 
     let minQ = Infinity,
       maxQ = -Infinity;
     let minR = Infinity,
       maxR = -Infinity;
 
-    for (const hex of this.hexes.values()) {
+    // Only count explored hexes (not border hexes)
+    for (const key of this.exploredHexes) {
+      const hex = this.hexes.get(key);
+      if (!hex) continue;
       minQ = Math.min(minQ, hex.q);
       maxQ = Math.max(maxQ, hex.q);
       minR = Math.min(minR, hex.r);
