@@ -1474,27 +1474,116 @@ class RealmGenerator {
   }
 
   saveStepState() {
-    this.stepStates.push({
+    const stepNum = this.stepStates.length;
+    const savedState = {
+      // Explorer state
       explorerPos: { ...this.currentExplorerPos },
       explorerPathLength: this.explorerPath.length,
+
+      // RNG state
       rngState: this.rng.getState(),
+
+      // Constraints
       constraints: JSON.parse(JSON.stringify(this.constraints)),
+
+      // Hex-related Sets
+      exploredHexes: new Set(this.exploredHexes),
+      revealedHexes: new Set(this.revealedHexes),
+      borderHexes: new Set(this.borderHexes),
+      existingHexKeys: new Set(this.hexes.keys()),
+
+      // Per-hex state (all hexes, not just revealed)
+      hexState: new Map(
+        Array.from(this.hexes.entries()).map(([k, h]) => [
+          k,
+          {
+            q: h.q,
+            r: h.r,
+            terrain: h.terrain,
+            feature: h.feature,
+            revealed: h.revealed,
+            isBorder: h.isBorder,
+            borderType: h.borderType,
+            isLake: h.isLake,
+            clusterId: h.clusterId,
+          },
+        ])
+      ),
+
+      // Edge-related state
+      riverEdges: new Map(this.riverEdges),
+      barrierEdges: new Set(this.barrierEdges),
+      traversedEdges: new Set(this.traversedEdges),
+
+      // Other collections
+      lakes: [...this.lakes],
+      riverNetwork: [...this.riverNetwork],
+      features: new Map(this.features),
+      terrainClusters: new Map(this.terrainClusters),
+      borderClusters: [...this.borderClusters],
+      borderClusterSeeds: [...this.borderClusterSeeds],
+
+      // Counters
+      clusterIdCounter: this.clusterIdCounter,
+      barrierCrossings: this.barrierCrossings,
+
+      // Counts for debugging
       hexCount: this.hexes.size,
       exploredCount: this.exploredHexes.size,
       revealedCount: this.revealedHexes.size,
-    });
+    };
+
+    this.stepStates.push(savedState);
   }
 
   restoreStep(stepIndex) {
     if (stepIndex < 0 || stepIndex >= this.stepStates.length) return false;
 
     const state = this.stepStates[stepIndex];
+
+    // CRITICAL: Full state restoration for determinism
+
+    // 1. Restore explorer state
     this.currentExplorerPos = { ...state.explorerPos };
     this.explorerPath = this.explorerPath.slice(0, state.explorerPathLength);
+
+    // 2. Restore RNG state
     this.rng.setState(state.rngState);
 
-    // For simplicity, we keep all hexes but adjust visibility
-    // In a full implementation, we'd restore full state
+    // 3. Restore constraints
+    this.constraints = JSON.parse(JSON.stringify(state.constraints));
+
+    // 4. Restore all hex-related Sets
+    this.exploredHexes = new Set(state.exploredHexes);
+    this.revealedHexes = new Set(state.revealedHexes);
+    this.borderHexes = new Set(state.borderHexes);
+
+    // 5. Restore hexes Map completely
+    this.hexes.clear();
+    for (const [key, hexData] of state.hexState) {
+      this.hexes.set(key, { ...hexData });
+    }
+
+    // 6. Restore edge-related state
+    this.riverEdges = new Map(state.riverEdges);
+    this.barrierEdges = new Set(state.barrierEdges);
+    this.traversedEdges = new Set(state.traversedEdges);
+
+    // 7. Restore other collections
+    this.lakes = [...state.lakes];
+    this.riverNetwork = [...state.riverNetwork];
+    this.features = new Map(state.features);
+    this.terrainClusters = new Map(state.terrainClusters);
+    this.borderClusters = [...state.borderClusters];
+    this.borderClusterSeeds = [...state.borderClusterSeeds];
+
+    // 8. Restore counters
+    this.clusterIdCounter = state.clusterIdCounter;
+    this.barrierCrossings = state.barrierCrossings;
+
+    // 9. Truncate future states
+    this.stepStates = this.stepStates.slice(0, stepIndex + 1);
+
     return true;
   }
 
@@ -1707,6 +1796,16 @@ export default function MythicBastionlandRealms() {
     initializeGenerator();
   }, []);
 
+  // Expose for console testing
+  useEffect(() => {
+    window.__TEST_GENERATOR__ = generator;
+    window.RealmGenerator = RealmGenerator;
+    return () => {
+      delete window.__TEST_GENERATOR__;
+      delete window.RealmGenerator;
+    };
+  }, [generator]);
+
   // Play/Pause animation
   useEffect(() => {
     if (isPlaying && generator) {
@@ -1783,19 +1882,26 @@ export default function MythicBastionlandRealms() {
 
     setIsPlaying(false);
 
-    if (targetStep < step) {
-      // Go backwards
+    // Always restore to target step if we have it saved
+    if (targetStep < generator.stepStates.length) {
       generator.restoreStep(targetStep);
       setStep(targetStep);
-    } else if (targetStep > step) {
-      // Go forwards
-      let currentStep = step;
-      while (currentStep < targetStep) {
-        const moved = generator.moveExplorer();
-        if (!moved) break; // Can't move further
-        currentStep++;
+    } else {
+      // Target is beyond saved states
+      // Restore to last saved state, then move forward
+      const lastSaved = generator.stepStates.length - 1;
+      if (lastSaved >= 0) {
+        generator.restoreStep(lastSaved);
+        let currentStep = lastSaved + 1;
+
+        // Move forward to target
+        while (currentStep <= targetStep) {
+          const moved = generator.moveExplorer();
+          if (!moved) break;
+          currentStep++;
+        }
+        setStep(currentStep);
       }
-      setStep(currentStep);
     }
 
     setRenderKey((prev) => prev + 1);
@@ -1975,7 +2081,7 @@ export default function MythicBastionlandRealms() {
           {mode === 'non-interactive' && nonInteractiveReport ? (
             <ConstraintReport report={nonInteractiveReport} />
           ) : (
-            generator && <StatePanel generator={generator} step={step} />
+            generator && <StatePanel generator={generator} step={step} renderKey={renderKey} />
           )}
         </div>
       </div>
@@ -2187,7 +2293,7 @@ function HexMap({ generator, viewBounds, renderKey }) {
 // ============================================================================
 // STATE PANEL COMPONENT
 // ============================================================================
-function StatePanel({ generator, step }) {
+function StatePanel({ generator, step, renderKey }) {
   const currentHex = generator.currentExplorerPos
     ? generator.hexes.get(hexKey(generator.currentExplorerPos.q, generator.currentExplorerPos.r))
     : null;
@@ -2313,6 +2419,9 @@ function StatePanel({ generator, step }) {
       {/* Stats */}
       <div className="bg-gray-700 p-3 rounded">
         <h4 className="font-semibold mb-2">Statistics</h4>
+        <p>
+          Step: {step} | RenderKey: {renderKey}
+        </p>
         <p>Total Hexes: {generator.hexes.size}</p>
         <p>Explored: {generator.exploredHexes.size}</p>
         <p>Revealed: {generator.revealedHexes.size}</p>
