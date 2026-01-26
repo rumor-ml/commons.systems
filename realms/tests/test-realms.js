@@ -1050,6 +1050,9 @@ class RealmGenerator {
 
     if (!neighborHex || neighborHex.isBorder) return;
 
+    // Never place on edges touching lake hexes
+    if (hex.isLake || neighborHex.isLake) return;
+
     // Check both possible key formats
     const edgeKey1 = `${hex.q},${hex.r}:${direction}`;
     const oppDir = OPPOSITE_DIRECTION[direction];
@@ -1674,6 +1677,7 @@ function runTests(numTests = 50) {
     softPass: 0,
     failures: [],
     barrierCrossings: 0,
+    lakeEdgeBarriers: 0,
     stats: {
       explorableHexes: [],
       holdings: [],
@@ -1700,6 +1704,30 @@ function runTests(numTests = 50) {
     results.stats.riverSpan.push(report.softConstraints.riverNetwork.span);
     results.stats.barrierCrossings.push(gen.barrierCrossings);
     results.barrierCrossings += gen.barrierCrossings;
+
+    // Check for barriers on lake edges
+    for (const edgeKey of gen.barrierEdges) {
+      const [coords, direction] = edgeKey.split(':');
+      const [q, r] = coords.split(',').map(Number);
+      const hex = gen.hexes.get(coords);
+
+      // Get neighbor hex
+      const directionOffsets = {
+        NE: [1, -1],
+        E: [1, 0],
+        SE: [0, 1],
+        SW: [-1, 1],
+        W: [-1, 0],
+        NW: [0, -1],
+      };
+      const [dq, dr] = directionOffsets[direction];
+      const neighborKey = `${q + dq},${r + dr}`;
+      const neighborHex = gen.hexes.get(neighborKey);
+
+      if ((hex && hex.isLake) || (neighborHex && neighborHex.isLake)) {
+        results.lakeEdgeBarriers++;
+      }
+    }
 
     for (const type of LANDMARK_TYPES) {
       results.stats.landmarks[type].push(report.softConstraints.landmarks[type].placed);
@@ -1749,6 +1777,7 @@ function runTests(numTests = 50) {
     `Soft Constraint Pass Rate: ${results.softPass}/${results.total} (${((results.softPass / results.total) * 100).toFixed(1)}%)`
   );
   console.log(`\n*** BARRIER CROSSINGS (should be 0): ${results.barrierCrossings} ***`);
+  console.log(`*** LAKE EDGE BARRIERS (should be 0): ${results.lakeEdgeBarriers} ***`);
 
   console.log('\nStatistics:');
   console.log(

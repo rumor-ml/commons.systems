@@ -1065,6 +1065,9 @@ class RealmGenerator {
 
     if (!neighborHex || neighborHex.isBorder) return;
 
+    // Never place on edges touching lake hexes
+    if (hex.isLake || neighborHex.isLake) return;
+
     // Check both possible key formats
     const edgeKey1 = `${hex.q},${hex.r}:${direction}`;
     const oppDir = OPPOSITE_DIRECTION[direction];
