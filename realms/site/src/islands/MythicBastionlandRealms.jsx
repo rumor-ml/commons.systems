@@ -69,6 +69,15 @@ const HEX_DIRECTIONS = {
 const DIRECTION_NAMES = ['NE', 'E', 'SE', 'SW', 'W', 'NW'];
 const OPPOSITE_DIRECTION = { NE: 'SW', E: 'W', SE: 'NW', SW: 'NE', W: 'E', NW: 'SE' };
 
+// Adjacent directions share a vertex - for river connectivity
+// Each direction shares one vertex with the previous and one with the next direction in the cycle
+function getAdjacentDirections(dir) {
+  const idx = DIRECTION_NAMES.indexOf(dir);
+  const prev = DIRECTION_NAMES[(idx + 5) % 6]; // -1 with wrap
+  const next = DIRECTION_NAMES[(idx + 1) % 6]; // +1 with wrap
+  return [prev, next];
+}
+
 // Mapping from direction to corner index for edge rendering
 // For pointy-top hexagons with corners starting at -30° (upper-right):
 // Corner 0: -30° (upper-right), Corner 1: 30° (lower-right), Corner 2: 90° (bottom)
@@ -305,6 +314,11 @@ class RealmGenerator {
     this.realmCenter = { q: 0, r: 0 };
     this.realmRadius = 8;
     this.borderClusterSeeds = [];
+    // New river system state
+    this.rivers = []; // Array of river network objects
+    this.riverEncountered = false; // Flag for first river encounter
+    this.riverIdCounter = 0; // Unique ID for each river network
+    this.plannedRiverEdges = new Map(); // Pre-planned river edges to add when hexes are revealed
     this.barrierCrossings = 0; // Debug counter for barrier crossings
     this.generationMode = null; // Track generation context: null | 'validation' | 'exploration'
   }
@@ -324,7 +338,14 @@ class RealmGenerator {
       lakes: { placed: 0, max: 3 },
       barriers: { placed: 0, target: 24 },
       explorableHexes: { count: 0, min: 100, target: 144, max: 180 },
-      riverNetwork: { span: 0, targetSpan: 8 },
+      riverNetwork: {
+        span: 0,
+        targetSpan: 8,
+        networkCount: 0,
+        targetNetworkCount: 1,
+        tributaryCount: 0,
+        targetTributaries: 3,
+      },
       borderClosure: { complete: false },
       featureExclusivity: {
         violations: [], // Array of { hex, features } for hexes with multiple exclusive features
@@ -352,7 +373,11 @@ class RealmGenerator {
     this.borderHexes.clear();
     this.lakes = [];
     this.riverEdges.clear();
+    this.rivers = [];
+    this.riverEncountered = false;
+    this.riverIdCounter = 0;
     this.riverNetwork = [];
+    this.plannedRiverEdges = new Map();
     this.barrierEdges.clear();
     this.traversedEdges.clear();
     this.features.clear();
@@ -620,6 +645,11 @@ class RealmGenerator {
     return candidates.length > 0 ? this.rng.choice(candidates) : { q: 0, r: 0 };
   }
 
+  isBorderHex(q, r) {
+    const hex = this.hexes.get(hexKey(q, r));
+    return hex && hex.isBorder;
+  }
+
   generateHex(q, r) {
     const key = hexKey(q, r);
     if (this.hexes.has(key)) return this.hexes.get(key);
@@ -632,14 +662,13 @@ class RealmGenerator {
       return this.hexes.get(key);
     }
 
-    // Generate passable terrain hex
-    const terrain = this.generateTerrain(q, r);
+    // Create hex with placeholder terrain (will be updated after river generation)
     const isLake = this.shouldBeLake(q, r);
 
     const hex = {
       q,
       r,
-      terrain: isLake ? 'lake' : terrain,
+      terrain: 'plains', // Placeholder
       isLake,
       isBorder: false,
       revealed: false,
@@ -649,19 +678,37 @@ class RealmGenerator {
       clusterId: null,
     };
 
+    this.hexes.set(key, hex);
+
+    // NEW RIVER SYSTEM ORDERING:
+    // 1. Maybe encounter first river (1/12 chance until first river found)
+    this.maybeEncounterRiver(hex);
+
+    // 2. Extend existing rivers to this hex
+    this.extendRiversOnReveal(hex);
+
+    // 3. Generate terrain with river constraints
+    const terrain = this.generateTerrainWithConstraints(q, r);
+    hex.terrain = isLake ? 'lake' : terrain;
+
     // Assign to terrain cluster
     this.assignToCluster(hex);
-
-    this.hexes.set(key, hex);
 
     if (!hex.isBorder && !hex.isLake) {
       this.constraints.explorableHexes.count++;
     }
 
-    // Generate edges (rivers, barriers)
-    this.generateEdges(hex);
+    // 4. Generate barriers (skip rivers since they're already done)
+    if (this.generationMode !== 'validation') {
+      const neighbors = hexNeighbors(hex.q, hex.r);
+      for (const n of neighbors) {
+        const nKey = hexKey(n.q, n.r);
+        const nHex = this.hexes.get(nKey);
+        this.maybeGenerateBarrier(hex, n.direction, nHex);
+      }
+    }
 
-    // Potentially place feature
+    // 5. Potentially place feature
     this.maybeAddFeature(hex);
 
     this.generationLog.push({
@@ -856,24 +903,558 @@ class RealmGenerator {
     hex.clusterId = clusterId;
   }
 
-  generateEdges(hex) {
-    if (hex.isBorder) return;
+  // DEPRECATED: This method is no longer used - replaced by new river system in generateHex
+  // generateEdges(hex) {
+  //   if (hex.isBorder) return;
+  //
+  //   const neighbors = hexNeighbors(hex.q, hex.r);
+  //
+  //   for (const n of neighbors) {
+  //     const nKey = hexKey(n.q, n.r);
+  //     const nHex = this.hexes.get(nKey);
+  //
+  //     // Maybe generate river edge
+  //     this.maybeGenerateRiver(hex, n.direction, nHex);
+  //
+  //     // Maybe generate barrier edge - skip during validation mode
+  //     if (this.generationMode !== 'validation') {
+  //       this.maybeGenerateBarrier(hex, n.direction, nHex);
+  //     }
+  //   }
+  // }
 
-    const neighbors = hexNeighbors(hex.q, hex.r);
+  // ============================================================================
+  // NEW RIVER SYSTEM: Primary Features with Lazy Terrain Generation
+  // ============================================================================
+
+  // 1/12 chance per hex reveal to initiate first river
+  maybeEncounterRiver(hex) {
+    // Only attempt to encounter river if we haven't encountered one yet
+    if (this.riverEncountered) return;
+
+    // Skip border and lake hexes
+    if (hex.isBorder || hex.isLake) return;
+
+    // 1/12 chance
+    if (this.rng.next() < 1 / 12) {
+      this.riverEncountered = true;
+      this.initiateRiver(hex);
+    }
+  }
+
+  // Create new river network with initial edge and pre-plan full path
+  initiateRiver(hex) {
+    // Pick valid direction - must point to unexplored hex for river to grow
+    const validDirs = DIRECTION_NAMES.filter((dir) => {
+      const n = hexNeighbor(hex.q, hex.r, dir);
+      if (this.isBorderHex(n.q, n.r)) return false;
+      const nKey = hexKey(n.q, n.r);
+      if (this.borderHexes.has(nKey)) return false;
+      const nHex = this.hexes.get(nKey);
+      // Must point to unexplored hex (if nHex exists, it's already explored)
+      if (nHex) return false;
+      return true;
+    });
+
+    if (validDirs.length === 0) return;
+
+    // Score each direction by frontier openness and choose best
+    const scoredDirs = validDirs.map((dir) => ({
+      dir,
+      score: this.scoreFrontier(hex, dir),
+    }));
+
+    // Use weighted random selection with squared scores for stronger bias
+    const weights = scoredDirs.map((s) => Math.max(1, s.score * s.score));
+    const chosen = this.rng.weightedChoice(scoredDirs, weights);
+    const chosenDir = chosen.dir;
+
+    // Create river network (simplified - no openEndpoints/closedEndpoints)
+    const network = {
+      id: this.riverIdCounter++,
+      edges: new Set(),
+      tributaryCount: 0,
+    };
+
+    this.rivers.push(network);
+
+    // Add initial edge
+    this.addRiverEdge(network, hex, chosenDir);
+
+    // Pre-plan the entire river path at initiation time
+    // This ensures visual connectivity since we plan before exploration spreads
+    this.planRiverPath(network, hex, chosenDir);
+  }
+
+  // Pre-plan river path from starting point, ensuring vertex connectivity
+  planRiverPath(network, startHex, startDir) {
+    const TARGET_LENGTH = 24;
+    const TARGET_TRIBUTARIES = 3;
+
+    // Track hexes visited during planning (not actual exploration)
+    const plannedHexes = new Set();
+    plannedHexes.add(hexKey(startHex.q, startHex.r));
+
+    // BFS queue: each entry is {hex, incomingDir, depth}
+    // The "hex" here is the frontier hex that the edge points to
+    const frontier = hexNeighbor(startHex.q, startHex.r, startDir);
+    const queue = [
+      {
+        q: frontier.q,
+        r: frontier.r,
+        incomingDir: OPPOSITE_DIRECTION[startDir],
+        depth: 1,
+      },
+    ];
+
+    while (queue.length > 0 && network.edges.size < TARGET_LENGTH) {
+      const current = queue.shift();
+      const currentKey = hexKey(current.q, current.r);
+
+      // Skip if already planned
+      if (plannedHexes.has(currentKey)) continue;
+      plannedHexes.add(currentKey);
+
+      // Get adjacent directions (share vertex with incoming edge)
+      const adjacentDirs = getAdjacentDirections(current.incomingDir);
+
+      // Check which adjacent directions are valid for extension
+      const isValidDir = (dir) => {
+        const n = hexNeighbor(current.q, current.r, dir);
+        if (this.isBorderHex(n.q, n.r)) return false;
+        const nKey = hexKey(n.q, n.r);
+        if (this.borderHexes.has(nKey)) return false;
+        // Don't extend to already-explored hexes
+        if (this.hexes.has(nKey)) return false;
+        // Don't extend to hexes we've already planned to visit
+        if (plannedHexes.has(nKey)) return false;
+        return true;
+      };
+
+      const validDirs = adjacentDirs.filter(isValidDir);
+
+      if (validDirs.length === 0) continue;
+
+      // Score directions by openness
+      const scoredDirs = validDirs.map((dir) => {
+        const frontier = hexNeighbor(current.q, current.r, dir);
+        let score = 0;
+        for (const d of DIRECTION_NAMES) {
+          const neighbor = hexNeighbor(frontier.q, frontier.r, d);
+          const key = hexKey(neighbor.q, neighbor.r);
+          if (
+            !this.hexes.has(key) &&
+            !this.borderHexes.has(key) &&
+            !this.isBorderHex(neighbor.q, neighbor.r)
+          ) {
+            score++;
+          }
+        }
+        return { dir, score };
+      });
+
+      // Decide whether to branch (create tributary)
+      const remainingLength = TARGET_LENGTH - network.edges.size;
+      const remainingTributaries = TARGET_TRIBUTARIES - network.tributaryCount;
+      const tributaryProb =
+        remainingTributaries > 0
+          ? Math.max(0.6, remainingTributaries / Math.max(1, remainingLength))
+          : 0;
+      const createTributary = this.rng.next() < tributaryProb && validDirs.length >= 2;
+
+      let directions;
+      if (createTributary) {
+        // Pick top 2 by score for tributary
+        scoredDirs.sort((a, b) => b.score - a.score);
+        directions = scoredDirs.slice(0, 2).map((s) => s.dir);
+        network.tributaryCount++;
+      } else {
+        // Weighted random for single extension
+        const weights = scoredDirs.map((s) => Math.max(1, s.score * s.score));
+        const chosen = this.rng.weightedChoice(scoredDirs, weights);
+        directions = [chosen.dir];
+      }
+
+      // Create edges immediately in riverEdges (not deferred to hex reveal)
+      // This ensures the river is visually connected as soon as it's rendered
+      for (const dir of directions) {
+        const edgeKey = this.getEdgeKey(current.q, current.r, dir);
+        if (!this.riverEdges.has(edgeKey)) {
+          // Add edge directly to riverEdges
+          const neighbor = hexNeighbor(current.q, current.r, dir);
+          const oppDir = OPPOSITE_DIRECTION[dir];
+          const useOriginal =
+            current.q < neighbor.q || (current.q === neighbor.q && current.r < neighbor.r);
+          this.riverEdges.set(edgeKey, {
+            hex1: useOriginal ? { q: current.q, r: current.r } : { q: neighbor.q, r: neighbor.r },
+            direction: useOriginal ? dir : oppDir,
+            flowDirection: 'unspecified',
+          });
+
+          // Also store in plannedRiverEdges for hex.riverEdges updates
+          const [hexPart, normalizedDir] = edgeKey.split(':');
+          const [normalizedQ, normalizedR] = hexPart.split(',').map(Number);
+          if (!this.plannedRiverEdges) {
+            this.plannedRiverEdges = new Map();
+          }
+          this.plannedRiverEdges.set(edgeKey, {
+            hexQ: normalizedQ,
+            hexR: normalizedR,
+            direction: normalizedDir,
+            networkId: network.id,
+          });
+          network.edges.add(edgeKey);
+
+          // Add to queue
+          const nextFrontier = hexNeighbor(current.q, current.r, dir);
+          queue.push({
+            q: nextFrontier.q,
+            r: nextFrontier.r,
+            incomingDir: OPPOSITE_DIRECTION[dir],
+            depth: current.depth + 1,
+          });
+        }
+      }
+    }
+  }
+
+  // Check all neighbors of revealed hex for river edges pointing toward us
+  // Also activate any planned river edges for this hex
+  extendRiversOnReveal(hex) {
+    if (hex.isBorder || hex.isLake) return;
+
+    // First, activate any planned river edges for this hex
+    if (this.plannedRiverEdges) {
+      for (const [edgeKey, planned] of this.plannedRiverEdges) {
+        if (planned.hexQ === hex.q && planned.hexR === hex.r) {
+          // This planned edge is on this hex - activate it
+          const network = this.rivers.find((n) => n.id === planned.networkId);
+          if (network) {
+            // Add to riverEdges map if not already there
+            if (!this.riverEdges.has(edgeKey)) {
+              const neighbor = hexNeighbor(hex.q, hex.r, planned.direction);
+              const oppDir = OPPOSITE_DIRECTION[planned.direction];
+              const useOriginal =
+                hex.q < neighbor.q || (hex.q === neighbor.q && hex.r < neighbor.r);
+              this.riverEdges.set(edgeKey, {
+                hex1: useOriginal ? { q: hex.q, r: hex.r } : { q: neighbor.q, r: neighbor.r },
+                direction: useOriginal ? planned.direction : oppDir,
+                flowDirection: 'unspecified',
+              });
+            }
+
+            // Update hex.riverEdges
+            if (!hex.riverEdges.includes(planned.direction)) {
+              hex.riverEdges.push(planned.direction);
+            }
+
+            // Update neighbor's riverEdges if neighbor exists
+            const neighborKey = hexKey(
+              hexNeighbor(hex.q, hex.r, planned.direction).q,
+              hexNeighbor(hex.q, hex.r, planned.direction).r
+            );
+            const neighborHex = this.hexes.get(neighborKey);
+            if (neighborHex) {
+              const oppDir = OPPOSITE_DIRECTION[planned.direction];
+              if (!neighborHex.riverEdges.includes(oppDir)) {
+                neighborHex.riverEdges.push(oppDir);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Also check neighbors for existing river edges pointing toward us
+    for (const direction of DIRECTION_NAMES) {
+      const neighbor = hexNeighbor(hex.q, hex.r, direction);
+      const neighborHex = this.hexes.get(hexKey(neighbor.q, neighbor.r));
+
+      if (!neighborHex) continue; // Neighbor not revealed yet
+
+      // Check if neighbor has river edge pointing toward us
+      const oppositeDir = OPPOSITE_DIRECTION[direction];
+      if (neighborHex.riverEdges?.includes(oppositeDir)) {
+        // Add to our riverEdges array
+        if (!hex.riverEdges.includes(direction)) {
+          hex.riverEdges.push(direction);
+        }
+      }
+    }
+  }
+
+  // Score a frontier hex by counting its unexplored neighbors
+  scoreFrontier(hex, direction) {
+    const frontier = hexNeighbor(hex.q, hex.r, direction);
+
+    // Count frontier's neighbors that are NOT explored or border
+    let unexploredCount = 0;
+    for (const dir of DIRECTION_NAMES) {
+      const neighbor = hexNeighbor(frontier.q, frontier.r, dir);
+      const key = hexKey(neighbor.q, neighbor.r);
+      const neighborHex = this.hexes.get(key);
+
+      // Skip if it's a border (can't expand there)
+      if (neighborHex && neighborHex.isBorder) {
+        continue;
+      }
+
+      // Count if not yet created (truly unexplored) OR not revealed
+      if (!neighborHex || !this.revealedHexes.has(key)) {
+        unexploredCount++;
+      }
+    }
+
+    return unexploredCount; // 0-6, higher is better
+  }
+
+  // Extend river through a hex that just joined (simplified contiguous growth)
+  maybeExtendRiverThrough(hex, incomingDirection) {
+    // Find which network this edge belongs to
+    const edgeKey = this.getEdgeKey(hex.q, hex.r, incomingDirection);
+    const edge = this.riverEdges.get(edgeKey);
+    if (!edge) return;
+
+    // Get the network for this edge
+    const network = this.rivers.find((n) => n.edges.has(edgeKey));
+    if (!network) return;
+
+    // Check if network has reached target length
+    if (network.edges.size >= 24) return;
+
+    // Get valid directions - prioritize adjacent directions for visual connectivity
+    // Adjacent directions share a vertex with the incoming edge
+    const adjacentDirs = getAdjacentDirections(incomingDirection);
+
+    const isValidDirection = (dir) => {
+      const ek = this.getEdgeKey(hex.q, hex.r, dir);
+      if (this.riverEdges.has(ek)) return false; // Don't double up
+      const n = hexNeighbor(hex.q, hex.r, dir);
+      if (this.isBorderHex(n.q, n.r)) return false; // Don't hit borders
+      const nKey = hexKey(n.q, n.r);
+      if (this.borderHexes.has(nKey)) return false; // Don't hit border hexes
+      if (this.hexes.has(nKey)) return false; // Don't extend into already-explored hexes (canon principle)
+      return true;
+    };
+
+    // First try adjacent directions (visually connected)
+    let validDirs = adjacentDirs.filter(isValidDirection);
+
+    // If no adjacent directions work, DON'T fall back to other directions
+    // This ensures visual connectivity at the cost of shorter rivers
+
+    if (validDirs.length === 0) return;
+
+    // Score each valid direction by frontier openness
+    const scoredDirs = validDirs.map((dir) => ({
+      dir,
+      score: this.scoreFrontier(hex, dir),
+    }));
+
+    // Adaptive tributary probability - front-load branches for more breakout opportunities
+    const remainingLength = 24 - network.edges.size;
+    const remainingTributaries = 3 - network.tributaryCount;
+    // High floor (0.6) ensures aggressive early branching for breakout opportunities
+    const tributaryProb =
+      remainingTributaries > 0
+        ? Math.max(0.6, remainingTributaries / Math.max(1, remainingLength))
+        : 0;
+    const createTributary = this.rng.next() < tributaryProb && validDirs.length >= 2;
+
+    // Choose 1 or 2 directions with bias toward open frontiers
+    let directions;
+    if (createTributary) {
+      // For tributaries, pick top 2 by score
+      scoredDirs.sort((a, b) => b.score - a.score);
+      directions = scoredDirs.slice(0, 2).map((s) => s.dir);
+    } else {
+      // For single extension, use weighted random selection with squared scores
+      const weights = scoredDirs.map((s) => Math.max(1, s.score * s.score));
+      const chosen = this.rng.weightedChoice(scoredDirs, weights);
+      directions = [chosen.dir];
+    }
+
+    // Add edges
+    for (const dir of directions) {
+      this.addRiverEdge(network, hex, dir);
+    }
+
+    // Increment tributary count if we branched
+    if (directions.length > 1) {
+      network.tributaryCount++;
+    }
+  }
+
+  // Get elevation constraints from river edges on this hex
+  getRiverConstraints(hex) {
+    const constraints = {
+      minElevation: 0,
+      maxElevation: 3,
+    };
+
+    // Check each edge of this hex for rivers
+    for (const direction of DIRECTION_NAMES) {
+      const edgeKey = this.getEdgeKey(hex.q, hex.r, direction);
+      const riverEdge = this.riverEdges.get(edgeKey);
+
+      if (!riverEdge) continue;
+
+      // Get neighbor hex
+      const neighbor = hexNeighbor(hex.q, hex.r, direction);
+      const neighborKey = hexKey(neighbor.q, neighbor.r);
+      const neighborHex = this.hexes.get(neighborKey);
+
+      if (!neighborHex || neighborHex.isBorder || !neighborHex.terrain) continue;
+
+      const neighborElev = getElevation(neighborHex.terrain);
+
+      // Determine flow direction based on edge orientation
+      const isFlowingIn = riverEdge.hex1.q === neighbor.q && riverEdge.hex1.r === neighbor.r;
+
+      if (isFlowingIn) {
+        // Water flows INTO this hex from neighbor
+        // This hex must be <= neighbor elevation
+        constraints.maxElevation = Math.min(constraints.maxElevation, neighborElev);
+      } else {
+        // Water flows OUT OF this hex to neighbor
+        // This hex must be >= neighbor elevation
+        constraints.minElevation = Math.max(constraints.minElevation, neighborElev);
+      }
+    }
+
+    return constraints;
+  }
+
+  // Calculate path length (edge count) for a river network
+  calculatePathLength(network) {
+    return network.edges.size;
+  }
+
+  // Generate terrain respecting river elevation constraints
+  generateTerrainWithConstraints(q, r) {
+    // First check if this hex has river edges
+    const hex = this.hexes.get(hexKey(q, r));
+    if (!hex) return this.generateTerrain(q, r);
+
+    const riverConstraints = this.getRiverConstraints(hex);
+
+    // If constraints are impossible (min > max), make it a lake
+    if (riverConstraints.minElevation > riverConstraints.maxElevation) {
+      return 'lake';
+    }
+
+    // Get valid terrains based on elevation constraints
+    const terrainTypes = Object.values(TERRAIN_TYPES);
+    const validTerrains = terrainTypes.filter((t) => {
+      const elev = getElevation(t);
+      return elev >= riverConstraints.minElevation && elev <= riverConstraints.maxElevation;
+    });
+
+    if (validTerrains.length === 0) {
+      // No valid terrain - make it a lake
+      return 'lake';
+    }
+
+    // Use existing terrain generation logic but filter to valid terrains
+    const neighbors = hexNeighbors(q, r);
+    const adjacentTerrains = [];
+    const adjacentClusters = new Map();
+    let hasWaterAdjacent = false;
+    let hasCliffAdjacent = false;
 
     for (const n of neighbors) {
       const nKey = hexKey(n.q, n.r);
       const nHex = this.hexes.get(nKey);
-
-      // Maybe generate river edge
-      this.maybeGenerateRiver(hex, n.direction, nHex);
-
-      // Maybe generate barrier edge - skip during validation mode
-      if (this.generationMode !== 'validation') {
-        this.maybeGenerateBarrier(hex, n.direction, nHex);
+      if (nHex) {
+        if (nHex.isBorder) {
+          if (nHex.borderType === BORDER_TYPES.SEA) hasWaterAdjacent = true;
+          if (nHex.borderType === BORDER_TYPES.CLIFF) hasCliffAdjacent = true;
+        } else if (nHex.isLake) {
+          hasWaterAdjacent = true;
+        } else if (nHex.terrain) {
+          adjacentTerrains.push(nHex.terrain);
+          if (nHex.clusterId !== null) {
+            const cluster = this.terrainClusters.get(nHex.clusterId);
+            if (cluster) {
+              adjacentClusters.set(nHex.clusterId, cluster);
+            }
+          }
+        }
+        if (nHex.riverEdges && nHex.riverEdges.length > 0) {
+          hasWaterAdjacent = true;
+        }
       }
     }
+
+    // Calculate weights for valid terrain types
+    const weights = validTerrains.map((t) => {
+      let weight = 1;
+
+      const affinities = TERRAIN_AFFINITIES[t] || {};
+
+      for (const adjTerrain of adjacentTerrains) {
+        if (affinities[adjTerrain]) {
+          weight += affinities[adjTerrain];
+        }
+      }
+
+      if (hasWaterAdjacent && affinities.waterAdjacent) {
+        weight += affinities.waterAdjacent;
+      }
+
+      if (hasCliffAdjacent && affinities.cliffAdjacent) {
+        weight += affinities.cliffAdjacent;
+      }
+
+      for (const [clusterId, cluster] of adjacentClusters) {
+        if (cluster.terrain === t) {
+          const clusterSize = cluster.hexes.size;
+          if (clusterSize < 3) {
+            weight += 4;
+          } else if (clusterSize < 6) {
+            weight += 3;
+          } else if (clusterSize < 12) {
+            weight += 1;
+          }
+        }
+      }
+
+      return weight;
+    });
+
+    return this.rng.weightedChoice(validTerrains, weights);
   }
+
+  // Add river edge and propagate to already-explored neighbors (simplified)
+  addRiverEdge(network, hex, direction) {
+    const edgeKey = this.getEdgeKey(hex.q, hex.r, direction);
+    if (this.riverEdges.has(edgeKey)) return;
+
+    const neighbor = hexNeighbor(hex.q, hex.r, direction);
+
+    // Store edge in riverEdges Map
+    const oppDir = OPPOSITE_DIRECTION[direction];
+    const useOriginal = hex.q < neighbor.q || (hex.q === neighbor.q && hex.r < neighbor.r);
+    this.riverEdges.set(edgeKey, {
+      hex1: useOriginal ? { q: hex.q, r: hex.r } : { q: neighbor.q, r: neighbor.r },
+      direction: useOriginal ? direction : oppDir,
+      flowDirection: 'unspecified',
+    });
+
+    // Add edge to network
+    network.edges.add(edgeKey);
+
+    // Update hex.riverEdges for current hex
+    if (!hex.riverEdges.includes(direction)) {
+      hex.riverEdges.push(direction);
+    }
+    // Note: neighbor hex gets the river edge when it's explored via extendRiversOnReveal
+    // We never retroactively modify already-explored hexes (canon principle)
+  }
+
+  // ============================================================================
+  // OLD RIVER SYSTEM (to be removed)
+  // ============================================================================
 
   maybeGenerateRiver(hex, direction, neighborHex) {
     const edgeKey = this.getEdgeKey(hex.q, hex.r, direction);
@@ -881,39 +1462,61 @@ class RealmGenerator {
     // Check if edge already has river
     if (this.riverEdges.has(edgeKey)) return;
 
-    // Check if this would continue an existing river at a shared vertex
-    const existingRiverEnd = this.findRiverEndAtVertex(hex.q, hex.r, direction);
-    const riverOriginScore = this.getRiverOriginScore(hex);
+    // Count river edges at this vertex (check both vertices of the edge)
+    const edgeCountAtVertex = this.getMaxRiverCountAtEdge(hex.q, hex.r, direction);
 
-    // Calculate continuation probability - strongly favor continuing until span target met
-    const currentSpan = this.constraints.riverNetwork.span;
-    const hasRiver = this.riverEdges.size > 0;
-    const hasMetSpanTarget = currentSpan >= this.constraints.riverNetwork.targetSpan;
+    // Calculate river metrics to know current state
+    const metrics = this.calculateRiverMetrics();
+    const hasNetwork = metrics.networkCount > 0;
+    const hasMetSpanTarget = metrics.span >= this.constraints.riverNetwork.targetSpan;
+    const needsMoreTributaries =
+      metrics.tributaryCount < this.constraints.riverNetwork.targetTributaries;
+    const tooManyNetworks = metrics.networkCount > 1;
 
-    // If span target met, greatly reduce continuation probability
-    if (hasMetSpanTarget) {
-      if (this.rng.next() < 0.6) return; // 60% chance to stop extending
+    // CASE 1: At river tip (1 edge at vertex) - continuation
+    // Very high probability to extend rivers for better connectivity
+    if (edgeCountAtVertex === 1) {
+      let continueProb;
+      if (!hasMetSpanTarget) {
+        continueProb = 0.98; // 98% to extend until span target (need ~10+ steps)
+      } else if (tooManyNetworks) {
+        continueProb = 0.85; // 85% to try merging networks
+      } else {
+        continueProb = 0.4; // 40% after targets met
+      }
+      if (this.rng.next() >= continueProb) return;
     }
+    // CASE 2: At 2-edge vertex (would create tributary)
+    else if (edgeCountAtVertex === 2) {
+      // Target ~3 tributaries. Prioritize span first, then tributaries.
+      let tributaryProb = 0.0;
+      if (hasMetSpanTarget && needsMoreTributaries) {
+        tributaryProb = 0.5; // High prob after span target to quickly get tributaries
+      } else if (needsMoreTributaries) {
+        tributaryProb = 0.08; // Low prob before span target
+      }
+      if (this.rng.next() >= tributaryProb) return;
+    }
+    // CASE 3: At 3+ edge vertex (confluence)
+    else if (edgeCountAtVertex >= 3) {
+      return; // 0% - prevent messy multi-way joins
+    }
+    // CASE 4: New origin (no connection to existing river)
+    else {
+      const riverOriginScore = this.getRiverOriginScore(hex);
 
-    // More aggressive span bonus when under target
-    const spanBonus = currentSpan < 8 ? 0.25 : 0;
+      let originProb = 0;
+      if (!hasNetwork) {
+        // No network exists yet - higher chance to start the first river
+        originProb = 0.1 * riverOriginScore;
+      } else {
+        // Network exists - almost NEVER start new disconnected rivers
+        // Only allow new origins very rarely to occasionally create secondary rivers
+        originProb = 0.0005 * riverOriginScore;
+      }
 
-    // Only continue if we're at an actual river endpoint (not branching mid-river)
-    const isAtRiverTip = existingRiverEnd && this.isRiverTip(hex.q, hex.r, direction);
-
-    // Higher continuation score at river tips, especially when span is low
-    const riverContinueScore = isAtRiverTip ? 0.65 + spanBonus : existingRiverEnd ? 0.12 : 0;
-
-    // Origin probability - higher if no river exists yet
-    const originMultiplier = hasRiver ? 0.03 : 0.06;
-
-    const shouldCreateRiver =
-      this.rng.next() < Math.max(riverOriginScore * originMultiplier, riverContinueScore);
-
-    if (!shouldCreateRiver && !existingRiverEnd) return;
-
-    // Reduce branching - if continuing from non-tip, usually reject
-    if (existingRiverEnd && !isAtRiverTip && this.rng.next() > 0.15) return;
+      if (this.rng.next() >= originProb) return;
+    }
 
     // Validate elevation constraints
     if (neighborHex && !neighborHex.isBorder && !neighborHex.isLake) {
@@ -923,29 +1526,42 @@ class RealmGenerator {
       // Check if river can flow here based on origin elevation
       if (!this.canRiverEnter(hex, neighborHex)) {
         // Maybe force terminus
-        if (existingRiverEnd && this.rng.next() < 0.5) {
+        if (edgeCountAtVertex === 1 && this.rng.next() < 0.5) {
           this.forceTerminus(hex.q, hex.r, direction);
         }
         return;
       }
     }
 
+    // Find existing river at vertex for flow direction continuity
+    const existingRiverEnd = this.findRiverEndAtVertex(hex.q, hex.r, direction);
+    const riverOriginScore = this.getRiverOriginScore(hex);
+
     // Create river edge
     const flowDirection = this.determineFlowDirection(hex, neighborHex, existingRiverEnd);
 
+    // IMPORTANT: Store the normalized hex and direction that match the edge key
+    // getEdgeKey may flip the perspective, so we need to store consistently
+    const neighbor = hexNeighbor(hex.q, hex.r, direction);
+    const oppDir = OPPOSITE_DIRECTION[direction];
+    const useOriginal = hex.q < neighbor.q || (hex.q === neighbor.q && hex.r < neighbor.r);
+
     this.riverEdges.set(edgeKey, {
-      hex1: { q: hex.q, r: hex.r },
-      direction,
+      hex1: useOriginal ? { q: hex.q, r: hex.r } : { q: neighbor.q, r: neighbor.r },
+      direction: useOriginal ? direction : oppDir,
       flowDirection,
-      isSource: !existingRiverEnd && riverOriginScore > 0,
+      isSource: edgeCountAtVertex === 0 && riverOriginScore > 0,
       isTerminus: this.isValidTerminus(neighborHex),
     });
 
     hex.riverEdges.push(direction);
 
-    // Update river span periodically (every 5 new edges to avoid performance hit)
+    // Update river metrics periodically (every 5 new edges to avoid performance hit)
     if (this.riverEdges.size % 5 === 0) {
-      this.calculateRiverNetworkSpan();
+      const updatedMetrics = this.calculateRiverMetrics();
+      this.constraints.riverNetwork.span = updatedMetrics.span;
+      this.constraints.riverNetwork.networkCount = updatedMetrics.networkCount;
+      this.constraints.riverNetwork.tributaryCount = updatedMetrics.tributaryCount;
     }
   }
 
@@ -958,6 +1574,13 @@ class RealmGenerator {
       return `${q},${r}:${direction}`;
     }
     return `${neighbor.q},${neighbor.r}:${oppDir}`;
+  }
+
+  // Get canonical vertex key from hex coordinates and two adjacent edge directions
+  getVertexKey(q, r, dir1, dir2) {
+    // Sort directions for consistency
+    const dirs = [dir1, dir2].sort();
+    return `${q},${r}:${dirs[0]}-${dirs[1]}`;
   }
 
   // Helper to check if a barrier exists between two hexes (checks both key formats)
@@ -1027,6 +1650,158 @@ class RealmGenerator {
     if (hex.isLake) return 0.7;
 
     return 0;
+  }
+
+  getRiverEdgeCountAtVertex(q, r, direction) {
+    // A vertex is shared by 3 hexes. We need to check river edges from all 3.
+    // The vertex at direction D from hex (q,r) is shared by:
+    // 1. Current hex (q,r) - edges: direction and the adjacent direction clockwise
+    // 2. Neighbor in direction D - its edge back plus its clockwise-adjacent edge
+    // 3. Neighbor in adjacent direction - relevant edges
+
+    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const clockwiseDir = adjacentDirs[0]; // direction + 1
+    const counterDir = adjacentDirs[1]; // direction - 1
+
+    const edgesToCheck = new Set();
+
+    // 1. Current hex edges at this vertex
+    edgesToCheck.add(this.getEdgeKey(q, r, direction));
+    edgesToCheck.add(this.getEdgeKey(q, r, clockwiseDir));
+
+    // 2. Neighbor in 'direction' - check edge back (opposite) and its adjacent
+    const neighbor1 = hexNeighbor(q, r, direction);
+    const oppDir = OPPOSITE_DIRECTION[direction];
+    const neighbor1Adjacent = this.getAdjacentEdgeDirections(oppDir);
+    edgesToCheck.add(this.getEdgeKey(neighbor1.q, neighbor1.r, neighbor1Adjacent[1]));
+
+    // 3. Neighbor in clockwise direction - check relevant edge
+    const neighbor2 = hexNeighbor(q, r, clockwiseDir);
+    const oppClockwise = OPPOSITE_DIRECTION[clockwiseDir];
+    const neighbor2Adjacent = this.getAdjacentEdgeDirections(oppClockwise);
+    edgesToCheck.add(this.getEdgeKey(neighbor2.q, neighbor2.r, neighbor2Adjacent[0]));
+
+    let count = 0;
+    for (const key of edgesToCheck) {
+      if (this.riverEdges.has(key)) count++;
+    }
+
+    return count;
+  }
+
+  getEdgesAtVertex(q, r, direction, clockwise = true) {
+    // Get all 3 edges that meet at a vertex
+    // If clockwise=true: vertex between direction and direction+1
+    // If clockwise=false: vertex between direction and direction-1
+
+    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const adjDir = clockwise ? adjacentDirs[0] : adjacentDirs[1];
+
+    const edges = [];
+
+    // Edge 1: Current hex, given direction
+    edges.push(this.getEdgeKey(q, r, direction));
+
+    // Edge 2: Current hex, adjacent direction
+    edges.push(this.getEdgeKey(q, r, adjDir));
+
+    // Edge 3: From neighboring hex
+    const neighbor = hexNeighbor(q, r, adjDir);
+    const oppAdjDir = OPPOSITE_DIRECTION[adjDir];
+    const neighborAdj = this.getAdjacentEdgeDirections(oppAdjDir);
+    // The third edge comes from the neighbor, on the opposite side
+    edges.push(
+      this.getEdgeKey(neighbor.q, neighbor.r, clockwise ? neighborAdj[1] : neighborAdj[0])
+    );
+
+    return edges;
+  }
+
+  getMaxRiverCountAtEdge(q, r, direction) {
+    // An edge has 2 vertices. Check both and return the max river count.
+    const count1 = this.getRiverEdgeCountAtVertex(q, r, direction);
+
+    // For the other vertex, we need to check the counterclockwise corner
+    // This is between 'direction' and the counterclockwise-adjacent direction
+    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const counterDir = adjacentDirs[1]; // direction - 1
+
+    // Count at the counterclockwise vertex
+    const edgesToCheck = new Set();
+    edgesToCheck.add(this.getEdgeKey(q, r, direction));
+    edgesToCheck.add(this.getEdgeKey(q, r, counterDir));
+
+    const neighbor1 = hexNeighbor(q, r, direction);
+    const oppDir = OPPOSITE_DIRECTION[direction];
+    const neighbor1Adjacent = this.getAdjacentEdgeDirections(oppDir);
+    edgesToCheck.add(this.getEdgeKey(neighbor1.q, neighbor1.r, neighbor1Adjacent[0]));
+
+    const neighbor2 = hexNeighbor(q, r, counterDir);
+    const oppCounter = OPPOSITE_DIRECTION[counterDir];
+    const neighbor2Adjacent = this.getAdjacentEdgeDirections(oppCounter);
+    edgesToCheck.add(this.getEdgeKey(neighbor2.q, neighbor2.r, neighbor2Adjacent[1]));
+
+    let count2 = 0;
+    for (const key of edgesToCheck) {
+      if (this.riverEdges.has(key)) count2++;
+    }
+
+    return Math.max(count1, count2);
+  }
+
+  distanceToNearestRiver(q, r) {
+    // Find hex distance to nearest river edge using BFS
+    if (this.riverEdges.size === 0) return Infinity;
+
+    const visited = new Set();
+    const queue = [{ q, r, dist: 0 }];
+    visited.add(hexKey(q, r));
+
+    while (queue.length > 0) {
+      const { q: cq, r: cr, dist } = queue.shift();
+
+      // Check if this hex has any river edges
+      for (const dir of DIRECTION_NAMES) {
+        const edgeKey = this.getEdgeKey(cq, cr, dir);
+        if (this.riverEdges.has(edgeKey)) {
+          return dist;
+        }
+      }
+
+      // Add neighbors to queue
+      const neighbors = hexNeighbors(cq, cr);
+      for (const n of neighbors) {
+        const nKey = hexKey(n.q, n.r);
+        if (!visited.has(nKey)) {
+          visited.add(nKey);
+          queue.push({ q: n.q, r: n.r, dist: dist + 1 });
+        }
+      }
+    }
+
+    return Infinity;
+  }
+
+  calculateRiverMetrics() {
+    if (this.riverEdges.size === 0) {
+      return {
+        networkCount: 0,
+        tributaryCount: 0,
+        span: 0,
+      };
+    }
+
+    // Count networks from explicit tracking (DRY with simulator)
+    const networkCount = this.rivers.length;
+
+    // Count tributaries from network.tributaryCount (DRY with simulator)
+    let tributaryCount = 0;
+    for (const network of this.rivers) {
+      tributaryCount += network.tributaryCount;
+    }
+
+    const span = this.calculateRiverNetworkSpan();
+    return { networkCount, tributaryCount, span };
   }
 
   canRiverEnter(fromHex, toHex) {
@@ -1592,8 +2367,25 @@ class RealmGenerator {
     const unexplored = validMoves.filter((m) => !this.exploredHexes.has(m.key));
     const unexploredWithFeatures = unexplored.filter((m) => m.hex.feature);
 
+    // Collect river frontier hexes (unexplored hexes that rivers point toward)
+    const riverFrontierKeys = new Set();
+    for (const [edgeKey, edge] of this.riverEdges) {
+      // Get the destination hex of this edge
+      const destHex = hexNeighbor(edge.hex1.q, edge.hex1.r, edge.direction);
+      const destKey = hexKey(destHex.q, destHex.r);
+      // If destination is unexplored, it's a river frontier
+      if (!this.exploredHexes.has(destKey)) {
+        riverFrontierKeys.add(destKey);
+      }
+    }
+    const unexploredRiverFrontiers = unexplored.filter((m) => riverFrontierKeys.has(m.key));
+
+    // Priority 0: Adjacent unexplored hex that's a river frontier (80%)
+    if (unexploredRiverFrontiers.length > 0 && this.rng.next() < 0.8) {
+      chosenMove = this.rng.choice(unexploredRiverFrontiers);
+    }
     // Priority 1: Adjacent unexplored hex with feature (98%)
-    if (unexploredWithFeatures.length > 0 && this.rng.next() < 0.98) {
+    else if (unexploredWithFeatures.length > 0 && this.rng.next() < 0.98) {
       chosenMove = this.rng.choice(unexploredWithFeatures);
     }
     // Priority 2: Any adjacent unexplored hex (98%)
@@ -1730,6 +2522,8 @@ class RealmGenerator {
             borderType: h.borderType,
             isLake: h.isLake,
             clusterId: h.clusterId,
+            riverEdges: [...(h.riverEdges || [])],
+            barrierEdges: [...(h.barrierEdges || [])],
           },
         ])
       ),
@@ -1750,6 +2544,16 @@ class RealmGenerator {
       // Counters
       clusterIdCounter: this.clusterIdCounter,
       barrierCrossings: this.barrierCrossings,
+      riverIdCounter: this.riverIdCounter,
+
+      // New river system state
+      riverEncountered: this.riverEncountered,
+      rivers: this.rivers.map((network) => ({
+        id: network.id,
+        edges: Array.from(network.edges),
+        tributaryCount: network.tributaryCount,
+      })),
+      plannedRiverEdges: Array.from(this.plannedRiverEdges.entries()),
 
       // Counts for debugging
       hexCount: this.hexes.size,
@@ -1812,6 +2616,16 @@ class RealmGenerator {
     // 8. Restore counters
     this.clusterIdCounter = state.clusterIdCounter;
     this.barrierCrossings = state.barrierCrossings;
+    this.riverIdCounter = state.riverIdCounter;
+
+    // 8b. Restore new river system state
+    this.riverEncountered = state.riverEncountered;
+    this.rivers = state.rivers.map((networkData) => ({
+      id: networkData.id,
+      edges: new Set(networkData.edges),
+      tributaryCount: networkData.tributaryCount,
+    }));
+    this.plannedRiverEdges = new Map(state.plannedRiverEdges || []);
 
     // 9. Truncate future states
     this.stepStates = this.stepStates.slice(0, stepIndex + 1);
@@ -1860,24 +2674,36 @@ class RealmGenerator {
       visited.add(key);
       network.add(key);
 
-      // Find adjacent river edges
       const edge = this.riverEdges.get(key);
       if (!edge) continue;
 
       const { hex1, direction } = edge;
 
-      // Check all edges of the hex
-      for (const dir of DIRECTION_NAMES) {
-        const edgeKey = this.getEdgeKey(hex1.q, hex1.r, dir);
-        if (this.riverEdges.has(edgeKey) && !visited.has(edgeKey)) {
-          queue.push(edgeKey);
-        }
-      }
+      // Get edges at BOTH vertices of this edge (vertex connectivity)
+      const adjacentDirs = this.getAdjacentEdgeDirections(direction);
 
-      // Check neighbor hex edges
-      const neighbor = hexNeighbor(hex1.q, hex1.r, direction);
-      for (const dir of DIRECTION_NAMES) {
-        const edgeKey = this.getEdgeKey(neighbor.q, neighbor.r, dir);
+      // Vertex 1 (clockwise): edges that share vertex between direction and direction+1
+      const clockwiseDir = adjacentDirs[0];
+      const v1Edges = [this.getEdgeKey(hex1.q, hex1.r, clockwiseDir)];
+      const n1 = hexNeighbor(hex1.q, hex1.r, direction);
+      const n1Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[direction]);
+      v1Edges.push(this.getEdgeKey(n1.q, n1.r, n1Adj[1]));
+      const n2 = hexNeighbor(hex1.q, hex1.r, clockwiseDir);
+      const n2Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[clockwiseDir]);
+      v1Edges.push(this.getEdgeKey(n2.q, n2.r, n2Adj[0]));
+
+      // Vertex 2 (counterclockwise): edges that share vertex between direction and direction-1
+      const counterDir = adjacentDirs[1];
+      const v2Edges = [this.getEdgeKey(hex1.q, hex1.r, counterDir)];
+      const n3 = hexNeighbor(hex1.q, hex1.r, direction);
+      const n3Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[direction]);
+      v2Edges.push(this.getEdgeKey(n3.q, n3.r, n3Adj[0]));
+      const n4 = hexNeighbor(hex1.q, hex1.r, counterDir);
+      const n4Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[counterDir]);
+      v2Edges.push(this.getEdgeKey(n4.q, n4.r, n4Adj[1]));
+
+      // Add all vertex-adjacent river edges to queue
+      for (const edgeKey of [...v1Edges, ...v2Edges]) {
         if (this.riverEdges.has(edgeKey) && !visited.has(edgeKey)) {
           queue.push(edgeKey);
         }
@@ -1914,7 +2740,7 @@ class RealmGenerator {
   }
 
   getConstraintReport() {
-    const span = this.calculateRiverNetworkSpan();
+    const metrics = this.calculateRiverMetrics();
 
     return {
       seed: this.seed,
@@ -1955,8 +2781,17 @@ class RealmGenerator {
           target: 144,
         },
         riverNetwork: {
-          status: span >= 8 ? 'good' : span >= 4 ? 'partial' : 'minimal',
-          span,
+          status:
+            metrics.networkCount === 1 && metrics.tributaryCount >= 3 && metrics.span >= 8
+              ? 'good'
+              : metrics.networkCount === 1 || metrics.tributaryCount >= 2
+                ? 'partial'
+                : 'minimal',
+          networkCount: metrics.networkCount,
+          targetNetworkCount: 1,
+          tributaryCount: metrics.tributaryCount,
+          targetTributaries: 3,
+          span: metrics.span,
           targetSpan: 8,
         },
         lakes: {
@@ -2540,15 +3375,23 @@ function HexMap({ generator, viewBounds, renderKey }) {
     }
   }
 
-  // Render rivers
+  // Render rivers - show edge if EITHER hex it touches is revealed
   for (const [edgeKey, river] of generator.riverEdges) {
-    const [hexPart] = edgeKey.split(':');
+    const [hexPart, direction] = edgeKey.split(':');
     const { q, r } = parseHexKey(hexPart);
-    const hex = generator.hexes.get(hexPart);
+    const hex1 = generator.hexes.get(hexPart);
 
-    if (hex && hex.revealed) {
+    // Also check the neighbor hex (the other side of the edge)
+    const neighbor = hexNeighbor(q, r, direction);
+    const neighborKey = hexKey(neighbor.q, neighbor.r);
+    const hex2 = generator.hexes.get(neighborKey);
+
+    // Draw edge if either hex is revealed
+    const isVisible = (hex1 && hex1.revealed) || (hex2 && hex2.revealed);
+
+    if (isVisible) {
       const { x, y } = hexToPixel(q, r, size);
-      const { p1, p2 } = getEdgeEndpoints(x, y, size, river.direction);
+      const { p1, p2 } = getEdgeEndpoints(x, y, size, direction);
 
       riverElements.push(
         <line
@@ -2745,7 +3588,7 @@ function StatePanel({ generator, step, renderKey }) {
     : null;
 
   const constraints = generator.constraints;
-  const riverSpan = generator.calculateRiverNetworkSpan();
+  const riverMetrics = generator.calculateRiverMetrics();
 
   // Calculate terrain probability for adjacent unrevealed hexes
   const adjacentProbs = useMemo(() => {
@@ -2887,9 +3730,19 @@ function StatePanel({ generator, step, renderKey }) {
           quality={getQualityRating(constraints.barriers.placed, 24, 'approximate')}
         />
         <ConstraintRow
-          label="River Network"
-          value={`span ${riverSpan} (target ≥8)`}
-          quality={getQualityRating(riverSpan, 8, 'min')}
+          label="River Networks"
+          value={`${riverMetrics.networkCount}/1 (target)`}
+          quality={riverMetrics.networkCount === 1 ? 'excellent' : 'poor'}
+        />
+        <ConstraintRow
+          label="River Tributaries"
+          value={`${riverMetrics.tributaryCount}/3 (target)`}
+          quality={getQualityRating(riverMetrics.tributaryCount, 3, 'min')}
+        />
+        <ConstraintRow
+          label="River Span"
+          value={`${riverMetrics.span}/≥8 (target)`}
+          quality={getQualityRating(riverMetrics.span, 8, 'min')}
         />
         <ConstraintRow
           label="Terrain Clusters"
@@ -3003,7 +3856,10 @@ function ConstraintReport({ report }) {
             : report.softConstraints.riverNetwork.status === 'partial'
               ? '⚠'
               : '✗'}{' '}
-          River network: span {report.softConstraints.riverNetwork.span} (target: ≥
+          River: {report.softConstraints.riverNetwork.networkCount} network
+          {report.softConstraints.riverNetwork.networkCount !== 1 ? 's' : ''} (target: 1),{' '}
+          {report.softConstraints.riverNetwork.tributaryCount} tributaries (target: 3), span{' '}
+          {report.softConstraints.riverNetwork.span} (target: ≥
           {report.softConstraints.riverNetwork.targetSpan}) -{' '}
           {report.softConstraints.riverNetwork.status.toUpperCase()}
         </p>

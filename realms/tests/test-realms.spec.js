@@ -8,6 +8,75 @@ test.describe('Mythic Bastionland Realms', () => {
     await expect(page).toHaveTitle(/Mythic Bastionland Realms/);
   });
 
+  test('map renders without JavaScript errors', async ({ page }) => {
+    // Collect all console errors
+    const consoleErrors = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+
+    // Collect uncaught page errors
+    const pageErrors = [];
+    page.on('pageerror', (error) => {
+      pageErrors.push(error.message);
+    });
+
+    await page.goto(BASE_URL);
+
+    // Wait for the map to actually render hexes (not just SVG element)
+    // This catches initialization failures where React crashes before rendering
+    await page.waitForSelector('svg polygon', { timeout: 10000 });
+
+    // Count hexes - should have at least 50 for a valid map
+    const hexCount = await page.locator('svg polygon').count();
+    expect(hexCount).toBeGreaterThan(50);
+
+    // Verify no error boundary is shown (React error fallback)
+    const errorBoundary = page.locator('text=/error occurred|something went wrong/i');
+    await expect(errorBoundary).toHaveCount(0);
+
+    // Fail if there were any console errors related to the map component
+    const mapErrors = consoleErrors.filter(
+      (e) =>
+        e.includes('MythicBastionland') ||
+        e.includes('TypeError') ||
+        e.includes('ReferenceError') ||
+        e.includes('undefined')
+    );
+    expect(mapErrors).toEqual([]);
+
+    // Fail if there were any uncaught page errors
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('map regeneration works without errors', async ({ page }) => {
+    // Collect errors during regeneration
+    const pageErrors = [];
+    page.on('pageerror', (error) => {
+      pageErrors.push(error.message);
+    });
+
+    await page.goto(BASE_URL);
+    await page.waitForSelector('svg polygon', { timeout: 10000 });
+
+    // Click generate multiple times to test different seeds
+    const generateButton = page.locator('button:has-text("Generate New Map")');
+
+    for (let i = 0; i < 5; i++) {
+      await generateButton.click();
+      // Wait for new map to render
+      await page.waitForTimeout(300);
+      // Verify hexes still exist
+      const hexCount = await page.locator('svg polygon').count();
+      expect(hexCount).toBeGreaterThan(50);
+    }
+
+    // No errors should have occurred during any regeneration
+    expect(pageErrors).toEqual([]);
+  });
+
   test('displays main heading and description', async ({ page }) => {
     await page.goto(BASE_URL);
 
