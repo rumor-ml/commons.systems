@@ -766,9 +766,12 @@ class RealmGenerator {
       return false;
     }
 
-    // New lake probability
+    // New lake probability with deficit compensation
     if (this.constraints.lakes.placed < this.constraints.lakes.max) {
-      return this.rng.next() < 0.03;
+      const baseProb = 0.045; // Increased from 0.03
+      const deficit = 2.5 - this.constraints.lakes.placed;
+      const deficitBonus = deficit > 0 ? deficit * 0.015 : 0;
+      return this.rng.next() < baseProb + deficitBonus;
     }
 
     return false;
@@ -857,6 +860,12 @@ class RealmGenerator {
     // Calculate continuation probability - strongly favor continuing until span target met
     const currentSpan = this.constraints.riverNetwork.span;
     const hasRiver = this.riverEdges.size > 0;
+    const hasMetSpanTarget = currentSpan >= this.constraints.riverNetwork.targetSpan;
+
+    // If span target met, greatly reduce continuation probability
+    if (hasMetSpanTarget) {
+      if (this.rng.next() < 0.6) return; // 60% chance to stop extending
+    }
 
     // More aggressive span bonus when under target
     const spanBonus = currentSpan < 8 ? 0.25 : 0;
@@ -1128,7 +1137,9 @@ class RealmGenerator {
     // Dynamic barrier probability based on current count vs target
     const currentBarriers = this.constraints.barriers.placed;
     const targetBarriers = 24;
-    const exploredRatio = Math.max(0.1, this.constraints.explorableHexes.count / 144);
+    // Fixed: use dynamic target instead of hardcoded 144
+    const targetHexes = this.constraints.explorableHexes.target; // 144
+    const exploredRatio = Math.max(0.1, this.constraints.explorableHexes.count / targetHexes);
 
     // Expected barriers at this point in exploration
     const expectedBarriers = targetBarriers * exploredRatio;
@@ -1525,6 +1536,28 @@ class RealmGenerator {
       return false;
     }
 
+    // SOFT CONSTRAINT: Probabilistic early stopping at target ~144
+    if (this.constraints.explorableHexes.count >= this.constraints.explorableHexes.target) {
+      // Check if border is naturally closed - if so, always stop
+      if (this.isBorderClosed()) {
+        this.constraints.borderClosure.complete = true;
+        this.forceCompleteFeatures();
+        return false;
+      }
+
+      // Otherwise, probabilistically stop based on how much over target we are
+      const excess =
+        this.constraints.explorableHexes.count - this.constraints.explorableHexes.target;
+      const stopProb = Math.min(0.95, 0.15 + excess * 0.02); // Start at 15%, increase with excess
+
+      if (this.rng.next() < stopProb) {
+        // Force border closure and complete features
+        this.constraints.borderClosure.complete = true;
+        this.forceCompleteFeatures();
+        return false;
+      }
+    }
+
     const prevPos = { ...this.currentExplorerPos };
     const validMoves = this.getValidMoves();
     if (validMoves.length === 0) {
@@ -1554,9 +1587,16 @@ class RealmGenerator {
     if (unexploredWithFeatures.length > 0 && this.rng.next() < 0.98) {
       chosenMove = this.rng.choice(unexploredWithFeatures);
     }
-    // Priority 2: Any adjacent unexplored hex (98%)
+    // Priority 2: Any adjacent unexplored hex (98%) - bias toward realm center for compactness
     else if (unexplored.length > 0 && this.rng.next() < 0.98) {
-      chosenMove = this.rng.choice(unexplored);
+      // Weight unexplored hexes by distance from center - prefer closer hexes
+      const centerQ = 0,
+        centerR = 0;
+      const weights = unexplored.map((m) => {
+        const dist = hexDistance(m.q, m.r, centerQ, centerR);
+        return 1 / (1 + dist * 0.15);
+      });
+      chosenMove = this.rng.weightedChoice(unexplored, weights);
     }
     // Priority 3: Use pathfinding to navigate toward nearest unexplored
     else {

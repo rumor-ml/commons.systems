@@ -60,6 +60,21 @@ class SeededRandom {
   randint(min, max) {
     return Math.floor(this.random() * (max - min + 1)) + min;
   }
+
+  weightedChoice(array, weights) {
+    const total = weights.reduce((a, b) => a + b, 0);
+    let roll = this.random() * total;
+    for (let i = 0; i < array.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) return array[i];
+    }
+    return array[array.length - 1];
+  }
+}
+
+// Hex distance calculation (axial coordinates)
+function hexDistance(q1, r1, q2, r2) {
+  return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
 }
 
 // Load the generator code and create a minimal execution environment
@@ -272,12 +287,32 @@ class RealmGenerator {
   }
 
   moveExplorer() {
-    // Enforce max explorable
+    // HARD CONSTRAINT: Enforce max explorable
     if (this.exploredHexes.size >= this.constraints.explorableHexes.max) {
       // Mark border as closed when we hit the cap
       this.constraints.borderClosure.complete = true;
       this.forceCompleteFeatures(); // Ensure hard constraint features are placed
       return false;
+    }
+
+    // SOFT CONSTRAINT: Probabilistic early stopping at target ~144
+    if (this.exploredHexes.size >= this.constraints.explorableHexes.target) {
+      // Check if border is naturally closed - if so, always stop
+      if (this.borderHexes.size === 0) {
+        this.constraints.borderClosure.complete = true;
+        this.forceCompleteFeatures();
+        return false;
+      }
+
+      // Otherwise, probabilistically stop based on how much over target we are
+      const excess = this.exploredHexes.size - this.constraints.explorableHexes.target;
+      const stopProb = Math.min(0.95, 0.15 + excess * 0.02); // Start at 15%, increase with excess
+
+      if (this.rng.random() < stopProb) {
+        this.constraints.borderClosure.complete = true;
+        this.forceCompleteFeatures();
+        return false;
+      }
     }
 
     // Check if border closed
@@ -295,9 +330,17 @@ class RealmGenerator {
       return false;
     }
 
-    const borderArray = Array.from(this.borderHexes);
-    const nextHexKey = this.rng.choice(borderArray);
-    const nextHex = this.hexes.get(nextHexKey);
+    // SOFT CONSTRAINT: Compactness-biased movement - prefer hexes closer to center
+    const borderArray = Array.from(this.borderHexes)
+      .map((key) => this.hexes.get(key))
+      .filter(Boolean);
+    const centerQ = 0,
+      centerR = 0;
+    const weights = borderArray.map((hex) => {
+      const dist = hexDistance(hex.q, hex.r, centerQ, centerR);
+      return 1 / (1 + dist * 0.15);
+    });
+    const nextHex = this.rng.weightedChoice(borderArray, weights);
 
     if (!nextHex) return false;
 
@@ -306,6 +349,7 @@ class RealmGenerator {
     this.explorerPos = { q: nextHex.q, r: nextHex.r };
 
     // Mark as explored
+    const nextHexKey = this.hexKey(nextHex);
     nextHex.isExplored = true;
     this.exploredHexes.add(nextHexKey);
     this.borderHexes.delete(nextHexKey);
@@ -408,22 +452,40 @@ class RealmGenerator {
       }
     }
 
-    // Lakes
-    if (this.constraints.lakes.placed < this.constraints.lakes.max && this.rng.random() < 0.02) {
-      this.constraints.lakes.placed++;
-      hex.isLake = true;
+    // Lakes - increased probability with deficit compensation
+    if (this.constraints.lakes.placed < this.constraints.lakes.max) {
+      const baseProb = 0.045; // Increased from 0.02
+      const deficit = 2.5 - this.constraints.lakes.placed;
+      const deficitBonus = deficit > 0 ? deficit * 0.015 : 0;
+      if (this.rng.random() < baseProb + deficitBonus) {
+        this.constraints.lakes.placed++;
+        hex.isLake = true;
+      }
     }
 
-    // Rivers (simplified - just count)
-    if (this.rng.random() < 0.05) {
-      this.constraints.riverNetwork.span = Math.min(
-        this.constraints.riverNetwork.span + this.rng.randint(1, 3),
-        this.constraints.riverNetwork.targetSpan + 5
-      );
+    // Rivers - stop extending once span target is met
+    const currentSpan = this.constraints.riverNetwork.span;
+    const hasMetSpanTarget = currentSpan >= this.constraints.riverNetwork.targetSpan;
+
+    // If span target met, greatly reduce continuation probability
+    if (!hasMetSpanTarget || this.rng.random() >= 0.6) {
+      if (this.rng.random() < 0.05) {
+        this.constraints.riverNetwork.span = Math.min(
+          this.constraints.riverNetwork.span + this.rng.randint(1, 3),
+          this.constraints.riverNetwork.targetSpan + 5
+        );
+      }
     }
 
-    // Barriers (simplified - just count)
-    if (this.rng.random() < 0.15) {
+    // Barriers - dynamic probability based on exploration progress
+    const targetBarriers = 24;
+    const targetHexes = this.constraints.explorableHexes.target; // 144
+    const exploredRatio = Math.max(0.1, this.exploredHexes.size / targetHexes);
+    const expectedBarriers = targetBarriers * exploredRatio;
+    const barrierDeficit = expectedBarriers - this.constraints.barriers.placed;
+    const barrierProb = Math.max(0.05, Math.min(0.25, 0.15 + barrierDeficit * 0.01));
+
+    if (this.rng.random() < barrierProb) {
       this.constraints.barriers.placed++;
     }
   }
