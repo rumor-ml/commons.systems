@@ -6,6 +6,7 @@ packages:
   - 'print/*'
   - 'printsync/*'
   - 'budget/*'
+  - 'realms/*'
   - 'test-go-app/tests'
   - 'mcp-common'
   - 'gh-workflow-mcp-server'

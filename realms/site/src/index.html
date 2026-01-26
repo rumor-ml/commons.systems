@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Mythic Bastionland Realms - Procedural Hex Map Generator</title>
+    <meta
+      name="description"
+      content="Generate procedural hex maps for Mythic Bastionland RPG adventures"
+    />
+    <link rel="stylesheet" href="/styles/main.css" />
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script type="module" src="/scripts/main.js"></script>
+  </head>
+  <body>
+    <div class="layout">
+      <!-- Header -->
+      <header class="header">
+        <h1 class="site-title">Mythic Bastionland Realms</h1>
+        <p class="site-subtitle">Procedural Hex Map Generator</p>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <section class="intro-section">
+          <p class="lead">
+            Generate procedural hex maps for your Mythic Bastionland adventures. Each hex contains
+            unique terrain, encounters, and points of interest that bring the weird and wonderful
+            world to life.
+          </p>
+        </section>
+
+        <!-- React Island: Mythic Bastionland Realms Generator -->
+        <section class="map-section">
+          <div id="realms-root" data-island="mythic-bastionland-realms"></div>
+        </section>
+
+        <section class="info-section content-section">
+          <h2>About the Generator</h2>
+          <p>
+            This hex map generator creates random wilderness regions for Mythic Bastionland using
+            procedural generation algorithms. Each hex is populated with:
+          </p>
+          <ul>
+            <li><strong>Terrain Types:</strong> Forests, hills, swamps, plains, and more</li>
+            <li>
+              <strong>Encounters:</strong> Strange creatures and mysterious travelers from the
+              Realms
+            </li>
+            <li>
+              <strong>Points of Interest:</strong> Ruins, settlements, magical sites, and curious
+              landmarks
+            </li>
+            <li><strong>Resources:</strong> Food, water, shelter, and peculiar discoveries</li>
+          </ul>
+
+          <h3>Controls</h3>
+          <ul>
+            <li><strong>Generate Map:</strong> Create a new random hex map</li>
+            <li><strong>Click Hexes:</strong> View detailed information about each location</li>
+            <li><strong>Regenerate:</strong> Create a completely new map with different seed</li>
+            <li><strong>Export:</strong> Save your map for use in sessions</li>
+          </ul>
+
+          <h3>Hex Map System</h3>
+          <p>
+            Each hex represents approximately one day's travel (6 miles). The map uses a
+            point-topped hexagonal grid for easy navigation. Terrain features influence travel time,
+            encounter likelihood, and available resources.
+          </p>
+
+          <h3>Mythic Bastionland Setting</h3>
+          <p>
+            The Realms are a strange and wonderful place beyond the city of Bastionland. Ancient
+            ruins dot the landscape, mythic beasts roam the wilds, and reality itself bends in
+            unexpected ways. This generator captures that sense of wonder and weirdness.
+          </p>
+        </section>
+      </main>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p>
+          A procedural generation prototype for
+          <a href="https://www.bastionland.com/" target="_blank" rel="noopener"
+            >Mythic Bastionland</a
+          >
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>
