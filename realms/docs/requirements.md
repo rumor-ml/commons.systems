@@ -196,6 +196,14 @@ Rivers are **primary features** that influence terrain generation through lazy e
 
 **Contiguous Growth Model**: Rivers grow bidirectionally whenever a hex adjacent to an existing river edge is revealed. No frontier endpoint tracking needed—the river automatically propagates through the map as hexes are explored.
 
+**Hard Constraints**:
+
+1. **Vertex Endpoint Constraint**: Both endpoint vertices of the initial river segment must have ALL adjacent edges leading to unrevealed hexes.
+   - Each vertex has exactly 2 adjacent edges
+   - Both edges must lead to hexes NOT in `ctx.hexes` (unexplored/unrevealed)
+   - This ensures bidirectional growth potential from both endpoints
+   - If no valid vertex pairs meet this constraint, river initiation is skipped for this hex
+
 #### 5.1.3 River Extension Logic
 
 **When**: A hex is revealed
