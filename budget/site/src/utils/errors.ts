@@ -5,6 +5,8 @@
  * Error codes enable structured error handling and recovery strategies.
  */
 
+import { logger } from './logger.js';
+
 /**
  * Type-safe error codes for Budget module errors
  */
@@ -24,8 +26,10 @@ export type BudgetErrorCode =
  * location context (file, line, component), and extensibility via metadata.
  */
 export interface BudgetErrorContext {
-  // Error details
-  error?: Error | unknown;
+  // Error details - if provided, must be an Error instance
+  error?: Error;
+  // For non-Error values, use rawValue to capture unknown thrown values
+  rawValue?: unknown;
   stack?: string;
   componentStack?: string;
 
@@ -34,8 +38,8 @@ export interface BudgetErrorContext {
   line?: number;
   component?: string;
 
-  // Additional structured data (string, number, boolean, or null for serializability)
-  metadata?: Record<string, string | number | boolean | null>;
+  // Additional structured data (may contain complex objects, will be serialized with JSON.stringify)
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -50,8 +54,14 @@ export class BudgetError extends Error {
     public readonly code: BudgetErrorCode,
     public readonly context?: BudgetErrorContext
   ) {
-    // Ensure error messages are never empty
-    super(message.trim() || 'Unknown error');
+    const cleanMessage = message.trim();
+    if (cleanMessage.length === 0) {
+      throw new Error(
+        `BudgetError message cannot be empty (code: ${code}). ` +
+          'Provide a descriptive error message or use a default per error code.'
+      );
+    }
+    super(cleanMessage);
     this.name = 'BudgetError';
   }
 }
@@ -90,7 +100,7 @@ export function formatBudgetError(error: unknown, includeStack = false): string 
         parts.push(`\nContext: [Unable to serialize: ${errorMessage}]`);
 
         // Log serialization failure to track issues with context objects
-        console.warn('BudgetError context serialization failed:', {
+        logger.warn('BudgetError context serialization failed', {
           errorCode: error.code,
           errorMessage: error.message,
           stringifyError: errorMessage,

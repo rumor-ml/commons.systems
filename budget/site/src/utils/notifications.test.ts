@@ -3,7 +3,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { showNotification, showError, showWarning, showInfo, showSuccess } from './notifications';
+import {
+  showNotification,
+  showError,
+  showWarning,
+  showInfo,
+  showSuccess,
+  createAction,
+} from './notifications';
 import { logger } from './logger';
 
 // Mock logger module
@@ -443,20 +450,25 @@ describe('notifications', () => {
       });
     });
 
-    it('should throw when document.body is unavailable', () => {
+    it('should return no-op dismiss function when document.body is unavailable', () => {
       Object.defineProperty(document, 'body', {
         configurable: true,
         get: () => null,
       });
 
-      expect(() => {
-        showNotification({ message: 'Test', type: 'info' });
-      }).toThrow('Cannot show notification: DOM not ready');
+      const dismiss = showNotification({ message: 'Test', type: 'info' });
 
+      // Should return a function, not throw
+      expect(typeof dismiss).toBe('function');
+
+      // Should log error
       expect(logger.error).toHaveBeenCalledWith(
         expect.stringContaining('Cannot show notification'),
         expect.objectContaining({ message: 'Test', type: 'info' })
       );
+
+      // Calling dismiss should not throw
+      expect(() => dismiss()).not.toThrow();
     });
 
     it('should fallback to console.error for error notifications when body unavailable', () => {
@@ -466,10 +478,12 @@ describe('notifications', () => {
         get: () => null,
       });
 
-      expect(() => {
-        showNotification({ message: 'Critical error', type: 'error' });
-      }).toThrow('Cannot show notification: DOM not ready');
+      const dismiss = showNotification({ message: 'Critical error', type: 'error' });
 
+      // Should return no-op dismiss function instead of throwing
+      expect(typeof dismiss).toBe('function');
+
+      // Should fallback to console.error for critical errors
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Critical error'));
 
       consoleErrorSpy.mockRestore();
@@ -482,14 +496,62 @@ describe('notifications', () => {
         get: () => null,
       });
 
-      expect(() => {
-        showNotification({ message: 'Info message', type: 'info' });
-      }).toThrow('Cannot show notification: DOM not ready');
+      const dismiss = showNotification({ message: 'Info message', type: 'info' });
+
+      // Should return no-op dismiss function instead of throwing
+      expect(typeof dismiss).toBe('function');
 
       // console.error should only be called by logger, not as fallback
       expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Info message'));
 
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('createAction', () => {
+    it('should create action with trimmed label', () => {
+      const onClick = vi.fn();
+      const action = createAction('  Retry  ', onClick);
+
+      expect(action.label).toBe('Retry');
+      expect(action.onClick).toBe(onClick);
+    });
+
+    it('should throw error when label is empty string', () => {
+      const onClick = vi.fn();
+
+      expect(() => {
+        createAction('', onClick);
+      }).toThrow('Action label cannot be empty');
+    });
+
+    it('should throw error when label is whitespace only', () => {
+      const onClick = vi.fn();
+
+      expect(() => {
+        createAction('   ', onClick);
+      }).toThrow('Action label cannot be empty');
+    });
+
+    it('should accept sync onClick handler', () => {
+      const onClick = vi.fn();
+      const action = createAction('Test', onClick);
+
+      expect(typeof action.onClick).toBe('function');
+      action.onClick();
+      expect(onClick).toHaveBeenCalled();
+    });
+
+    it('should accept async onClick handler', async () => {
+      const onClick = vi.fn(async () => {
+        return Promise.resolve();
+      });
+      const action = createAction('Test', onClick);
+
+      const result = action.onClick();
+      expect(result instanceof Promise).toBe(true);
+      await result;
+      expect(onClick).toHaveBeenCalled();
     });
   });
 
@@ -537,6 +599,75 @@ describe('notifications', () => {
 
       // Verify banner was indeed removed
       expect(document.querySelector('.fixed')).toBeNull();
+    });
+  });
+
+  describe('async action error handling edge cases', () => {
+    let originalBody: HTMLElement;
+
+    beforeEach(() => {
+      originalBody = document.body;
+    });
+
+    afterEach(() => {
+      Object.defineProperty(document, 'body', {
+        configurable: true,
+        get: () => originalBody,
+      });
+    });
+
+    it('should fallback to console.error when showError fails in async action error handler', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const failingAction = vi.fn().mockRejectedValue(new Error('Action failed'));
+
+      // Create notification with body available
+      showNotification({
+        message: 'Test',
+        type: 'info',
+        action: { label: 'Do Thing', onClick: failingAction },
+      });
+
+      const actionBtn = Array.from(document.querySelectorAll('button')).find(
+        (btn) => btn.textContent === 'Do Thing'
+      );
+
+      expect(actionBtn).not.toBeNull();
+
+      // Make body unavailable before clicking action to cause showError to fail
+      Object.defineProperty(document, 'body', {
+        configurable: true,
+        get: () => null,
+      });
+
+      actionBtn?.click();
+
+      // Wait for async handler to complete
+      await vi.waitFor(() => {
+        expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to do thing'));
+      });
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('banner removal fallback', () => {
+    it('should use removeChild fallback when remove() fails', () => {
+      const dismiss = showNotification({ message: 'Test', type: 'info' });
+      const banner = document.querySelector('.fixed') as HTMLElement;
+
+      // Mock remove() to fail
+      banner.remove = vi.fn().mockImplementation(() => {
+        throw new Error('remove() not supported');
+      });
+
+      dismiss();
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to remove notification banner'),
+        expect.any(Object)
+      );
+      expect(document.querySelector('.fixed')).toBeNull(); // Banner removed via fallback
     });
   });
 });

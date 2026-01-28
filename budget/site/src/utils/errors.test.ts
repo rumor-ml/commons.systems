@@ -46,9 +46,10 @@ describe('BudgetError', () => {
     });
   });
 
-  it('should handle empty message by using default', () => {
-    const error = new BudgetError('', 'DATA_VALIDATION');
-    expect(error.message).toBe('Unknown error');
+  it('should throw on empty message', () => {
+    expect(() => new BudgetError('', 'DATA_VALIDATION')).toThrow(
+      'BudgetError message cannot be empty'
+    );
   });
 
   it('should trim whitespace from message', () => {
@@ -56,9 +57,22 @@ describe('BudgetError', () => {
     expect(error.message).toBe('Test error');
   });
 
-  it('should handle whitespace-only message', () => {
-    const error = new BudgetError('   ', 'DATA_VALIDATION');
-    expect(error.message).toBe('Unknown error');
+  it('should throw on whitespace-only message', () => {
+    expect(() => new BudgetError('   ', 'DATA_VALIDATION')).toThrow(
+      'BudgetError message cannot be empty'
+    );
+  });
+
+  it('should construct BudgetError with Error instance in context', () => {
+    const innerError = new Error('Inner failure');
+    const error = new BudgetError('Outer failure', 'UNEXPECTED', {
+      error: innerError,
+      metadata: { userId: 123 },
+    });
+
+    expect(error.context?.error).toBe(innerError);
+    expect(error.context?.metadata?.userId).toBe(123);
+    expect(() => formatBudgetError(error)).not.toThrow();
   });
 });
 
@@ -175,8 +189,10 @@ describe('formatBudgetError', () => {
     circular.self = circular;
 
     const error = new BudgetError('Test error', 'DATA_VALIDATION', {
-      circular,
-      nested: { ref: circular },
+      metadata: {
+        circular,
+        nested: { ref: circular },
+      },
     });
 
     // Should not throw when formatting
@@ -193,7 +209,9 @@ describe('formatBudgetError', () => {
     const innerError = new Error('Inner error');
     const error = new BudgetError('Outer error', 'UNEXPECTED', {
       error: innerError,
-      errorMessage: innerError.message,
+      metadata: {
+        errorMessage: innerError.message,
+      },
     });
 
     expect(() => formatBudgetError(error)).not.toThrow();

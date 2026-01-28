@@ -9,16 +9,53 @@ import { logger } from './logger';
 
 export type NotificationType = 'error' | 'warning' | 'info' | 'success';
 
+/**
+ * Configuration for notification action button
+ *
+ * For type safety, use createAction() factory function to ensure label is non-empty
+ */
 export interface ActionConfig {
   label: string;
   onClick: () => void | Promise<void>;
 }
 
+/**
+ * Factory function to create a validated ActionConfig
+ * Ensures label is non-empty and trimmed
+ *
+ * @param label - Action button label (will be trimmed)
+ * @param onClick - Click handler (sync or async)
+ * @returns Validated ActionConfig
+ * @throws Error if label is empty or whitespace-only
+ */
+export function createAction(label: string, onClick: () => void | Promise<void>): ActionConfig {
+  const trimmed = label.trim();
+  if (trimmed.length === 0) {
+    throw new Error('Action label cannot be empty');
+  }
+  return { label: trimmed, onClick };
+}
+
 export interface NotificationConfig {
   message: string;
   type: NotificationType;
-  autoDismiss?: boolean; // If true, auto-dismiss after 10s. Default: true for info/success/warning, false for error
+  autoDismiss?: boolean; // If true, auto-dismiss after 10s. Default: true for all types except 'error' (which defaults to false)
   action?: ActionConfig;
+}
+
+/**
+ * Handle errors from notification action callbacks
+ * Extracted to avoid duplication between sync and async error paths
+ */
+function handleActionError(error: unknown, actionLabel: string, dismiss: () => void): void {
+  logger.error(`Notification action "${actionLabel}" failed`, error);
+  dismiss();
+  try {
+    showError(`Failed to ${actionLabel.toLowerCase()}. Please try again.`);
+  } catch (notificationError) {
+    // Fallback if showError throws (e.g., DOM not ready)
+    console.error(`Failed to ${actionLabel.toLowerCase()}:`, error);
+  }
 }
 
 /**
@@ -37,9 +74,14 @@ export function showNotification(config: NotificationConfig): () => void {
   if (!document.body) {
     logger.error('Cannot show notification: document.body not available', { message, type });
     if (type === 'error') {
+      // Fallback to console for critical errors
       console.error(`[NOTIFICATION ERROR] ${message}`);
     }
-    throw new Error('Cannot show notification: DOM not ready');
+    // Return no-op dismiss function instead of throwing
+    // This prevents cascade failures in error handlers
+    return () => {
+      logger.debug('No-op dismiss called for notification that was never shown');
+    };
   }
 
   // Create banner element
@@ -86,27 +128,13 @@ export function showNotification(config: NotificationConfig): () => void {
               dismiss();
             })
             .catch((error) => {
-              logger.error(`Notification action "${action.label}" failed`, error);
-              dismiss();
-              try {
-                showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
-              } catch (notificationError) {
-                // Fallback if showError throws (e.g., DOM not ready)
-                console.error(`Failed to ${action.label.toLowerCase()}:`, error);
-              }
+              handleActionError(error, action.label, dismiss);
             });
         } else {
           dismiss();
         }
       } catch (error) {
-        logger.error(`Notification action "${action.label}" failed`, error);
-        dismiss();
-        try {
-          showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
-        } catch (notificationError) {
-          // Fallback if showError throws (e.g., DOM not ready)
-          console.error(`Failed to ${action.label.toLowerCase()}:`, error);
-        }
+        handleActionError(error, action.label, dismiss);
       }
     };
     container.appendChild(actionBtn);

@@ -10,6 +10,16 @@ import { DateRangeSelector } from './DateRangeSelector';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { logger } from '../utils/logger';
 
+/**
+ * Extract error message and stack from unknown error type
+ */
+function extractErrorInfo(error: unknown): { message: string; stack?: string } {
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  };
+}
+
 const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetChart,
   Legend,
@@ -46,13 +56,13 @@ function showErrorInContainer(element: HTMLElement, title: string, message: stri
       elementId: element.id,
       elementTag: element.tagName,
     });
-    // Final fallback: at least get the error into the console
     console.error(`[CRITICAL] Cannot display error UI: ${title} - ${message}`, domError);
-    // Try minimal text-only fallback
+
+    // Single text-only fallback
     try {
       element.textContent = `ERROR: ${title} - ${message}`;
     } catch (textError) {
-      logger.error('Even text fallback failed', textError);
+      logger.error('All error display mechanisms failed', { domError, textError, title, message });
     }
   }
 }
@@ -103,8 +113,7 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
         root = createRoot(element);
         roots.set(element, root);
       } catch (rootError) {
-        const errorMessage = rootError instanceof Error ? rootError.message : String(rootError);
-        const errorStack = rootError instanceof Error ? rootError.stack : undefined;
+        const { message: errorMessage, stack: errorStack } = extractErrorInfo(rootError);
         logger.error(`Failed to create React root for "${componentName}"`, {
           error: errorMessage,
           stack: errorStack,
@@ -115,8 +124,8 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       }
     }
 
-    // Wrap component in ErrorBoundary to catch React render/lifecycle errors
-    // Pre-React errors (props parsing, component lookup, root creation) are caught by surrounding try-catch
+    // Wrap component in ErrorBoundary to catch React render/lifecycle errors after initial hydration.
+    // Initial hydration errors (props parsing, component lookup, root creation, first render) are caught by the surrounding try-catch.
     const wrappedComponent = React.createElement(
       ErrorBoundary,
       { componentName },
@@ -128,8 +137,7 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       root.render(wrappedComponent);
       element.dataset.islandHydrated = 'true';
     } catch (renderError) {
-      const errorMessage = renderError instanceof Error ? renderError.message : String(renderError);
-      const errorStack = renderError instanceof Error ? renderError.stack : undefined;
+      const { message: errorMessage, stack: errorStack } = extractErrorInfo(renderError);
       logger.error(`Failed to render component "${componentName}"`, {
         error: errorMessage,
         stack: errorStack,
@@ -139,17 +147,19 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       throw new Error(`Failed to render component: ${errorMessage}`);
     }
   } catch (error) {
+    const { message, stack } = extractErrorInfo(error);
+
     logger.error(`Failed to hydrate island "${componentName}"`, {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: message,
+      stack,
       elementId: element.id,
       elementClasses: element.className,
     });
 
     showErrorInContainer(
       element,
-      `Failed to render ${componentName}`,
-      'There was an error rendering this component. Try refreshing the page.'
+      `Failed to load ${componentName}`,
+      'There was an error loading this component. Try refreshing the page.'
     );
   }
 }

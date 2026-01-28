@@ -58,7 +58,7 @@ export function Legend({
   }
 
   // Calculate category summaries from transactions
-  const categorySummaries = useMemo(() => {
+  const categorySummaries = useMemo((): CategorySummary[] | null => {
     // Guard clause: validate transactions prop
     if (!transactions || !Array.isArray(transactions)) {
       // Error logging added for existing validation. #1458 tracks additional error handling improvements
@@ -66,8 +66,8 @@ export function Legend({
         transactions: typeof transactions,
         isArray: Array.isArray(transactions),
       });
-      // TODO(#1540): Add user-visible error state when transactions are invalid
-      return [];
+      // Return null to signal validation error to UI layer
+      return null;
     }
 
     // TODO(#1458): Add comprehensive error handling for transaction validation and calculations
@@ -96,166 +96,179 @@ export function Legend({
     <div className="p-6 bg-bg-elevated rounded-lg shadow-lg">
       <h3 className="text-xl font-semibold mb-4 text-text-primary">Filters</h3>
 
+      {/* Error state for invalid transactions */}
+      {categorySummaries === null && (
+        <div className="p-4 bg-error/10 border border-error/30 rounded">
+          <p className="text-error text-sm">
+            Unable to display transaction summary. Invalid data received.
+          </p>
+        </div>
+      )}
+
       {/* Vacation Toggle */}
-      <div className="mb-6 pb-6 border-b border-bg-hover">
-        <label className="flex items-center gap-3 cursor-pointer hover:bg-bg-hover p-2 rounded transition-colors">
-          <input
-            type="checkbox"
-            checked={showVacation}
-            onChange={handleVacationToggle}
-            className="w-5 h-5 rounded border-2 border-primary text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-elevated cursor-pointer"
-          />
-          <span className="text-text-primary font-medium">Show Vacation Expenses</span>
-        </label>
-      </div>
-
-      {/* Category Summary */}
-      <div className="space-y-2">
-        <h4 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
-          Categories (click to toggle)
-        </h4>
-        {visibleIndicators.length > 0 && (
-          <div className="mb-3 px-3 py-2 bg-primary/10 border border-primary/30 rounded text-xs text-secondary">
-            📊 Grouped view: Showing {visibleIndicators.length} category comparison
-            {visibleIndicators.length > 1 ? 's' : ''}
+      {categorySummaries !== null && (
+        <>
+          <div className="mb-6 pb-6 border-b border-bg-hover">
+            <label className="flex items-center gap-3 cursor-pointer hover:bg-bg-hover p-2 rounded transition-colors">
+              <input
+                type="checkbox"
+                checked={showVacation}
+                onChange={handleVacationToggle}
+                className="w-5 h-5 rounded border-2 border-primary text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-elevated cursor-pointer"
+              />
+              <span className="text-text-primary font-medium">Show Vacation Expenses</span>
+            </label>
           </div>
-        )}
-        {categorySummaries.length > 0 ? (
-          categorySummaries.map(({ category, total, count }) => {
-            const isHidden = hiddenCategories.includes(category);
-            const budget = budgetPlan?.categoryBudgets[category];
-            const weeklyBudget = budget?.weeklyTarget || 0;
-            const hasRollover = budget?.rolloverEnabled || false;
-            const isIndicatorVisible = visibleIndicators.includes(category);
 
-            return (
-              <div
-                key={category}
-                className={`p-3 rounded-lg legend-category-row ${isHidden ? 'legend-category-hidden' : ''}`}
-                style={{
-                  backgroundColor: CATEGORY_COLORS[category],
-                }}
-              >
-                <div className="flex items-center justify-between">
+          {/* Category Summary */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
+              Categories (click to toggle)
+            </h4>
+            {visibleIndicators.length > 0 && (
+              <div className="mb-3 px-3 py-2 bg-primary/10 border border-primary/30 rounded text-xs text-secondary">
+                📊 Grouped view: Showing {visibleIndicators.length} category comparison
+                {visibleIndicators.length > 1 ? 's' : ''}
+              </div>
+            )}
+            {categorySummaries.length > 0 ? (
+              categorySummaries.map(({ category, total, count }) => {
+                const isHidden = hiddenCategories.includes(category);
+                const budget = budgetPlan?.categoryBudgets[category];
+                const weeklyBudget = budget?.weeklyTarget || 0;
+                const hasRollover = budget?.rolloverEnabled || false;
+                const isIndicatorVisible = visibleIndicators.includes(category);
+
+                return (
                   <div
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleCategoryToggle(category);
-                      }
+                    key={category}
+                    className={`p-3 rounded-lg legend-category-row ${isHidden ? 'legend-category-hidden' : ''}`}
+                    style={{
+                      backgroundColor: CATEGORY_COLORS[category],
                     }}
-                    onClick={() => handleCategoryToggle(category)}
-                    className="flex items-center gap-2 cursor-pointer flex-1"
                   >
-                    <span className="text-sm text-white font-medium">
-                      {CATEGORY_LABELS[category]}
-                    </span>
-                    {hasRollover && <span className="text-xs text-white">🔄</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <div className="text-sm text-white font-semibold">
-                        ${formatCurrency(total)}
+                    <div className="flex items-center justify-between">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleCategoryToggle(category);
+                          }
+                        }}
+                        onClick={() => handleCategoryToggle(category)}
+                        className="flex items-center gap-2 cursor-pointer flex-1"
+                      >
+                        <span className="text-sm text-white font-medium">
+                          {CATEGORY_LABELS[category]}
+                        </span>
+                        {hasRollover && <span className="text-xs text-white">🔄</span>}
                       </div>
-                      <div className="text-xs text-white opacity-90">{count} txns</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <div className="text-sm text-white font-semibold">
+                            ${formatCurrency(total)}
+                          </div>
+                          <div className="text-xs text-white opacity-90">{count} txns</div>
+                        </div>
+                        {budget && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleIndicatorToggle(category);
+                            }}
+                            className={`btn btn-sm ${isIndicatorVisible ? 'btn-primary' : 'btn-ghost-visible'}`}
+                            title={`Toggle budget indicator line for ${CATEGORY_LABELS[category]}`}
+                            aria-label={`${isIndicatorVisible ? 'Hide' : 'Show'} budget indicator for ${CATEGORY_LABELS[category]}`}
+                            aria-pressed={isIndicatorVisible}
+                          >
+                            📊
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {budget && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleIndicatorToggle(category);
-                        }}
-                        className={`btn btn-sm ${isIndicatorVisible ? 'btn-primary' : 'btn-ghost-visible'}`}
-                        title={`Toggle budget indicator line for ${CATEGORY_LABELS[category]}`}
-                        aria-label={`${isIndicatorVisible ? 'Hide' : 'Show'} budget indicator for ${CATEGORY_LABELS[category]}`}
-                        aria-pressed={isIndicatorVisible}
-                      >
-                        📊
-                      </button>
+                      <div className="mt-2 text-xs text-white opacity-90">
+                        Weekly budget: ${formatCurrency(weeklyBudget)} | Balance: $
+                        {formatCurrency(weeklyBudget - total)}
+                      </div>
                     )}
                   </div>
-                </div>
-                {budget && (
-                  <div className="mt-2 text-xs text-white opacity-90">
-                    Weekly budget: ${formatCurrency(weeklyBudget)} | Balance: $
-                    {formatCurrency(weeklyBudget - total)}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        ) : (
-          <p className="text-sm text-text-tertiary">No transactions to display</p>
-        )}
-      </div>
-
-      {/* Legend for indicators */}
-      <div className="mt-6 pt-6 border-t border-bg-hover">
-        <h4 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
-          Indicators
-        </h4>
-        <div className="space-y-3">
-          {/* Net Income Toggle */}
-          <label className="flex items-center gap-3 cursor-pointer hover:bg-bg-hover p-2 rounded transition-colors">
-            <input
-              type="checkbox"
-              checked={showNetIncomeIndicator}
-              onChange={handleNetIncomeToggle}
-              className="w-4 h-4 rounded border-2 border-primary text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-elevated cursor-pointer"
-            />
-            <div className="flex items-center gap-2 flex-1">
-              <div className="w-8 h-0.5 bg-primary"></div>
-              <span className="text-sm text-text-secondary">Net Income</span>
-            </div>
-          </label>
-
-          <div className="flex items-center gap-3 pl-2">
-            <div
-              className="w-8 h-0.5 bg-primary opacity-70"
-              style={{
-                backgroundImage:
-                  'repeating-linear-gradient(to right, #00d4ed 0, #00d4ed 5px, transparent 5px, transparent 10px)',
-              }}
-            ></div>
-            <span className="text-sm text-text-secondary">3-Month Avg</span>
+                );
+              })
+            ) : (
+              <p className="text-sm text-text-tertiary">No transactions to display</p>
+            )}
           </div>
 
-          {/* Line type legend for budget indicators */}
-          {hasBudgetPlan && (
-            <>
-              <div className="text-xs text-text-tertiary uppercase tracking-wide mt-4 mb-2">
-                Budget Lines
-              </div>
-              <div className="flex items-center gap-3 pl-2">
-                <div className="w-8 h-0.5 bg-text-secondary"></div>
-                <span className="text-xs text-text-tertiary">Actual Spending</span>
-              </div>
+          {/* Legend for indicators */}
+          <div className="mt-6 pt-6 border-t border-bg-hover">
+            <h4 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
+              Indicators
+            </h4>
+            <div className="space-y-3">
+              {/* Net Income Toggle */}
+              <label className="flex items-center gap-3 cursor-pointer hover:bg-bg-hover p-2 rounded transition-colors">
+                <input
+                  type="checkbox"
+                  checked={showNetIncomeIndicator}
+                  onChange={handleNetIncomeToggle}
+                  className="w-4 h-4 rounded border-2 border-primary text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-bg-elevated cursor-pointer"
+                />
+                <div className="flex items-center gap-2 flex-1">
+                  <div className="w-8 h-0.5 bg-primary"></div>
+                  <span className="text-sm text-text-secondary">Net Income</span>
+                </div>
+              </label>
+
               <div className="flex items-center gap-3 pl-2">
                 <div
-                  className="w-8 h-0.5 bg-text-secondary opacity-70"
+                  className="w-8 h-0.5 bg-primary opacity-70"
                   style={{
                     backgroundImage:
-                      'repeating-linear-gradient(to right, currentColor 0, currentColor 5px, transparent 5px, transparent 10px)',
+                      'repeating-linear-gradient(to right, #00d4ed 0, #00d4ed 5px, transparent 5px, transparent 10px)',
                   }}
                 ></div>
-                <span className="text-xs text-text-tertiary">3-Period Trailing Avg</span>
+                <span className="text-sm text-text-secondary">3-Month Avg</span>
               </div>
-              <div className="flex items-center gap-3 pl-2">
-                <div
-                  className="w-8 h-0.5 bg-text-secondary opacity-50"
-                  style={{
-                    backgroundImage:
-                      'repeating-linear-gradient(to right, currentColor 0, currentColor 2px, transparent 2px, transparent 5px)',
-                  }}
-                ></div>
-                <span className="text-xs text-text-tertiary">Budget Target</span>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+
+              {/* Line type legend for budget indicators */}
+              {hasBudgetPlan && (
+                <>
+                  <div className="text-xs text-text-tertiary uppercase tracking-wide mt-4 mb-2">
+                    Budget Lines
+                  </div>
+                  <div className="flex items-center gap-3 pl-2">
+                    <div className="w-8 h-0.5 bg-text-secondary"></div>
+                    <span className="text-xs text-text-tertiary">Actual Spending</span>
+                  </div>
+                  <div className="flex items-center gap-3 pl-2">
+                    <div
+                      className="w-8 h-0.5 bg-text-secondary opacity-70"
+                      style={{
+                        backgroundImage:
+                          'repeating-linear-gradient(to right, currentColor 0, currentColor 5px, transparent 5px, transparent 10px)',
+                      }}
+                    ></div>
+                    <span className="text-xs text-text-tertiary">3-Period Trailing Avg</span>
+                  </div>
+                  <div className="flex items-center gap-3 pl-2">
+                    <div
+                      className="w-8 h-0.5 bg-text-secondary opacity-50"
+                      style={{
+                        backgroundImage:
+                          'repeating-linear-gradient(to right, currentColor 0, currentColor 2px, transparent 2px, transparent 5px)',
+                      }}
+                    ></div>
+                    <span className="text-xs text-text-tertiary">Budget Target</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

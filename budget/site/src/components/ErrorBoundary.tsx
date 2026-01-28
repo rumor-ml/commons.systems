@@ -2,7 +2,7 @@
  * React Error Boundary for Budget module islands
  *
  * Catches render errors in child component tree and displays fallback UI.
- * Logs errors via structured logger. Includes stack traces for Error instances
+ * Logs errors via structured logger. Includes stack traces when available (with fallback)
  * and React component stack for all errors.
  * Fallback UI matches BudgetChart error styling for consistency.
  */
@@ -15,8 +15,7 @@ interface ErrorBoundaryProps {
   children: React.ReactNode;
   /**
    * Display name for the component in error messages.
-   * Should be a meaningful non-empty string.
-   * Defaults to "Unknown Component" if not provided.
+   * Defaults to "Unknown Component" if not provided or empty.
    */
   componentName?: string;
 }
@@ -31,10 +30,15 @@ type ErrorBoundaryState =
       error: Error;
     };
 
+const INITIAL_ERROR_BOUNDARY_STATE: ErrorBoundaryState = {
+  hasError: false,
+  error: null,
+};
+
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = INITIAL_ERROR_BOUNDARY_STATE;
   }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
@@ -42,7 +46,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    const componentName = this.props.componentName || 'Unknown Component';
+    const componentName = (this.props.componentName || '').trim() || 'Unknown Component';
 
     logger.error(`Error in ${componentName}:`, {
       error: error.message,
@@ -55,32 +59,31 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     try {
       window.location.reload();
     } catch (error) {
-      logger.error('Failed to reload page', error);
-      // Fallback: try to navigate to current URL
-      try {
-        window.location.href = window.location.href;
-      } catch (fallbackError) {
-        logger.error('Failed to navigate to current URL', fallbackError);
-        logger.error('All page refresh mechanisms failed', {
-          reloadError: error,
-          navigateError: fallbackError,
-          userAgent: navigator.userAgent,
-          pageUrl: window.location.href,
-        });
-        alert(
-          'Unable to refresh the page automatically. Please refresh manually using your browser (Ctrl+R or Cmd+R).'
-        );
-      }
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.error('Failed to reload page', {
+        error: errorMsg,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+
+      // Provide actionable guidance in alert
+      const alertMessage =
+        'Unable to refresh the page automatically. This may be caused by browser security settings, extensions, or private browsing mode.\n\n' +
+        'Please try:\n' +
+        '1. Manual refresh (Ctrl+R or Cmd+R)\n' +
+        '2. Disable browser extensions and try again\n' +
+        '3. Check if private/incognito mode is interfering\n\n' +
+        `Technical details: ${errorMsg}`;
+      alert(alertMessage);
     }
   };
 
   handleReset = (): void => {
-    this.setState({ hasError: false, error: null });
+    this.setState(INITIAL_ERROR_BOUNDARY_STATE);
   };
 
   render(): React.ReactNode {
     if (this.state.hasError) {
-      const componentName = this.props.componentName || 'Component';
+      const componentName = (this.props.componentName || '').trim() || 'Component';
       const errorMessage = this.state.error.message || 'An unexpected error occurred';
       const formattedError = formatBudgetError(this.state.error, true);
 

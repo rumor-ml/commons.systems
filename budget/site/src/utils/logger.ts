@@ -4,6 +4,8 @@
  * Provides structured logging with level filtering and browser console output.
  * Uses console.error/warn/info/log for native browser devtools filtering.
  * This allows developers to filter logs by severity in DevTools without custom parsing.
+ * For example, DevTools can show only console.error() calls when 'Errors' filter is selected,
+ * which would not work if all logs used console.log() with severity prefixes.
  * Alternative approaches (single console method with styled prefixes) lose native filtering.
  * Log level is configurable via localStorage BUDGET_LOG_LEVEL.
  */
@@ -34,10 +36,16 @@ export class Logger {
       // localStorage access denied in restricted context - use default
       this.localStorageAvailable = false;
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.warn(
-        'Failed to read log level from localStorage, using default WARN level:',
-        errorMsg
-      );
+
+      // Note: Using console.warn directly here is intentional - logger can't use itself during construction
+      // Only warn once per window to avoid duplicate warnings if Logger is instantiated multiple times
+      if (typeof window !== 'undefined' && !(window as any).__budgetLoggerInitWarned) {
+        console.warn(
+          '[Logger Init] Failed to read log level from localStorage, using default WARN level:',
+          errorMsg
+        );
+        (window as any).__budgetLoggerInitWarned = true;
+      }
       return LogLevel.WARN;
     }
 
@@ -67,8 +75,32 @@ export class Logger {
         localStorage.setItem('BUDGET_LOG_LEVEL', LogLevel[level]);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
+        // Note: Using console.warn directly is intentional - avoids infinite recursion if logger.warn fails
         console.warn('Failed to persist log level to localStorage:', errorMsg);
+        // Mark localStorage as unavailable to prevent repeated failure attempts
+        this.localStorageAvailable = false;
       }
+    }
+  }
+
+  /**
+   * Re-check localStorage availability and sync level from storage if available.
+   * Useful if localStorage becomes available after initialization (e.g., permission changes).
+   * Also synchronizes with external changes made by other tabs or scripts.
+   */
+  public syncFromStorage(): void {
+    try {
+      const storedLevel = localStorage.getItem('BUDGET_LOG_LEVEL')?.toUpperCase() ?? null;
+      this.localStorageAvailable = true;
+
+      if (storedLevel) {
+        const parsed = LogLevel[storedLevel as keyof typeof LogLevel];
+        if (typeof parsed === 'number' && parsed >= LogLevel.ERROR && parsed <= LogLevel.DEBUG) {
+          this.level = parsed;
+        }
+      }
+    } catch (error) {
+      this.localStorageAvailable = false;
     }
   }
 
@@ -89,8 +121,9 @@ export class Logger {
     // This enables native browser devtools filtering
     switch (level) {
       case LogLevel.ERROR:
-        // Auto-capture stack trace when data is undefined
-        // Pass null or empty object to skip stack capture if needed
+        // Auto-capture stack trace when data is undefined (convenience for simple error logs).
+        // If you call logger.error() without a data argument, we automatically capture the stack
+        // because you probably want debugging info. To skip stack capture, explicitly pass null or an empty object.
         if (data !== undefined) {
           console.error(logMessage, data);
         } else {

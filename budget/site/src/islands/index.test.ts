@@ -278,7 +278,7 @@ describe('hydrateIsland', () => {
       );
 
       // Should show error UI to user
-      expect(element.textContent).toContain('Failed to render BudgetChart');
+      expect(element.textContent).toContain('Failed to load BudgetChart');
       expect(element.querySelector('.bg-error')).toBeTruthy();
     });
 
@@ -321,6 +321,37 @@ describe('hydrateIsland', () => {
 
       // The component should render successfully, which proves ErrorBoundary is working
       expect(element.dataset.islandHydrated).toBe('true');
+    });
+
+    it('should verify ErrorBoundary wrapping structure in hydrateIsland', () => {
+      // This test verifies that hydrateIsland correctly wraps components with ErrorBoundary
+      // by inspecting the React element structure passed to root.render()
+      //
+      // NOTE: Full integration testing of ErrorBoundary error catching is done in
+      // src/components/ErrorBoundary.test.tsx, which uses @testing-library/react
+      // and properly handles React's error boundary lifecycle.
+
+      hydrateIsland(element, 'BudgetChart');
+
+      // Verify that root.render was called
+      expect(mockRoot.render).toHaveBeenCalled();
+
+      // Get the React element that was rendered
+      const renderedElement = mockRoot.render.mock.calls[0][0];
+
+      // Verify the structure: ErrorBoundary wrapping BudgetChart
+      expect(renderedElement).toBeDefined();
+      expect(renderedElement.type).toBeDefined();
+
+      // The rendered element should have ErrorBoundary as the outer type
+      // (In the mock, it's the mocked ErrorBoundary component)
+      expect(renderedElement.props).toHaveProperty('componentName', 'BudgetChart');
+      expect(renderedElement.props).toHaveProperty('children');
+
+      // Verify the child is the actual component
+      const childElement = renderedElement.props.children;
+      expect(childElement).toBeDefined();
+      expect(childElement.type).toBeDefined();
     });
   });
 
@@ -366,7 +397,7 @@ describe('hydrateIsland', () => {
       );
 
       // Should show error UI
-      expect(element.textContent).toContain('Failed to render BudgetChart');
+      expect(element.textContent).toContain('Failed to load BudgetChart');
     });
 
     it('should handle non-Error render failures', () => {
@@ -479,10 +510,24 @@ describe('hydrateIsland', () => {
 
       // Should log both errors
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to show error in container'),
-        expect.anything()
+        'Failed to show error in container (DOM manipulation failed)',
+        expect.objectContaining({
+          elementId: element.id,
+          elementTag: 'DIV',
+          error: expect.any(Error),
+          message: expect.any(String),
+          title: expect.any(String),
+        })
       );
-      expect(logger.error).toHaveBeenCalledWith('Even text fallback failed', expect.any(Error));
+      expect(logger.error).toHaveBeenCalledWith(
+        'All error display mechanisms failed',
+        expect.objectContaining({
+          domError: expect.any(Error),
+          textError: expect.any(Error),
+          message: expect.any(String),
+          title: expect.any(String),
+        })
+      );
 
       // Restore
       element.appendChild = originalAppendChild;

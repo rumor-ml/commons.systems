@@ -130,24 +130,18 @@ describe('ErrorBoundary', () => {
     expect(reloadMock).toHaveBeenCalled();
   });
 
-  it('should fallback to location.href when reload fails', async () => {
+  it('should show alert when reload fails', async () => {
     const user = userEvent.setup();
+    const alertMock = vi.fn();
+    global.alert = alertMock;
     const reloadMock = vi.fn(() => {
       throw new Error('SecurityError: reload not allowed');
     });
-    const hrefSetter = vi.fn();
-    let currentHref = 'http://test.com';
 
     Object.defineProperty(window, 'location', {
       value: {
         reload: reloadMock,
-        get href() {
-          return currentHref;
-        },
-        set href(url) {
-          currentHref = url;
-          hrefSetter(url);
-        },
+        href: 'http://test.com',
       },
       writable: true,
       configurable: true,
@@ -165,66 +159,13 @@ describe('ErrorBoundary', () => {
     expect(reloadMock).toHaveBeenCalled();
     expect(loggerModule.logger.error).toHaveBeenCalledWith(
       'Failed to reload page',
-      expect.any(Error)
-    );
-    expect(hrefSetter).toHaveBeenCalledWith('http://test.com');
-  });
-
-  it('should show alert when all refresh methods fail', async () => {
-    const user = userEvent.setup();
-    const alertMock = vi.fn();
-    global.alert = alertMock;
-    const reloadMock = vi.fn(() => {
-      throw new Error('Reload failed');
-    });
-    const hrefSetter = vi.fn(() => {
-      throw new Error('Navigation blocked');
-    });
-    let currentHref = 'http://test.com';
-
-    Object.defineProperty(window, 'location', {
-      value: {
-        reload: reloadMock,
-        get href() {
-          return currentHref;
-        },
-        set href(url) {
-          hrefSetter(url);
-          throw new Error('Navigation blocked');
-        },
-      },
-      writable: true,
-      configurable: true,
-    });
-
-    render(
-      <ErrorBoundary>
-        <ThrowError />
-      </ErrorBoundary>
-    );
-
-    // Clear any errors from initial render
-    vi.clearAllMocks();
-
-    const refreshBtn = screen.getByRole('button', { name: /refresh page/i });
-    await user.click(refreshBtn);
-
-    expect(alertMock).toHaveBeenCalledWith(expect.stringContaining('refresh manually'));
-    expect(loggerModule.logger.error).toHaveBeenCalledTimes(3);
-    expect(loggerModule.logger.error).toHaveBeenCalledWith(
-      'Failed to reload page',
-      expect.any(Error)
-    );
-    expect(loggerModule.logger.error).toHaveBeenCalledWith(
-      'Failed to navigate to current URL',
-      expect.any(Error)
-    );
-    expect(loggerModule.logger.error).toHaveBeenCalledWith(
-      'All page refresh mechanisms failed',
       expect.objectContaining({
-        reloadError: expect.any(Error),
-        navigateError: expect.any(Error),
+        error: expect.any(String),
+        stack: expect.any(String),
       })
+    );
+    expect(alertMock).toHaveBeenCalledWith(
+      expect.stringContaining('Unable to refresh the page automatically')
     );
   });
 

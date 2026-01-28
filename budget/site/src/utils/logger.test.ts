@@ -131,9 +131,9 @@ describe('Logger', () => {
       logger.info('info');
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-      // Note: console.warn is called 3 times - twice from the two Logger() constructions
-      // (lines 124, 126) and once by the logger.warn() call (line 130)
-      expect(consoleWarnSpy).toHaveBeenCalledTimes(3);
+      // Note: console.warn is called 2 times - once from the first Logger() construction
+      // (line 124, deduplicated for line 126) and once by the logger.warn() call (line 130)
+      expect(consoleWarnSpy).toHaveBeenCalledTimes(2);
       expect(consoleInfoSpy).not.toHaveBeenCalled();
 
       getItemSpy.mockRestore();
@@ -260,5 +260,180 @@ describe('Logger', () => {
     });
 
     // TODO(#1542): Consider testing Logger with very large data objects
+  });
+
+  describe('setLevel()', () => {
+    it('should persist log level to localStorage', () => {
+      const setItemSpy = vi.spyOn(localStorage, 'setItem');
+      const logger = new Logger();
+
+      logger.setLevel(LogLevel.DEBUG);
+
+      expect(setItemSpy).toHaveBeenCalledWith('BUDGET_LOG_LEVEL', 'DEBUG');
+      expect(logger.getLevel()).toBe(LogLevel.DEBUG);
+
+      setItemSpy.mockRestore();
+    });
+
+    it('should handle localStorage write errors gracefully', () => {
+      const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+        throw new Error('QuotaExceededError');
+      });
+
+      const logger = new Logger();
+      logger.setLevel(LogLevel.DEBUG);
+
+      // Should not throw
+      expect(logger.getLevel()).toBe(LogLevel.DEBUG); // Level set in memory
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to persist log level'),
+        expect.stringContaining('QuotaExceededError')
+      );
+
+      setItemSpy.mockRestore();
+    });
+
+    it('should reject invalid log level values', () => {
+      const logger = new Logger();
+      const originalLevel = logger.getLevel();
+
+      logger.setLevel(-1 as LogLevel);
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'Invalid log level -1, keeping current level WARN'
+      );
+      expect(logger.getLevel()).toBe(originalLevel); // Level unchanged
+    });
+
+    it('should reject non-numeric log level values', () => {
+      const logger = new Logger();
+      const originalLevel = logger.getLevel();
+
+      logger.setLevel('DEBUG' as any);
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'Invalid log level DEBUG, keeping current level WARN'
+      );
+      expect(logger.getLevel()).toBe(originalLevel);
+    });
+
+    it('should reject out-of-range log level values', () => {
+      const logger = new Logger();
+      const originalLevel = logger.getLevel();
+
+      logger.setLevel(999 as LogLevel);
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'Invalid log level 999, keeping current level WARN'
+      );
+      expect(logger.getLevel()).toBe(originalLevel);
+    });
+
+    it('should not call localStorage.setItem when localStorage is unavailable', () => {
+      // Simulate localStorage unavailable during construction
+      const getItemSpy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+        throw new Error('SecurityError');
+      });
+      const setItemSpy = vi.spyOn(localStorage, 'setItem');
+
+      const logger = new Logger();
+      logger.setLevel(LogLevel.DEBUG);
+
+      // Should not attempt to persist when localStorage is unavailable
+      expect(setItemSpy).not.toHaveBeenCalled();
+      expect(logger.getLevel()).toBe(LogLevel.DEBUG); // Level still set in memory
+
+      getItemSpy.mockRestore();
+      setItemSpy.mockRestore();
+    });
+  });
+
+  describe('syncFromStorage()', () => {
+    it('should sync level from localStorage when available', () => {
+      const logger = new Logger();
+      expect(logger.getLevel()).toBe(LogLevel.WARN); // Default
+
+      // Simulate external change to localStorage
+      localStorage.setItem('BUDGET_LOG_LEVEL', 'DEBUG');
+
+      logger.syncFromStorage();
+
+      expect(logger.getLevel()).toBe(LogLevel.DEBUG);
+    });
+
+    it('should mark localStorage as available after successful sync', () => {
+      // Start with localStorage unavailable
+      const getItemSpy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+        throw new Error('SecurityError');
+      });
+
+      const logger = new Logger();
+      getItemSpy.mockRestore();
+
+      // Now localStorage is available
+      localStorage.setItem('BUDGET_LOG_LEVEL', 'INFO');
+
+      logger.syncFromStorage();
+
+      expect(logger.getLevel()).toBe(LogLevel.INFO);
+
+      // Verify localStorage is marked as available by checking setLevel works
+      const setItemSpy = vi.spyOn(localStorage, 'setItem');
+      logger.setLevel(LogLevel.ERROR);
+      expect(setItemSpy).toHaveBeenCalledWith('BUDGET_LOG_LEVEL', 'ERROR');
+      setItemSpy.mockRestore();
+    });
+
+    it('should handle localStorage errors gracefully during sync', () => {
+      const logger = new Logger();
+      logger.setLevel(LogLevel.DEBUG);
+
+      const getItemSpy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+        throw new Error('SecurityError');
+      });
+
+      // Should not throw
+      expect(() => logger.syncFromStorage()).not.toThrow();
+
+      // Level should remain unchanged
+      expect(logger.getLevel()).toBe(LogLevel.DEBUG);
+
+      getItemSpy.mockRestore();
+    });
+
+    it('should ignore invalid stored values during sync', () => {
+      const logger = new Logger();
+      logger.setLevel(LogLevel.DEBUG);
+
+      localStorage.setItem('BUDGET_LOG_LEVEL', 'INVALID');
+
+      logger.syncFromStorage();
+
+      // Level should remain unchanged
+      expect(logger.getLevel()).toBe(LogLevel.DEBUG);
+    });
+  });
+
+  describe('getLevel()', () => {
+    it('should return current log level', () => {
+      localStorage.setItem('BUDGET_LOG_LEVEL', 'DEBUG');
+      const logger = new Logger();
+
+      expect(logger.getLevel()).toBe(LogLevel.DEBUG);
+    });
+
+    it('should return updated level after setLevel', () => {
+      const logger = new Logger();
+      logger.setLevel(LogLevel.ERROR);
+
+      expect(logger.getLevel()).toBe(LogLevel.ERROR);
+    });
+
+    it('should return default WARN level when no level is set', () => {
+      localStorage.removeItem('BUDGET_LOG_LEVEL');
+      const logger = new Logger();
+
+      expect(logger.getLevel()).toBe(LogLevel.WARN);
+    });
   });
 });
