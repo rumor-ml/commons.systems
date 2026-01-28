@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  envDir: './__nonexistent__', // Don't load .env files during tests - override vite.config.js
   test: {
     environment: 'happy-dom',
     globals: true,

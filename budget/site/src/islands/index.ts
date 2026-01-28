@@ -7,6 +7,7 @@ import { Legend } from './Legend';
 import { BudgetPlanEditor } from './BudgetPlanEditor';
 import { BudgetPlanningPage } from './BudgetPlanningPage';
 import { DateRangeSelector } from './DateRangeSelector';
+import { TransactionList } from './TransactionList';
 
 const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetChart,
@@ -14,6 +15,7 @@ const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetPlanEditor,
   BudgetPlanningPage,
   DateRangeSelector,
+  TransactionList,
 };
 
 // Store React roots for re-rendering

@@ -280,67 +280,30 @@ fi
 
 echo "Starting per-worktree hosting emulator..."
 
-# ============================================================================
-# PORT RETRY LOOP - Handle port allocation race conditions
-# ============================================================================
-# Port conflicts can occur between allocation check and emulator binding.
-# Retry with exponential backoff and automatic port reallocation on failure.
+# Validate port is still available before starting emulator
+# Port was allocated by allocate-test-ports.sh, but verify it's still free
+# (race condition possible if another process claimed it between allocation and startup)
+echo "  Port: ${HOSTING_PORT}"
+echo "  Project: ${PROJECT_ID}"
+echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
 
-# INFRASTRUCTURE STABILITY FIX: Increase retry attempts from 3 to 5
-# This reduces race conditions during parallel test runs and CI overload
-MAX_PORT_RETRIES=5
-PORT_RETRY_COUNT=0
-HOSTING_STARTED=false
-ORIGINAL_HOSTING_PORT="${HOSTING_PORT}"  # Save for error messages
-
-while [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ] && [ "$HOSTING_STARTED" = "false" ]; do
-  if [ $PORT_RETRY_COUNT -gt 0 ]; then
-    # Calculate backoff delay: 2^retry (1s, 2s, 4s)
-    BACKOFF_DELAY=$((2 ** PORT_RETRY_COUNT))
-    echo "Retrying in ${BACKOFF_DELAY}s... (attempt $((PORT_RETRY_COUNT + 1))/${MAX_PORT_RETRIES})"
-    sleep $BACKOFF_DELAY
+if ! is_port_available ${HOSTING_PORT}; then
+  echo "ERROR: Allocated hosting port ${HOSTING_PORT} is no longer available" >&2
+  echo "Port allocation race condition detected!" >&2
+  echo "" >&2
+  echo "Another process claimed the port between allocation and startup." >&2
+  echo "Port owner details:" >&2
+  if ! get_port_owner ${HOSTING_PORT} >&2; then
+    echo "  (Unable to determine port owner)" >&2
   fi
-
-  echo "  Port: ${HOSTING_PORT}"
-  echo "  Project: ${PROJECT_ID}"
-  echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
-
-  # Validate port availability
-  # allocate-test-ports.sh found an available port, but verify it's still free
-  # (race condition possible if another process claimed it between allocation and startup)
-  if ! is_port_available ${HOSTING_PORT}; then
-    echo "WARNING: Allocated port ${HOSTING_PORT} is not available" >&2
-    echo "Port allocation race condition detected!" >&2
-    echo "" >&2
-    echo "Port owner details:" >&2
-    if ! get_port_owner ${HOSTING_PORT} >&2; then
-      echo "  (Unable to determine port owner - port may have been freed)" >&2
-    fi
-    echo "" >&2
-
-    # Try to find a new port
-    PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
-    if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
-      # Find next available port (start 10 ports higher)
-      NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
-      if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
-        echo "Found alternative port: ${NEW_PORT}" >&2
-        HOSTING_PORT=$NEW_PORT
-        continue
-      else
-        echo "ERROR: Could not find alternative port" >&2
-      fi
-    fi
-
-    # All retries exhausted
-    echo "ERROR: Failed to allocate hosting port after ${MAX_PORT_RETRIES} attempts" >&2
-    echo "Original port: ${ORIGINAL_HOSTING_PORT}" >&2
-    echo "" >&2
-    echo "Solutions:" >&2
-    echo "  - Run: infrastructure/scripts/stop-emulators.sh to stop all emulators" >&2
-    echo "  - Check for processes holding ports: lsof -i :5000-5990" >&2
-    exit 1
-  fi
+  echo "" >&2
+  echo "Solutions:" >&2
+  echo "  1. Retry the test command (ports will be rechecked)" >&2
+  echo "  2. Stop all emulators: infrastructure/scripts/stop-emulators.sh" >&2
+  echo "  3. Check port owner: lsof -i :${HOSTING_PORT}" >&2
+  echo "  4. Kill the process using the port, then retry" >&2
+  exit 1
+fi
 
 # Change to repository root
 cd "${PROJECT_ROOT}"
@@ -531,41 +494,11 @@ echo "Log file: $HOSTING_LOG_FILE"
 
   # Check if process crashed immediately (port conflict or other startup error)
   if ! kill -0 $HOSTING_PID 2>/dev/null; then
-    echo "WARNING: Hosting emulator process crashed during startup" >&2
-
-    # Check for port conflict in logs
-    if grep -q "EADDRINUSE\|address already in use\|port.*already in use" "$HOSTING_LOG_FILE" 2>/dev/null; then
-      echo "Port conflict detected in emulator logs" >&2
-      PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
-
-      # Cleanup failed emulator
-      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
-
-      if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
-        # Find new port and retry
-        NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
-        if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
-          echo "Found alternative port: ${NEW_PORT}" >&2
-          HOSTING_PORT=$NEW_PORT
-          continue
-        else
-          echo "ERROR: Could not find alternative port" >&2
-          exit 1
-        fi
-      else
-        echo "ERROR: Failed to start hosting emulator after ${MAX_PORT_RETRIES} port allocation attempts" >&2
-        echo "Last 20 lines of emulator log:" >&2
-        tail -n 20 "$HOSTING_LOG_FILE" >&2
-        exit 1
-      fi
-    else
-      # Non-port-related crash
-      echo "ERROR: Hosting emulator crashed with non-port error" >&2
-      echo "Last 20 lines of emulator log:" >&2
-      tail -n 20 "$HOSTING_LOG_FILE" >&2
-      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
-      exit 1
-    fi
+    echo "ERROR: Hosting emulator process crashed during startup" >&2
+    echo "Last 20 lines of emulator log:" >&2
+    tail -n 20 "$HOSTING_LOG_FILE" >&2
+    rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+    exit 1
   fi
 
   # Wait for hosting to be ready (check the assigned port)
@@ -579,40 +512,10 @@ echo "Log file: $HOSTING_LOG_FILE"
     # Check if process is still alive during wait
     if ! kill -0 $HOSTING_PID 2>/dev/null; then
       echo "ERROR: Hosting emulator process died during startup wait" >&2
-
-      # Check for port conflict in logs
-      if grep -q "EADDRINUSE\|address already in use\|port.*already in use" "$HOSTING_LOG_FILE" 2>/dev/null; then
-        echo "Port conflict detected in emulator logs" >&2
-        PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
-
-        # Cleanup failed emulator
-        rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
-
-        if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
-          # Find new port and retry
-          NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
-          if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
-            echo "Found alternative port: ${NEW_PORT}" >&2
-            HOSTING_PORT=$NEW_PORT
-            continue 2  # Continue outer port retry loop
-          else
-            echo "ERROR: Could not find alternative port" >&2
-            exit 1
-          fi
-        else
-          echo "ERROR: Failed to start hosting emulator after ${MAX_PORT_RETRIES} port allocation attempts" >&2
-          echo "Last 20 lines of emulator log:" >&2
-          tail -n 20 "$HOSTING_LOG_FILE" >&2
-          exit 1
-        fi
-      else
-        # Non-port-related crash
-        echo "ERROR: Hosting emulator crashed during health check" >&2
-        echo "Last 20 lines of emulator log:" >&2
-        tail -n 20 "$HOSTING_LOG_FILE" >&2
-        rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
-        exit 1
-      fi
+      echo "Last 20 lines of emulator log:" >&2
+      tail -n 20 "$HOSTING_LOG_FILE" >&2
+      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+      exit 1
     fi
 
     RETRY_COUNT=$((RETRY_COUNT + 1))
@@ -634,17 +537,7 @@ echo "Log file: $HOSTING_LOG_FILE"
     RETRY_DELAY=$(awk "BEGIN {d = $RETRY_DELAY * 2; print (d > $MAX_RETRY_DELAY) ? $MAX_RETRY_DELAY : d}")
   done
 
-  # Health check passed - mark as successfully started
-  HOSTING_STARTED=true
   echo "✓ Hosting emulator ready on port ${HOSTING_PORT}"
-done  # End of port retry loop
-
-# If we got here after retries, report the recovery
-if [ $PORT_RETRY_COUNT -gt 0 ]; then
-  echo "✓ Successfully started hosting emulator after ${PORT_RETRY_COUNT} port conflict(s)"
-  echo "  Original port: ${ORIGINAL_HOSTING_PORT}"
-  echo "  Final port: ${HOSTING_PORT}"
-fi
 
 # ============================================================================
 # Summary

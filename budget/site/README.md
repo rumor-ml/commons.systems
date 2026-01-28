@@ -1,6 +1,23 @@
-# Budget Visualization App
+# Budget Site
 
-A frontend-only budget visualization application built with React, Observable Plot, and the @commons design system.
+Budget visualization frontend using finparse as the backend API server.
+
+## Architecture
+
+- **Backend**: finparse server (`../../finparse`) with Firebase Auth and Firestore
+- **Frontend**: Hybrid React islands + HTMX for new features
+- **Data Storage**: Firestore (multi-user with access control)
+- **Auth**: Firebase Auth with GitHub sign-in
+
+## Current Status
+
+This app uses finparse as the backend server:
+
+- ✅ finparse backend with Firestore integration (`../../finparse/cmd/server`)
+- ✅ REST API endpoints for transactions, statements, accounts
+- 🚧 Frontend API integration (in progress)
+- 🚧 Transaction review page (in progress)
+- 🚧 Firebase Auth implementation (planned)
 
 ## Features
 
@@ -35,16 +52,23 @@ Each transaction includes:
 ### Prerequisites
 
 - Node.js 18+ and pnpm installed
+- Go 1.25.4+ (for finparse backend)
 - This is a monorepo workspace package
 
 ### Development
 
 ```bash
-# From the budget/site directory
+# Terminal 1: Start finparse backend server
+cd ../../finparse
+make run-server
+
+# Terminal 2: Start frontend dev server
+cd budget/site
 pnpm dev
 ```
 
-The dev server will start at http://localhost:3001
+- Backend: http://localhost:8080
+- Frontend: http://localhost:5173
 
 ### Build
 
@@ -77,6 +101,16 @@ budget/site/
 ├── package.json
 ├── vite.config.js
 └── tsconfig.json
+
+../../finparse/                # Backend server
+├── cmd/
+│   ├── finparse/           # CLI tool
+│   └── server/             # HTTP API server
+└── internal/
+    ├── firestore/          # Firestore client
+    ├── handlers/           # HTTP handlers
+    ├── middleware/         # Auth, CORS
+    └── server/             # Router setup
 ```
 
 ## Technology Stack
@@ -89,15 +123,83 @@ budget/site/
 - **Tailwind CSS**: Utility-first styling
 - **@commons/design-system**: Shared design tokens and components
 
-## Architecture
+## Backend API
 
-This is a frontend-only application with no backend requirements:
+### Firestore Collections
 
-- All data is loaded from a static JSON file
-- React islands pattern for selective hydration
-- Observable Plot for declarative, data-driven charts
-- Responsive design with CSS Grid
-- Supports dark/light themes via design system
+1. **budget-transactions**: Individual financial transactions
+   - userId, date, description, amount, category
+   - redeemable, vacation, transfer flags
+   - statementIds array for linking
+
+2. **budget-statements**: Statement periods
+   - userId, accountId, startDate, endDate
+   - transactionIds array
+
+3. **budget-accounts**: User accounts
+   - userId, institutionId, name, type
+
+4. **budget-institutions**: Financial institutions
+   - userId, name
+
+### API Endpoints
+
+#### Protected (require Firebase Auth token)
+
+- `GET /api/transactions` - List all user's transactions
+- `GET /api/statements` - List all user's statements
+- `GET /api/accounts` - List all user's accounts
+- `GET /api/institutions` - List all user's institutions
+
+#### Public
+
+- `GET /health` - Health check
+- `GET /` - Serve frontend (static files)
+
+## Development Setup
+
+### Prerequisites
+
+- Go 1.25.4+
+- Node.js 18+ and pnpm
+- Firebase project with Firestore enabled
+- Firebase service account credentials
+
+### Configuration
+
+Set environment variables:
+
+```bash
+export FIREBASE_PROJECT_ID="your-project-id"
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+```
+
+### Running
+
+```bash
+# Terminal 1: Start finparse backend
+cd ../../finparse
+make run-server
+
+# Terminal 2: Start frontend
+cd budget/site
+make dev
+```
+
+- Backend: http://localhost:8080
+- Frontend: http://localhost:5173
+
+### Building
+
+```bash
+# Backend
+cd ../../finparse
+make build-server       # Builds finparse-server binary
+
+# Frontend
+cd budget/site
+make build              # Build frontend only
+```
 
 ## Customization
 

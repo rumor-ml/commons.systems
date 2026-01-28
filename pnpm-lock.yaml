@@ -63,6 +63,12 @@ importers:
       d3:
         specifier: ^7.9.0
         version: 7.9.0
+      firebase:
+        specifier: ^10.14.1
+        version: 10.14.1
+      firebase-admin:
+        specifier: ^12.0.0
+        version: 12.7.0(encoding@0.1.13)
       react:
         specifier: ^18.3.0
         version: 18.3.1
