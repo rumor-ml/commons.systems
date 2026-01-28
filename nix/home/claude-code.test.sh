@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Integration tests for claude-code.nix Home Manager configuration
 #
+# TODO(#1591): Test file comment incorrectly states Home Manager module "does not deploy configuration files"
 # This script tests that the Home Manager configuration correctly installs
-# the Claude Code package without deploying any configuration files.
+# the Claude Code package and deploys default settings.json configuration.
 #
 # Usage:
 #   ./nix/home/claude-code.test.sh                  # Run all tests
@@ -39,6 +40,7 @@ print_test_header() {
 }
 
 # Helper: Assert command succeeds
+# TODO(#1606): Test helper functions eval untrusted input without validation
 assert_succeeds() {
   local description="$1"
   local command="$2"
@@ -60,6 +62,7 @@ assert_succeeds() {
   fi
 }
 
+# TODO(#1590): Consider removing this unused function to simplify the test file
 # Helper: Assert command fails with expected error message
 assert_fails_with_message() {
   local description="$1"
@@ -122,21 +125,22 @@ test_module_structure_is_valid() {
   fi
 }
 
-# Test 3: Verify module does not deploy settings.json
-test_no_settings_json_deployed() {
-  print_test_header "test_no_settings_json_deployed"
+# TODO(#1593): Test function test_no_settings_json_deployed has inverted logic vs module implementation
+# Test 3: Verify module deploys settings.json with sandbox configuration
+test_settings_json_deployed() {
+  print_test_header "test_settings_json_deployed"
 
   # Parse the claude-code.nix file to check for xdg.configFile settings
   local has_settings=$(grep -c 'xdg.configFile.*settings.json' nix/home/claude-code.nix || true)
 
   TESTS_RUN=$((TESTS_RUN + 1))
-  echo -e "${YELLOW}Running: Verify module does not deploy settings.json${NC}"
+  echo -e "${YELLOW}Running: Verify module deploys settings.json${NC}"
 
-  if [ "$has_settings" -eq 0 ]; then
-    echo -e "${GREEN}✓ PASS: No settings.json deployment found${NC}"
+  if [ "$has_settings" -gt 0 ]; then
+    echo -e "${GREEN}✓ PASS: settings.json deployment configured${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
   else
-    echo -e "${RED}✗ FAIL: Module still contains settings.json deployment${NC}"
+    echo -e "${RED}✗ FAIL: Module should deploy settings.json but doesn't${NC}"
     TESTS_FAILED=$((TESTS_FAILED + 1))
   fi
 }
@@ -157,14 +161,14 @@ main() {
       echo "Available tests:"
       echo "  test_nix_syntax_is_valid"
       echo "  test_module_structure_is_valid"
-      echo "  test_no_settings_json_deployed"
+      echo "  test_settings_json_deployed"
       exit 1
     fi
   else
     # Run all tests
     test_nix_syntax_is_valid
     test_module_structure_is_valid
-    test_no_settings_json_deployed
+    test_settings_json_deployed
   fi
 
   # Print summary

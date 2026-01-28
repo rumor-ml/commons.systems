@@ -50,6 +50,12 @@ jobs:
       - name: Run claude-code.nix Home Manager tests
         run: ./nix/home/claude-code.test.sh
 
+      - name: Run sandbox dependencies tests
+        run: nix develop --command bash -c './nix/sandbox-dependencies.test.sh'
+
+      - name: Run check-env.nix tests
+        run: nix develop --command bash -c './nix/apps/check-env.test.sh'
+
       - name: Verify development shell loads
         run: |
           nix develop --command bash -c 'echo "✓ Development shell loads successfully"'

@@ -1202,7 +1202,7 @@ Test the pre-commit and pre-push hooks:
 
 #### Sandbox Dependencies Tests
 
-Test that Claude Code sandbox dependencies (socat and bubblewrap) are available:
+Test that Claude Code sandbox dependencies (socat and bubblewrap) are available. These packages are required for Claude Code's sandbox feature to function correctly.
 
 ```bash
 # Run all sandbox dependency tests

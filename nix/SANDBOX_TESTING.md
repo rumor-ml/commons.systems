@@ -187,6 +187,8 @@ Since Claude Code is a proprietary tool, we can't fully automate this test. Howe
 
 ### Failure Scenarios and Troubleshooting
 
+<!-- TODO(#1594): Consider condensing speculative troubleshooting content or marking as examples -->
+
 #### Scenario 1: Packages not found after `nix develop`
 
 **Symptom:** `which socat` or `which bwrap` returns "not found"
@@ -303,4 +305,5 @@ To add these tests to CI:
 - `flake.nix` - Nix configuration defining packages
 - `nix/home/claude-code.nix` - Home Manager module for Claude Code
 - `nix/sandbox-dependencies.test.sh` - Automated test suite
+<!-- TODO(#1595): Fix placeholder URL to use actual repository or relative reference -->
 - Issue [#1552](https://github.com/your-org/your-repo/issues/1552) - Original feature request

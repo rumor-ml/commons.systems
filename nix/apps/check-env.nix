@@ -36,22 +36,26 @@ pkgs.writeShellScriptBin "check-env" ''
     EXIT_CODE=1
   fi
 
-  # Check socat availability (required for sandbox)
+  # Check socat availability (required for Claude Code sandbox feature)
   if command -v socat >/dev/null 2>&1; then
-    echo "✅ socat available (sandbox dependency)"
+    echo "✅ socat available (Claude Code sandbox dependency)"
   else
     echo "❌ socat not available"
     echo "   Fix: Ensure you're in a nix develop shell with socat package"
     EXIT_CODE=1
   fi
 
-  # Check bubblewrap availability (required for sandbox on Linux/WSL2)
-  if command -v bwrap >/dev/null 2>&1; then
-    echo "✅ bubblewrap available (sandbox dependency)"
+  # Check bubblewrap availability (required for Claude Code sandbox feature on Linux/WSL2)
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    if command -v bwrap >/dev/null 2>&1; then
+      echo "✅ bubblewrap available (Claude Code sandbox dependency)"
+    else
+      echo "❌ bubblewrap not available"
+      echo "   Fix: Ensure you're in a nix develop shell with bubblewrap package"
+      EXIT_CODE=1
+    fi
   else
-    echo "❌ bubblewrap not available"
-    echo "   Fix: Ensure you're in a nix develop shell with bubblewrap package"
-    EXIT_CODE=1
+    echo "⏭️  bubblewrap check skipped (Linux-only dependency)"
   fi
 
   # Check gh-workflow-mcp-server

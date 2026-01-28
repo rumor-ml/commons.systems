@@ -111,8 +111,7 @@
               curl
               # Sandbox dependencies for Claude Code
               # TODO(#1584): No documentation on how to activate new packages after flake changes
-              # TODO(#1583): Misleading comment "Network proxy for sandbox" for socat
-              socat # Network proxy for sandbox
+              socat # Socket relay for sandbox communication
               # Cloud tools
               google-cloud-sdk
               terraform
@@ -137,8 +136,7 @@
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
               # Linux-only sandbox tools
-              # TODO(#1579): Incomplete comment about bubblewrap platform support
-              bubblewrap # Unprivileged sandboxing (Linux/WSL2 only)
+              bubblewrap # Unprivileged sandboxing via Linux kernel namespaces (Linux/WSL2 only - requires user namespace support)
             ];
 
           # CI shell with inlined packages (avoiding callPackage issues)

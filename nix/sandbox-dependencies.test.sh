@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# TODO(#1599): Add negative test cases for sandbox dependency failures
 # Integration tests for Claude Code sandbox dependencies
 #
 # This script validates that socat and bubblewrap packages are available
@@ -6,7 +7,7 @@
 #
 # Background:
 # Claude Code's sandbox feature requires two system dependencies:
-# - socat: Network proxy for sandbox communication
+# - socat: Socket relay for sandbox communication
 # - bubblewrap (bwrap): Unprivileged Linux sandboxing tool
 #
 # Usage:
@@ -19,6 +20,7 @@
 
 set -euo pipefail
 
+# TODO(#1592): Extract shared test helper functions to nix/lib/test-helpers.sh
 # Color output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -30,6 +32,13 @@ NC='\033[0m' # No Color
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
+
+# Platform detection
+PLATFORM="$(uname -s)"
+IS_LINUX=false
+if [[ "$PLATFORM" == "Linux" ]]; then
+  IS_LINUX=true
+fi
 
 # Find repository root
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,6 +53,7 @@ print_test_header() {
 }
 
 # Helper: Assert command succeeds
+# TODO(#1606): Test helper functions eval untrusted input without validation
 assert_succeeds() {
   local description="$1"
   local command="$2"
@@ -69,6 +79,7 @@ assert_succeeds() {
 }
 
 # Helper: Assert command output contains string
+# TODO(#1606): Test helper functions eval untrusted input without validation
 assert_output_contains() {
   local description="$1"
   local command="$2"
@@ -113,6 +124,14 @@ test_socat_available() {
 test_bubblewrap_available() {
   print_test_header "test_bubblewrap_available"
 
+  # Skip on non-Linux platforms
+  if [[ "$IS_LINUX" != "true" ]]; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "${YELLOW}⏭️  SKIPPED: bubblewrap is Linux-only${NC}"
+    return 0
+  fi
+
   assert_succeeds \
     "bubblewrap binary is available" \
     "which bwrap"
@@ -131,6 +150,14 @@ test_socat_version() {
 # Test 4: Verify bubblewrap version command works
 test_bubblewrap_version() {
   print_test_header "test_bubblewrap_version"
+
+  # Skip on non-Linux platforms
+  if [[ "$IS_LINUX" != "true" ]]; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "${YELLOW}⏭️  SKIPPED: bubblewrap is Linux-only${NC}"
+    return 0
+  fi
 
   assert_output_contains \
     "bubblewrap reports version information" \
@@ -169,14 +196,24 @@ test_socat_basic_functionality() {
 }
 
 # Test 8: Verify bubblewrap basic functionality
+# TODO(#1597): Consider testing with minimal mounts (--dev /dev --proc /proc --tmpfs /tmp) for better portability
+# TODO(#1603): Test suite uses overly complex bubblewrap invocation that may fail on some systems
 test_bubblewrap_basic_functionality() {
   print_test_header "test_bubblewrap_basic_functionality"
 
+  # Skip on non-Linux platforms
+  if [[ "$IS_LINUX" != "true" ]]; then
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "${YELLOW}⏭️  SKIPPED: bubblewrap is Linux-only${NC}"
+    return 0
+  fi
+
   # Test that bubblewrap can execute a simple command
-  # bwrap requires at least --ro-bind or other mount options
+  # Using minimal bind mounts that should work on most Linux systems
   assert_succeeds \
     "bubblewrap can execute simple command" \
-    "bwrap --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin --proc /proc --dev /dev --unshare-all --die-with-parent echo 'sandbox test' 2>/dev/null || echo 'sandbox test'"
+    "bwrap --ro-bind / / --proc /proc --dev /dev --unshare-all --die-with-parent echo 'sandbox test'"
 }
 
 # Test 9: Verify Claude Code settings.json sandbox configuration exists
@@ -206,26 +243,33 @@ test_sandbox_dependencies_integration() {
 
   TESTS_RUN=$((TESTS_RUN + 1))
 
-  echo -e "${YELLOW}Running: Verify both socat and bubblewrap are available${NC}"
+  echo -e "${YELLOW}Running: Verify sandbox dependencies for current platform${NC}"
 
-  # Check both binaries are in PATH
-  if which socat >/dev/null 2>&1 && which bwrap >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ PASS: Both sandbox dependencies are available${NC}"
-    echo "  socat: $(which socat)"
-    echo "  bwrap: $(which bwrap)"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-    return 0
-  else
-    echo -e "${RED}✗ FAIL: One or both sandbox dependencies are missing${NC}"
-    if ! which socat >/dev/null 2>&1; then
-      echo "  Missing: socat"
-    fi
-    if ! which bwrap >/dev/null 2>&1; then
-      echo "  Missing: bwrap (bubblewrap)"
-    fi
+  # Check socat (required on all platforms)
+  if ! which socat >/dev/null 2>&1; then
+    echo -e "${RED}✗ FAIL: socat is missing (required on all platforms)${NC}"
     TESTS_FAILED=$((TESTS_FAILED + 1))
     return 1
   fi
+
+  # Check bwrap (Linux only)
+  if [[ "$IS_LINUX" == "true" ]]; then
+    if ! which bwrap >/dev/null 2>&1; then
+      echo -e "${RED}✗ FAIL: bubblewrap is missing (required on Linux)${NC}"
+      TESTS_FAILED=$((TESTS_FAILED + 1))
+      return 1
+    fi
+    echo -e "${GREEN}✓ PASS: All sandbox dependencies available (Linux)${NC}"
+    echo "  socat: $(which socat)"
+    echo "  bwrap: $(which bwrap)"
+  else
+    echo -e "${GREEN}✓ PASS: All sandbox dependencies available ($PLATFORM)${NC}"
+    echo "  socat: $(which socat)"
+    echo "  bwrap: skipped (Linux-only)"
+  fi
+
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  return 0
 }
 
 # Test 12: Verify home-manager claude-code module exists
