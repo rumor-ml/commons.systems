@@ -5,6 +5,8 @@
 # ensures reproducibility across different machines.
 #
 # This configuration includes:
+# - Bash shell configuration (bash.nix)
+# - Zsh shell configuration (zsh.nix)
 # - Git configuration (git.nix)
 # - Tmux configuration (tmux.nix)
 # - WezTerm terminal emulator (wezterm.nix)
@@ -39,6 +41,8 @@
 {
   # TODO(#1577): No tests for home-manager module integration with existing modules
   imports = [
+    ./bash.nix
+    ./zsh.nix
     ./git.nix
     ./tmux.nix
     ./wezterm.nix

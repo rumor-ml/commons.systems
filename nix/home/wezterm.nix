@@ -60,10 +60,10 @@
 
   # WSL: Copy config to Windows WezTerm location
   # This activation script runs after home-manager generates the config file
-  # (writeBoundary ensures all configuration files are written before this runs)
+  # (linkGeneration ensures all configuration files are symlinked before this runs)
   # and copies it to the Windows user directory where WezTerm on Windows reads it.
   home.activation.copyWeztermToWindows = lib.mkIf pkgs.stdenv.isLinux (
-    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       # Check if running on WSL (Windows mount point exists)
       if [ -d "/mnt/c/Users" ]; then
         # Detect Windows username (may differ from Linux username)
