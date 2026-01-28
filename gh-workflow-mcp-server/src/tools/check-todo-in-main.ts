@@ -26,7 +26,7 @@ export async function checkTodoInMain(input: CheckTodoInMainInput): Promise<Tool
   try {
     const resolvedRepo = await resolveRepo(input.repo);
 
-    // Use GitHub API to read file from main branch (no checkout needed)
+    // Use GitHub API to read file from main branch (no git checkout needed)
     const fileContent = await ghCli(
       ['api', `repos/${resolvedRepo}/contents/${input.file_path}?ref=main`, '--jq', '.content'],
       {}
