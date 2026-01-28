@@ -44,7 +44,7 @@
 
       ${lib.optionalString pkgs.stdenv.isLinux ''
         -- WSL Integration (Linux/WSL only)
-        -- When this config is generated on WSL, include default_prog to automatically
+        -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/${config.home.username}' }
       ''}
@@ -71,20 +71,19 @@
         # Check if we can list the directory first
         if ! ls /mnt/c/Users/ >/tmp/wezterm-users-list 2>&1; then
           echo "WARNING: Failed to list /mnt/c/Users/ directory"
-          cat /tmp/wezterm-users-list
-          if ! rm /tmp/wezterm-users-list 2>/dev/null; then
-            echo "WARNING: Failed to clean up temporary file /tmp/wezterm-users-list" >&2
-            echo "  This may indicate permission or filesystem issues" >&2
+          if ! cat /tmp/wezterm-users-list 2>&1; then
+            echo "  Additionally, failed to display error details"
           fi
           echo "This may indicate a WSL mount or permission issue"
           # Continue without exiting - this is a soft error
           WINDOWS_USER=""
         else
           WINDOWS_USER=$(grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' /tmp/wezterm-users-list | head -n1)
-          if ! rm /tmp/wezterm-users-list 2>/dev/null; then
-            echo "WARNING: Failed to clean up temporary file /tmp/wezterm-users-list" >&2
-            echo "  This may indicate permission or filesystem issues" >&2
-          fi
+        fi
+        # Single cleanup point (runs regardless of ls success/failure)
+        if ! rm /tmp/wezterm-users-list 2>/dev/null; then
+          echo "WARNING: Failed to clean up temporary file /tmp/wezterm-users-list" >&2
+          echo "  This may indicate permission or filesystem issues" >&2
         fi
 
         if [ -n "$WINDOWS_USER" ] && [ -d "/mnt/c/Users/$WINDOWS_USER" ]; then

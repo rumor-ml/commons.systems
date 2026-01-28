@@ -47,8 +47,10 @@ let
   # Test helper: Extract Lua config from module evaluation
   extractLuaConfig = moduleResult: moduleResult.programs.wezterm.extraConfig;
 
-  # TODO(#1615): Add test verifying generated config is actually valid WezTerm configuration
   # Test helper: Validate Lua syntax using lua interpreter
+  # Note: This only validates Lua syntax correctness, not WezTerm-specific
+  # configuration semantics. A syntactically valid Lua file may still contain
+  # invalid WezTerm configuration keys or values.
   validateLuaSyntax =
     luaCode:
     let
@@ -68,6 +70,141 @@ let
         echo "Full config at: ${luaFile}"
         exit 1
       fi
+      touch $out
+    '';
+
+  # Test helper: Validate config with WezTerm API structure checks
+  # Creates a mock wezterm module to validate that the config uses correct WezTerm APIs
+  validateWeztermConfig =
+    luaCode:
+    let
+      luaFile = pkgs.writeText "wezterm-test.lua" luaCode;
+      # Create a mock wezterm module that implements the WezTerm API structure
+      # This validates that the config uses correct API calls and config keys
+      mockWeztermModule = pkgs.writeText "wezterm.lua" ''
+        -- Mock WezTerm module that validates API usage
+        local wezterm = {}
+
+        -- Track valid WezTerm config keys (not exhaustive, but covers our usage)
+        local valid_config_keys = {
+          font = true,
+          font_size = true,
+          color_scheme = true,
+          scrollback_lines = true,
+          hide_tab_bar_if_only_one_tab = true,
+          window_padding = true,
+          default_prog = true,
+          native_macos_fullscreen_mode = true,
+        }
+
+        -- Track valid color schemes (subset - Tokyo Night is in actual WezTerm)
+        local valid_color_schemes = {
+          ["Tokyo Night"] = true,
+          ["Tokyo Night Storm"] = true,
+          ["Dracula"] = true,
+          ["Solarized Dark"] = true,
+        }
+
+        -- Mock config_builder() - returns a table that validates assignments
+        function wezterm.config_builder()
+          local config = {}
+          local mt = {
+            __newindex = function(t, key, value)
+              -- Validate that the key is a known WezTerm config key
+              if not valid_config_keys[key] then
+                error("Invalid WezTerm config key: " .. tostring(key) ..
+                      "\nValid keys include: font, font_size, color_scheme, scrollback_lines, etc.")
+              end
+
+              -- Type validation for specific keys
+              if key == "font_size" and type(value) ~= "number" then
+                error("Config key 'font_size' must be a number, got: " .. type(value))
+              end
+              if key == "scrollback_lines" and type(value) ~= "number" then
+                error("Config key 'scrollback_lines' must be a number, got: " .. type(value))
+              end
+              if key == "hide_tab_bar_if_only_one_tab" and type(value) ~= "boolean" then
+                error("Config key 'hide_tab_bar_if_only_one_tab' must be a boolean, got: " .. type(value))
+              end
+              if key == "color_scheme" then
+                if type(value) ~= "string" then
+                  error("Config key 'color_scheme' must be a string, got: " .. type(value))
+                end
+                if not valid_color_schemes[value] then
+                  error("Unknown color scheme: " .. value ..
+                        "\nNote: This test validates against a subset of known schemes. " ..
+                        "If you're using a valid WezTerm scheme not in the test list, " ..
+                        "you may need to add it to the mock module.")
+                end
+              end
+
+              -- Store the value
+              rawset(t, key, value)
+            end
+          }
+          setmetatable(config, mt)
+          return config
+        end
+
+        -- Mock font() - validates font name is a string
+        function wezterm.font(name)
+          if type(name) ~= "string" then
+            error("wezterm.font() requires a string argument, got: " .. type(name))
+          end
+          return { family = name }
+        end
+
+        return wezterm
+      '';
+      # Create a test script that loads the config with the mock module
+      testScript = pkgs.writeText "wezterm-validate.lua" ''
+        -- Add mock module to package.path
+        package.path = "${mockWeztermModule};" .. package.path
+
+        -- Load and execute the config file
+        local config_func, load_err = loadfile('${luaFile}')
+        if not config_func then
+          print("Config file has Lua syntax errors:")
+          print(load_err)
+          os.exit(1)
+        end
+
+        -- Execute the config and catch any errors
+        local success, result = pcall(config_func)
+        if not success then
+          print("Config execution failed:")
+          print(result)
+          os.exit(1)
+        end
+
+        -- Verify it returned a config table
+        if type(result) ~= "table" then
+          print("Config must return a table, got: " .. type(result))
+          os.exit(1)
+        end
+
+        print("✓ WezTerm config validation passed")
+        print("  - Config uses valid WezTerm API calls")
+        print("  - All config keys are recognized by WezTerm")
+        print("  - Config key types are correct")
+      '';
+    in
+    pkgs.runCommand "validate-wezterm-config" { buildInputs = [ pkgs.lua ]; } ''
+      # Run the validation script with mock WezTerm module
+      if ! validation_output=$(${pkgs.lua}/bin/lua ${testScript} 2>&1); then
+        echo "WezTerm configuration validation failed:"
+        echo "----------------------------------------"
+        echo "$validation_output"
+        echo "----------------------------------------"
+        echo ""
+        echo "Generated Lua config (first 50 lines):"
+        head -n 50 '${luaFile}'
+        echo ""
+        echo "Full config at: ${luaFile}"
+        exit 1
+      fi
+
+      echo "$validation_output"
       touch $out
     '';
 
@@ -190,6 +327,36 @@ let
       });
     in
     validateLuaSyntax luaConfig;
+
+  # Test: WezTerm config validation for Linux
+  test-wezterm-validation-linux =
+    let
+      luaConfig = extractLuaConfig (evaluateModule {
+        isLinux = true;
+        isDarwin = false;
+      });
+    in
+    validateWeztermConfig luaConfig;
+
+  # Test: WezTerm config validation for macOS
+  test-wezterm-validation-macos =
+    let
+      luaConfig = extractLuaConfig (evaluateModule {
+        isLinux = false;
+        isDarwin = true;
+      });
+    in
+    validateWeztermConfig luaConfig;
+
+  # Test: WezTerm config validation for generic
+  test-wezterm-validation-generic =
+    let
+      luaConfig = extractLuaConfig (evaluateModule {
+        isLinux = false;
+        isDarwin = false;
+      });
+    in
+    validateWeztermConfig luaConfig;
 
   # Test 5: Username interpolation
   test-username-interpolation =
@@ -379,6 +546,9 @@ let
     test-lua-syntax-linux
     test-lua-syntax-macos
     test-lua-syntax-generic
+    test-wezterm-validation-linux
+    test-wezterm-validation-macos
+    test-wezterm-validation-generic
     test-username-interpolation
     test-activation-script-linux
     test-activation-script-dag
@@ -399,6 +569,9 @@ let
     echo "✅ test-lua-syntax-linux"
     echo "✅ test-lua-syntax-macos"
     echo "✅ test-lua-syntax-generic"
+    echo "✅ test-wezterm-validation-linux"
+    echo "✅ test-wezterm-validation-macos"
+    echo "✅ test-wezterm-validation-generic"
     echo "✅ test-username-interpolation"
     echo "✅ test-activation-script-linux"
     echo "✅ test-activation-script-dag"
@@ -421,6 +594,9 @@ in
       test-lua-syntax-linux
       test-lua-syntax-macos
       test-lua-syntax-generic
+      test-wezterm-validation-linux
+      test-wezterm-validation-macos
+      test-wezterm-validation-generic
       test-username-interpolation
       test-activation-script-linux
       test-activation-script-dag

@@ -270,14 +270,22 @@
           checks =
             let
               weztermTests = pkgs.callPackage ./nix/home/wezterm.test.nix { };
+              bashTests = pkgs.callPackage ./nix/home/bash.test.nix { };
+              zshTests = pkgs.callPackage ./nix/home/zsh.test.nix { };
             in
             {
               pre-commit-check = pre-commit-check;
 
               # WezTerm module tests
               wezterm-test-suite = weztermTests.wezterm-test-suite;
+
+              # Shell module tests
+              bash-test-suite = bashTests.bash-test-suite;
+              zsh-test-suite = zshTests.zsh-test-suite;
             }
-            // weztermTests.wezterm-tests;
+            // weztermTests.wezterm-tests
+            // bashTests.bash-tests
+            // zshTests.zsh-tests;
         }
       );
 

@@ -1,11 +1,9 @@
 # Bash Shell Configuration
 #
-# Enables Home Manager's bash integration, which manages .bashrc and
-# .bash_profile by regenerating them to include Home Manager's session
-# variables and environment setup. Note: Home Manager generates these files
-# and manages them via symlinks in the Nix store. Any manual edits to these
-# files will be ignored - use the 'initExtra' option instead to add custom
-# configuration.
+# Enables Home Manager's bash integration, which manages bash configuration
+# by adding its own initialization scripts that are sourced during shell
+# startup. Manual edits to .bashrc will still work, but Home Manager-specific
+# configuration should be added via the 'initExtra' option.
 #
 # This ensures that all Home Manager-managed environment variables
 # (like TZ for timezone) are properly loaded in new shell sessions.
@@ -30,9 +28,8 @@
       fi
     '';
 
-    # TODO(#1522): Incomplete comment about bash completion in bash.nix
-    # Additional bash configuration can be added here as needed
-    # For example:
+    # Additional bash configuration can be added here as needed.
+    # For example, to enable programmable completion (tab completion for commands):
     # enableCompletion = true;
     # historyControl = [ "ignoredups" "ignorespace" ];
   };

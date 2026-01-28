@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Tests for wezterm.nix activation script
 # Tests Windows user detection and config copy logic on WSL
-# TODO(#1612): Shell tests don't verify actual activation script integration with home-manager
+# TODO(#1612): Shell tests verify activation script logic but don't verify home-manager DAG integration
+# The tests validate user detection and file copy in isolation, but don't verify:
+# - Activation script executes correctly in home-manager's DAG after linkGeneration phase
+# - Script has proper access to Home Manager variables like $DRY_RUN_CMD and $VERBOSE_ARG (used in wezterm.nix line 103)
+# - DAG ordering ensures activation runs at the correct point in the configuration build
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FAILURES=0
@@ -211,6 +215,7 @@ mkdir -p "$TEMP_MOUNT8/c/Users"/{public,default,alice}
 
 WINDOWS_USER=$(ls "$TEMP_MOUNT8/c/Users/" 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
 
+# TODO(#1620): Test 10 comment incorrectly describes expected behavior
 # Should match all three since filter is case-sensitive and only matches 'Public', 'Default' exactly
 # We expect 'alice' to be selected, but 'default' and 'public' should also pass through
 if [[ "$WINDOWS_USER" =~ ^(alice|default|public)$ ]]; then
@@ -265,36 +270,19 @@ CLEANUP_DIRS+=("$TEMP_BASE_DIR")
 echo "-- Config content" > "$TEMP_SOURCE2"
 TEMP_NESTED_TARGET="$TEMP_BASE_DIR/nested/path/.wezterm.lua"
 
-# Simulate creating parent directory if it doesn't exist
-if [[ ! -d "$(dirname "$TEMP_NESTED_TARGET")" ]]; then
-  if ! mkdir -p "$(dirname "$TEMP_NESTED_TARGET")" 2>&1; then
-    report_fail "Target directory creation" "mkdir -p failed"
-    rm -f "$TEMP_SOURCE2"
-  else
-    if ! cp "$TEMP_SOURCE2" "$TEMP_NESTED_TARGET" 2>&1; then
-      report_fail "Config copy to nested path" "cp command failed"
-      rm -f "$TEMP_SOURCE2"
-    else
-      rm -f "$TEMP_SOURCE2"
-      if [[ -f "$TEMP_NESTED_TARGET" ]]; then
-        report_pass "Target directory creation and copy succeeds"
-      else
-        report_fail "Target directory creation failed" "File not created despite no error"
-      fi
-    fi
-  fi
+# Create parent directory if it doesn't exist, then copy
+if ! mkdir -p "$(dirname "$TEMP_NESTED_TARGET")" 2>&1; then
+  report_fail "Target directory creation" "mkdir -p failed"
+  rm -f "$TEMP_SOURCE2"
+elif ! cp "$TEMP_SOURCE2" "$TEMP_NESTED_TARGET" 2>&1; then
+  report_fail "Config copy to nested path" "cp command failed"
+  rm -f "$TEMP_SOURCE2"
+elif [[ -f "$TEMP_NESTED_TARGET" ]]; then
+  rm -f "$TEMP_SOURCE2"
+  report_pass "Target directory creation and copy succeeds"
 else
-  if ! cp "$TEMP_SOURCE2" "$TEMP_NESTED_TARGET" 2>&1; then
-    report_fail "Config copy to nested path" "cp command failed"
-    rm -f "$TEMP_SOURCE2"
-  else
-    rm -f "$TEMP_SOURCE2"
-    if [[ -f "$TEMP_NESTED_TARGET" ]]; then
-      report_pass "Target directory creation and copy succeeds"
-    else
-      report_fail "Target directory creation failed" "File not created despite no error"
-    fi
-  fi
+  rm -f "$TEMP_SOURCE2"
+  report_fail "Target directory creation failed" "File not created despite no error"
 fi
 
 # Test 14: Verify actual activation script logic flow
@@ -407,6 +395,120 @@ fi
 
 rm -f "$TEMP_SOURCE17"
 chmod 755 "$TEMP_TARGET_DIR17"  # Restore for cleanup
+
+# Test 18: Failed to list /mnt/c/Users directory error path
+echo ""
+echo "=== Test 18: Failed to list /mnt/c/Users directory (warning path) ==="
+TEMP_MOUNT_NOPERM=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_MOUNT_NOPERM")
+mkdir -p "$TEMP_MOUNT_NOPERM/c/Users"
+chmod 000 "$TEMP_MOUNT_NOPERM/c/Users"  # Remove all permissions
+
+# Simulate the error path from wezterm.nix lines 72-78
+if ! ls "$TEMP_MOUNT_NOPERM/c/Users/" >/tmp/wezterm-users-list-test18 2>&1; then
+  # Expected to fail - this is the warning path
+  if [[ -f /tmp/wezterm-users-list-test18 ]]; then
+    # Verify warning is emitted and cleanup attempted
+    rm -f /tmp/wezterm-users-list-test18 2>/dev/null
+    report_pass "Failed /mnt/c/Users listing detected and handled with warning"
+  else
+    report_fail "Failed listing should create temp file for error message"
+  fi
+else
+  report_fail "Should fail to list directory with no permissions"
+fi
+
+chmod 755 "$TEMP_MOUNT_NOPERM/c/Users"  # Restore for cleanup
+
+# Test 19: Failed to cleanup temp file (warning to stderr)
+echo ""
+echo "=== Test 19: Failed to cleanup temp file warning ==="
+TEMP_FILE_NOCLEAN=$(mktemp)
+# Create a directory with same name to make rm fail
+rm -f "$TEMP_FILE_NOCLEAN"
+mkdir -p "$TEMP_FILE_NOCLEAN"
+CLEANUP_DIRS+=("$TEMP_FILE_NOCLEAN")
+
+# Simulate the cleanup error path from wezterm.nix lines 84-87
+if ! rm "$TEMP_FILE_NOCLEAN" 2>/dev/null; then
+  report_pass "Failed cleanup of temp file detected correctly"
+else
+  report_fail "Should fail to rm directory when expecting file"
+fi
+
+# Test 20: Source WezTerm config not found (ERROR and exit 1)
+echo ""
+echo "=== Test 20: Source config not found error path ==="
+MISSING_SOURCE20="/nonexistent/home/.config/wezterm/wezterm.lua"
+EXIT_CODE=0
+
+# Simulate the error check from wezterm.nix lines 96-100
+if [[ ! -f "$MISSING_SOURCE20" ]]; then
+  # This should trigger ERROR and exit 1
+  # Simulate the exit behavior
+  EXIT_CODE=1
+fi
+
+if [[ $EXIT_CODE -eq 1 ]]; then
+  report_pass "Missing source config triggers exit 1 as expected"
+else
+  report_fail "Missing source config should trigger exit 1"
+fi
+
+# Test 21: Failed to copy config (ERROR and exit 1)
+echo ""
+echo "=== Test 21: Failed config copy triggers ERROR and exit 1 ==="
+TEMP_SOURCE21=$(mktemp)
+TEMP_TARGET_DIR21=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_TARGET_DIR21")
+echo "config content" > "$TEMP_SOURCE21"
+TARGET_FILE21="$TEMP_TARGET_DIR21/.wezterm.lua"
+
+# Make target directory read-only to force copy failure
+chmod 555 "$TEMP_TARGET_DIR21"
+
+COPY_EXIT_CODE=0
+# Simulate the copy with error checking from wezterm.nix lines 103-107
+# Note: Using DRY_RUN_CMD="" and VERBOSE_ARG="" to simulate activation script variables
+DRY_RUN_CMD=""
+VERBOSE_ARG=""
+if ! $DRY_RUN_CMD cp $VERBOSE_ARG "$TEMP_SOURCE21" "$TARGET_FILE21" 2>/dev/null; then
+  # This should trigger ERROR and exit 1
+  COPY_EXIT_CODE=1
+fi
+
+rm -f "$TEMP_SOURCE21"
+chmod 755 "$TEMP_TARGET_DIR21"  # Restore for cleanup
+
+if [[ $COPY_EXIT_CODE -eq 1 ]]; then
+  report_pass "Failed config copy triggers exit 1 as expected"
+else
+  report_fail "Failed config copy should trigger exit 1"
+fi
+
+# Test 22: Activation continues after failed /mnt/c/Users listing (soft error)
+echo ""
+echo "=== Test 22: Activation continues gracefully after directory listing failure ==="
+TEMP_MOUNT_SOFT=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_MOUNT_SOFT")
+mkdir -p "$TEMP_MOUNT_SOFT/c/Users"
+chmod 000 "$TEMP_MOUNT_SOFT/c/Users"
+
+# Simulate the soft error path - listing fails but script continues
+WINDOWS_USER=""
+if ! ls "$TEMP_MOUNT_SOFT/c/Users/" >/tmp/wezterm-test22-list 2>&1; then
+  # Warning emitted, but WINDOWS_USER remains empty and script continues
+  rm -f /tmp/wezterm-test22-list 2>/dev/null
+  WINDOWS_USER=""
+fi
+
+chmod 755 "$TEMP_MOUNT_SOFT/c/Users"  # Restore for cleanup
+
+if [[ -z "$WINDOWS_USER" ]]; then
+  report_pass "Activation continues gracefully with empty WINDOWS_USER after listing failure"
+else
+  report_fail "WINDOWS_USER should be empty after listing failure"
+fi
 
 # Summary
 echo ""

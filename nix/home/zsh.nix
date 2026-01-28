@@ -1,9 +1,7 @@
 # Zsh Shell Configuration
-# TODO(#1613): Zsh configuration comment inaccurately claims file regeneration
 #
 # Enables Home Manager's zsh integration, which manages .zshrc and .zshenv
-# by regenerating them to include Home Manager's session variables and
-# environment setup.
+# by creating symlinks to Nix store files that source Home Manager's configuration.
 #
 # This ensures that all Home Manager-managed environment variables
 # (like TZ for timezone) are properly loaded in new shell sessions.
@@ -28,8 +26,7 @@
       fi
     '';
 
-    # TODO(#1520): Misleading comment about preserving existing configuration in zsh.nix
-    # Preserve existing configuration from the current .zshrc
+    # Custom zsh configuration (replaces .zshrc content when Home Manager is enabled)
     initExtra = ''
       if ! autoload -U +X bashcompinit || ! bashcompinit; then
         echo "WARNING: Failed to initialize bash completions for zsh" >&2
@@ -44,10 +41,11 @@
       _pr_jobs() {
         # https://superuser.com/questions/1735201/zsh-script-not-printing-output-of-jobs-command
         if tmp=$(mktemp 2>&1); then
-          if ! print $(jobs) > $tmp 2>&1; then
-            echo "WARNING: Failed to write jobs to temp file" >&2
+          # Use separate error variable to capture stderr properly
+          if ! print_error=$(print $(jobs) 2>&1 > $tmp); then
+            echo "WARNING: Failed to write jobs to temp file: $print_error" >&2
           fi
-          if ! JOBS=$(< $tmp 2>&1); then
+          if ! JOBS=$(<"$tmp" 2>&1); then
             echo "WARNING: Failed to read jobs from temp file" >&2
             JOBS=""
           fi
