@@ -169,8 +169,7 @@ describe('TransactionList', () => {
       await setupFilterTest();
 
       // Simulate setting start date filter
-      const list = render(<TransactionList />);
-      const component = list.container.querySelector('[data-testid="transaction-filters"]');
+      render(<TransactionList />);
 
       // In real scenario, TransactionFilters would call onStartDateChange
       // For now, test the filtering logic by checking component behavior
