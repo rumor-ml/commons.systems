@@ -18,15 +18,17 @@
     envExtra = ''
       # Source Home Manager session variables
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
-        if ! . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"; then
+        if ! source_error=$(. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" 2>&1); then
           echo "WARNING: Failed to source Home Manager session variables" >&2
           echo "  File: $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" >&2
+          echo "  Error: $source_error" >&2
           echo "  This may affect environment variables like TZ (timezone)" >&2
         fi
       fi
     '';
 
-    # Custom zsh configuration (replaces .zshrc content when Home Manager is enabled)
+    # Custom zsh initialization (added to Home Manager-managed .zshrc)
+    # Home Manager creates its own .zshrc that sources this content during shell startup
     initExtra = ''
       if ! autoload -U +X bashcompinit || ! bashcompinit; then
         echo "WARNING: Failed to initialize bash completions for zsh" >&2
@@ -34,9 +36,22 @@
 
       # Git status in prompt
       # https://git-scm.com/book/en/v2/Appendix-A%3A-Git-in-Other-Environments-Git-in-Zsh
-      # TODO(#1616): Consider adding error handling for autoload commands in zsh.nix
-      autoload -Uz vcs_info
-      precmd() { vcs_info }
+      if ! autoload -Uz vcs_info; then
+        echo "WARNING: Failed to load vcs_info for git prompt integration" >&2
+        echo "  Git branch will not appear in prompt" >&2
+        echo "  This may indicate an incomplete zsh installation" >&2
+      else
+        precmd() {
+          if ! vcs_info 2>/dev/null; then
+            # Only warn once per session to avoid spam
+            if [[ -z "$_VCS_INFO_WARNED" ]]; then
+              echo "WARNING: vcs_info failed - git prompt integration disabled" >&2
+              echo "  Check git installation and repository health" >&2
+              export _VCS_INFO_WARNED=1
+            fi
+          fi
+        }
+      fi
 
       _pr_jobs() {
         # https://superuser.com/questions/1735201/zsh-script-not-printing-output-of-jobs-command
@@ -58,7 +73,7 @@
             fi
           fi
         else
-          # Show warning on first mktemp failure to alert user of broken job display
+          # Show warning only once per session (same pattern as _PR_JOBS_RM_WARNED above)
           if [[ -z "$_PR_JOBS_MKTEMP_WARNED" ]]; then
             echo "WARNING: Failed to create temp file for job display" >&2
             echo "  mktemp error: $tmp" >&2
@@ -68,9 +83,13 @@
           JOBS=""
         fi
       }
-      # TODO(#1617): Consider adding error handling for add-zsh-hook in zsh.nix
-      autoload -Uz add-zsh-hook
-      add-zsh-hook precmd _pr_jobs
+      if ! autoload -Uz add-zsh-hook; then
+        echo "WARNING: Failed to load add-zsh-hook for job display" >&2
+        echo "  Background job indicator will not work" >&2
+        echo "  This may indicate an incomplete zsh installation" >&2
+      else
+        add-zsh-hook precmd _pr_jobs
+      fi
 
       setopt PROMPT_SUBST
       HR='''''${(r:$COLUMNS::_:)}'''

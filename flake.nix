@@ -272,6 +272,7 @@
               weztermTests = pkgs.callPackage ./nix/home/wezterm.test.nix { };
               bashTests = pkgs.callPackage ./nix/home/bash.test.nix { };
               zshTests = pkgs.callPackage ./nix/home/zsh.test.nix { };
+              wingetTests = pkgs.callPackage ./windows/winget-packages.test.nix { };
             in
             {
               pre-commit-check = pre-commit-check;
@@ -282,10 +283,14 @@
               # Shell module tests
               bash-test-suite = bashTests.bash-test-suite;
               zsh-test-suite = zshTests.zsh-test-suite;
+
+              # Windows configuration tests
+              winget-test-suite = wingetTests.winget-test-suite;
             }
             // weztermTests.wezterm-tests
             // bashTests.bash-tests
-            // zshTests.zsh-tests;
+            // zshTests.zsh-tests
+            // wingetTests.winget-tests;
         }
       );
 

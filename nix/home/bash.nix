@@ -14,23 +14,25 @@
   programs.bash = {
     enable = true;
 
-    # Source session variables in interactive shells (both login and non-login interactive shells)
-    # This is critical for WSL where new terminal tabs start as non-login interactive shells
+    # Source session variables in interactive non-login shells (via .bashrc)
+    # This is critical for WSL where new terminal tabs start as non-login interactive shells.
+    # Note: Login shells won't load this unless they explicitly source .bashrc.
     # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
     initExtra = ''
       # Source Home Manager session variables if not already loaded
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
-        if ! . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"; then
+        if ! source_error=$(. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" 2>&1); then
           echo "WARNING: Failed to source Home Manager session variables" >&2
           echo "  File: $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" >&2
+          echo "  Error: $source_error" >&2
           echo "  This may affect environment variables like TZ (timezone)" >&2
         fi
       fi
     '';
 
-    # Additional bash configuration can be added here as needed.
-    # For example, to enable programmable completion (tab completion for commands):
-    # enableCompletion = true;
-    # historyControl = [ "ignoredups" "ignorespace" ];
+    # Additional Home Manager bash options can be added here as needed:
+    # enableCompletion = true;  # Enable programmable completion (tab completion)
+    # historyControl = [ "ignoredups" "ignorespace" ];  # History filtering
+    # See Home Manager manual for complete list of available options
   };
 }

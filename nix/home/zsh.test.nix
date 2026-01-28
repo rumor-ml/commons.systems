@@ -13,98 +13,20 @@
 # evaluating it through Home Manager's module system, since zsh.nix is
 # designed to be imported as a Home Manager module.
 
+# TODO(#1633): Test validation uses generic 'exit 1' without specific exit codes
+
 { pkgs, lib, ... }:
 
 let
+  # Import shared test helpers
+  testHelpers = import ./test-helpers.nix { inherit pkgs lib; };
+
   # Read the zsh module source for testing
   zshSource = builtins.readFile ./zsh.nix;
 
-  # Extract the envExtra content from source
-  extractEnvExtra =
-    let
-      lines = lib.splitString "\n" zshSource;
-      inEnvExtra =
-        lib.foldl'
-          (
-            acc: line:
-            if acc.found && lib.hasInfix "''" line && acc.collecting then
-              acc // { collecting = false; }
-            else if acc.found && acc.collecting then
-              acc // { content = acc.content ++ [ line ]; }
-            else if lib.hasInfix "envExtra = ''" line then
-              acc
-              // {
-                found = true;
-                collecting = true;
-              }
-            else
-              acc
-          )
-          {
-            found = false;
-            collecting = false;
-            content = [ ];
-          }
-          lines;
-    in
-    lib.concatStringsSep "\n" inEnvExtra.content;
-
-  # Extract the initExtra content from source
-  extractInitExtra =
-    let
-      lines = lib.splitString "\n" zshSource;
-      inInitExtra =
-        lib.foldl'
-          (
-            acc: line:
-            if acc.found && lib.hasInfix "''" line && acc.collecting && !lib.hasInfix "''''" line then
-              acc // { collecting = false; }
-            else if acc.found && acc.collecting then
-              acc // { content = acc.content ++ [ line ]; }
-            else if lib.hasInfix "initExtra = ''" line then
-              acc
-              // {
-                found = true;
-                collecting = true;
-              }
-            else
-              acc
-          )
-          {
-            found = false;
-            collecting = false;
-            content = [ ];
-          }
-          lines;
-    in
-    lib.concatStringsSep "\n" inInitExtra.content;
-
-  envExtraContent = extractEnvExtra;
-  initExtraContent = extractInitExtra;
-
-  # Test helper: Validate zsh syntax using zsh interpreter
-  validateZshSyntax =
-    zshCode:
-    let
-      zshFile = pkgs.writeText "zsh-test.zsh" zshCode;
-    in
-    pkgs.runCommand "validate-zsh-syntax" { buildInputs = [ pkgs.zsh ]; } ''
-      # Validate syntax and capture error output
-      if ! zsh_error=$(${pkgs.zsh}/bin/zsh -n '${zshFile}' 2>&1); then
-        echo "Zsh syntax validation failed:"
-        echo "----------------------------------------"
-        echo "$zsh_error"
-        echo "----------------------------------------"
-        echo ""
-        echo "Generated zsh config:"
-        cat '${zshFile}'
-        echo ""
-        echo "Full config at: ${zshFile}"
-        exit 1
-      fi
-      echo "PASS: Zsh syntax is valid"
-      touch $out
-    '';
+  # Extract the envExtra and initExtra content from source using shared helper
+  envExtraContent = testHelpers.extractNixStringLiteral zshSource "envExtra";
+  initExtraContent = testHelpers.extractNixStringLiteral zshSource "initExtra";
 
   # Test 1: Module structure
   test-module-structure = pkgs.runCommand "test-zsh-module-structure" { } ''
@@ -231,7 +153,7 @@ let
         "echo 'FAIL: initExtra missing vcs_info autoload' && exit 1"
     }
     ${
-      if lib.hasInfix "precmd() { vcs_info }" zshSource then
+      if lib.hasInfix "precmd()" zshSource && lib.hasInfix "vcs_info" zshSource then
         "echo 'PASS: initExtra configures precmd for vcs_info'"
       else
         "echo 'FAIL: initExtra missing precmd configuration' && exit 1"
@@ -333,17 +255,17 @@ let
   '';
 
   # Test 9: Zsh syntax validation for envExtra
-  test-zsh-syntax-env = validateZshSyntax envExtraContent;
+  test-zsh-syntax-env = testHelpers.validateShellSyntax pkgs.zsh "Zsh" envExtraContent;
 
   # Test 10: Zsh syntax validation for initExtra
-  test-zsh-syntax-init = validateZshSyntax initExtraContent;
+  test-zsh-syntax-init = testHelpers.validateShellSyntax pkgs.zsh "Zsh" initExtraContent;
 
   # Test 11: Combined syntax validation
   test-zsh-syntax-combined =
     let
       combinedConfig = envExtraContent + "\n" + initExtraContent;
     in
-    validateZshSyntax combinedConfig;
+    testHelpers.validateShellSyntax pkgs.zsh "Zsh" combinedConfig;
 
   # Test 12: TODO tracking
   test-todo-references = pkgs.runCommand "test-zsh-todo-references" { } ''
@@ -402,19 +324,7 @@ let
     echo "║   Zsh Module Test Suite                   ║"
     echo "╚═══════════════════════════════════════════╝"
     echo ""
-    echo "✅ test-module-structure"
-    echo "✅ test-session-variables-env"
-    echo "✅ test-error-handling-env"
-    echo "✅ test-completion-init"
-    echo "✅ test-vcs-info"
-    echo "✅ test-jobs-function"
-    echo "✅ test-prompt-config"
-    echo "✅ test-add-zsh-hook"
-    echo "✅ test-zsh-syntax-env"
-    echo "✅ test-zsh-syntax-init"
-    echo "✅ test-zsh-syntax-combined"
-    echo "✅ test-todo-references"
-    echo "✅ test-comments"
+    ${lib.concatMapStringsSep "\n" (test: "echo \"✅ ${test.name}\"") allTests}
     echo ""
     echo "All Zsh tests passed!"
     touch $out

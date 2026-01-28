@@ -46,7 +46,8 @@
         -- WSL Integration (Linux/WSL only)
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
-        config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/${config.home.username}' }
+        -- Using string concatenation with properly escaped username to handle special characters
+        config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
       ''}
 
       ${lib.optionalString pkgs.stdenv.isDarwin ''
@@ -59,31 +60,22 @@
   };
 
   # WSL: Copy config to Windows WezTerm location
-  # This activation script runs after home-manager symlinks the config file
-  # (linkGeneration is the DAG phase that creates symlinks for all managed files)
-  # and copies it to the Windows user directory where WezTerm on Windows reads it.
+  # This activation script runs after Home Manager generates config files
+  # and copies them to the Windows user directory where WezTerm on Windows reads it.
   home.activation.copyWeztermToWindows = lib.mkIf pkgs.stdenv.isLinux (
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       # Check if running on WSL (Windows mount point exists)
       if [ -d "/mnt/c/Users" ]; then
         # Detect Windows username (may differ from Linux username)
         # Look for a user directory that's not a system directory
-        # Check if we can list the directory first
-        if ! ls /mnt/c/Users/ >/tmp/wezterm-users-list 2>&1; then
-          echo "WARNING: Failed to list /mnt/c/Users/ directory"
-          if ! cat /tmp/wezterm-users-list 2>&1; then
-            echo "  Additionally, failed to display error details"
-          fi
+        if WINDOWS_USER=$(ls /mnt/c/Users/ 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1) && [ -n "$WINDOWS_USER" ]; then
+          # Success - WINDOWS_USER is set
+          :
+        else
+          echo "WARNING: Failed to list /mnt/c/Users/ directory or no valid user found"
           echo "This may indicate a WSL mount or permission issue"
           # Continue without exiting - this is a soft error
           WINDOWS_USER=""
-        else
-          WINDOWS_USER=$(grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' /tmp/wezterm-users-list | head -n1)
-        fi
-        # Single cleanup point (runs regardless of ls success/failure)
-        if ! rm /tmp/wezterm-users-list 2>/dev/null; then
-          echo "WARNING: Failed to clean up temporary file /tmp/wezterm-users-list" >&2
-          echo "  This may indicate permission or filesystem issues" >&2
         fi
 
         if [ -n "$WINDOWS_USER" ] && [ -d "/mnt/c/Users/$WINDOWS_USER" ]; then

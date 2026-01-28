@@ -12,69 +12,19 @@
 # evaluating it through Home Manager's module system, since bash.nix is
 # designed to be imported as a Home Manager module.
 
+# TODO(#1633): Test validation uses generic 'exit 1' without specific exit codes
+
 { pkgs, lib, ... }:
 
 let
+  # Import shared test helpers
+  testHelpers = import ./test-helpers.nix { inherit pkgs lib; };
+
   # Read the bash module source for testing
   bashSource = builtins.readFile ./bash.nix;
 
-  # Extract the initExtra content from source
-  # This is a simple string extraction since we're testing source structure
-  extractInitExtra =
-    let
-      # Find the initExtra = '' section
-      lines = lib.splitString "\n" bashSource;
-      inInitExtra =
-        lib.foldl'
-          (
-            acc: line:
-            if acc.found && lib.hasInfix "''" line then
-              acc // { collecting = false; }
-            else if acc.found && acc.collecting then
-              acc // { content = acc.content ++ [ line ]; }
-            else if lib.hasInfix "initExtra = ''" line then
-              acc
-              // {
-                found = true;
-                collecting = true;
-              }
-            else
-              acc
-          )
-          {
-            found = false;
-            collecting = false;
-            content = [ ];
-          }
-          lines;
-    in
-    lib.concatStringsSep "\n" inInitExtra.content;
-
-  initExtraContent = extractInitExtra;
-
-  # Test helper: Validate bash syntax using bash interpreter
-  validateBashSyntax =
-    bashCode:
-    let
-      bashFile = pkgs.writeText "bash-test.sh" bashCode;
-    in
-    pkgs.runCommand "validate-bash-syntax" { buildInputs = [ pkgs.bash ]; } ''
-      # Validate syntax and capture error output
-      if ! bash_error=$(${pkgs.bash}/bin/bash -n '${bashFile}' 2>&1); then
-        echo "Bash syntax validation failed:"
-        echo "----------------------------------------"
-        echo "$bash_error"
-        echo "----------------------------------------"
-        echo ""
-        echo "Generated bash config:"
-        cat '${bashFile}'
-        echo ""
-        echo "Full config at: ${bashFile}"
-        exit 1
-      fi
-      echo "PASS: Bash syntax is valid"
-      touch $out
-    '';
+  # Extract the initExtra content from source using shared helper
+  initExtraContent = testHelpers.extractNixStringLiteral bashSource "initExtra";
 
   # Test 1: Module structure
   test-module-structure = pkgs.runCommand "test-bash-module-structure" { } ''
@@ -152,7 +102,7 @@ let
         "echo 'FAIL: Error message missing TZ reference' && exit 1"
     }
     ${
-      if lib.hasInfix "if ! ." initExtraContent then
+      if lib.hasInfix "if ! source_error=" initExtraContent then
         "echo 'PASS: Config uses conditional for error detection'"
       else
         "echo 'FAIL: Config missing error detection pattern' && exit 1"
@@ -161,7 +111,7 @@ let
   '';
 
   # Test 4: Bash syntax validation
-  test-bash-syntax = validateBashSyntax initExtraContent;
+  test-bash-syntax = testHelpers.validateShellSyntax pkgs.bash "Bash" initExtraContent;
 
   # Test 5: Comment documentation
   test-comments = pkgs.runCommand "test-bash-comments" { } ''
@@ -234,13 +184,7 @@ let
     echo "║   Bash Module Test Suite                  ║"
     echo "╚═══════════════════════════════════════════╝"
     echo ""
-    echo "✅ test-module-structure"
-    echo "✅ test-session-variables"
-    echo "✅ test-error-handling"
-    echo "✅ test-bash-syntax"
-    echo "✅ test-comments"
-    echo "✅ test-wsl-context"
-    echo "✅ test-todo-references"
+    ${lib.concatMapStringsSep "\n" (test: "echo \"✅ ${test.name}\"") allTests}
     echo ""
     echo "All Bash tests passed!"
     touch $out
