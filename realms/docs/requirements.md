@@ -353,13 +353,19 @@ Example: 3-edge barrier cluster wrapping a corner
 | ------------- | ----------------------------- |
 | Maximum Count | 3 per realm (soft constraint) |
 | Size          | 1–6 contiguous hexes (random) |
-| Placement     | No constraints                |
+| Placement     | Never adjacent to sea borders |
 
 **Lake Rules**:
 
 - Multi-hex water features discovered during exploration
 - Count toward water features for marsh/bog affinity
 - Can serve as river source or terminus
+
+**Lake Affinity Rules**:
+
+- Higher probability near rivers (water feature connection)
+- Higher probability near bog/marsh terrain (wetland clustering)
+- NEVER adjacent to sea borders (lakes are freshwater, distinct from ocean)
 
 ### 6.2 Seas
 
@@ -666,15 +672,16 @@ Optimize for but accept occasional failures:
 
 Not constraints, but probability modifiers:
 
-| Feature                  | Affinity                                           |
-| ------------------------ | -------------------------------------------------- |
-| Marsh/Bog                | Higher near water features; cluster together       |
-| Heath                    | Higher near bog/marsh (transitional wetland edge)  |
-| Glade/Forest             | Cluster together                                   |
-| Plains/Hills             | Higher probability adjacent (foothills transition) |
-| Crag                     | Higher affinity to peaks than to hills             |
-| Hills/Crags/Peaks/Valley | Cluster together; higher near cliff borders        |
-| Border types             | Cluster by type (~4 clusters)                      |
+| Feature                  | Affinity                                              |
+| ------------------------ | ----------------------------------------------------- |
+| Marsh/Bog                | Higher near water features; cluster together          |
+| Heath                    | Higher near bog/marsh (transitional wetland edge)     |
+| Glade/Forest             | Cluster together                                      |
+| Plains/Hills             | Higher probability adjacent (foothills transition)    |
+| Crag                     | Higher affinity to peaks than to hills                |
+| Hills/Crags/Peaks/Valley | Cluster together; higher near cliff borders           |
+| Border types             | Cluster by type (~4 clusters)                         |
+| Lake                     | Higher near rivers, bog, marsh; never adjacent to sea |
 
 ---
 

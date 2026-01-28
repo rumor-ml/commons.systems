@@ -345,17 +345,38 @@ export function shouldBeLake(ctx, q, r) {
     if (ctx.rng.next() > 0.1) return false;
   }
 
-  // Check for adjacent lake to extend
+  // Check for adjacent lake to extend and calculate water affinity bonus
   const neighbors = hexNeighbors(q, r);
   let adjacentLake = null;
+  let waterAffinityBonus = 0;
 
   for (const n of neighbors) {
     const nKey = hexKey(n.q, n.r);
     const nHex = ctx.hexes.get(nKey);
+
+    // HARD CONSTRAINT: Never adjacent to sea (ocean)
+    if (nHex && nHex.isBorder && nHex.borderType === 'sea') {
+      return false;
+    }
+
     if (nHex && nHex.isLake) {
       adjacentLake = nHex;
-      break;
     }
+
+    // Water feature affinity (soft constraint)
+    if (nHex && nHex.riverEdges && nHex.riverEdges.length > 0) {
+      waterAffinityBonus += 0.02;
+    }
+
+    // Wetland affinity (soft constraint)
+    if (nHex && (nHex.terrain === 'bog' || nHex.terrain === 'marsh')) {
+      waterAffinityBonus += 0.015;
+    }
+  }
+
+  // If adjacent to a lake, check extension probability
+  if (adjacentLake) {
+    // Continue checking for extension
   }
 
   if (adjacentLake) {
@@ -373,7 +394,7 @@ export function shouldBeLake(ctx, q, r) {
     }
   }
 
-  // New lake probability with deficit compensation
+  // New lake probability with deficit compensation and water affinity
   if (ctx.constraints.lakes.placed < ctx.constraints.lakes.max) {
     const expectedTotalHexes = 144;
     const exploredRatio = Math.max(0.1, ctx.constraints.explorableHexes.count / expectedTotalHexes);
@@ -383,7 +404,7 @@ export function shouldBeLake(ctx, q, r) {
 
     const baseProb = 0.045;
     const deficitBonus = deficit > 0 ? deficit * 0.015 : 0;
-    return ctx.rng.next() < baseProb + deficitBonus;
+    return ctx.rng.next() < baseProb + deficitBonus + waterAffinityBonus;
   }
 
   return false;
