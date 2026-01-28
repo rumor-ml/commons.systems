@@ -21,19 +21,10 @@ type Client struct {
 
 // NewClient creates a new Firestore client
 func NewClient(ctx context.Context, projectID string) (*Client, error) {
-	// Initialize Firebase app
+	// Initialize Firebase app with Application Default Credentials
 	conf := &firebase.Config{ProjectID: projectID}
 
-	// Try to use Application Default Credentials first
-	var opts []option.ClientOption
-	credsPath := ""
-
-	// Check for explicit credentials file
-	if credsPath != "" {
-		opts = append(opts, option.WithCredentialsFile(credsPath))
-	}
-
-	app, err := firebase.NewApp(ctx, conf, opts...)
+	app, err := firebase.NewApp(ctx, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Firebase app: %w", err)
 	}
