@@ -157,9 +157,9 @@ function transformToMonthlyData(
     // Validate mean calculation succeeded
     // d3.mean returns undefined for empty arrays or when no valid numeric values exist
     if (avg === undefined || !Number.isFinite(avg)) {
-      // Use structured logging pattern: logger.error(message, dataObject)
-      // The data object enables filtering, structured output, and preserves types
-      // Avoid string concatenation - pass context as separate object parameter
+      // Use structured logging: logger.error(message, dataObject)
+      // Message can use template literals for readability
+      // Pass complex context as separate object parameter for structured output
       logger.error(`Invalid trailing average at index ${idx}`, {
         slice: slice.map((d) => ({ month: d.month, netIncome: d.netIncome })),
         calculatedMean: avg,

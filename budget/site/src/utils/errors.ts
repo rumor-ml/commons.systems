@@ -18,10 +18,10 @@ export type BudgetErrorCode =
   | 'UNEXPECTED'; // Unknown error
 
 /**
- * Structured context for BudgetError instances
+ * Context data for BudgetError instances
  *
- * Provides type-safe fields for common error context patterns while
- * maintaining flexibility through index signature.
+ * Includes common fields for error details (error, stack, componentStack),
+ * location context (file, line, component), and extensibility via metadata.
  */
 export interface BudgetErrorContext {
   // Error details
@@ -34,16 +34,15 @@ export interface BudgetErrorContext {
   line?: number;
   component?: string;
 
-  // Additional structured data
-  [key: string]: unknown;
+  // Additional structured data (string, number, boolean, or null for serializability)
+  metadata?: Record<string, string | number | boolean | null>;
 }
 
 /**
  * Budget module error with typed error code and optional context
  *
- * Extends standard Error with Budget-specific context including:
- * - Typed error code for categorization
- * - Optional context object for debugging data
+ * Use BudgetError instead of generic Error to categorize failures
+ * and enable structured error handling based on error codes.
  */
 export class BudgetError extends Error {
   constructor(
@@ -51,7 +50,8 @@ export class BudgetError extends Error {
     public readonly code: BudgetErrorCode,
     public readonly context?: BudgetErrorContext
   ) {
-    super(message);
+    // Ensure error messages are never empty
+    super(message.trim() || 'Unknown error');
     this.name = 'BudgetError';
   }
 }
@@ -88,6 +88,14 @@ export function formatBudgetError(error: unknown, includeStack = false): string 
         const errorMessage =
           stringifyError instanceof Error ? stringifyError.message : String(stringifyError);
         parts.push(`\nContext: [Unable to serialize: ${errorMessage}]`);
+
+        // Log serialization failure to track issues with context objects
+        console.warn('BudgetError context serialization failed:', {
+          errorCode: error.code,
+          errorMessage: error.message,
+          stringifyError: errorMessage,
+          contextKeys: Object.keys(error.context),
+        });
       }
     }
 

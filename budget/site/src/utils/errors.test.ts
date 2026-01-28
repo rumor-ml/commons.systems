@@ -17,7 +17,7 @@ describe('BudgetError', () => {
   });
 
   it('should create error with optional context', () => {
-    const context = { userId: 123, category: 'groceries' };
+    const context = { metadata: { userId: 123, category: 'groceries' } };
     const error = new BudgetError('Validation failed', 'DATA_VALIDATION', context);
 
     expect(error.context).toEqual(context);
@@ -44,6 +44,21 @@ describe('BudgetError', () => {
       const error = new BudgetError('Test', code);
       expect(error.code).toBe(code);
     });
+  });
+
+  it('should handle empty message by using default', () => {
+    const error = new BudgetError('', 'DATA_VALIDATION');
+    expect(error.message).toBe('Unknown error');
+  });
+
+  it('should trim whitespace from message', () => {
+    const error = new BudgetError('  Test error  ', 'DATA_VALIDATION');
+    expect(error.message).toBe('Test error');
+  });
+
+  it('should handle whitespace-only message', () => {
+    const error = new BudgetError('   ', 'DATA_VALIDATION');
+    expect(error.message).toBe('Unknown error');
   });
 });
 
@@ -84,8 +99,7 @@ describe('formatBudgetError', () => {
 
   it('should format BudgetError with context', () => {
     const error = new BudgetError('Validation failed', 'DATA_VALIDATION', {
-      field: 'amount',
-      value: -100,
+      metadata: { field: 'amount', value: -100 },
     });
     const formatted = formatBudgetError(error);
 

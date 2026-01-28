@@ -39,11 +39,11 @@ export function showNotification(config: NotificationConfig): () => void {
     if (type === 'error') {
       console.error(`[NOTIFICATION ERROR] ${message}`);
     }
-    return () => {};
+    throw new Error('Cannot show notification: DOM not ready');
   }
 
   // Create banner element
-  // TODO(#1538): Consider testing notification accessibility (ARIA attributes)
+  // TODO(#1538): Add ARIA attributes for accessibility (role="alert", aria-live="polite", aria-atomic="true")
   const banner = document.createElement('div');
   banner.className = `fixed top-4 left-1/2 -translate-x-1/2 z-50 ${getBackgroundClass(type)} text-white px-6 py-3 rounded-lg shadow-lg max-w-2xl`;
 
@@ -88,7 +88,12 @@ export function showNotification(config: NotificationConfig): () => void {
             .catch((error) => {
               logger.error(`Notification action "${action.label}" failed`, error);
               dismiss();
-              showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
+              try {
+                showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
+              } catch (notificationError) {
+                // Fallback if showError throws (e.g., DOM not ready)
+                console.error(`Failed to ${action.label.toLowerCase()}:`, error);
+              }
             });
         } else {
           dismiss();
@@ -96,7 +101,12 @@ export function showNotification(config: NotificationConfig): () => void {
       } catch (error) {
         logger.error(`Notification action "${action.label}" failed`, error);
         dismiss();
-        showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
+        try {
+          showError(`Failed to ${action.label.toLowerCase()}. Please try again.`);
+        } catch (notificationError) {
+          // Fallback if showError throws (e.g., DOM not ready)
+          console.error(`Failed to ${action.label.toLowerCase()}:`, error);
+        }
       }
     };
     container.appendChild(actionBtn);
@@ -123,7 +133,20 @@ export function showNotification(config: NotificationConfig): () => void {
         banner.remove();
       }
     } catch (error) {
-      logger.debug('Failed to remove notification banner', { error });
+      logger.warn('Failed to remove notification banner', {
+        error,
+        bannerHasParent: !!banner.parentNode,
+        bannerTagName: banner.tagName,
+      });
+      // Try alternative removal method
+      try {
+        banner.parentNode?.removeChild(banner);
+      } catch (fallbackError) {
+        logger.error('All banner removal methods failed', {
+          removeError: error,
+          removeChildError: fallbackError,
+        });
+      }
     }
   }
 
@@ -133,8 +156,8 @@ export function showNotification(config: NotificationConfig): () => void {
 /**
  * Show error notification with optional action button
  *
- * Error notifications do not auto-dismiss by default, but can be configured
- * to auto-dismiss by passing autoDismiss option through NotificationConfig.
+ * Error notifications do not auto-dismiss by default.
+ * To enable auto-dismiss for errors, use showNotification() directly with autoDismiss: true.
  *
  * @param message - Error message to display
  * @param action - Optional action button configuration

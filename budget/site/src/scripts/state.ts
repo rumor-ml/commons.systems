@@ -274,13 +274,7 @@ export class StateManager {
         showNetIncomeIndicator,
       };
     } catch (error) {
-      // Current: Generic error message for all localStorage failures
-      // Future improvement: Distinguish between error types and provide specific user guidance:
-      //   - JSON parse error → "Your saved settings are corrupted. Resetting to defaults."
-      //   - localStorage access denied → "Private browsing detected. Settings won't persist."
-      //   - Validation error → "Saved settings format is outdated. Migrating to new format."
-      // Limitation: DOMException types vary across browsers, making reliable detection complex
-      // Priority: Low (current generic message is acceptable for most users).
+      // TODO(#1387): Consider distinguishing localStorage failure types for better user messaging
       logger.error('Failed to load state from localStorage', error);
 
       // Show user-facing warning

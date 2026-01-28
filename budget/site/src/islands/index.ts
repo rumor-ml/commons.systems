@@ -21,23 +21,40 @@ const COMPONENTS: Record<string, React.ComponentType<any>> = {
 // Store React roots for re-rendering
 const roots = new Map<HTMLElement, ReturnType<typeof createRoot>>();
 
-// TODO(#1539): Add error handling for DOM manipulation failures
 function showErrorInContainer(element: HTMLElement, title: string, message: string): void {
-  const errorContainer = document.createElement('div');
-  errorContainer.className = 'p-4 bg-error text-white rounded';
+  try {
+    const errorContainer = document.createElement('div');
+    errorContainer.className = 'p-4 bg-error text-white rounded';
 
-  const errorTitle = document.createElement('p');
-  errorTitle.className = 'font-semibold';
-  errorTitle.textContent = title;
+    const errorTitle = document.createElement('p');
+    errorTitle.className = 'font-semibold';
+    errorTitle.textContent = title;
 
-  const errorMessage = document.createElement('p');
-  errorMessage.className = 'text-sm';
-  errorMessage.textContent = message;
+    const errorMessage = document.createElement('p');
+    errorMessage.className = 'text-sm';
+    errorMessage.textContent = message;
 
-  errorContainer.appendChild(errorTitle);
-  errorContainer.appendChild(errorMessage);
-  element.innerHTML = '';
-  element.appendChild(errorContainer);
+    errorContainer.appendChild(errorTitle);
+    errorContainer.appendChild(errorMessage);
+    element.innerHTML = '';
+    element.appendChild(errorContainer);
+  } catch (domError) {
+    logger.error('Failed to show error in container (DOM manipulation failed)', {
+      error: domError,
+      title,
+      message,
+      elementId: element.id,
+      elementTag: element.tagName,
+    });
+    // Final fallback: at least get the error into the console
+    console.error(`[CRITICAL] Cannot display error UI: ${title} - ${message}`, domError);
+    // Try minimal text-only fallback
+    try {
+      element.textContent = `ERROR: ${title} - ${message}`;
+    } catch (textError) {
+      logger.error('Even text fallback failed', textError);
+    }
+  }
 }
 
 export function hydrateIsland(element: HTMLElement, componentName: string) {
@@ -52,9 +69,7 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       invalidJSON: element.dataset.islandProps,
     });
 
-    // Show user-facing error banner in the island container
-    // Displays a styled error message in place of the failed component
-    // (Alternative: ErrorBoundary for React-level errors, notifications for temporary alerts)
+    // Show error banner in place of failed component
     showErrorInContainer(
       element,
       `Failed to load ${componentName}`,
@@ -71,9 +86,7 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       element: element.outerHTML.substring(0, 200),
     });
 
-    // Show user-facing error banner in the island container
-    // Displays a styled error message in place of the failed component
-    // (Alternative: ErrorBoundary for React-level errors, notifications for temporary alerts)
+    // Show error banner in place of failed component
     showErrorInContainer(
       element,
       `Component "${componentName}" not found`,
@@ -103,7 +116,7 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
     }
 
     // Wrap component in ErrorBoundary to catch React render/lifecycle errors
-    // (Island-level errors like props parsing are caught above by try-catch)
+    // Pre-React errors (props parsing, component lookup, root creation) are caught by surrounding try-catch
     const wrappedComponent = React.createElement(
       ErrorBoundary,
       { componentName },

@@ -131,9 +131,9 @@ describe('Logger', () => {
       logger.info('info');
 
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-      // Note: console.warn is called twice - once by the logger constructor error handler
-      // and once by the logger.warn() call
-      expect(consoleWarnSpy).toHaveBeenCalled();
+      // Note: console.warn is called 3 times - twice from the two Logger() constructions
+      // (lines 124, 126) and once by the logger.warn() call (line 130)
+      expect(consoleWarnSpy).toHaveBeenCalledTimes(3);
       expect(consoleInfoSpy).not.toHaveBeenCalled();
 
       getItemSpy.mockRestore();
@@ -228,7 +228,7 @@ describe('Logger', () => {
       const logger = new Logger();
       logger.error('error with undefined', undefined);
 
-      // When data is undefined, logger auto-captures stack trace as the data argument
+      // When data is explicitly undefined, logger auto-captures stack trace as the data argument
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining('[ERROR]'),
         expect.stringContaining('Error')

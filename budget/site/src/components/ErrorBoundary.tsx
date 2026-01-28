@@ -13,13 +13,23 @@ import { formatBudgetError } from '../utils/errors';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
+  /**
+   * Display name for the component in error messages.
+   * Should be a meaningful non-empty string.
+   * Defaults to "Unknown Component" if not provided.
+   */
   componentName?: string;
 }
 
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
+type ErrorBoundaryState =
+  | {
+      hasError: false;
+      error: null;
+    }
+  | {
+      hasError: true;
+      error: Error;
+    };
 
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -34,7 +44,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     const componentName = this.props.componentName || 'Unknown Component';
 
-    // Log error with stack trace (if available)
     logger.error(`Error in ${componentName}:`, {
       error: error.message,
       stack: error.stack ?? 'No stack trace available',
@@ -52,6 +61,12 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         window.location.href = window.location.href;
       } catch (fallbackError) {
         logger.error('Failed to navigate to current URL', fallbackError);
+        logger.error('All page refresh mechanisms failed', {
+          reloadError: error,
+          navigateError: fallbackError,
+          userAgent: navigator.userAgent,
+          pageUrl: window.location.href,
+        });
         alert(
           'Unable to refresh the page automatically. Please refresh manually using your browser (Ctrl+R or Cmd+R).'
         );
@@ -64,7 +79,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   };
 
   render(): React.ReactNode {
-    if (this.state.hasError && this.state.error) {
+    if (this.state.hasError) {
       const componentName = this.props.componentName || 'Component';
       const errorMessage = this.state.error.message || 'An unexpected error occurred';
       const formattedError = formatBudgetError(this.state.error, true);
@@ -77,7 +92,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
               <h3 className="text-error font-semibold mb-1">{componentName} Error</h3>
               <p className="text-error text-sm mb-3">{errorMessage}</p>
 
-              {/* Action buttons */}
               <div className="flex gap-2 mb-3">
                 <button onClick={this.handleRefresh} className="btn btn-sm btn-error">
                   Refresh Page
@@ -87,7 +101,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                 </button>
               </div>
 
-              {/* Collapsible technical details */}
               <details className="text-xs text-error opacity-75">
                 <summary className="cursor-pointer hover:opacity-100">
                   Technical details (for debugging)

@@ -61,7 +61,7 @@ export function Legend({
   const categorySummaries = useMemo(() => {
     // Guard clause: validate transactions prop
     if (!transactions || !Array.isArray(transactions)) {
-      // Basic validation added, but #1458 requires additional error handling
+      // Error logging added for existing validation. #1458 tracks additional error handling improvements
       logger.error('Invalid transactions prop in Legend component', {
         transactions: typeof transactions,
         isArray: Array.isArray(transactions),
@@ -70,11 +70,7 @@ export function Legend({
       return [];
     }
 
-    // TODO(#1458): Add try-catch around calculation and validation for individual transaction objects
-    // Current implementation only validates the array prop, but doesn't handle:
-    // - Invalid transaction structures (missing fields)
-    // - getDisplayAmount errors from corrupt data
-    // - User-facing error notifications
+    // TODO(#1458): Add comprehensive error handling for transaction validation and calculations
     return calculateMonthlySummaries(transactions, showVacation);
   }, [transactions, showVacation, hiddenCategories]);
 

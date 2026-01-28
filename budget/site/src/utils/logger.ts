@@ -17,19 +17,63 @@ export enum LogLevel {
 
 export class Logger {
   private level: LogLevel;
+  private localStorageAvailable: boolean = true;
 
   constructor() {
+    this.level = this.loadLogLevel();
+  }
+
+  private loadLogLevel(): LogLevel {
     // Read log level from localStorage (default: WARN)
-    // Wrapped in try-catch to handle SecurityError in private browsing mode
-    // or when localStorage is unavailable in sandboxed contexts
+    // Try-catch handles any localStorage access errors (private browsing, sandboxed contexts, etc.)
+    // Falls back to default WARN level
     let storedLevel: string | null = null;
     try {
       storedLevel = localStorage.getItem('BUDGET_LOG_LEVEL')?.toUpperCase() ?? null;
     } catch (error) {
       // localStorage access denied in restricted context - use default
-      console.warn('Failed to read log level from localStorage, using default WARN level', error);
+      this.localStorageAvailable = false;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.warn(
+        'Failed to read log level from localStorage, using default WARN level:',
+        errorMsg
+      );
+      return LogLevel.WARN;
     }
-    this.level = LogLevel[storedLevel as keyof typeof LogLevel] ?? LogLevel.WARN;
+
+    if (!storedLevel) {
+      return LogLevel.WARN;
+    }
+
+    // Validate that the parsed value is a valid LogLevel
+    const parsed = LogLevel[storedLevel as keyof typeof LogLevel];
+    if (typeof parsed === 'number' && parsed >= LogLevel.ERROR && parsed <= LogLevel.DEBUG) {
+      return parsed;
+    }
+
+    console.warn(`Invalid log level "${storedLevel}", using default WARN level`);
+    return LogLevel.WARN;
+  }
+
+  // Add public API for runtime level changes
+  public setLevel(level: LogLevel): void {
+    if (typeof level !== 'number' || level < LogLevel.ERROR || level > LogLevel.DEBUG) {
+      console.warn(`Invalid log level ${level}, keeping current level ${LogLevel[this.level]}`);
+      return;
+    }
+    this.level = level;
+    if (this.localStorageAvailable) {
+      try {
+        localStorage.setItem('BUDGET_LOG_LEVEL', LogLevel[level]);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.warn('Failed to persist log level to localStorage:', errorMsg);
+      }
+    }
+  }
+
+  public getLevel(): LogLevel {
+    return this.level;
   }
 
   private log(level: LogLevel, message: string, data?: unknown): void {
@@ -45,12 +89,11 @@ export class Logger {
     // This enables native browser devtools filtering
     switch (level) {
       case LogLevel.ERROR:
-        // Auto-capture stack trace for errors without explicit data
-        // Note: Creating Error objects is expensive; prefer passing explicit data for hot paths
+        // Auto-capture stack trace when data is undefined
+        // Pass null or empty object to skip stack capture if needed
         if (data !== undefined) {
           console.error(logMessage, data);
         } else {
-          // Capture stack trace by creating temporary Error (CPU cost)
           const stack = new Error().stack;
           console.error(logMessage, stack);
         }

@@ -53,7 +53,6 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
 
-    // ErrorBoundary defaults to "Component" for display when componentName prop is undefined (line 55 in ErrorBoundary.tsx)
     expect(screen.getByText(/Component Error/i)).toBeInTheDocument();
     expect(screen.getByText('Test error')).toBeInTheDocument();
   });
@@ -94,8 +93,8 @@ describe('ErrorBoundary', () => {
       expect.stringContaining('Error in TestComponent'),
       expect.objectContaining({
         error: 'Test error',
-        stack: expect.stringContaining('ThrowError'), // Verify stack trace logged
-        componentStack: expect.stringContaining('ThrowError'), // Verify React component stack logged
+        stack: expect.stringContaining('ThrowError'),
+        componentStack: expect.stringContaining('ThrowError'),
       })
     );
   });
@@ -129,6 +128,104 @@ describe('ErrorBoundary', () => {
     await user.click(refreshBtn);
 
     expect(reloadMock).toHaveBeenCalled();
+  });
+
+  it('should fallback to location.href when reload fails', async () => {
+    const user = userEvent.setup();
+    const reloadMock = vi.fn(() => {
+      throw new Error('SecurityError: reload not allowed');
+    });
+    const hrefSetter = vi.fn();
+    let currentHref = 'http://test.com';
+
+    Object.defineProperty(window, 'location', {
+      value: {
+        reload: reloadMock,
+        get href() {
+          return currentHref;
+        },
+        set href(url) {
+          currentHref = url;
+          hrefSetter(url);
+        },
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    render(
+      <ErrorBoundary>
+        <ThrowError />
+      </ErrorBoundary>
+    );
+
+    const refreshBtn = screen.getByRole('button', { name: /refresh page/i });
+    await user.click(refreshBtn);
+
+    expect(reloadMock).toHaveBeenCalled();
+    expect(loggerModule.logger.error).toHaveBeenCalledWith(
+      'Failed to reload page',
+      expect.any(Error)
+    );
+    expect(hrefSetter).toHaveBeenCalledWith('http://test.com');
+  });
+
+  it('should show alert when all refresh methods fail', async () => {
+    const user = userEvent.setup();
+    const alertMock = vi.fn();
+    global.alert = alertMock;
+    const reloadMock = vi.fn(() => {
+      throw new Error('Reload failed');
+    });
+    const hrefSetter = vi.fn(() => {
+      throw new Error('Navigation blocked');
+    });
+    let currentHref = 'http://test.com';
+
+    Object.defineProperty(window, 'location', {
+      value: {
+        reload: reloadMock,
+        get href() {
+          return currentHref;
+        },
+        set href(url) {
+          hrefSetter(url);
+          throw new Error('Navigation blocked');
+        },
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    render(
+      <ErrorBoundary>
+        <ThrowError />
+      </ErrorBoundary>
+    );
+
+    // Clear any errors from initial render
+    vi.clearAllMocks();
+
+    const refreshBtn = screen.getByRole('button', { name: /refresh page/i });
+    await user.click(refreshBtn);
+
+    expect(alertMock).toHaveBeenCalledWith(expect.stringContaining('refresh manually'));
+    expect(loggerModule.logger.error).toHaveBeenCalledTimes(3);
+    expect(loggerModule.logger.error).toHaveBeenCalledWith(
+      'Failed to reload page',
+      expect.any(Error)
+    );
+    expect(loggerModule.logger.error).toHaveBeenCalledWith(
+      'Failed to navigate to current URL',
+      expect.any(Error)
+    );
+    expect(loggerModule.logger.error).toHaveBeenCalledWith(
+      'All page refresh mechanisms failed',
+      expect.objectContaining({
+        reloadError: expect.any(Error),
+        navigateError: expect.any(Error),
+      })
+    );
   });
 
   it('should include try again button', () => {
@@ -170,8 +267,8 @@ describe('ErrorBoundary', () => {
     const tryAgainBtn = screen.getByRole('button', { name: /try again/i });
     await user.click(tryAgainBtn);
 
-    // Clicking "Try Again" resets the error boundary state and re-renders the children.
-    // Since the error condition is still true, the error is thrown again and caught.
+    // Error boundary resets and re-renders children
+    // Since error condition persists, error is caught again
     expect(screen.getByText(/Component Error/i)).toBeInTheDocument();
   });
 

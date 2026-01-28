@@ -4,6 +4,17 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showNotification, showError, showWarning, showInfo, showSuccess } from './notifications';
+import { logger } from './logger';
+
+// Mock logger module
+vi.mock('./logger', () => ({
+  logger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+  },
+}));
 
 describe('notifications', () => {
   beforeEach(() => {
@@ -12,6 +23,9 @@ describe('notifications', () => {
 
     // Mock setTimeout for auto-dismiss tests
     vi.useFakeTimers();
+
+    // Clear logger mocks
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -368,6 +382,161 @@ describe('notifications', () => {
       // The message should be in a p element, not rendered as HTML
       const pElements = banner?.querySelectorAll('p');
       expect(pElements?.length).toBe(1);
+    });
+  });
+
+  describe('action button edge cases', () => {
+    it('should not create action button when label is empty string', () => {
+      const onClick = vi.fn();
+      showNotification({
+        message: 'Test',
+        type: 'info',
+        action: { label: '', onClick },
+      });
+
+      const buttons = document.querySelectorAll('button');
+      // Should only have close button (✕), not action button
+      expect(buttons.length).toBe(1);
+      expect(buttons[0]?.textContent).toBe('✕');
+    });
+
+    it('should not create action button when label is whitespace only', () => {
+      const onClick = vi.fn();
+      showNotification({
+        message: 'Test',
+        type: 'info',
+        action: { label: '   ', onClick },
+      });
+
+      const buttons = document.querySelectorAll('button');
+      expect(buttons.length).toBe(1);
+      expect(buttons[0]?.textContent).toBe('✕');
+    });
+
+    it('should create action button when label has content after trim', () => {
+      const onClick = vi.fn();
+      showNotification({
+        message: 'Test',
+        type: 'info',
+        action: { label: '  Retry  ', onClick },
+      });
+
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const actionBtn = buttons.find((btn) => btn.textContent === '  Retry  ');
+      expect(actionBtn).toBeDefined();
+    });
+  });
+
+  describe('document.body availability', () => {
+    let originalBody: HTMLElement;
+
+    beforeEach(() => {
+      // Save original body before each test in this suite
+      originalBody = document.body;
+    });
+
+    afterEach(() => {
+      // Always restore document.body after each test
+      Object.defineProperty(document, 'body', {
+        configurable: true,
+        get: () => originalBody,
+      });
+    });
+
+    it('should throw when document.body is unavailable', () => {
+      Object.defineProperty(document, 'body', {
+        configurable: true,
+        get: () => null,
+      });
+
+      expect(() => {
+        showNotification({ message: 'Test', type: 'info' });
+      }).toThrow('Cannot show notification: DOM not ready');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Cannot show notification'),
+        expect.objectContaining({ message: 'Test', type: 'info' })
+      );
+    });
+
+    it('should fallback to console.error for error notifications when body unavailable', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      Object.defineProperty(document, 'body', {
+        configurable: true,
+        get: () => null,
+      });
+
+      expect(() => {
+        showNotification({ message: 'Critical error', type: 'error' });
+      }).toThrow('Cannot show notification: DOM not ready');
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Critical error'));
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should not fallback to console for non-error types when body unavailable', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      Object.defineProperty(document, 'body', {
+        configurable: true,
+        get: () => null,
+      });
+
+      expect(() => {
+        showNotification({ message: 'Info message', type: 'info' });
+      }).toThrow('Cannot show notification: DOM not ready');
+
+      // console.error should only be called by logger, not as fallback
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Info message'));
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('dismiss function idempotency', () => {
+    it('should handle dismiss called after auto-dismiss completes', () => {
+      const dismiss = showSuccess('Test message');
+
+      expect(document.querySelector('.fixed')).not.toBeNull();
+
+      // Wait for auto-dismiss
+      vi.advanceTimersByTime(10000);
+      expect(document.querySelector('.fixed')).toBeNull();
+
+      // Calling dismiss again should not throw
+      expect(() => dismiss()).not.toThrow();
+      expect(() => dismiss()).not.toThrow(); // Third call also safe
+    });
+
+    it('should handle multiple dismiss calls before auto-dismiss', () => {
+      const dismiss = showSuccess('Test message');
+
+      expect(document.querySelector('.fixed')).not.toBeNull();
+
+      dismiss();
+      expect(document.querySelector('.fixed')).toBeNull();
+
+      // Second call should not throw
+      expect(() => dismiss()).not.toThrow();
+
+      // Ensure timer was cleared (advancing time shouldn't cause issues)
+      vi.advanceTimersByTime(10000);
+      expect(document.querySelector('.fixed')).toBeNull();
+    });
+
+    it('should not throw when banner already removed from DOM', () => {
+      const dismiss = showInfo('Test');
+      const banner = document.querySelector('.fixed') as HTMLElement;
+
+      // Manually remove banner from DOM
+      banner.remove();
+
+      // dismiss() should not throw even if banner already removed
+      // The check for banner.parentNode prevents unnecessary remove() calls
+      expect(() => dismiss()).not.toThrow();
+
+      // Verify banner was indeed removed
+      expect(document.querySelector('.fixed')).toBeNull();
     });
   });
 });
