@@ -245,6 +245,13 @@ case "$APP_TYPE" in
 }
 EOF
 
+    # Verify config consistency
+    WRITTEN_PORT=$(jq -r '.emulators.hostingPort' "$TEST_ENV_CONFIG")
+    if [ "$WRITTEN_PORT" != "$HOSTING_PORT" ]; then
+      echo "ERROR: Config mismatch - HOSTING_PORT=${HOSTING_PORT} but .test-env.json has ${WRITTEN_PORT}" >&2
+      exit 1
+    fi
+
     echo "=== Test Environment Config ==="
     echo "Config exported to: $TEST_ENV_CONFIG"
     cat "$TEST_ENV_CONFIG"
