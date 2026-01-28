@@ -1,5 +1,10 @@
 rules_version = '2';
 
+// TODO(#1625): Pre-push tests may fail with ERR_CONNECTION_REFUSED on port 5180
+// This is a known flaky test infrastructure issue, not related to these rules.
+// If tests fail during git push, check port 5180 availability and retry.
+// See: https://github.com/rumor-ml/commons.systems/issues/1625
+
 // TODO(#283): Add tests for isPublic field validation
 // TODO(#1369): Clarify TODO comment - tests tracked separately in #283
 // Firestore security rules for cards collection
