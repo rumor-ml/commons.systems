@@ -59,8 +59,8 @@
   };
 
   # WSL: Copy config to Windows WezTerm location
-  # This activation script runs after home-manager generates the config file
-  # (linkGeneration ensures all configuration files are symlinked before this runs)
+  # This activation script runs after home-manager symlinks the config file
+  # (linkGeneration is the DAG phase that creates symlinks for all managed files)
   # and copies it to the Windows user directory where WezTerm on Windows reads it.
   home.activation.copyWeztermToWindows = lib.mkIf pkgs.stdenv.isLinux (
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
@@ -72,27 +72,24 @@
         if ! ls /mnt/c/Users/ >/tmp/wezterm-users-list 2>&1; then
           echo "WARNING: Failed to list /mnt/c/Users/ directory"
           cat /tmp/wezterm-users-list
-          rm -f /tmp/wezterm-users-list
+          if ! rm /tmp/wezterm-users-list 2>/dev/null; then
+            echo "WARNING: Failed to clean up temporary file /tmp/wezterm-users-list" >&2
+            echo "  This may indicate permission or filesystem issues" >&2
+          fi
           echo "This may indicate a WSL mount or permission issue"
           # Continue without exiting - this is a soft error
           WINDOWS_USER=""
         else
           WINDOWS_USER=$(grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' /tmp/wezterm-users-list | head -n1)
-          rm -f /tmp/wezterm-users-list
+          if ! rm /tmp/wezterm-users-list 2>/dev/null; then
+            echo "WARNING: Failed to clean up temporary file /tmp/wezterm-users-list" >&2
+            echo "  This may indicate permission or filesystem issues" >&2
+          fi
         fi
 
         if [ -n "$WINDOWS_USER" ] && [ -d "/mnt/c/Users/$WINDOWS_USER" ]; then
           TARGET_DIR="/mnt/c/Users/$WINDOWS_USER"
           TARGET_FILE="$TARGET_DIR/.wezterm.lua"
-
-          # Create target directory if it doesn't exist (defensive check for non-standard WSL setups)
-          if [ ! -d "$TARGET_DIR" ]; then
-            if ! $DRY_RUN_CMD mkdir -p $VERBOSE_ARG "$TARGET_DIR"; then
-              echo "ERROR: Failed to create directory $TARGET_DIR"
-              echo "Check permissions and filesystem status"
-              exit 1
-            fi
-          fi
 
           # Verify source file exists before copying
           SOURCE_FILE="${config.home.homeDirectory}/.config/wezterm/wezterm.lua"
@@ -112,7 +109,11 @@
         else
           echo "WARNING: Running on WSL but could not detect Windows username"
           echo "Available directories in /mnt/c/Users/:"
-          ls -1 /mnt/c/Users/ 2>/dev/null || echo "  (unable to list)"
+          if ! ls_output=$(ls -1 /mnt/c/Users/ 2>&1); then
+            echo "  Error listing directory: $ls_output"
+          else
+            echo "$ls_output"
+          fi
           echo "To manually copy config, run:"
           echo "  cp ~/.config/wezterm/wezterm.lua /mnt/c/Users/YOUR_USERNAME/.wezterm.lua"
         fi

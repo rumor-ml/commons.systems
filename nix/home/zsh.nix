@@ -1,4 +1,5 @@
 # Zsh Shell Configuration
+# TODO(#1613): Zsh configuration comment inaccurately claims file regeneration
 #
 # Enables Home Manager's zsh integration, which manages .zshrc and .zshenv
 # by regenerating them to include Home Manager's session variables and
@@ -15,6 +16,7 @@
 
     # Source session variables in zshenv (loaded for all zsh shells)
     # This ensures TZ and other Home Manager variables are always available
+    # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
     envExtra = ''
       # Source Home Manager session variables
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
@@ -35,20 +37,40 @@
 
       # Git status in prompt
       # https://git-scm.com/book/en/v2/Appendix-A%3A-Git-in-Other-Environments-Git-in-Zsh
+      # TODO(#1616): Consider adding error handling for autoload commands in zsh.nix
       autoload -Uz vcs_info
       precmd() { vcs_info }
 
       _pr_jobs() {
         # https://superuser.com/questions/1735201/zsh-script-not-printing-output-of-jobs-command
-        if tmp=$(mktemp 2>/dev/null); then
-          print $(jobs) > $tmp 2>/dev/null
-          JOBS=$(< $tmp)
-          rm -f $tmp
+        if tmp=$(mktemp 2>&1); then
+          if ! print $(jobs) > $tmp 2>&1; then
+            echo "WARNING: Failed to write jobs to temp file" >&2
+          fi
+          if ! JOBS=$(< $tmp 2>&1); then
+            echo "WARNING: Failed to read jobs from temp file" >&2
+            JOBS=""
+          fi
+          if ! rm "$tmp" 2>/dev/null; then
+            # Only warn once per session to avoid spam
+            if [[ -z "$_PR_JOBS_RM_WARNED" ]]; then
+              echo "WARNING: Failed to remove temp file: $tmp" >&2
+              echo "  Check /tmp permissions and disk space" >&2
+              export _PR_JOBS_RM_WARNED=1
+            fi
+          fi
         else
-          # Fallback: set JOBS to empty if mktemp fails
+          # Show warning on first mktemp failure to alert user of broken job display
+          if [[ -z "$_PR_JOBS_MKTEMP_WARNED" ]]; then
+            echo "WARNING: Failed to create temp file for job display" >&2
+            echo "  mktemp error: $tmp" >&2
+            echo "  Check /tmp directory permissions and disk space" >&2
+            export _PR_JOBS_MKTEMP_WARNED=1
+          fi
           JOBS=""
         fi
       }
+      # TODO(#1617): Consider adding error handling for add-zsh-hook in zsh.nix
       autoload -Uz add-zsh-hook
       add-zsh-hook precmd _pr_jobs
 

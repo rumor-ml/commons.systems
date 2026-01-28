@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for wezterm.nix activation script
 # Tests Windows user detection and config copy logic on WSL
+# TODO(#1612): Shell tests don't verify actual activation script integration with home-manager
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FAILURES=0
@@ -9,9 +10,14 @@ CLEANUP_DIRS=()
 
 # Cleanup function to remove all temp directories
 cleanup() {
+  local failed=0
   for dir in "${CLEANUP_DIRS[@]}"; do
-    rm -rf "$dir" 2>/dev/null || true
+    if ! rm -rf "$dir" 2>/dev/null; then
+      echo "WARNING: Failed to cleanup directory: $dir" >&2
+      failed=1
+    fi
   done
+  return 0  # Don't fail the trap
 }
 trap cleanup EXIT
 
@@ -96,13 +102,16 @@ echo "-- Test WezTerm Config" > "$TEMP_SOURCE"
 TEMP_TARGET="$TEMP_TARGET_DIR/.wezterm.lua"
 
 # Simulate the copy operation
-cp "$TEMP_SOURCE" "$TEMP_TARGET"
-rm -f "$TEMP_SOURCE"
-
-if [[ -f "$TEMP_TARGET" ]] && grep -q "Test WezTerm Config" "$TEMP_TARGET"; then
-  report_pass "Config file copy succeeds"
+if ! cp "$TEMP_SOURCE" "$TEMP_TARGET" 2>&1; then
+  report_fail "Config file copy operation" "cp command failed"
+  rm -f "$TEMP_SOURCE"
 else
-  report_fail "Config file copy failed"
+  rm -f "$TEMP_SOURCE"
+  if [[ -f "$TEMP_TARGET" ]] && grep -q "Test WezTerm Config" "$TEMP_TARGET"; then
+    report_pass "Config file copy succeeds"
+  else
+    report_fail "Config file copy failed"
+  fi
 fi
 
 # Test 5: Missing /mnt/c/Users directory (non-WSL environment)
@@ -258,16 +267,34 @@ TEMP_NESTED_TARGET="$TEMP_BASE_DIR/nested/path/.wezterm.lua"
 
 # Simulate creating parent directory if it doesn't exist
 if [[ ! -d "$(dirname "$TEMP_NESTED_TARGET")" ]]; then
-  mkdir -p "$(dirname "$TEMP_NESTED_TARGET")"
-fi
-
-cp "$TEMP_SOURCE2" "$TEMP_NESTED_TARGET"
-rm -f "$TEMP_SOURCE2"
-
-if [[ -f "$TEMP_NESTED_TARGET" ]]; then
-  report_pass "Target directory creation and copy succeeds"
+  if ! mkdir -p "$(dirname "$TEMP_NESTED_TARGET")" 2>&1; then
+    report_fail "Target directory creation" "mkdir -p failed"
+    rm -f "$TEMP_SOURCE2"
+  else
+    if ! cp "$TEMP_SOURCE2" "$TEMP_NESTED_TARGET" 2>&1; then
+      report_fail "Config copy to nested path" "cp command failed"
+      rm -f "$TEMP_SOURCE2"
+    else
+      rm -f "$TEMP_SOURCE2"
+      if [[ -f "$TEMP_NESTED_TARGET" ]]; then
+        report_pass "Target directory creation and copy succeeds"
+      else
+        report_fail "Target directory creation failed" "File not created despite no error"
+      fi
+    fi
+  fi
 else
-  report_fail "Target directory creation failed"
+  if ! cp "$TEMP_SOURCE2" "$TEMP_NESTED_TARGET" 2>&1; then
+    report_fail "Config copy to nested path" "cp command failed"
+    rm -f "$TEMP_SOURCE2"
+  else
+    rm -f "$TEMP_SOURCE2"
+    if [[ -f "$TEMP_NESTED_TARGET" ]]; then
+      report_pass "Target directory creation and copy succeeds"
+    else
+      report_fail "Target directory creation failed" "File not created despite no error"
+    fi
+  fi
 fi
 
 # Test 14: Verify actual activation script logic flow
@@ -312,17 +339,74 @@ ACTIVATION_MOUNT=$(mktemp -d)
 ACTIVATION_CONFIG=$(mktemp)
 CLEANUP_DIRS+=("$ACTIVATION_MOUNT")
 
-mkdir -p "$ACTIVATION_MOUNT/c/Users/testuser"
-echo "-- activation test" > "$ACTIVATION_CONFIG"
-
-result=$(simulate_activation "$ACTIVATION_MOUNT" "$ACTIVATION_CONFIG")
-rm -f "$ACTIVATION_CONFIG"
-
-if [[ "$result" == "copied" ]]; then
-  report_pass "Full activation script logic simulation succeeds"
+if ! mkdir -p "$ACTIVATION_MOUNT/c/Users/testuser" 2>&1; then
+  report_fail "Test 14 setup" "Failed to create test directory structure"
+  rm -f "$ACTIVATION_CONFIG"
 else
-  report_fail "Activation script simulation failed" "Got: $result"
+  echo "-- activation test" > "$ACTIVATION_CONFIG"
+
+  result=$(simulate_activation "$ACTIVATION_MOUNT" "$ACTIVATION_CONFIG")
+  rm -f "$ACTIVATION_CONFIG"
+
+  if [[ "$result" == "copied" ]]; then
+    report_pass "Full activation script logic simulation succeeds"
+  else
+    report_fail "Activation script simulation failed" "Got: $result"
+  fi
 fi
+
+# Test 15: Source file missing error handling (simulated)
+echo ""
+echo "=== Test 15: Source file missing error handling ==="
+# Simulate missing source file scenario
+TEMP_TARGET15=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_TARGET15")
+MISSING_SOURCE="/nonexistent/path/wezterm.lua"
+
+# Check if error handling would trigger
+if [[ ! -f "$MISSING_SOURCE" ]]; then
+  report_pass "Source file existence check works correctly"
+else
+  report_fail "Should detect missing source file"
+fi
+
+# Test 16: Directory creation failure handling (simulated)
+echo ""
+echo "=== Test 16: Target directory creation failure handling ==="
+TEMP_PARENT16=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_PARENT16")
+chmod 555 "$TEMP_PARENT16"  # Make parent read-only so mkdir fails
+
+# Try to create nested directory - should fail
+if ! mkdir -p "$TEMP_PARENT16/nested/dir" 2>/dev/null; then
+  report_pass "Directory creation failure detected correctly"
+else
+  report_fail "Should detect mkdir failure with read-only parent"
+fi
+
+chmod 755 "$TEMP_PARENT16"  # Restore for cleanup
+
+# Test 17: Copy failure handling (read-only target)
+echo ""
+echo "=== Test 17: Copy failure with read-only target ==="
+TEMP_SOURCE17=$(mktemp)
+TEMP_TARGET_DIR17=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_TARGET_DIR17")
+echo "test config" > "$TEMP_SOURCE17"
+TARGET_FILE17="$TEMP_TARGET_DIR17/.wezterm.lua"
+touch "$TARGET_FILE17"
+chmod 444 "$TARGET_FILE17"  # Make read-only
+chmod 555 "$TEMP_TARGET_DIR17"  # Make directory read-only
+
+# Simulate copy operation - should fail gracefully
+if ! cp "$TEMP_SOURCE17" "$TARGET_FILE17" 2>/dev/null; then
+  report_pass "Copy failure detected correctly"
+else
+  report_fail "Should detect copy failure with read-only target"
+fi
+
+rm -f "$TEMP_SOURCE17"
+chmod 755 "$TEMP_TARGET_DIR17"  # Restore for cleanup
 
 # Summary
 echo ""

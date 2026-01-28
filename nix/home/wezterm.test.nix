@@ -6,9 +6,9 @@
 # 3. Variable interpolation (username, home directory)
 # 4. Activation script logic for WSL Windows config copy
 #
-# These tests ensure configuration errors are caught before deployment,
-# preventing WezTerm launch failures that would only be discovered during
-# manual testing.
+# These tests ensure configuration syntax errors are caught before deployment,
+# preventing Lua syntax failures during WezTerm launch. They do not verify
+# runtime behavior like font availability or WSL integration.
 
 { pkgs, lib, ... }:
 
@@ -47,6 +47,7 @@ let
   # Test helper: Extract Lua config from module evaluation
   extractLuaConfig = moduleResult: moduleResult.programs.wezterm.extraConfig;
 
+  # TODO(#1615): Add test verifying generated config is actually valid WezTerm configuration
   # Test helper: Validate Lua syntax using lua interpreter
   validateLuaSyntax =
     luaCode:
@@ -220,6 +221,7 @@ let
       touch $out
     '';
 
+  # TODO(#1611): Add test for Lua config with special chars in username (quotes, backslashes)
   # Test 6: Activation script conditioned on Linux platform
   test-activation-script-linux =
     let
@@ -256,10 +258,10 @@ let
           "echo 'FAIL: Activation script missing DAG ordering' && exit 1"
       }
       ${
-        if lib.hasInfix "writeBoundary" weztermSource then
-          "echo 'PASS: Activation script depends on writeBoundary'"
+        if lib.hasInfix "linkGeneration" weztermSource then
+          "echo 'PASS: Activation script depends on linkGeneration'"
         else
-          "echo 'FAIL: Activation script missing writeBoundary dependency' && exit 1"
+          "echo 'FAIL: Activation script missing linkGeneration dependency' && exit 1"
       }
       touch $out
     '';

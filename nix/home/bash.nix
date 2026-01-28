@@ -2,8 +2,10 @@
 #
 # Enables Home Manager's bash integration, which manages .bashrc and
 # .bash_profile by regenerating them to include Home Manager's session
-# variables and environment setup. Note: This replaces any existing
-# .bashrc/.bash_profile files with Home Manager-generated versions.
+# variables and environment setup. Note: Home Manager generates these files
+# and manages them via symlinks in the Nix store. Any manual edits to these
+# files will be ignored - use the 'initExtra' option instead to add custom
+# configuration.
 #
 # This ensures that all Home Manager-managed environment variables
 # (like TZ for timezone) are properly loaded in new shell sessions.
@@ -16,6 +18,7 @@
 
     # Source session variables in interactive shells (both login and non-login interactive shells)
     # This is critical for WSL where new terminal tabs start as non-login interactive shells
+    # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
     initExtra = ''
       # Source Home Manager session variables if not already loaded
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
