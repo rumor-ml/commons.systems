@@ -18,6 +18,34 @@
  */
 
 import { writeFileSync } from 'fs';
+import { SeededRNG } from '../src/lib/seededRandom.js';
+import {
+  DIRECTION_NAMES,
+  OPPOSITE_DIRECTION,
+  hexDistance,
+  hexNeighbor,
+  hexNeighbors,
+  hexKey,
+  getAdjacentDirections,
+} from '../src/lib/hexMath.js';
+import { initiateRiver, planRiverPath } from '../src/lib/riverGeneration.js';
+import { initializeBorderClusters, getBorderProbability } from '../src/lib/borderGeneration.js';
+import {
+  createBorderHex as sharedCreateBorderHex,
+  shouldBeLake,
+  generateTerrainWithConstraints,
+  maybeGenerateBarrier,
+  calculateFeatureWeights,
+  maybeAddFeature,
+  forceCompleteFeatures as sharedForceCompleteFeatures,
+  wouldTrapExplorer as sharedWouldTrapExplorer,
+} from '../src/lib/realmGeneration.js';
+import {
+  TERRAIN_TYPES,
+  TERRAIN_AFFINITIES,
+  ELEVATION,
+  getElevation as sharedGetElevation,
+} from '../src/lib/terrainConstants.js';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -39,78 +67,10 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--debug' && args[i + 1]) config.debugSeeds = args[i + 1].split(',').map(Number);
 }
 
-// Hex distance calculation (axial coordinates)
-function hexDistance(q1, r1, q2, r2) {
-  return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
-}
-
-// Seeded random number generator (matches the real one)
-class SeededRandom {
-  constructor(seed) {
-    this.state = seed;
-  }
-
-  next() {
-    this.state = (this.state * 1103515245 + 12345) & 0x7fffffff;
-    return this.state / 0x7fffffff;
-  }
-
-  choice(array) {
-    return array[Math.floor(this.next() * array.length)];
-  }
-
-  weightedChoice(array, weights) {
-    const total = weights.reduce((a, b) => a + b, 0);
-    let roll = this.next() * total;
-    for (let i = 0; i < array.length; i++) {
-      roll -= weights[i];
-      if (roll <= 0) return array[i];
-    }
-    return array[array.length - 1];
-  }
-}
-
-// Direction constants
-const DIRECTION_NAMES = ['NE', 'E', 'SE', 'SW', 'W', 'NW'];
-const OPPOSITE_DIRECTION = { NE: 'SW', E: 'W', SE: 'NW', SW: 'NE', W: 'E', NW: 'SE' };
-
-// Adjacent directions share a vertex - for river connectivity
-function getAdjacentDirections(dir) {
-  const idx = DIRECTION_NAMES.indexOf(dir);
-  const prev = DIRECTION_NAMES[(idx + 5) % 6];
-  const next = DIRECTION_NAMES[(idx + 1) % 6];
-  return [prev, next];
-}
-
-// Hex neighbor calculation
-function hexNeighbor(q, r, direction) {
-  const offsets = {
-    NE: { q: 1, r: -1 },
-    E: { q: 1, r: 0 },
-    SE: { q: 0, r: 1 },
-    SW: { q: -1, r: 1 },
-    W: { q: -1, r: 0 },
-    NW: { q: 0, r: -1 },
-  };
-  const offset = offsets[direction];
-  return { q: q + offset.q, r: r + offset.r };
-}
-
-function hexKey(q, r) {
-  return `${q},${r}`;
-}
-
-function hexNeighbors(q, r) {
-  return DIRECTION_NAMES.map((dir) => ({
-    direction: dir,
-    ...hexNeighbor(q, r, dir),
-  }));
-}
-
 // Standalone RealmGenerator that mirrors the real one's river logic
 class StandaloneRealmGenerator {
   constructor(seed) {
-    this.rng = new SeededRandom(seed);
+    this.rng = new SeededRNG(seed);
     this.seed = seed;
 
     this.hexes = new Map();
@@ -121,6 +81,7 @@ class StandaloneRealmGenerator {
     this.riverEdges = new Map();
     this.barrierEdges = new Set();
     this.traversedEdges = new Set();
+    this.lakes = [];
 
     // New river system state
     this.rivers = [];
@@ -128,9 +89,14 @@ class StandaloneRealmGenerator {
     this.riverIdCounter = 0;
     this.plannedRiverEdges = new Map();
 
+    this.borderClusters = [];
+    this.terrainClusters = new Map();
+    this.clusterIdCounter = 0;
     this.currentExplorerPos = { q: 0, r: 0 };
+    this.currentDirection = null; // Track preferred exploration direction
     this.constraints = null;
-    this.realmRadius = 10; // Max distance from origin for realm hexes
+    this.generationMode = null;
+    this.realmRadius = 8; // Max distance from origin for realm hexes
   }
 
   initConstraints() {
@@ -172,47 +138,84 @@ class StandaloneRealmGenerator {
     };
   }
 
-  initialize() {
+  initialize(startAtBorder = false) {
     this.initConstraints();
+    this.borderClusters = initializeBorderClusters(this.rng);
     this.generateInitialBorderShell();
 
-    const startHex = {
-      q: 0,
-      r: 0,
-      terrain: 'plains',
-      isExplored: true,
-      isRevealed: true,
-      isBorder: false,
-      isLake: false,
-      riverEdges: [],
-    };
+    // Find starting position (random within realm, like the UI)
+    const startPos = this.findStartPosition(startAtBorder);
+    this.currentExplorerPos = { q: startPos.q, r: startPos.r };
 
-    const key = hexKey(0, 0);
-    this.hexes.set(key, startHex);
+    // CRITICAL: Generate start hex using createHex() to consume same RNG as UI's generateHex()
+    // UI calls: generateHex(startPos.q, startPos.r) then exploreHex(startPos.q, startPos.r)
+    this.createHex(startPos.q, startPos.r); // createHex adds to this.hexes internally
+
+    // Mark start hex as explored (matches UI's exploreHex)
+    const key = hexKey(startPos.q, startPos.r);
+    const startHex = this.hexes.get(key);
+    startHex.isExplored = true;
+    startHex.isRevealed = true;
     this.exploredHexes.add(key);
     this.revealedHexes.add(key);
-    this.currentExplorerPos = { q: 0, r: 0 };
 
-    for (const n of hexNeighbors(0, 0)) {
+    // Reveal and generate neighbors (matches UI's exploreHex)
+    for (const n of hexNeighbors(startPos.q, startPos.r)) {
       const nKey = hexKey(n.q, n.r);
       if (!this.hexes.has(nKey)) {
-        const revealedHex = this.createHex(n.q, n.r);
-        this.hexes.set(nKey, revealedHex);
+        this.createHex(n.q, n.r); // createHex now adds to this.hexes internally
+      }
+      const nHex = this.hexes.get(nKey);
+      if (nHex && !nHex.isRevealed) {
+        nHex.isRevealed = true;
         this.revealedHexes.add(nKey);
-        this.borderHexes.add(nKey);
       }
     }
 
     this.updateRealmDimensions();
   }
 
+  findStartPosition(startAtBorder = false) {
+    const candidates = [];
+
+    if (startAtBorder) {
+      // Find hexes adjacent to border
+      for (let q = -this.realmRadius; q <= this.realmRadius; q++) {
+        for (let r = -this.realmRadius; r <= this.realmRadius; r++) {
+          const dist = hexDistance(0, 0, q, r);
+          if (dist < this.realmRadius - 1) {
+            const neighbors = hexNeighbors(q, r);
+            const hasAdjacentBorder = neighbors.some((n) =>
+              this.realmBorderHexes.has(hexKey(n.q, n.r))
+            );
+            if (hasAdjacentBorder) {
+              candidates.push({ q, r });
+            }
+          }
+        }
+      }
+    } else {
+      // Random position within realm
+      for (let q = -this.realmRadius + 2; q <= this.realmRadius - 2; q++) {
+        for (let r = -this.realmRadius + 2; r <= this.realmRadius - 2; r++) {
+          const dist = hexDistance(0, 0, q, r);
+          if (dist < this.realmRadius - 2 && !this.realmBorderHexes.has(hexKey(q, r))) {
+            candidates.push({ q, r });
+          }
+        }
+      }
+    }
+
+    return candidates.length > 0 ? this.rng.choice(candidates) : { q: 0, r: 0 };
+  }
+
   generateInitialBorderShell() {
-    const radius = 10;
+    const radius = this.realmRadius + 2;
     for (let q = -radius; q <= radius; q++) {
       for (let r = -radius; r <= radius; r++) {
         const dist = hexDistance(0, 0, q, r);
         if (dist >= 5 && dist <= radius) {
-          const borderProb = this.getBorderProbability(dist);
+          const borderProb = getBorderProbability(q, r, dist, this.borderClusters);
           if (this.rng.next() < borderProb) {
             this.createRealmBorderHex(q, r);
           }
@@ -221,28 +224,28 @@ class StandaloneRealmGenerator {
     }
   }
 
-  getBorderProbability(dist) {
-    if (dist === 5) return 0.08;
-    if (dist === 6) return 0.2;
-    if (dist === 7) return 0.5;
-    if (dist === 8) return 0.8;
-    return 0.95;
-  }
-
   createRealmBorderHex(q, r) {
     const key = hexKey(q, r);
     if (this.hexes.has(key)) return;
-    this.hexes.set(key, {
-      q,
-      r,
-      terrain: 'border',
-      isExplored: false,
-      isRevealed: false,
-      isBorder: true,
-      isLake: false,
-      riverEdges: [],
-    });
-    this.realmBorderHexes.add(key);
+
+    // Use shared border hex creation for RNG consistency
+    const borderTypes = ['sea', 'cliff', 'wasteland'];
+    const ctx = {
+      rng: this.rng,
+      hexes: this.hexes,
+      borderHexes: this.realmBorderHexes,
+      borderTypes,
+    };
+
+    const borderHex = sharedCreateBorderHex(ctx, q, r);
+    if (borderHex) {
+      // Override fields for simulator's simpler structure
+      borderHex.terrain = 'border';
+      borderHex.isExplored = false;
+      borderHex.isRevealed = false;
+      borderHex.isLake = false;
+      borderHex.riverEdges = [];
+    }
   }
 
   isBorderHex(q, r) {
@@ -251,7 +254,35 @@ class StandaloneRealmGenerator {
   }
 
   createHex(q, r) {
-    // Create placeholder hex
+    // CRITICAL: Order of operations must match UI's generateHex() for RNG consistency
+    // UI order: 1) shouldBeLake, 2) create hex, 3) maybeEncounterRiver, 4) extendRiversOnReveal, 5) terrain
+
+    // 1. Check if should be lake FIRST (matches UI line 445)
+    const lakeCtx = {
+      rng: this.rng,
+      hexes: this.hexes,
+      constraints: this.constraints,
+      lakes: this.lakes,
+      // Required for wouldBlockOnlyPath() check
+      currentExplorerPos: this.currentExplorerPos,
+      exploredHexes: this.exploredHexes,
+      barrierEdges: this.barrierEdges,
+      realmRadius: this.realmRadius,
+      wouldTrapExplorer: (edgeKey, lakeKey) => {
+        const ctx = {
+          hexes: this.hexes,
+          exploredHexes: this.exploredHexes,
+          revealedHexes: this.revealedHexes,
+          currentExplorerPos: this.currentExplorerPos,
+          barrierEdges: this.barrierEdges,
+          realmRadius: this.realmRadius,
+        };
+        return sharedWouldTrapExplorer(ctx, edgeKey, lakeKey);
+      },
+    };
+    const isLake = shouldBeLake(lakeCtx, q, r);
+
+    // 2. Create hex object (matches UI lines 447-458)
     const hex = {
       q,
       r,
@@ -259,20 +290,126 @@ class StandaloneRealmGenerator {
       isExplored: false,
       isRevealed: true,
       isBorder: false,
-      isLake: false,
+      isLake,
       riverEdges: [],
+      barrierEdges: [],
     };
 
-    // NEW RIVER SYSTEM: Maybe encounter first river
+    // CRITICAL: Add hex to this.hexes BEFORE river calls (matches UI line 460)
+    // This is important because river functions may reference this hex
+    const key = hexKey(q, r);
+    this.hexes.set(key, hex);
+
+    // 3. NEW RIVER SYSTEM: Maybe encounter first river (matches UI line 464)
     this.maybeEncounterRiver(hex);
 
-    // NEW RIVER SYSTEM: Extend existing rivers to this hex
+    // 4. NEW RIVER SYSTEM: Extend existing rivers to this hex (matches UI line 467)
     this.extendRiversOnReveal(hex);
 
-    // Generate terrain after rivers
-    hex.terrain = this.generateTerrain(q, r);
+    // 5. Generate terrain (matches UI line 470)
+    // CRITICAL: UI calls generateTerrainWithConstraints EVEN FOR LAKES - it consumes RNG
+    // The terrain result is only used if not a lake (line 471: hex.terrain = isLake ? 'lake' : terrain)
+    const terrainCtx = {
+      rng: this.rng,
+      hexes: this.hexes,
+      terrainTypes: Object.values(TERRAIN_TYPES),
+      terrainAffinities: TERRAIN_AFFINITIES,
+      terrainClusters: this.terrainClusters,
+      getRiverConstraints: (h) => this.getRiverConstraints(h),
+      getElevation: (t) => this.getElevation(t),
+      isBorderHex: (q, r) => this.isBorderHex(q, r),
+    };
+    const terrain = generateTerrainWithConstraints(terrainCtx, q, r);
+    hex.terrain = isLake ? 'lake' : terrain;
+
+    // 6. Assign to cluster (matches UI line 474)
+    if (isLake) {
+      this.assignToLake(hex);
+    }
+
+    // Increment explorable count for passable hexes (matches UI's generateHex)
+    // This count is used for termination checks, not exploredHexes.size
+    if (!hex.isBorder && !hex.isLake) {
+      this.constraints.explorableHexes.count++;
+    }
+
+    // Generate barriers (skip during validation mode) - matches UI's generateHex
+    if (this.generationMode !== 'validation') {
+      const neighbors = hexNeighbors(hex.q, hex.r);
+      for (const n of neighbors) {
+        const nKey = hexKey(n.q, n.r);
+        const nHex = this.hexes.get(nKey);
+        if (nHex) {
+          const barrierCtx = {
+            rng: this.rng,
+            constraints: this.constraints,
+            barrierEdges: this.barrierEdges,
+            traversedEdges: this.traversedEdges,
+            currentExplorerPos: this.currentExplorerPos,
+            // Required for wouldBlockOnlyPath() check
+            hexes: this.hexes,
+            exploredHexes: this.exploredHexes,
+            realmRadius: this.realmRadius,
+            wouldTrapExplorer: (edgeKey, lakeKey) => {
+              const ctx = {
+                hexes: this.hexes,
+                exploredHexes: this.exploredHexes,
+                revealedHexes: this.revealedHexes,
+                currentExplorerPos: this.currentExplorerPos,
+                barrierEdges: this.barrierEdges,
+                realmRadius: this.realmRadius,
+              };
+              return sharedWouldTrapExplorer(ctx, edgeKey, lakeKey);
+            },
+            generationMode: this.generationMode,
+          };
+          maybeGenerateBarrier(barrierCtx, hex, n.direction, nHex);
+        }
+      }
+    }
+
+    // Add features (matches UI's generateHex) - called for ALL hexes including validation mode
+    // NOTE: UI calls maybeAddFeature OUTSIDE the validation check, so we do the same
+    const hKey = hexKey(hex.q, hex.r);
+    if (!this.constraints.featureRegistry.has(hKey)) {
+      const featureCtx = {
+        rng: this.rng,
+        constraints: this.constraints,
+        features: null,
+        exploredHexes: this.exploredHexes,
+        hasExclusiveFeature: (h) => this.constraints.featureRegistry.has(hexKey(h.q, h.r)),
+        canPlaceExclusiveFeature: (h) => !this.constraints.featureRegistry.has(hexKey(h.q, h.r)),
+        canPlaceHolding: (h) => {
+          for (const pos of this.constraints.holdings.positions) {
+            const dist = hexDistance(h.q, h.r, pos.q, pos.r);
+            if (dist < 4) return false;
+          }
+          return true;
+        },
+      };
+      maybeAddFeature(featureCtx, hex);
+    }
 
     return hex;
+  }
+
+  assignToLake(hex) {
+    const key = hexKey(hex.q, hex.r);
+    const neighbors = hexNeighbors(hex.q, hex.r);
+
+    for (const n of neighbors) {
+      const nKey = hexKey(n.q, n.r);
+      const nHex = this.hexes.get(nKey);
+      if (nHex && nHex.isLake) {
+        const lakeInfo = this.lakes.find((l) => l.hexes.has(nKey));
+        if (lakeInfo) {
+          lakeInfo.hexes.add(key);
+          return;
+        }
+      }
+    }
+    this.lakes.push({ hexes: new Set([key]) });
+    this.constraints.lakes.placed++;
   }
 
   generateTerrain() {
@@ -281,94 +418,223 @@ class StandaloneRealmGenerator {
     return this.rng.weightedChoice(terrains, weights);
   }
 
+  getRiverConstraints(hex) {
+    // Simplified - no river elevation constraints in simulator
+    return { minElevation: 0, maxElevation: 10 };
+  }
+
   getElevation(terrain) {
-    const elevations = { mire: 0, plains: 1, forest: 1, thicket: 1, hills: 2, crags: 3 };
-    return elevations[terrain] || 1;
+    return sharedGetElevation(terrain);
+  }
+
+  isBorderClosed() {
+    for (const key of this.revealedHexes) {
+      if (!this.exploredHexes.has(key)) {
+        const hex = this.hexes.get(key);
+        if (hex && !hex.isBorder && !hex.isLake) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  getValidMoves() {
+    const { q, r } = this.currentExplorerPos;
+    const neighbors = hexNeighbors(q, r);
+    const validMoves = [];
+    const previousMode = this.generationMode;
+    this.generationMode = 'validation';
+
+    try {
+      for (const n of neighbors) {
+        const nKey = hexKey(n.q, n.r);
+        const dist = hexDistance(0, 0, n.q, n.r);
+        if (dist >= this.realmRadius) continue;
+
+        let nHex = this.hexes.get(nKey);
+        if (nHex && (nHex.isBorder || nHex.isLake)) continue;
+
+        if (!nHex) {
+          this.createHex(n.q, n.r); // createHex now adds to this.hexes internally
+          nHex = this.hexes.get(nKey);
+          // Don't add to revealedHexes yet - wait until it's actually explored
+        }
+
+        const edgeKey1 = `${q},${r}:${n.direction}`;
+        const oppDir = OPPOSITE_DIRECTION[n.direction];
+        const edgeKey2 = `${n.q},${n.r}:${oppDir}`;
+        if (this.barrierEdges.has(edgeKey1) || this.barrierEdges.has(edgeKey2)) continue;
+
+        if (nHex && !nHex.isBorder && !nHex.isLake) {
+          validMoves.push({ ...n, hex: nHex, key: nKey });
+        }
+      }
+    } finally {
+      this.generationMode = previousMode;
+    }
+    return validMoves;
+  }
+
+  findPathToUnexplored() {
+    const start = hexKey(this.currentExplorerPos.q, this.currentExplorerPos.r);
+    const visited = new Set([start]);
+    const queue = [{ key: start, path: [] }];
+
+    while (queue.length > 0) {
+      const { key, path } = queue.shift();
+      const [q, r] = key.split(',').map(Number);
+      const neighbors = hexNeighbors(q, r);
+
+      for (const n of neighbors) {
+        const nKey = hexKey(n.q, n.r);
+        if (visited.has(nKey)) continue;
+
+        // Check if this would be a border hex
+        const dist = hexDistance(0, 0, n.q, n.r);
+        if (dist >= this.realmRadius) continue;
+
+        visited.add(nKey);
+
+        const nHex = this.hexes.get(nKey);
+        if (nHex && (nHex.isBorder || nHex.isLake)) continue;
+
+        const edgeKey1 = `${q},${r}:${n.direction}`;
+        const oppDir = OPPOSITE_DIRECTION[n.direction];
+        const edgeKey2 = `${n.q},${n.r}:${oppDir}`;
+        if (this.barrierEdges.has(edgeKey1) || this.barrierEdges.has(edgeKey2)) continue;
+
+        const newPath = [...path, { q: n.q, r: n.r, key: nKey, direction: n.direction }];
+
+        if (!this.exploredHexes.has(nKey)) {
+          return newPath;
+        }
+
+        queue.push({ key: nKey, path: newPath });
+      }
+    }
+    return null;
   }
 
   moveExplorer() {
-    if (this.exploredHexes.size >= this.constraints.explorableHexes.max) {
+    // CRITICAL: Must match UI's moveExplorer exactly for RNG consistency
+
+    // Check max limit (matches UI line 1747)
+    if (this.constraints.explorableHexes.count >= this.constraints.explorableHexes.max) {
       this.constraints.borderClosure.complete = true;
       this.forceCompleteFeatures();
       return false;
     }
 
-    if (this.constraints.borderClosure.complete) {
-      if (this.exploredHexes.size >= this.constraints.explorableHexes.min) {
+    const prevPos = { ...this.currentExplorerPos };
+    const validMoves = this.getValidMoves();
+    if (validMoves.length === 0) {
+      this.constraints.borderClosure.complete = true;
+      this.forceCompleteFeatures();
+      return false;
+    }
+
+    // Check if border is naturally closed (matches UI line 1766)
+    if (this.isBorderClosed()) {
+      this.constraints.borderClosure.complete = true;
+      if (this.constraints.explorableHexes.count >= this.constraints.explorableHexes.min) {
         this.forceCompleteFeatures();
         return false;
       }
     }
 
-    if (this.borderHexes.size === 0) {
-      this.constraints.borderClosure.complete = true;
-      this.forceCompleteFeatures();
-      return false;
-    }
+    let chosenMove;
 
-    const borderArray = Array.from(this.borderHexes)
-      .map((key) => this.hexes.get(key))
-      .filter(Boolean);
+    // Categorize moves (matches UI lines 1777-1778)
+    const unexplored = validMoves.filter((m) => !this.exploredHexes.has(m.key));
+    const unexploredWithFeatures = unexplored.filter((m) => m.hex && m.hex.feature);
 
-    // Compactness bias (no exploration bias needed with contiguous growth)
-    let sumQ = 0,
-      sumR = 0;
-    for (const key of this.exploredHexes) {
-      const hex = this.hexes.get(key);
-      if (hex) {
-        sumQ += hex.q;
-        sumR += hex.r;
+    // Collect river frontier hexes (matches UI lines 1780-1791)
+    const riverFrontierKeys = new Set();
+    for (const [, edge] of this.riverEdges) {
+      const destHex = hexNeighbor(edge.hex1.q, edge.hex1.r, edge.direction);
+      const destKey = hexKey(destHex.q, destHex.r);
+      if (!this.exploredHexes.has(destKey)) {
+        riverFrontierKeys.add(destKey);
       }
     }
-    const centerQ = sumQ / this.exploredHexes.size;
-    const centerR = sumR / this.exploredHexes.size;
+    const unexploredRiverFrontiers = unexplored.filter((m) => riverFrontierKeys.has(m.key));
 
-    const weights = borderArray.map((hex) => {
-      const dist = hexDistance(hex.q, hex.r, centerQ, centerR);
-      return Math.max(0.1, 1 / (1 + dist * 0.3));
-    });
+    // Priority 0: Adjacent unexplored hex that's a river frontier (80%) - matches UI line 1794
+    if (unexploredRiverFrontiers.length > 0 && this.rng.next() < 0.8) {
+      chosenMove = this.rng.choice(unexploredRiverFrontiers);
+    }
+    // Priority 1: Adjacent unexplored hex with feature (98%) - matches UI line 1798
+    else if (unexploredWithFeatures.length > 0 && this.rng.next() < 0.98) {
+      chosenMove = this.rng.choice(unexploredWithFeatures);
+    }
+    // Priority 2: Any adjacent unexplored hex (98%) - matches UI line 1802
+    else if (unexplored.length > 0 && this.rng.next() < 0.98) {
+      chosenMove = this.rng.choice(unexplored);
+    }
+    // Priority 3: Use pathfinding to navigate toward nearest unexplored - matches UI line 1806
+    else {
+      const pathToUnexplored = this.findPathToUnexplored();
 
-    const nextHex = this.rng.weightedChoice(borderArray, weights);
-    if (!nextHex) return false;
+      if (pathToUnexplored && pathToUnexplored.length > 0) {
+        const nextStep = pathToUnexplored[0];
+        const nextKey = hexKey(nextStep.q, nextStep.r);
 
-    const prevPos = { ...this.currentExplorerPos };
-    this.currentExplorerPos = { q: nextHex.q, r: nextHex.r };
-
-    // Mark traversed edge
-    for (const dir of DIRECTION_NAMES) {
-      const neighbor = hexNeighbor(prevPos.q, prevPos.r, dir);
-      if (neighbor.q === nextHex.q && neighbor.r === nextHex.r) {
-        const key1 = `${prevPos.q},${prevPos.r}:${dir}`;
-        const key2 = `${nextHex.q},${nextHex.r}:${OPPOSITE_DIRECTION[dir]}`;
-        this.traversedEdges.add(key1);
-        this.traversedEdges.add(key2);
-        break;
+        const pathMove = validMoves.find((m) => m.key === nextKey);
+        if (pathMove) {
+          // Add some randomness - 85% follow path, 15% explore differently (matches UI line 1818)
+          if (this.rng.next() < 0.85) {
+            chosenMove = pathMove;
+          } else {
+            const alternates = validMoves.filter((m) => m.key !== nextKey);
+            if (alternates.length > 0) {
+              chosenMove = this.rng.choice(alternates);
+            } else {
+              chosenMove = pathMove;
+            }
+          }
+        } else {
+          chosenMove = this.rng.choice(validMoves);
+        }
+      } else {
+        chosenMove = this.rng.choice(validMoves);
       }
     }
 
-    const nextHexKey = hexKey(nextHex.q, nextHex.r);
-    nextHex.isExplored = true;
-    this.exploredHexes.add(nextHexKey);
-    this.borderHexes.delete(nextHexKey);
-    this.constraints.explorableHexes.count = this.exploredHexes.size;
+    // Record traversed edge (prevPos already captured at function start)
+    const edgeKey1 = `${prevPos.q},${prevPos.r}:${chosenMove.direction}`;
+    const oppDir = OPPOSITE_DIRECTION[chosenMove.direction];
+    const edgeKey2 = `${chosenMove.q},${chosenMove.r}:${oppDir}`;
+    this.traversedEdges.add(edgeKey1);
+    this.traversedEdges.add(edgeKey2);
 
-    // Reveal neighbors (river generation now happens in createHex)
-    for (const n of hexNeighbors(nextHex.q, nextHex.r)) {
+    // Set exploration mode
+    this.generationMode = 'exploration';
+
+    // Execute the move
+    this.currentExplorerPos = { q: chosenMove.q, r: chosenMove.r };
+    const moveHex = this.hexes.get(chosenMove.key);
+    moveHex.isExplored = true;
+    moveHex.isRevealed = true;
+    this.exploredHexes.add(chosenMove.key);
+    this.revealedHexes.add(chosenMove.key);
+
+    // Reveal and generate neighbors
+    for (const n of hexNeighbors(chosenMove.q, chosenMove.r)) {
       const nKey = hexKey(n.q, n.r);
       if (!this.hexes.has(nKey)) {
-        const revealedHex = this.createHex(n.q, n.r);
-        this.hexes.set(nKey, revealedHex);
+        this.createHex(n.q, n.r); // createHex now adds to this.hexes internally
+      }
+      const nHex = this.hexes.get(nKey);
+      if (nHex && !nHex.isRevealed) {
+        nHex.isRevealed = true;
         this.revealedHexes.add(nKey);
-        this.borderHexes.add(nKey);
       }
     }
-
-    this.maybeGenerateFeatures(nextHex);
 
     if (this.exploredHexes.size % 5 === 0) {
       this.updateRealmDimensions();
     }
-
     if (this.exploredHexes.size % 10 === 0) {
       this.checkBorderClosure();
     }
@@ -395,175 +661,44 @@ class StandaloneRealmGenerator {
     }
   }
 
-  // Create new river network with initial edge (simplified - no endpoint tracking)
+  // Create new river network with initial edge and grow in both directions
   initiateRiver(hex) {
-    // Pick valid direction - must point to unexplored hex for river to grow
-    const validDirs = DIRECTION_NAMES.filter((dir) => {
-      const n = hexNeighbor(hex.q, hex.r, dir);
-      if (this.isBorderHex(n.q, n.r)) return false;
-      const nKey = hexKey(n.q, n.r);
-      if (this.realmBorderHexes.has(nKey)) return false;
-      if (this.hexes.has(nKey)) return false; // Must point to unexplored hex
-      return true;
-    });
-
-    if (validDirs.length === 0) return;
-
-    // Score each direction by frontier openness and choose best
-    const scoredDirs = validDirs.map((dir) => ({
-      dir,
-      score: this.scoreFrontier(hex, dir),
-    }));
-
-    // Use weighted random selection with squared scores for stronger bias
-    const weights = scoredDirs.map((s) => Math.max(1, s.score * s.score));
-    const chosen = this.rng.weightedChoice(scoredDirs, weights);
-    const chosenDir = chosen.dir;
-
-    // Create river network (simplified - no openEndpoints/closedEndpoints)
-    const network = {
-      id: this.riverIdCounter++,
-      edges: new Set(),
-      tributaryCount: 0,
+    // Create context for shared river generation functions
+    const ctx = {
+      rng: this.rng,
+      hexes: this.hexes,
+      borderHexes: this.borderHexes,
+      isBorderHex: (q, r) => this.isBorderHex(q, r),
+      rivers: this.rivers,
+      riverIdCounter: this.riverIdCounter,
+      riverEdges: this.riverEdges,
+      plannedRiverEdges: this.plannedRiverEdges,
+      addRiverEdge: (network, hex, dir) => this.addRiverEdge(network, hex, dir),
+      planRiverPath: (network, startHex, startDir) =>
+        this.planRiverPath(network, startHex, startDir),
     };
 
-    this.rivers.push(network);
+    // Call shared vertex-centric river initialization
+    initiateRiver(ctx, hex);
 
-    // Add initial edge
-    this.addRiverEdge(network, hex, chosenDir);
-
-    // Pre-plan the entire river path at initiation time
-    this.planRiverPath(network, hex, chosenDir);
+    // Update riverIdCounter in case it was incremented
+    this.riverIdCounter = ctx.riverIdCounter;
   }
 
   // Pre-plan river path from starting point, ensuring vertex connectivity
   planRiverPath(network, startHex, startDir) {
-    const TARGET_LENGTH = 24;
-    const TARGET_TRIBUTARIES = 3;
+    // Create context for shared river generation functions
+    const ctx = {
+      rng: this.rng,
+      hexes: this.hexes,
+      borderHexes: this.borderHexes,
+      isBorderHex: (q, r) => this.isBorderHex(q, r),
+      riverEdges: this.riverEdges,
+      plannedRiverEdges: this.plannedRiverEdges,
+    };
 
-    // Track hexes visited during planning (not actual exploration)
-    const plannedHexes = new Set();
-    plannedHexes.add(hexKey(startHex.q, startHex.r));
-
-    // BFS queue: each entry is {q, r, incomingDir, depth}
-    const frontier = hexNeighbor(startHex.q, startHex.r, startDir);
-    const queue = [
-      {
-        q: frontier.q,
-        r: frontier.r,
-        incomingDir: OPPOSITE_DIRECTION[startDir],
-        depth: 1,
-      },
-    ];
-
-    while (queue.length > 0 && network.edges.size < TARGET_LENGTH) {
-      const current = queue.shift();
-      const currentKey = hexKey(current.q, current.r);
-
-      // Skip if already planned
-      if (plannedHexes.has(currentKey)) continue;
-      plannedHexes.add(currentKey);
-
-      // Get adjacent directions (share vertex with incoming edge)
-      const adjacentDirs = getAdjacentDirections(current.incomingDir);
-
-      // Check which adjacent directions are valid for extension
-      const isValidDir = (dir) => {
-        const n = hexNeighbor(current.q, current.r, dir);
-        if (this.isBorderHex(n.q, n.r)) return false;
-        const nKey = hexKey(n.q, n.r);
-        if (this.realmBorderHexes && this.realmBorderHexes.has(nKey)) return false;
-        // Don't extend to already-explored hexes
-        if (this.hexes.has(nKey)) return false;
-        // Don't extend to hexes we've already planned to visit
-        if (plannedHexes.has(nKey)) return false;
-        return true;
-      };
-
-      const validDirs = adjacentDirs.filter(isValidDir);
-
-      if (validDirs.length === 0) continue;
-
-      // Score directions by openness
-      const scoredDirs = validDirs.map((dir) => {
-        const front = hexNeighbor(current.q, current.r, dir);
-        let score = 0;
-        for (const d of DIRECTION_NAMES) {
-          const neighbor = hexNeighbor(front.q, front.r, d);
-          const key = hexKey(neighbor.q, neighbor.r);
-          if (
-            !this.hexes.has(key) &&
-            !(this.realmBorderHexes && this.realmBorderHexes.has(key)) &&
-            !this.isBorderHex(neighbor.q, neighbor.r)
-          ) {
-            score++;
-          }
-        }
-        return { dir, score };
-      });
-
-      // Decide whether to branch (create tributary)
-      const remainingLength = TARGET_LENGTH - network.edges.size;
-      const remainingTributaries = TARGET_TRIBUTARIES - network.tributaryCount;
-      const tributaryProb =
-        remainingTributaries > 0
-          ? Math.max(0.6, remainingTributaries / Math.max(1, remainingLength))
-          : 0;
-      const createTributary = this.rng.next() < tributaryProb && validDirs.length >= 2;
-
-      let directions;
-      if (createTributary) {
-        // Pick top 2 by score for tributary
-        scoredDirs.sort((a, b) => b.score - a.score);
-        directions = scoredDirs.slice(0, 2).map((s) => s.dir);
-        network.tributaryCount++;
-      } else {
-        // Weighted random for single extension
-        const weights = scoredDirs.map((s) => Math.max(1, s.score * s.score));
-        const chosen = this.rng.weightedChoice(scoredDirs, weights);
-        directions = [chosen.dir];
-      }
-
-      // Create edges immediately in riverEdges
-      for (const dir of directions) {
-        const edgeKey = this.getEdgeKey(current.q, current.r, dir);
-        if (!this.riverEdges.has(edgeKey)) {
-          // Add edge directly to riverEdges
-          const neighbor = hexNeighbor(current.q, current.r, dir);
-          const oppDir = OPPOSITE_DIRECTION[dir];
-          const useOriginal =
-            current.q < neighbor.q || (current.q === neighbor.q && current.r < neighbor.r);
-          this.riverEdges.set(edgeKey, {
-            hex1: useOriginal ? { q: current.q, r: current.r } : { q: neighbor.q, r: neighbor.r },
-            direction: useOriginal ? dir : oppDir,
-            flowDirection: 'unspecified',
-          });
-
-          // Store in plannedRiverEdges for hex.riverEdges updates
-          const [hexPart, normalizedDir] = edgeKey.split(':');
-          const [normalizedQ, normalizedR] = hexPart.split(',').map(Number);
-          if (!this.plannedRiverEdges) {
-            this.plannedRiverEdges = new Map();
-          }
-          this.plannedRiverEdges.set(edgeKey, {
-            hexQ: normalizedQ,
-            hexR: normalizedR,
-            direction: normalizedDir,
-            networkId: network.id,
-          });
-          network.edges.add(edgeKey);
-
-          // Add to queue
-          const nextFrontier = hexNeighbor(current.q, current.r, dir);
-          queue.push({
-            q: nextFrontier.q,
-            r: nextFrontier.r,
-            incomingDir: OPPOSITE_DIRECTION[dir],
-            depth: current.depth + 1,
-          });
-        }
-      }
-    }
+    // Call shared path planning function
+    planRiverPath(ctx, network, startHex, startDir);
   }
 
   // Check all neighbors of revealed hex for river edges pointing toward us
@@ -1064,82 +1199,6 @@ class StandaloneRealmGenerator {
     return maxDist;
   }
 
-  // ============ FEATURE GENERATION ============
-
-  maybeGenerateFeatures(hex) {
-    const progress = this.exploredHexes.size / this.constraints.explorableHexes.target;
-    const hKey = hexKey(hex.q, hex.r);
-
-    if (this.constraints.featureRegistry.has(hKey)) return;
-
-    // Holdings
-    if (this.constraints.holdings.placed < this.constraints.holdings.target) {
-      let prob = 0.03;
-      if (progress > 0.7) {
-        const deficit = this.constraints.holdings.target - this.constraints.holdings.placed;
-        prob *= 1.0 + deficit * 2.5;
-      }
-      if (this.rng.next() < prob) {
-        this.constraints.holdings.placed++;
-        this.constraints.featureRegistry.add(hKey);
-        return;
-      }
-    }
-
-    // Myth sites
-    if (this.constraints.mythSites.placed < this.constraints.mythSites.target) {
-      let prob = 0.04;
-      if (progress > 0.7) {
-        const deficit = this.constraints.mythSites.target - this.constraints.mythSites.placed;
-        prob *= 1.0 + deficit * 2.0;
-      }
-      if (this.rng.next() < prob) {
-        this.constraints.mythSites.placed++;
-        this.constraints.featureRegistry.add(hKey);
-        return;
-      }
-    }
-
-    // Landmarks
-    for (const [, data] of Object.entries(this.constraints.landmarks)) {
-      if (data.placed < data.max) {
-        let prob = 0.05;
-        if (progress > 0.7 && data.placed < data.min) {
-          prob *= 2.0 + (data.min - data.placed);
-        }
-        if (this.rng.next() < prob) {
-          data.placed++;
-          this.constraints.featureRegistry.add(hKey);
-          return;
-        }
-      }
-    }
-
-    // Lakes
-    if (this.constraints.lakes.placed < this.constraints.lakes.max) {
-      const expectedRatio = Math.max(0.1, this.exploredHexes.size / 144);
-      const expectedLakes = 2.5 * expectedRatio;
-      const deficit = expectedLakes - this.constraints.lakes.placed;
-      const baseProb = 0.045;
-      const deficitBonus = deficit > 0 ? deficit * 0.015 : 0;
-      if (this.rng.next() < baseProb + deficitBonus) {
-        this.constraints.lakes.placed++;
-        hex.isLake = true;
-      }
-    }
-
-    // Barriers
-    const expectedRatio = Math.max(0.1, this.exploredHexes.size / 144);
-    const expectedBarriers = 24 * expectedRatio;
-    const barrierDeficit = expectedBarriers - this.constraints.barriers.placed;
-    let barrierProb = 0.18;
-    if (barrierDeficit > 4) barrierProb = 0.25;
-    else if (barrierDeficit < -2) barrierProb = 0.1;
-    if (this.rng.next() < barrierProb) {
-      this.constraints.barriers.placed++;
-    }
-  }
-
   updateRealmDimensions() {
     if (this.exploredHexes.size === 0) return;
 
@@ -1166,38 +1225,27 @@ class StandaloneRealmGenerator {
   }
 
   checkBorderClosure() {
-    this.constraints.borderClosure.complete = this.borderHexes.size === 0;
+    this.constraints.borderClosure.complete = this.isBorderClosed();
   }
 
   forceCompleteFeatures() {
-    const validHexes = [];
-    for (const key of this.exploredHexes) {
-      const hex = this.hexes.get(key);
-      if (hex && !hex.isLake && !this.constraints.featureRegistry.has(key)) {
-        validHexes.push({ hex, key });
-      }
-    }
+    const forceCtx = {
+      rng: this.rng,
+      hexes: this.hexes,
+      exploredHexes: this.exploredHexes,
+      constraints: this.constraints,
+      features: null, // Simulator doesn't track features map
+      hasExclusiveFeature: (hex) => this.constraints.featureRegistry.has(hexKey(hex.q, hex.r)),
+      canPlaceHolding: (hex) => {
+        for (const pos of this.constraints.holdings.positions) {
+          const dist = hexDistance(hex.q, hex.r, pos.q, pos.r);
+          if (dist < 4) return false;
+        }
+        return true;
+      },
+    };
 
-    for (let i = validHexes.length - 1; i > 0; i--) {
-      const j = Math.floor(this.rng.next() * (i + 1));
-      [validHexes[i], validHexes[j]] = [validHexes[j], validHexes[i]];
-    }
-
-    while (this.constraints.mythSites.placed < 6 && validHexes.length > 0) {
-      const { key } = validHexes.pop();
-      if (!this.constraints.featureRegistry.has(key)) {
-        this.constraints.mythSites.placed++;
-        this.constraints.featureRegistry.add(key);
-      }
-    }
-
-    while (this.constraints.holdings.placed < 4 && validHexes.length > 0) {
-      const { key } = validHexes.pop();
-      if (!this.constraints.featureRegistry.has(key)) {
-        this.constraints.holdings.placed++;
-        this.constraints.featureRegistry.add(key);
-      }
-    }
+    sharedForceCompleteFeatures(forceCtx);
   }
 
   validateHardConstraints() {

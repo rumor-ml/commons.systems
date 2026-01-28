@@ -638,6 +638,7 @@ The explorer must never be placed in a situation where all adjacent hexes are im
 1. **Barrier Placement**: Before placing a barrier edge, verify it would not create an isolated region
 2. **Lake Placement**: Before converting a hex to a lake, verify it would not trap the explorer
 3. **Border Generation**: Border closure must leave sufficient connectivity for full exploration
+4. **Ungenerated Hexes**: Ungenerated hexes do NOT count as valid moves (they may become lakes in the same generation batch)
 
 **Validation**: At any step during exploration, the explorer must have ≥1 valid move to an explorable hex. If the generator would create a trap, it must:
 
