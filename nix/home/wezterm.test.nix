@@ -54,13 +54,20 @@ let
       luaFile = pkgs.writeText "wezterm-test.lua" luaCode;
     in
     pkgs.runCommand "validate-lua-syntax" { buildInputs = [ pkgs.lua ]; } ''
-      # Validate syntax without executing (lua -p for parsing only)
-      if ${pkgs.lua}/bin/lua -e "assert(loadfile('${luaFile}'))" 2>&1; then
-        touch $out
-      else
-        echo "Lua syntax validation failed"
+      # Validate syntax and capture error output
+      if ! lua_error=$(${pkgs.lua}/bin/lua -e "assert(loadfile('${luaFile}'))" 2>&1); then
+        echo "Lua syntax validation failed:"
+        echo "----------------------------------------"
+        echo "$lua_error"
+        echo "----------------------------------------"
+        echo ""
+        echo "Generated Lua config (first 50 lines):"
+        head -n 50 '${luaFile}'
+        echo ""
+        echo "Full config at: ${luaFile}"
         exit 1
       fi
+      touch $out
     '';
 
   # Test 1: Basic module structure
@@ -236,7 +243,7 @@ let
     '';
 
   # Test 7: Activation script uses DAG ordering
-  test-activation-script-macos =
+  test-activation-script-dag =
     let
       weztermSource = builtins.readFile ./wezterm.nix;
     in
@@ -372,7 +379,7 @@ let
     test-lua-syntax-generic
     test-username-interpolation
     test-activation-script-linux
-    test-activation-script-macos
+    test-activation-script-dag
     test-common-config
     test-activation-script-logic
     test-activation-script-runtime
@@ -392,7 +399,7 @@ let
     echo "✅ test-lua-syntax-generic"
     echo "✅ test-username-interpolation"
     echo "✅ test-activation-script-linux"
-    echo "✅ test-activation-script-macos"
+    echo "✅ test-activation-script-dag"
     echo "✅ test-common-config"
     echo "✅ test-activation-script-logic"
     echo "✅ test-activation-script-runtime"
@@ -414,7 +421,7 @@ in
       test-lua-syntax-generic
       test-username-interpolation
       test-activation-script-linux
-      test-activation-script-macos
+      test-activation-script-dag
       test-common-config
       test-activation-script-logic
       test-activation-script-runtime
