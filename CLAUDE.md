@@ -9,6 +9,7 @@
 - ❌ NEVER: `git commit --no-verify`, `git push --no-verify`
 - ✅ ALWAYS: `git commit`, `git push`, or use `/commit-merge-push`
 - See `.claude/settings.json` for auto-approved git commands that respect hooks
+  - TODO(#1585): Verify multi-word commands in `excludedCommands` work as expected
 
 **CRITICAL: NEVER check out a different branch in the current directory.** Worktree directories are named after their branches (e.g., `~/worktrees/1259-finparse-csv-support/` contains branch `1259-finparse-csv-support`). The main branch is located at `~/commons.systems/`. Use the correct worktree directory instead of switching branches.
 

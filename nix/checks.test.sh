@@ -39,6 +39,7 @@ print_test_header() {
 }
 
 # Helper: Assert command fails with expected error message
+# TODO(#1606): Test helper functions eval untrusted input without validation
 assert_fails_with_message() {
   local description="$1"
   local command="$2"
@@ -73,6 +74,7 @@ assert_fails_with_message() {
 }
 
 # Helper: Assert command succeeds
+# TODO(#1606): Test helper functions eval untrusted input without validation
 assert_succeeds() {
   local description="$1"
   local command="$2"
