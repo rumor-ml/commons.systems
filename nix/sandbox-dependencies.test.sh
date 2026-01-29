@@ -201,6 +201,14 @@ test_socat_basic_functionality() {
 test_bubblewrap_basic_functionality() {
   print_test_header "test_bubblewrap_basic_functionality"
 
+  # TODO(#1646): Skip in GitHub Actions - CI environment lacks CAP_NET_ADMIN for network namespaces
+  if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
+    echo -e "${YELLOW}⚠ SKIP: Test requires CAP_NET_ADMIN not available in GitHub Actions${NC}"
+    TESTS_RUN=$((TESTS_RUN + 1))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    return 0
+  fi
+
   # Skip on non-Linux platforms
   if [[ "$IS_LINUX" != "true" ]]; then
     TESTS_RUN=$((TESTS_RUN + 1))
