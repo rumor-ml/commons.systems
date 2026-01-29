@@ -72,15 +72,39 @@ export function isFirebaseConfigured(): boolean {
 
 // Firebase configuration from environment variables (lazy initialization)
 function getFirebaseConfig() {
-  validateFirebaseConfig();
-  return {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  };
+  // For emulator mode, use dummy values if env vars are missing
+  const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
+  const projectId =
+    import.meta.env.VITE_FIREBASE_PROJECT_ID ||
+    import.meta.env.VITE_GCP_PROJECT_ID ||
+    (useEmulator ? 'demo-test' : '');
+
+  if (useEmulator) {
+    // Emulator mode: use dummy values, only projectId matters
+    return {
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'dummy-api-key-for-emulator',
+      authDomain:
+        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+      projectId,
+      storageBucket:
+        import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '000000000000',
+      appId:
+        import.meta.env.VITE_FIREBASE_APP_ID ||
+        '1:000000000000:web:0000000000000000000000',
+    };
+  } else {
+    // Production mode: validate all required env vars
+    validateFirebaseConfig();
+    return {
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    };
+  }
 }
 
 // Branded type for YYYY-MM-DD date strings with compile-time safety
