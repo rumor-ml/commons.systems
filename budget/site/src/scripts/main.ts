@@ -34,23 +34,27 @@ async function loadTransactions(): Promise<Transaction[]> {
 
   if (useEmulator) {
     // Load from Firestore emulator
+    console.log('[Budget] Starting Firestore load...');
     transactionsLoadPromise = loadDemoTransactions()
       .then((transactions) => {
+        console.log(`[Budget] Firestore load complete: ${transactions.length} transactions`);
         cachedTransactions = transactions;
         transactionsLoadPromise = null;
         return transactions;
       })
       .catch((error) => {
-        console.error('Failed to load from Firestore, falling back to static data:', error);
+        console.error('[Budget] Failed to load from Firestore, falling back to static data:', error);
         transactionsLoadPromise = null;
         // Fallback to static JSON
         cachedTransactions = transactionsData.transactions as Transaction[];
+        console.log(`[Budget] Using static data fallback: ${cachedTransactions.length} transactions`);
         return cachedTransactions;
       });
     return transactionsLoadPromise;
   } else {
     // Use static JSON data
     cachedTransactions = transactionsData.transactions as Transaction[];
+    console.log(`[Budget] Using static data: ${cachedTransactions.length} transactions`);
     return cachedTransactions;
   }
 }
@@ -108,8 +112,10 @@ async function showView(route: Route): Promise<void> {
  * Update all islands in the main view
  */
 async function updateMainView(): Promise<void> {
+  console.log('[Budget] updateMainView: loading transactions...');
   const state = StateManager.load();
   const transactions = await loadTransactions();
+  console.log(`[Budget] updateMainView: loaded ${transactions.length} transactions, updating islands...`);
 
   // Update chart island
   updateIsland('chart-island', 'BudgetChart', {
