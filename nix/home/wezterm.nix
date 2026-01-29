@@ -46,7 +46,7 @@
         -- WSL Integration (Linux/WSL only)
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
-        -- Using lib.strings.toJSON to properly escape username for Lua (handles quotes, backslashes, etc.)
+        -- Using lib.strings.toJSON for safe string escaping (produces JSON string literal compatible with Lua)
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
       ''}
 
@@ -66,15 +66,22 @@
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       # Check if running on WSL (Windows mount point exists)
       if [ -d "/mnt/c/Users" ]; then
-        # Detect Windows username (may differ from Linux username)
+        # Detect Windows username from /mnt/c/Users/ (independent of Linux username)
         # Look for a user directory that's not a system directory
         if WINDOWS_USER=$(ls /mnt/c/Users/ 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1) && [ -n "$WINDOWS_USER" ]; then
           :
         else
-          echo "WARNING: Failed to list /mnt/c/Users/ directory or no valid user found"
-          echo "This may indicate a WSL mount or permission issue"
-          # Continue without exiting - this is a soft error
-          WINDOWS_USER=""
+          ls_error=$(ls /mnt/c/Users/ 2>&1) || true
+          echo "ERROR: Failed to list /mnt/c/Users/ directory" >&2
+          echo "  Error: $ls_error" >&2
+          echo "  This indicates a WSL mount or permission issue" >&2
+          echo "  WezTerm configuration cannot be synced to Windows" >&2
+          echo "" >&2
+          echo "To diagnose:" >&2
+          echo "  1. Check WSL mount: ls -ld /mnt/c" >&2
+          echo "  2. Check permissions: ls -la /mnt/c/Users/" >&2
+          echo "  3. Verify WSL integration is working" >&2
+          exit 1
         fi
 
         if [ -n "$WINDOWS_USER" ] && [ -d "/mnt/c/Users/$WINDOWS_USER" ]; then

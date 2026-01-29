@@ -28,6 +28,9 @@
   #   extractNixStringLiteral bashSource "initExtra"
   #   => "# Content from initExtra\necho 'hello'"
   # TODO(#1640): extractNixStringLiteral accumulator state has weak invariants
+  # The accumulator allows invalid states (e.g., collecting=true without found=true,
+  # or modifying content after collecting=false). Consider encoding state machine
+  # explicitly using tagged states: initial | found | collecting | stopped.
   extractNixStringLiteral =
     source: attributeName:
     let
@@ -40,6 +43,8 @@
             acc: line:
             # Stop collecting when we hit closing delimiter ''
             # (but not '''' which is Nix's way to escape '' inside multiline strings)
+            # Note: Assumes closing delimiter '' appears on its own line. Strings with
+            # escaped quotes followed by closing delimiter on same line may be misparsed.
             if acc.found && lib.hasInfix "''" line && acc.collecting && !lib.hasInfix "''''" line then
               acc // { collecting = false; }
             # Collect lines when we're inside the string literal
@@ -86,8 +91,9 @@
     shellPkg: shellName: code:
     let
       shellFile = pkgs.writeText "${lib.toLower shellName}-test.sh" code;
-      # Use lowercase shell name as the binary name (works for bash, zsh)
-      # Note: assumes shell binary name matches lowercase shell name
+      # Use lowercase shell name as the binary name (e.g., "Bash" -> "bash")
+      # Note: Requires shell binary name to match lowercase shell name.
+      # Supported: bash, zsh. Other shells may require modification.
       shellBin = lib.toLower shellName;
     in
     pkgs.runCommand "validate-${lib.toLower shellName}-syntax" { buildInputs = [ shellPkg ]; } ''

@@ -283,14 +283,7 @@ let
         echo "║   Windows Winget Package Tests            ║"
         echo "╚═══════════════════════════════════════════╝"
         echo ""
-        echo "✅ test-json-syntax"
-        echo "✅ test-schema-structure"
-        echo "✅ test-wezterm-package"
-        echo "✅ test-no-duplicates"
-        echo "✅ test-package-identifier-format"
-        echo "✅ test-nonempty-packages"
-        echo "✅ test-schema-version"
-        echo "✅ test-source-details"
+        ${lib.concatMapStringsSep "\n" (test: "echo \"✅ ${test.name}\"") allTests}
         echo ""
         echo "All Windows winget package tests passed!"
         touch $out

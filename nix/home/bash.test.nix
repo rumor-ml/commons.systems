@@ -21,6 +21,7 @@ let
   testHelpers = import ./test-helpers.nix { inherit pkgs lib; };
 
   # Read the bash module source for testing
+  # TODO(#1648): Shell test suite doesn't verify actual Home Manager module activation
   bashSource = builtins.readFile ./bash.nix;
 
   # Extract the initExtra content from source using shared helper
