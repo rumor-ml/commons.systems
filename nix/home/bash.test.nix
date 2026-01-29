@@ -5,8 +5,8 @@
 # 2. Session variable sourcing logic with error handling
 # 3. File path correctness for hm-session-vars.sh
 #
-# These tests ensure configuration syntax errors are caught before deployment,
-# preventing bash initialization failures that would break login shells.
+# These tests ensure configuration syntax errors are caught at build time
+# (via nix build/check), before home-manager switch activates the configuration.
 #
 # Note: These tests validate the module source code directly rather than
 # evaluating it through Home Manager's module system, since bash.nix is

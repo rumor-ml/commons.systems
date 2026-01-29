@@ -18,6 +18,7 @@
     # This is critical for WSL where new terminal tabs start as non-login interactive shells.
     # Note: Login shells won't load this unless they explicitly source .bashrc.
     # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
+    # TODO(#1638): Bash and Zsh session variable sourcing continues after failure with only warning
     initExtra = ''
       # Source Home Manager session variables if not already loaded
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then

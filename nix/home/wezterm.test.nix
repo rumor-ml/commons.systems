@@ -6,9 +6,9 @@
 # 3. Variable interpolation (username, home directory)
 # 4. Activation script logic for WSL Windows config copy
 #
-# These tests ensure configuration syntax errors are caught before deployment,
-# preventing Lua syntax failures during WezTerm launch. They do not verify
-# runtime behavior like font availability or WSL integration.
+# These tests ensure configuration syntax errors are caught at build time
+# (via nix build/check), before home-manager switch activates the configuration.
+# They do not verify runtime behavior like font availability or WSL integration.
 
 # TODO(#1633): Test validation uses generic 'exit 1' without specific exit codes
 
@@ -28,6 +28,7 @@ let
   #   { programs.wezterm.enable = bool
   #     programs.wezterm.extraConfig = string (Lua config)
   #     home.activation.copyWeztermToWindows = script (Linux only) }
+  # TODO(#1642): Add validation invariants for mock configuration inputs
   evaluateModule =
     {
       username ? "testuser",
@@ -95,7 +96,7 @@ let
         -- Mock WezTerm module that validates API usage
         local wezterm = {}
 
-        -- Track valid WezTerm config keys (not exhaustive, but covers our usage)
+        -- Track valid WezTerm config keys (includes all keys used in our config)
         local valid_config_keys = {
           font = true,
           font_size = true,

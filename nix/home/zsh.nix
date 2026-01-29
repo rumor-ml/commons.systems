@@ -15,6 +15,7 @@
     # Source session variables in zshenv (loaded for all zsh shells)
     # This ensures TZ and other Home Manager variables are always available
     # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
+    # TODO(#1638): Bash and Zsh session variable sourcing continues after failure with only warning
     envExtra = ''
       # Source Home Manager session variables
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
@@ -30,17 +31,20 @@
     # Custom zsh initialization (added to Home Manager-managed .zshrc)
     # Home Manager creates its own .zshrc that sources this content during shell startup
     initExtra = ''
+      # TODO(#1637): Zsh completion initialization failure only logs warning without fallback
       if ! autoload -U +X bashcompinit || ! bashcompinit; then
         echo "WARNING: Failed to initialize bash completions for zsh" >&2
       fi
 
       # Git status in prompt
       # https://git-scm.com/book/en/v2/Appendix-A%3A-Git-in-Other-Environments-Git-in-Zsh
+      # TODO(#1639): Zsh vcs_info autoload failure warning provides no error details
       if ! autoload -Uz vcs_info; then
         echo "WARNING: Failed to load vcs_info for git prompt integration" >&2
         echo "  Git branch will not appear in prompt" >&2
         echo "  This may indicate an incomplete zsh installation" >&2
       else
+        # TODO(#1636): Warning suppression prevents visibility into repeated failures
         precmd() {
           if ! vcs_info 2>/dev/null; then
             # Only warn once per session to avoid spam
@@ -53,6 +57,7 @@
         }
       fi
 
+      # TODO(#1634): Fix error handling - function continues after print fails, may read corrupt temp file
       _pr_jobs() {
         # https://superuser.com/questions/1735201/zsh-script-not-printing-output-of-jobs-command
         if tmp=$(mktemp 2>&1); then
@@ -83,6 +88,7 @@
           JOBS=""
         fi
       }
+      # TODO(#1641): Capture and display actual autoload error for better debugging
       if ! autoload -Uz add-zsh-hook; then
         echo "WARNING: Failed to load add-zsh-hook for job display" >&2
         echo "  Background job indicator will not work" >&2

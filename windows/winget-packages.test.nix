@@ -7,9 +7,12 @@
 # 4. No duplicate package identifiers
 # 5. Package identifiers are well-formed
 #
-# These tests ensure invalid winget configurations are caught before deployment,
-# preventing silent failures during package installation. Since Windows config
-# is separate from Nix, there's no build-time validation without these tests.
+# These tests ensure invalid winget configurations are caught at build time
+# (via nix build/check). Since Windows packages are installed via winget (not Nix),
+# these tests provide build-time validation of the JSON config to catch errors
+# before use on Windows.
+#
+# TODO(#1635): No validation that winget packages are actually installable on Windows
 
 { pkgs, lib, ... }:
 

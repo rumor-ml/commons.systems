@@ -6,8 +6,8 @@
 # 3. Shell initialization features (initExtra): completions, prompt, vcs_info, jobs
 # 4. Error handling throughout all shell functions
 #
-# These tests ensure configuration syntax errors are caught before deployment,
-# preventing zsh initialization failures that would break login shells.
+# These tests ensure configuration syntax errors are caught at build time
+# (via nix build/check), before home-manager switch activates the configuration.
 #
 # Note: These tests validate the module source code directly rather than
 # evaluating it through Home Manager's module system, since zsh.nix is

@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FAILURES=0
 PASSES=0
 CLEANUP_DIRS=()
+CLEANUP_FAILURES=0
 
 # Cleanup function to remove all temp directories
 cleanup() {
@@ -20,6 +21,7 @@ cleanup() {
   for dir in "${CLEANUP_DIRS[@]}"; do
     if ! rm -rf "$dir" 2>/dev/null; then
       echo "WARNING: Failed to cleanup directory: $dir" >&2
+      ((CLEANUP_FAILURES++))
       failed=1
     fi
   done
@@ -416,12 +418,11 @@ if ! ls "$TEMP_MOUNT_NOPERM/c/Users/" >/tmp/wezterm-users-list-test18 2>&1; then
 fi
 
 # Cleanup temp file
-if ! rm /tmp/wezterm-users-list-test18 2>/dev/null; then
-  echo "WARNING: Failed to clean up temporary file /tmp/wezterm-users-list-test18" >&2
-  echo "  This may indicate permission or filesystem issues" >&2
-  echo "  Action: You can safely ignore this warning or manually remove the file" >&2
-  echo "  This will not affect WezTerm configuration" >&2
-fi
+rm /tmp/wezterm-users-list-test18 2>/dev/null || {
+  echo "WARNING: Failed to clean up test file /tmp/wezterm-users-list-test18" >&2
+  echo "  This may indicate filesystem permission or disk issues" >&2
+  ((CLEANUP_FAILURES++))
+}
 
 # Validate warning message content
 if [[ "$WARNING_OUTPUT" =~ "WARNING:" ]] && [[ "$WARNING_OUTPUT" =~ "/mnt/c/Users/" ]] && [[ "$WARNING_OUTPUT" =~ "WSL mount or permission" ]]; then
@@ -540,6 +541,13 @@ echo "================================"
 echo "Passed: $PASSES"
 echo "Failed: $FAILURES"
 echo "================================"
+
+if [[ $CLEANUP_FAILURES -gt 0 ]]; then
+  echo ""
+  echo "WARNING: $CLEANUP_FAILURES cleanup operations failed"
+  echo "Temporary directories may have been left behind"
+  echo "Check /tmp for orphaned test directories"
+fi
 
 if [[ $FAILURES -eq 0 ]]; then
   echo "All tests passed!"

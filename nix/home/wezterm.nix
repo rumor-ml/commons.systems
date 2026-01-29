@@ -46,7 +46,7 @@
         -- WSL Integration (Linux/WSL only)
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
-        -- Using string concatenation with properly escaped username to handle special characters
+        -- Using lib.strings.toJSON to properly escape username for Lua (handles quotes, backslashes, etc.)
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
       ''}
 
@@ -69,7 +69,6 @@
         # Detect Windows username (may differ from Linux username)
         # Look for a user directory that's not a system directory
         if WINDOWS_USER=$(ls /mnt/c/Users/ 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1) && [ -n "$WINDOWS_USER" ]; then
-          # Success - WINDOWS_USER is set
           :
         else
           echo "WARNING: Failed to list /mnt/c/Users/ directory or no valid user found"

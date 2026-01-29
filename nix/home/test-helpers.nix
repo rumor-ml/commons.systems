@@ -12,7 +12,10 @@
   # This function parses module source to extract the content of a
   # string literal attribute (e.g., initExtra, envExtra) by looking
   # for the pattern `attributeName = ''` and collecting lines until
-  # the closing `''`.
+  # the first closing `''` (escaped quotes `''''` are skipped).
+  #
+  # Note: This assumes standard Nix multiline string format where the
+  # closing delimiter appears on its own line.
   #
   # Parameters:
   #   - source: The module source code as a string
@@ -24,6 +27,7 @@
   # Example:
   #   extractNixStringLiteral bashSource "initExtra"
   #   => "# Content from initExtra\necho 'hello'"
+  # TODO(#1640): extractNixStringLiteral accumulator state has weak invariants
   extractNixStringLiteral =
     source: attributeName:
     let
@@ -34,7 +38,8 @@
         lib.foldl'
           (
             acc: line:
-            # Stop collecting when we hit closing '' (but not '''' which is an escaped '')
+            # Stop collecting when we hit closing delimiter ''
+            # (but not '''' which is Nix's way to escape '' inside multiline strings)
             if acc.found && lib.hasInfix "''" line && acc.collecting && !lib.hasInfix "''''" line then
               acc // { collecting = false; }
             # Collect lines when we're inside the string literal
@@ -81,7 +86,8 @@
     shellPkg: shellName: code:
     let
       shellFile = pkgs.writeText "${lib.toLower shellName}-test.sh" code;
-      # Use lowercase shell name as the binary name (bash, zsh)
+      # Use lowercase shell name as the binary name (works for bash, zsh)
+      # Note: assumes shell binary name matches lowercase shell name
       shellBin = lib.toLower shellName;
     in
     pkgs.runCommand "validate-${lib.toLower shellName}-syntax" { buildInputs = [ shellPkg ]; } ''
