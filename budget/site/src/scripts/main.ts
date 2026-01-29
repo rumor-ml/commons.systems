@@ -9,9 +9,50 @@ import {
   calculateCategoryHistoricAverages,
 } from './weeklyAggregation';
 import { setupRouteListener, getCurrentRoute, navigateTo, Route } from './router';
+import { loadDemoTransactions } from './firestore';
 
-function loadTransactions(): Transaction[] {
-  return transactionsData.transactions as Transaction[];
+// Cache for loaded transactions
+let cachedTransactions: Transaction[] | null = null;
+let transactionsLoadPromise: Promise<Transaction[]> | null = null;
+
+/**
+ * Load transactions from Firestore emulator (async) or fallback to static JSON
+ */
+async function loadTransactions(): Promise<Transaction[]> {
+  // Return cached transactions if available
+  if (cachedTransactions) {
+    return cachedTransactions;
+  }
+
+  // Return existing promise if load is in progress
+  if (transactionsLoadPromise) {
+    return transactionsLoadPromise;
+  }
+
+  // Check if Firebase emulator is configured
+  const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
+
+  if (useEmulator) {
+    // Load from Firestore emulator
+    transactionsLoadPromise = loadDemoTransactions()
+      .then((transactions) => {
+        cachedTransactions = transactions;
+        transactionsLoadPromise = null;
+        return transactions;
+      })
+      .catch((error) => {
+        console.error('Failed to load from Firestore, falling back to static data:', error);
+        transactionsLoadPromise = null;
+        // Fallback to static JSON
+        cachedTransactions = transactionsData.transactions as Transaction[];
+        return cachedTransactions;
+      });
+    return transactionsLoadPromise;
+  } else {
+    // Use static JSON data
+    cachedTransactions = transactionsData.transactions as Transaction[];
+    return cachedTransactions;
+  }
 }
 
 /**
@@ -31,7 +72,7 @@ function updateIsland(elementId: string, componentName: string, props: object): 
 /**
  * Show or hide a view based on the current route
  */
-function showView(route: Route): void {
+async function showView(route: Route): Promise<void> {
   const mainView = document.getElementById('main-view');
   const planningView = document.getElementById('planning-view');
   const reviewView = document.getElementById('review-view');
@@ -50,11 +91,11 @@ function showView(route: Route): void {
   switch (route) {
     case '/':
       mainView.style.display = 'block';
-      updateMainView();
+      await updateMainView();
       break;
     case '/plan':
       planningView.style.display = 'block';
-      updatePlanningView();
+      await updatePlanningView();
       break;
     case '/review':
       reviewView.style.display = 'block';
@@ -66,9 +107,9 @@ function showView(route: Route): void {
 /**
  * Update all islands in the main view
  */
-function updateMainView(): void {
+async function updateMainView(): Promise<void> {
   const state = StateManager.load();
-  const transactions = loadTransactions();
+  const transactions = await loadTransactions();
 
   // Update chart island
   updateIsland('chart-island', 'BudgetChart', {
@@ -106,9 +147,9 @@ function updateMainView(): void {
 /**
  * Update the planning view with current budget data
  */
-function updatePlanningView(): void {
+async function updatePlanningView(): Promise<void> {
   const state = StateManager.load();
-  const transactions = loadTransactions();
+  const transactions = await loadTransactions();
 
   // Calculate weekly aggregated data for historic averages
   const hiddenSet = new Set(state.hiddenCategories);
@@ -421,12 +462,12 @@ function initDateRangeEvents(): void {
   document.addEventListener(
     'budget:date-range-change',
     wrapEventHandler<{ startDate: string | null; endDate: string | null }>(
-      (detail) => {
+      async (detail) => {
         StateManager.save({
           dateRangeStart: detail.startDate,
           dateRangeEnd: detail.endDate,
         });
-        updateMainView();
+        await updateMainView();
       },
       {
         eventName: 'change date range',
@@ -446,9 +487,9 @@ function initAggregationToggle(): void {
   document.addEventListener(
     'budget:aggregation-toggle',
     wrapEventHandler<{ barAggregation: 'monthly' | 'weekly' }>(
-      (detail) => {
+      async (detail) => {
         StateManager.save({ barAggregation: detail.barAggregation });
-        updateMainView();
+        await updateMainView();
       },
       {
         eventName: 'toggle bar aggregation',
@@ -471,7 +512,7 @@ function initIndicatorToggle(): void {
   document.addEventListener(
     'budget:indicator-toggle',
     wrapEventHandler<{ category: Category }>(
-      (detail) => {
+      async (detail) => {
         const state = StateManager.load();
         const visibleSet = new Set(state.visibleIndicators);
 
@@ -483,7 +524,7 @@ function initIndicatorToggle(): void {
         }
 
         StateManager.save({ visibleIndicators: Array.from(visibleSet) });
-        updateMainView();
+        await updateMainView();
       },
       {
         eventName: 'toggle indicator visibility',
@@ -503,9 +544,9 @@ function initNetIncomeToggle(): void {
   document.addEventListener(
     'budget:net-income-toggle',
     wrapEventHandler<{ showNetIncomeIndicator: boolean }>(
-      (detail) => {
+      async (detail) => {
         StateManager.save({ showNetIncomeIndicator: detail.showNetIncomeIndicator });
-        updateMainView();
+        await updateMainView();
       },
       {
         eventName: 'toggle net income indicator',
@@ -541,9 +582,9 @@ function init(): void {
   initNetIncomeToggle();
 
   // Set up routing
-  setupRouteListener((route) => {
+  setupRouteListener(async (route) => {
     console.log('[Budget] Route changed to:', route);
-    showView(route);
+    await showView(route);
   });
 
   // Initialize hash if empty (ensures URL always shows #/ or #/plan)
