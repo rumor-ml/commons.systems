@@ -411,6 +411,26 @@ if [ "$APP_TYPE" = "firebase" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   echo ""
 fi
 
+# --- Seed emulator (for apps that need demo data) ---
+if [ "$APP_TYPE" = "firebase" ] && [ "$APP_NAME" = "budget" ]; then
+  echo ""
+  echo "=== Seeding Budget Demo Data ==="
+  cd "${APP_PATH_ABS}/site"
+
+  # Run seeding script (uses FIRESTORE_EMULATOR_HOST from environment)
+  if [ -f "scripts/seed-local.sh" ]; then
+    bash scripts/seed-local.sh || {
+      echo "ERROR: Failed to seed demo data" >&2
+      exit 1
+    }
+    echo "✓ Demo data seeded successfully"
+  else
+    echo "WARNING: No seed-local.sh script found, skipping seeding"
+  fi
+  echo "================================"
+  echo ""
+fi
+
 # --- Run tests ---
 cd "${APP_PATH_ABS}"
 
