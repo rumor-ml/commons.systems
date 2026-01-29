@@ -106,10 +106,55 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
     }
 
-    // LIMITATION: Collections with suffixes like budget-demo-transactions-worker-0,
-    // budget-demo-transactions_pr_123, or budget-demo-transactions_preview_branch
-    // are NOT covered by these rules. Firebase does not support collection name patterns.
-    // For dynamic preview environments, consider:
+    // Budget Demo Transactions Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-transactions-worker-0/{transactionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Statements Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-statements-worker-0/{statementId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Accounts Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-accounts-worker-0/{accountId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Institutions Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-institutions-worker-0/{institutionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // LIMITATION: Collections with suffixes like budget-demo-transactions_pr_123 or
+    // budget-demo-transactions_preview_branch are NOT covered by these rules.
+    // Firebase does not support collection name patterns. Worker-0 variants are now
+    // explicitly defined above to support parallel E2E test execution.
+    // For other dynamic preview environments, consider:
     //   1. Restructuring to use subcollections: /preview/{env}/transactions/{id}
     //   2. Deploying rules updates programmatically for each preview environment
     //   3. Handling permissions at the application level
