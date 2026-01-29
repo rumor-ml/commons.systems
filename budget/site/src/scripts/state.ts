@@ -7,6 +7,7 @@ import {
   parseWeekId,
   isValidCategoryBudget,
 } from '../islands/types';
+import { logger } from '../utils/logger';
 
 /**
  * Type guard to check if an unknown value has the shape of a CategoryBudget.
@@ -48,12 +49,12 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
 
   for (const [category, budget] of Object.entries(categoryBudgets)) {
     if (!CATEGORIES.includes(category as Category)) {
-      console.warn(`Skipping invalid category: ${category}`);
+      logger.warn(`Skipping invalid category: ${category}`);
       continue;
     }
 
     if (!isCategoryBudgetLike(budget)) {
-      console.warn(`Skipping invalid budget structure for ${category}:`, budget);
+      logger.warn(`Skipping invalid budget structure for ${category}`, budget);
       continue;
     }
 
@@ -63,7 +64,7 @@ function validateBudgetPlan(parsed: any): BudgetPlan | null {
     };
 
     if (!isValidCategoryBudget(categoryBudget, category as Category)) {
-      console.warn(`Skipping invalid budget for ${category}:`, budget);
+      logger.warn(`Skipping invalid budget for ${category}`, budget);
       continue;
     }
 
@@ -273,13 +274,8 @@ export class StateManager {
         showNetIncomeIndicator,
       };
     } catch (error) {
-      // TODO: Distinguish between error types and provide specific user guidance:
-      //   - JSON parse error → "Your saved settings are corrupted. Resetting to defaults."
-      //   - localStorage access denied → "Private browsing detected. Settings won't persist."
-      //   - Validation error → "Saved settings format is outdated. Migrating to new format."
-      // This would improve UX by helping users understand and fix their specific issue.
-      // Priority: Low (current generic message is acceptable for most users).
-      console.error('Failed to load state from localStorage:', error);
+      // TODO(#1387): Consider distinguishing localStorage failure types for better user messaging
+      logger.error('Failed to load state from localStorage', error);
 
       // Show user-facing warning
       this.showWarningBanner(
@@ -311,17 +307,23 @@ export class StateManager {
 
     // Validate merged state before persisting
     if (updated.dateRangeStart && !/^\d{4}-\d{2}-\d{2}$/.test(updated.dateRangeStart)) {
-      console.warn('Invalid dateRangeStart format, using null:', updated.dateRangeStart);
+      logger.warn('Invalid dateRangeStart format, using null', {
+        dateRangeStart: updated.dateRangeStart,
+      });
       (updated as { dateRangeStart: string | null }).dateRangeStart = null;
     }
     if (updated.dateRangeEnd && !/^\d{4}-\d{2}-\d{2}$/.test(updated.dateRangeEnd)) {
-      console.warn('Invalid dateRangeEnd format, using null:', updated.dateRangeEnd);
+      logger.warn('Invalid dateRangeEnd format, using null', {
+        dateRangeEnd: updated.dateRangeEnd,
+      });
       (updated as { dateRangeEnd: string | null }).dateRangeEnd = null;
     }
 
     // Validate barAggregation
     if (updated.barAggregation !== 'monthly' && updated.barAggregation !== 'weekly') {
-      console.warn('Invalid barAggregation, defaulting to monthly:', updated.barAggregation);
+      logger.warn('Invalid barAggregation, defaulting to monthly', {
+        barAggregation: updated.barAggregation,
+      });
       (updated as { barAggregation: BarAggregation }).barAggregation = 'monthly';
     }
 
@@ -329,7 +331,7 @@ export class StateManager {
     if (Array.isArray(updated.hiddenCategories)) {
       const validCategories = updated.hiddenCategories.filter((cat) => CATEGORIES.includes(cat));
       if (validCategories.length !== updated.hiddenCategories.length) {
-        console.warn('Filtered invalid categories from hiddenCategories');
+        logger.warn('Filtered invalid categories from hiddenCategories');
         (updated as { hiddenCategories: Category[] }).hiddenCategories = validCategories;
       }
     }
@@ -338,7 +340,7 @@ export class StateManager {
     if (Array.isArray(updated.visibleIndicators)) {
       const validIndicators = updated.visibleIndicators.filter((cat) => CATEGORIES.includes(cat));
       if (validIndicators.length !== updated.visibleIndicators.length) {
-        console.warn('Filtered invalid categories from visibleIndicators');
+        logger.warn('Filtered invalid categories from visibleIndicators');
         (updated as { visibleIndicators: Category[] }).visibleIndicators = validIndicators;
       }
     }
@@ -362,7 +364,7 @@ export class StateManager {
       // Return what was actually persisted
       return persisted;
     } catch (error) {
-      console.error('Failed to save state to localStorage:', error);
+      logger.error('Failed to save state to localStorage', error);
 
       // Critical: Budget plan data is being lost
       if (state.budgetPlan) {
