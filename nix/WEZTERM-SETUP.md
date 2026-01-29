@@ -53,7 +53,7 @@ When running on macOS, the configuration includes:
 
 Common settings applied on all platforms:
 
-- **Font**: JetBrains Mono at 11pt
+- **Font**: JetBrains Mono at 11pt (must be installed separately - see Initial Setup)
 - **Color Scheme**: Tokyo Night
 - **Scrollback**: 10,000 lines
 - **Tab Bar**: Hidden when only one tab is open
@@ -110,6 +110,41 @@ Common settings applied on all platforms:
    # Check Windows config (WSL only)
    ls -la /mnt/c/Users/$(whoami)/.wezterm.lua
    ```
+
+4. **Install Required Fonts**: The configuration uses **JetBrains Mono** font. Ensure it's installed:
+
+   - **WSL**: Install JetBrains Mono on Windows (not in WSL)
+     - Download from https://www.jetbrains.com/lp/mono/
+     - Or install via winget: `winget install JetBrains.JetBrainsMono.NerdFont`
+
+   - **macOS**: Install via Homebrew
+     ```bash
+     brew tap homebrew/cask-fonts
+     brew install --cask font-jetbrains-mono
+     ```
+
+   - **Linux**: Install via package manager or manually
+     ```bash
+     # Debian/Ubuntu
+     sudo apt install fonts-jetbrains-mono
+
+     # Arch Linux
+     sudo pacman -S ttf-jetbrains-mono
+
+     # Manual installation
+     mkdir -p ~/.local/share/fonts
+     cd ~/.local/share/fonts
+     wget https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip
+     unzip JetBrainsMono-2.304.zip
+     fc-cache -f -v
+     ```
+
+   **Verify font installation:**
+   - **WSL/Linux**: `fc-list | grep -i "jetbrains"`
+   - **macOS**: Check Font Book application
+   - **Windows**: Check Settings → Fonts
+
+   **Note**: If JetBrains Mono is not installed, WezTerm will silently fall back to its default font. The configuration will still work but the terminal appearance will differ from the intended design.
 
 ### Making Changes
 

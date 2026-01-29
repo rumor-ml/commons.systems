@@ -12,6 +12,7 @@
 # these tests provide build-time validation of the JSON config to catch errors
 # before use on Windows.
 #
+# TODO(#1652): winget-packages.test.nix has no negative tests for invalid JSON structure
 # TODO(#1635): No validation that winget packages are actually installable on Windows
 
 { pkgs, lib, ... }:

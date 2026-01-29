@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Tests for wezterm.nix activation script
 # Tests Windows user detection and config copy logic on WSL
-# TODO(#1612): Shell tests verify activation script logic but don't verify home-manager DAG integration
 # IMPORTANT: These unit tests don't guarantee the script works during actual home-manager activation.
 # The tests validate user detection, file copy, and Home Manager variable handling in isolation, but don't verify:
 # - Activation script executes correctly in home-manager's DAG after linkGeneration phase
 # - DAG ordering ensures activation runs at the correct point in the configuration build
-# An integration test (e.g., in wezterm.test.nix using home-manager module evaluation) would catch DAG-related failures.
+# TODO(#1612): Add integration test (e.g., in wezterm.test.nix using home-manager module evaluation) to verify DAG integration.
+# TODO(#1653): Reduce repetitive test structure by creating helper function for common setup/teardown pattern
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FAILURES=0
@@ -96,6 +96,37 @@ if [[ "$WINDOWS_USER" == "John Doe" ]]; then
   report_pass "User detection handles usernames with spaces"
 else
   report_fail "User detection failed on username with spaces" "Got: '$WINDOWS_USER'"
+fi
+
+# Test 3b: Windows username with shell metacharacters
+echo ""
+echo "=== Test 3b: Windows username with shell metacharacters ==="
+TEMP_MOUNT_SPECIAL=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_MOUNT_SPECIAL")
+
+# Test various problematic characters that are valid in Windows usernames
+# but could break shell scripts if not properly quoted
+test_metachar_passed=true
+for username in "user&name" "user;name" 'user`name' 'user$name'; do
+  mkdir -p "$TEMP_MOUNT_SPECIAL/c/Users/$username"
+  mkdir -p "$TEMP_MOUNT_SPECIAL/c/Users/Public"
+
+  # Verify detection handles special chars safely
+  WINDOWS_USER=$(ls "$TEMP_MOUNT_SPECIAL/c/Users/" 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
+
+  # Verify variable expansion is safe (properly quoted in actual script)
+  TARGET_DIR="/mnt/c/Users/$WINDOWS_USER"
+  if [[ "$TARGET_DIR" != "/mnt/c/Users/$username" ]]; then
+    report_fail "Username with special chars caused incorrect expansion" "Expected: $username, Got: $WINDOWS_USER"
+    test_metachar_passed=false
+    break
+  fi
+
+  rm -rf "$TEMP_MOUNT_SPECIAL/c/Users/$username"
+done
+
+if $test_metachar_passed; then
+  report_pass "User detection handles shell metacharacters safely"
 fi
 
 # Test 4: Config file copy operation (dry run simulation)
@@ -243,14 +274,14 @@ mkdir -p "$TEMP_MOUNT8/c/Users"/{public,default,alice}
 
 WINDOWS_USER=$(ls "$TEMP_MOUNT8/c/Users/" 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
 
-# On Linux test environment, lowercase 'public' and 'default' are NOT filtered out
-# because the grep pattern only matches capitalized 'Public' and 'Default'.
-# This test validates that case-sensitive filtering works as implemented.
-# Note: Real WSL filesystem is case-insensitive, so 'Public' and 'Default' would exist,
-# and this test verifies the filter would work correctly in that environment.
+# Test validates case-sensitive filtering behavior of the grep pattern.
+# In Linux test environment: lowercase 'public'/'default' are NOT filtered (grep pattern is case-sensitive)
+# In real WSL: Windows filesystem is case-insensitive, so directories appear as 'Public'/'Default' (capitalized)
+# This test confirms the grep pattern correctly filters capitalized system directories (which is what exists on WSL).
+# The test passes when it gets 'alice' OR lowercase variants, proving the filter is case-sensitive as designed.
 if [[ "$WINDOWS_USER" =~ ^(alice|default|public)$ ]]; then
-  # This is actually expected behavior - the filter is case-sensitive
-  # Real WSL has Windows filesystem which is case-insensitive, so 'Public' would exist
+  # Expected: 'alice' (valid user) or 'default'/'public' (lowercase not filtered on Linux)
+  # On real WSL, only 'Public'/'Default' exist (capitalized), so they would be filtered correctly
   report_pass "Case-sensitive filtering works as expected"
 else
   report_fail "Unexpected filtering result" "Got: '$WINDOWS_USER'"

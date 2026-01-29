@@ -27,48 +27,49 @@
   # Example:
   #   extractNixStringLiteral bashSource "initExtra"
   #   => "# Content from initExtra\necho 'hello'"
-  # TODO(#1640): extractNixStringLiteral accumulator state has weak invariants
-  # The accumulator allows invalid states (e.g., collecting=true without found=true,
-  # or modifying content after collecting=false). Consider encoding state machine
-  # explicitly using tagged states: initial | found | collecting | stopped.
   extractNixStringLiteral =
     source: attributeName:
     let
       lines = lib.splitString "\n" source;
       # Pattern to match: attributeName = ''
       startPattern = "${attributeName} = ''";
+
+      # State machine using tagged union (attrset with _type field)
+      # States: initial -> collecting -> stopped
+      # This makes illegal states unrepresentable at the type level.
+      initialState = { _type = "initial"; };
+
       result =
         lib.foldl'
           (
-            acc: line:
+            state: line:
+            # State: initial - looking for start pattern
+            if state._type == "initial" && lib.hasInfix startPattern line then
+              { _type = "collecting"; content = [ ]; }
+
+            # State: collecting - check for closing delimiter or collect line
             # Stop collecting when we hit closing delimiter ''
             # (but not '''' which is Nix's way to escape '' inside multiline strings)
-            # Note: Assumes closing delimiter '' appears on its own line.
-            # Example edge case: `foo = ''bar'';` on one line may be misparsed
-            # (closing '' detected mid-content). Standard multiline format avoids this.
-            if acc.found && lib.hasInfix "''" line && acc.collecting && !lib.hasInfix "''''" line then
-              acc // { collecting = false; }
-            # Collect lines when we're inside the string literal
-            else if acc.found && acc.collecting then
-              acc // { content = acc.content ++ [ line ]; }
-            # Start collecting when we find the opening pattern
-            else if lib.hasInfix startPattern line then
-              acc
-              // {
-                found = true;
-                collecting = true;
-              }
+            # Note: Assumes closing delimiter '' appears on its own line (standard Nix multiline format).
+            # Edge case: Single-line literals like `foo = ''bar'';` will be misparsed because the parser
+            # detects the closing '' and stops collecting content, returning an empty result since no
+            # lines were collected. Always use multiline format for attributes parsed by this function.
+            else if state._type == "collecting" && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
+              { _type = "stopped"; content = state.content; }
+
+            # State: collecting - append line to content
+            else if state._type == "collecting" then
+              { _type = "collecting"; content = state.content ++ [ line ]; }
+
+            # State: stopped or initial - no transitions, preserve state
             else
-              acc
+              state
           )
-          {
-            found = false;
-            collecting = false;
-            content = [ ];
-          }
+          initialState
           lines;
     in
-    lib.concatStringsSep "\n" result.content;
+    # Extract content from final state (stopped state has content, others default to empty)
+    lib.concatStringsSep "\n" (result.content or [ ]);
 
   # Validate shell syntax using a shell interpreter.
   #

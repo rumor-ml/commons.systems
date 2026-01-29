@@ -169,6 +169,7 @@ let
   '';
 
   # Test 8: Shell continuation after source failure
+  # TODO(#1654): Test validates problematic continue-after-failure behavior
   test-continues-after-error = pkgs.runCommand "test-bash-continues-after-error" { buildInputs = [ pkgs.bash ]; } ''
     # Create a mock init script that includes the error handling logic
     cat > test-init.sh << 'EOF'
