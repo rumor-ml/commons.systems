@@ -43,6 +43,60 @@ source "$SCRIPT_DIR/port-utils.sh"
 check_sandbox_requirement "Running E2E tests with Firebase emulators" || exit 1
 
 # ============================================================================
+# EMULATOR POOL INTEGRATION: Claim instance from pool if available
+# ============================================================================
+# Try to claim a pool instance for parallel test execution
+# Falls back to singleton mode if pool is not initialized
+
+POOL_INSTANCE_ID=""
+POOL_INSTANCE_CLAIMED=false
+
+# Source emulator pool utilities
+EMULATOR_POOL_SCRIPT="${SCRIPT_DIR}/emulator-pool.sh"
+
+if [ -f "$EMULATOR_POOL_SCRIPT" ] && [ -f "${HOME}/.firebase-emulator-pool/pool.json" ]; then
+  echo "=== Attempting to claim emulator pool instance ==="
+
+  # Claim an instance from the pool
+  if POOL_INSTANCE_JSON=$(source "$EMULATOR_POOL_SCRIPT" claim 2>/dev/null); then
+    POOL_INSTANCE_ID=$(echo "$POOL_INSTANCE_JSON" | jq -r '.id')
+    POOL_INSTANCE_CLAIMED=true
+
+    # Extract instance-specific ports from pool configuration
+    export GCP_PROJECT_ID=$(echo "$POOL_INSTANCE_JSON" | jq -r '.projectId')
+    export AUTH_PORT=$(echo "$POOL_INSTANCE_JSON" | jq -r '.authPort')
+    export FIRESTORE_PORT=$(echo "$POOL_INSTANCE_JSON" | jq -r '.firestorePort')
+    export STORAGE_PORT=$(echo "$POOL_INSTANCE_JSON" | jq -r '.storagePort')
+    export UI_PORT=$(echo "$POOL_INSTANCE_JSON" | jq -r '.uiPort')
+    export HOSTING_PORT=$(echo "$POOL_INSTANCE_JSON" | jq -r '.hostingPort')
+
+    # Set emulator host variables for consistency
+    export FIREBASE_AUTH_EMULATOR_HOST="localhost:${AUTH_PORT}"
+    export FIRESTORE_EMULATOR_HOST="localhost:${FIRESTORE_PORT}"
+    export STORAGE_EMULATOR_HOST="localhost:${STORAGE_PORT}"
+
+    echo "✓ Claimed pool instance: $POOL_INSTANCE_ID"
+    echo "  Ports: Auth=$AUTH_PORT, Firestore=$FIRESTORE_PORT, Storage=$STORAGE_PORT, Hosting=$HOSTING_PORT"
+
+    # Set up cleanup trap to release instance on exit
+    release_pool_instance() {
+      if [ "$POOL_INSTANCE_CLAIMED" = "true" ] && [ -n "$POOL_INSTANCE_ID" ]; then
+        echo "Releasing pool instance: $POOL_INSTANCE_ID"
+        source "$EMULATOR_POOL_SCRIPT" release "$POOL_INSTANCE_ID" 2>/dev/null || true
+      fi
+    }
+    trap release_pool_instance EXIT
+  else
+    echo "⚠️  No available pool instances - falling back to singleton mode"
+  fi
+else
+  echo "⚠️  Emulator pool not initialized - using singleton mode"
+fi
+
+echo "=================================================="
+echo ""
+
+# ============================================================================
 # SUPERVISOR DETECTION: Check if supervisor is managing emulators
 # ============================================================================
 SUPERVISOR_PID_FILE="$HOME/.firebase-emulators/supervisor.pid"
@@ -105,8 +159,8 @@ if [ -f "$TEST_ENV_CONFIG" ]; then
   fi
 fi
 
-if [ "$REUSE_EMULATORS" = "false" ]; then
-  # Allocate ports based on worktree (normal path)
+if [ "$REUSE_EMULATORS" = "false" ] && [ "$POOL_INSTANCE_CLAIMED" = "false" ]; then
+  # Allocate ports based on worktree (singleton mode)
   source "$SCRIPT_DIR/allocate-test-ports.sh" || {
     echo "FATAL: Port allocation failed" >&2
     echo "This could be due to:" >&2
@@ -132,6 +186,8 @@ if [ "$REUSE_EMULATORS" = "false" ]; then
     echo "This indicates a bug in the port allocation script" >&2
     exit 1
   fi
+elif [ "$POOL_INSTANCE_CLAIMED" = "true" ]; then
+  echo "✓ Using pool instance ports (skipping worktree allocation)"
 else
   # INFRASTRUCTURE STABILITY FIX: Clear Firestore data when reusing emulators
   # This ensures test isolation and prevents stale data from affecting tests

@@ -24,7 +24,45 @@ source "${SCRIPT_DIR}/port-utils.sh"
 # Check sandbox requirement BEFORE any emulator operations
 check_sandbox_requirement "Starting Firebase emulators" || exit 1
 
-source "${SCRIPT_DIR}/allocate-test-ports.sh"
+# ============================================================================
+# EMULATOR POOL INTEGRATION: Use pool instance ports if provided
+# ============================================================================
+# Check if POOL_INSTANCE_ID is set (pool mode) or fall back to singleton mode
+# Pool mode: Use instance-specific ports from environment variables
+# Singleton mode: Allocate ports based on worktree using allocate-test-ports.sh
+
+if [ -n "${POOL_INSTANCE_ID:-}" ]; then
+  echo "=== Pool Mode: Using instance-specific ports ==="
+  echo "Pool Instance ID: $POOL_INSTANCE_ID"
+
+  # Validate all required pool environment variables are set
+  MISSING_POOL_VARS=""
+  [ -z "${GCP_PROJECT_ID:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS GCP_PROJECT_ID"
+  [ -z "${AUTH_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS AUTH_PORT"
+  [ -z "${FIRESTORE_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS FIRESTORE_PORT"
+  [ -z "${STORAGE_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS STORAGE_PORT"
+  [ -z "${UI_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS UI_PORT"
+  [ -z "${HOSTING_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS HOSTING_PORT"
+
+  if [ -n "$MISSING_POOL_VARS" ]; then
+    echo "ERROR: Pool mode enabled but missing environment variables:$MISSING_POOL_VARS" >&2
+    echo "When POOL_INSTANCE_ID is set, all port variables must be provided" >&2
+    exit 1
+  fi
+
+  # Set PROJECT_ID for consistency with allocate-test-ports.sh
+  PROJECT_ID="$GCP_PROJECT_ID"
+
+  echo "  Auth Port: $AUTH_PORT"
+  echo "  Firestore Port: $FIRESTORE_PORT"
+  echo "  Storage Port: $STORAGE_PORT"
+  echo "  UI Port: $UI_PORT"
+  echo "  Hosting Port: $HOSTING_PORT"
+  echo "  Project ID: $PROJECT_ID"
+else
+  echo "=== Singleton Mode: Allocating worktree-specific ports ==="
+  source "${SCRIPT_DIR}/allocate-test-ports.sh"
+fi
 
 # Configuration
 MAX_RETRIES=120  # Increased to handle system overload (2 minutes total)
@@ -204,11 +242,56 @@ else
   # Change to repository root
   cd "${PROJECT_ROOT}"
 
+  # Create temporary firebase config for backend emulators with custom ports
+  # Required for pool mode to use instance-specific ports
+  TEMP_BACKEND_CONFIG="${SHARED_EMULATOR_DIR}/firebase-backend-${PROJECT_ID}.json"
+
+  # Extract storage rules path from main firebase.json if it exists
+  STORAGE_RULES=$(jq -r '.storage.rules // "shared/storage.rules"' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "shared/storage.rules")
+  FIRESTORE_RULES=$(jq -r '.firestore.rules // empty' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "")
+
+  # Build config with emulator ports and rules
+  cat > "${TEMP_BACKEND_CONFIG}" <<EOF
+{
+  "emulators": {
+    "auth": {
+      "port": ${AUTH_PORT}
+    },
+    "firestore": {
+      "port": ${FIRESTORE_PORT}
+    },
+    "storage": {
+      "port": ${STORAGE_PORT}
+    },
+    "ui": {
+      "enabled": true,
+      "port": ${UI_PORT}
+    }
+  },
+  "storage": {
+    "rules": "${STORAGE_RULES}"
+  }
+EOF
+
+  # Add firestore rules if specified
+  if [ -n "$FIRESTORE_RULES" ]; then
+    cat >> "${TEMP_BACKEND_CONFIG}" <<EOF
+,
+  "firestore": {
+    "rules": "${FIRESTORE_RULES}"
+  }
+EOF
+  fi
+
+  # Close JSON
+  echo "}" >> "${TEMP_BACKEND_CONFIG}"
+
   # Start ONLY backend emulators (shared)
   # Import seed data from fellspiral/emulator-data (includes QA test user)
   npx firebase-tools emulators:start \
     --only auth,firestore,storage \
     --project="${PROJECT_ID}" \
+    --config="${TEMP_BACKEND_CONFIG}" \
     --import="${PROJECT_ROOT}/fellspiral/emulator-data" \
     > "$BACKEND_LOG_FILE" 2>&1 &
 
@@ -217,6 +300,7 @@ else
 
   echo "Backend emulators started with PID: ${BACKEND_PID}"
   echo "Log file: $BACKEND_LOG_FILE"
+  echo "Config file: $TEMP_BACKEND_CONFIG"
 
   # Health check for Auth
   wait_for_port ${AUTH_PORT} "Auth emulator" ${MAX_RETRIES} "$BACKEND_LOG_FILE" $BACKEND_PID || {

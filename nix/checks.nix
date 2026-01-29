@@ -149,11 +149,13 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # Run tests before allowing push
+    # Uses unified make validate target with CHANGED_ONLY flag
+    # This ensures consistency between git hooks, CI, and manual validation
     pre-push-tests = {
       enable = true;
       name = "pre-push-tests";
-      description = "Run tests on changed apps before push";
-      entry = "${pkgs.bash}/bin/bash ./infrastructure/scripts/run-all-local-tests.sh --changed-only";
+      description = "Run validation on changed apps before push";
+      entry = "${pkgs.gnumake}/bin/make validate CHANGED_ONLY=true";
       language = "system";
       stages = [ "pre-push" ];
       pass_filenames = false;

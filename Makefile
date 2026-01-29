@@ -51,8 +51,20 @@ test-e2e:
 	@./infrastructure/scripts/run-tests.sh --type e2e
 
 # Validation pipeline
-validate: lint typecheck test
+# Supports CHANGED_ONLY flag for git hooks (pre-push)
+# Usage: make validate CHANGED_ONLY=true
+validate:
+ifeq ($(CHANGED_ONLY),true)
+	@echo "$(CYAN)Running validation on changed apps only...$(RESET)"
+	@./infrastructure/scripts/run-all-local-tests.sh --changed-only
+	@echo "$(GREEN)✓ Validation complete (changed apps)$(RESET)"
+else
+	@echo "$(CYAN)Running full validation pipeline...$(RESET)"
+	@$(MAKE) lint
+	@$(MAKE) typecheck
+	@$(MAKE) test
 	@echo "$(GREEN)✓ Validation complete$(RESET)"
+endif
 
 # Format code based on project type
 format:

@@ -26,8 +26,9 @@ HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_
 BACKEND_LOG_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.log"
 HOSTING_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.log"
 
-# Temp config file
+# Temp config files
 TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
+TEMP_BACKEND_CONFIG="${SHARED_EMULATOR_DIR}/firebase-backend-*.json"
 
 echo "Stopping Firebase emulators..."
 echo ""
@@ -74,9 +75,15 @@ if [ -f "$BACKEND_PID_FILE" ]; then
   echo "To stop backend emulators (will affect all worktrees):"
   echo "  kill \$(cat ${BACKEND_PID_FILE})"
   echo "  rm -f ${BACKEND_PID_FILE}"
+  echo "  rm -f ${SHARED_EMULATOR_DIR}/firebase-backend-*.json  # Clean up temp configs"
   echo ""
 else
   echo "No backend emulator PID file found (may not be running)"
+  # Clean up any orphaned backend temp configs
+  if compgen -G "$TEMP_BACKEND_CONFIG" > /dev/null 2>&1; then
+    rm -f $TEMP_BACKEND_CONFIG
+    echo "✓ Cleaned up orphaned backend temp config(s)"
+  fi
   echo ""
 fi
 
