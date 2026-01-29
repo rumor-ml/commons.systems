@@ -25,6 +25,9 @@ import {
   forceCompleteFeatures as sharedForceCompleteFeatures,
   hasBarrierBetween as sharedHasBarrierBetween,
   wouldTrapExplorer as sharedWouldTrapExplorer,
+  checkBarrierConnectivity as sharedCheckBarrierConnectivity,
+  ensureBorderConnectivity as sharedEnsureBorderConnectivity,
+  getAdjacentEdgeDirections,
 } from '../lib/realmGeneration.js';
 import {
   TERRAIN_TYPES,
@@ -153,6 +156,7 @@ class RealmGenerator {
     this.riverEdges = new Map();
     this.riverNetwork = [];
     this.barrierEdges = new Set();
+    this.anchoredBarrierEdges = new Set();
     this.traversedEdges = new Set(); // Edges the explorer has crossed - cannot have barriers
     this.features = new Map();
     this.terrainClusters = new Map();
@@ -171,7 +175,6 @@ class RealmGenerator {
     this.riverEncountered = false; // Flag for first river encounter
     this.riverIdCounter = 0; // Unique ID for each river network
     this.plannedRiverEdges = new Map(); // Pre-planned river edges to add when hexes are revealed
-    this.barrierCrossings = 0; // Debug counter for barrier crossings
     this.generationMode = null; // Track generation context: null | 'validation' | 'exploration'
   }
 
@@ -231,6 +234,7 @@ class RealmGenerator {
     this.riverNetwork = [];
     this.plannedRiverEdges = new Map();
     this.barrierEdges.clear();
+    this.anchoredBarrierEdges.clear();
     this.traversedEdges.clear();
     this.features.clear();
     this.terrainClusters.clear();
@@ -242,7 +246,6 @@ class RealmGenerator {
     this.generationLog = [];
     this.stepStates = [];
     this.constraints = this.initConstraints();
-    this.barrierCrossings = 0;
     this.generationMode = null;
 
     // Initialize border cluster seeds (4 clusters around perimeter)
@@ -1049,7 +1052,7 @@ class RealmGenerator {
   findRiverEndAtVertex(q, r, direction) {
     // Only find river ends that share a vertex with this edge
     // This prevents rivers from branching wildly
-    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const adjacentDirs = getAdjacentEdgeDirections(direction);
     for (const adjDir of adjacentDirs) {
       const edgeKey = this.getEdgeKey(q, r, adjDir);
       if (this.riverEdges.has(edgeKey)) {
@@ -1061,7 +1064,7 @@ class RealmGenerator {
 
   isRiverTip(q, r, direction) {
     // Check if this is at the "tip" of a river (only one river edge at this vertex)
-    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const adjacentDirs = getAdjacentEdgeDirections(direction);
     let riverCount = 0;
     for (const adjDir of adjacentDirs) {
       const edgeKey = this.getEdgeKey(q, r, adjDir);
@@ -1099,7 +1102,7 @@ class RealmGenerator {
     // 2. Neighbor in direction D - its edge back plus its clockwise-adjacent edge
     // 3. Neighbor in adjacent direction - relevant edges
 
-    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const adjacentDirs = getAdjacentEdgeDirections(direction);
     const clockwiseDir = adjacentDirs[0]; // direction + 1
     const counterDir = adjacentDirs[1]; // direction - 1
 
@@ -1112,13 +1115,13 @@ class RealmGenerator {
     // 2. Neighbor in 'direction' - check edge back (opposite) and its adjacent
     const neighbor1 = hexNeighbor(q, r, direction);
     const oppDir = OPPOSITE_DIRECTION[direction];
-    const neighbor1Adjacent = this.getAdjacentEdgeDirections(oppDir);
+    const neighbor1Adjacent = getAdjacentEdgeDirections(oppDir);
     edgesToCheck.add(this.getEdgeKey(neighbor1.q, neighbor1.r, neighbor1Adjacent[1]));
 
     // 3. Neighbor in clockwise direction - check relevant edge
     const neighbor2 = hexNeighbor(q, r, clockwiseDir);
     const oppClockwise = OPPOSITE_DIRECTION[clockwiseDir];
-    const neighbor2Adjacent = this.getAdjacentEdgeDirections(oppClockwise);
+    const neighbor2Adjacent = getAdjacentEdgeDirections(oppClockwise);
     edgesToCheck.add(this.getEdgeKey(neighbor2.q, neighbor2.r, neighbor2Adjacent[0]));
 
     let count = 0;
@@ -1134,7 +1137,7 @@ class RealmGenerator {
     // If clockwise=true: vertex between direction and direction+1
     // If clockwise=false: vertex between direction and direction-1
 
-    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const adjacentDirs = getAdjacentEdgeDirections(direction);
     const adjDir = clockwise ? adjacentDirs[0] : adjacentDirs[1];
 
     const edges = [];
@@ -1148,7 +1151,7 @@ class RealmGenerator {
     // Edge 3: From neighboring hex
     const neighbor = hexNeighbor(q, r, adjDir);
     const oppAdjDir = OPPOSITE_DIRECTION[adjDir];
-    const neighborAdj = this.getAdjacentEdgeDirections(oppAdjDir);
+    const neighborAdj = getAdjacentEdgeDirections(oppAdjDir);
     // The third edge comes from the neighbor, on the opposite side
     edges.push(
       this.getEdgeKey(neighbor.q, neighbor.r, clockwise ? neighborAdj[1] : neighborAdj[0])
@@ -1163,7 +1166,7 @@ class RealmGenerator {
 
     // For the other vertex, we need to check the counterclockwise corner
     // This is between 'direction' and the counterclockwise-adjacent direction
-    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+    const adjacentDirs = getAdjacentEdgeDirections(direction);
     const counterDir = adjacentDirs[1]; // direction - 1
 
     // Count at the counterclockwise vertex
@@ -1173,12 +1176,12 @@ class RealmGenerator {
 
     const neighbor1 = hexNeighbor(q, r, direction);
     const oppDir = OPPOSITE_DIRECTION[direction];
-    const neighbor1Adjacent = this.getAdjacentEdgeDirections(oppDir);
+    const neighbor1Adjacent = getAdjacentEdgeDirections(oppDir);
     edgesToCheck.add(this.getEdgeKey(neighbor1.q, neighbor1.r, neighbor1Adjacent[0]));
 
     const neighbor2 = hexNeighbor(q, r, counterDir);
     const oppCounter = OPPOSITE_DIRECTION[counterDir];
-    const neighbor2Adjacent = this.getAdjacentEdgeDirections(oppCounter);
+    const neighbor2Adjacent = getAdjacentEdgeDirections(oppCounter);
     edgesToCheck.add(this.getEdgeKey(neighbor2.q, neighbor2.r, neighbor2Adjacent[1]));
 
     let count2 = 0;
@@ -1330,53 +1333,17 @@ class RealmGenerator {
       rng: this.rng,
       constraints: this.constraints,
       barrierEdges: this.barrierEdges,
+      anchoredBarrierEdges: this.anchoredBarrierEdges,
       traversedEdges: this.traversedEdges,
       currentExplorerPos: this.currentExplorerPos,
+      hexes: this.hexes,
+      exploredHexes: this.exploredHexes,
+      realmRadius: this.realmRadius,
       wouldTrapExplorer: (edgeKey, lakeKey) => this.wouldTrapExplorer(edgeKey, lakeKey),
       generationMode: this.generationMode,
     };
 
     sharedMaybeGenerateBarrier(ctx, hex, direction, neighborHex);
-  }
-
-  getBarrierProbability(hex, direction) {
-    // Dynamic barrier probability based on current count vs target
-    const currentBarriers = this.constraints.barriers.placed;
-    const targetBarriers = 24;
-    const expectedTotalHexes = 144; // Fixed expected count, not dynamic
-    const exploredRatio = Math.max(
-      0.1,
-      this.constraints.explorableHexes.count / expectedTotalHexes
-    );
-
-    // Expected barriers at this point in exploration
-    const expectedBarriers = targetBarriers * exploredRatio;
-    const barrierDeficit = expectedBarriers - currentBarriers;
-
-    // Base probability adjusts based on deficit/surplus
-    // Increased base to hit ~24 barriers with ~147 hexes
-    let baseProb = 0.18;
-    if (barrierDeficit > 4) {
-      baseProb = 0.25; // Behind target, increase probability
-    } else if (barrierDeficit < -2) {
-      baseProb = 0.1; // Ahead of target, decrease probability
-    }
-
-    const adjacentDirs = this.getAdjacentEdgeDirections(direction);
-    let clusterBonus = 0;
-
-    for (const adjDir of adjacentDirs) {
-      if (this.hasBarrierBetween(hex.q, hex.r, adjDir)) {
-        clusterBonus += 0.25;
-      }
-    }
-
-    return Math.min(0.5, baseProb + clusterBonus);
-  }
-
-  getAdjacentEdgeDirections(direction) {
-    const idx = DIRECTION_NAMES.indexOf(direction);
-    return [DIRECTION_NAMES[(idx + 1) % 6], DIRECTION_NAMES[(idx + 5) % 6]];
   }
 
   maybeAddFeature(hex) {
@@ -1392,86 +1359,6 @@ class RealmGenerator {
     };
 
     sharedMaybeAddFeature(ctx, hex);
-  }
-
-  calculateFeatureWeights(hex) {
-    // Proportional probability: P = remaining_to_place / remaining_hexes
-    // This ensures features are evenly distributed, not front-loaded at start
-    const exploredHexes = this.constraints.explorableHexes.count;
-    const expectedTotalHexes = 144;
-    const remainingHexes = Math.max(1, expectedTotalHexes - exploredHexes);
-
-    // Base weight for "no feature"
-    const weights = { none: 1.0 };
-
-    // Calculate catch-up multiplier for hard constraints
-    // Ramps up smoothly as we approach the end of exploration
-    const progressRatio = exploredHexes / expectedTotalHexes;
-    const catchUpMultiplier = 1 + Math.max(0, progressRatio - 0.5) * 3;
-
-    // Holdings: exactly 4, with spacing constraint (HARD CONSTRAINT)
-    // Holdings need extra boost because spacing constraint limits valid hexes
-    if (this.constraints.holdings.placed < this.constraints.holdings.target) {
-      if (this.canPlaceHolding(hex)) {
-        const remaining = this.constraints.holdings.target - this.constraints.holdings.placed;
-        let prob = remaining / remainingHexes;
-        // Holdings get 1.5x base boost due to spacing constraint reducing valid hexes
-        prob *= 1.5;
-        // Apply catch-up for hard constraint
-        prob *= catchUpMultiplier;
-        // Extra boost in late phase (progress > 0.7)
-        if (progressRatio > 0.7) {
-          prob *= 2.5;
-        }
-        // Emergency boost if behind schedule
-        if (remainingHexes < remaining * 12) {
-          prob *= 2;
-        }
-        if (remainingHexes < remaining * 6) {
-          prob *= 2;
-        }
-        weights[FEATURE_TYPES.HOLDING] = prob;
-      }
-    }
-
-    // Myth Sites: exactly 6 (HARD CONSTRAINT)
-    if (this.constraints.mythSites.placed < this.constraints.mythSites.target) {
-      const remaining = this.constraints.mythSites.target - this.constraints.mythSites.placed;
-      let prob = remaining / remainingHexes;
-      prob *= catchUpMultiplier;
-      // Extra boost in late phase (progress > 0.7)
-      if (progressRatio > 0.7) {
-        prob *= 2;
-      }
-      if (remainingHexes < remaining * 8) {
-        prob *= 3;
-      }
-      weights[FEATURE_TYPES.MYTH_SITE] = prob;
-    }
-
-    // Landmarks: 3-4 of each type (HARD CONSTRAINT - treat as hard since we need 3-4)
-    for (const type of LANDMARK_TYPES) {
-      const constraint = this.constraints.landmarks[type];
-      if (constraint.placed < constraint.max) {
-        const targetMid = (constraint.min + constraint.max) / 2; // 3.5
-        const remaining = Math.max(0, targetMid - constraint.placed);
-        let prob = remaining / remainingHexes;
-        // Apply catch-up if below minimum (HARD requirement)
-        if (constraint.placed < constraint.min) {
-          prob *= catchUpMultiplier;
-          // Extra boost in late phase (progress > 0.7)
-          if (progressRatio > 0.7) {
-            prob *= 2;
-          }
-          if (remainingHexes < (constraint.min - constraint.placed) * 10) {
-            prob *= 2;
-          }
-        }
-        weights[`landmark_${type}`] = prob;
-      }
-    }
-
-    return weights;
   }
 
   canPlaceHolding(hex) {
@@ -1535,6 +1422,31 @@ class RealmGenerator {
     };
 
     sharedForceCompleteFeatures(ctx);
+
+    // Validate barrier connectivity (debug)
+    this.validateBarrierConnectivity();
+  }
+
+  /**
+   * Validate that all barriers are connected to the border (no islands)
+   * Logs warnings if any islands are detected
+   */
+  validateBarrierConnectivity() {
+    const ctx = {
+      barrierEdges: this.barrierEdges,
+      hexes: this.hexes,
+      realmRadius: this.realmRadius,
+    };
+
+    const result = sharedCheckBarrierConnectivity(ctx);
+
+    if (!result.connected) {
+      console.error(
+        `[BARRIER ISLAND VIOLATION] ${result.islandCount} barriers not connected to border:`,
+        result.islandEdges
+      );
+      console.error('Total barriers:', this.barrierEdges.size, 'Anchored:', this.anchoredBarrierEdges.size);
+    }
   }
 
   exploreHex(q, r) {
@@ -1560,6 +1472,18 @@ class RealmGenerator {
       if (nHex && !nHex.revealed) {
         nHex.revealed = true;
         this.revealedHexes.add(nKey);
+
+        // Check border connectivity when revealing non-border hexes
+        if (!nHex.isBorder) {
+          const ctx = {
+            hexes: this.hexes,
+            borderHexes: this.borderHexes,
+            realmRadius: this.realmRadius,
+            revealedHexes: this.revealedHexes,
+            rng: this.rng,
+          };
+          sharedEnsureBorderConnectivity(ctx, n.q, n.r);
+        }
       }
     }
   }
@@ -1756,19 +1680,11 @@ class RealmGenerator {
       }
     }
 
-    // CRITICAL: Check for barrier BEFORE we move
-    // This catches any barrier that exists on the edge we're about to cross
+    // Record this edge as traversed BEFORE exploring (which may generate new hexes)
+    // Use both key formats to ensure we block future barrier creation on this edge
     const edgeKey1 = `${prevPos.q},${prevPos.r}:${chosenMove.direction}`;
     const oppDir = OPPOSITE_DIRECTION[chosenMove.direction];
     const edgeKey2 = `${chosenMove.q},${chosenMove.r}:${oppDir}`;
-
-    // Check if barrier exists on this edge - this should NEVER happen since getValidMoves filtered them
-    if (this.barrierEdges.has(edgeKey1) || this.barrierEdges.has(edgeKey2)) {
-      this.barrierCrossings++;
-    }
-
-    // Record this edge as traversed BEFORE exploring (which may generate new hexes)
-    // Use both key formats to ensure we block future barrier creation on this edge
     this.traversedEdges.add(edgeKey1);
     this.traversedEdges.add(edgeKey2);
 
@@ -1778,21 +1694,6 @@ class RealmGenerator {
     this.currentExplorerPos = { q: chosenMove.q, r: chosenMove.r };
     this.explorerPath.push({ ...this.currentExplorerPos });
     this.exploreHex(chosenMove.q, chosenMove.r);
-
-    // Also check AFTER exploration in case a barrier was created during exploreHex
-    // (This would be a bug in maybeGenerateBarrier)
-    if (this.barrierEdges.has(edgeKey1) || this.barrierEdges.has(edgeKey2)) {
-      console.error('BARRIER CREATED ON TRAVERSED EDGE DURING EXPLORE!', {
-        prevPos,
-        chosenMove,
-        edgeKey1,
-        edgeKey2,
-      });
-      this.barrierCrossings++;
-      // Remove the illegally created barrier
-      this.barrierEdges.delete(edgeKey1);
-      this.barrierEdges.delete(edgeKey2);
-    }
 
     // Update realm dimensions every 5 steps for efficiency
     if (this.explorerPath.length % 5 === 0) {
@@ -1863,6 +1764,7 @@ class RealmGenerator {
       // Edge-related state
       riverEdges: new Map(this.riverEdges),
       barrierEdges: new Set(this.barrierEdges),
+      anchoredBarrierEdges: new Set(this.anchoredBarrierEdges),
       traversedEdges: new Set(this.traversedEdges),
 
       // Other collections
@@ -1875,7 +1777,6 @@ class RealmGenerator {
 
       // Counters
       clusterIdCounter: this.clusterIdCounter,
-      barrierCrossings: this.barrierCrossings,
       riverIdCounter: this.riverIdCounter,
 
       // New river system state
@@ -1935,6 +1836,7 @@ class RealmGenerator {
     // 6. Restore edge-related state
     this.riverEdges = new Map(state.riverEdges);
     this.barrierEdges = new Set(state.barrierEdges);
+    this.anchoredBarrierEdges = new Set(state.anchoredBarrierEdges || new Set());
     this.traversedEdges = new Set(state.traversedEdges);
 
     // 7. Restore other collections
@@ -1947,7 +1849,6 @@ class RealmGenerator {
 
     // 8. Restore counters
     this.clusterIdCounter = state.clusterIdCounter;
-    this.barrierCrossings = state.barrierCrossings;
     this.riverIdCounter = state.riverIdCounter;
 
     // 8b. Restore new river system state
@@ -1972,6 +1873,9 @@ class RealmGenerator {
     if (!(this.hexes instanceof Map)) {
       throw new Error('restoreStep: hexes must be a Map after restoration');
     }
+
+    // Validate barrier connectivity after restore (debug)
+    this.validateBarrierConnectivity();
 
     return true;
   }
@@ -2012,26 +1916,26 @@ class RealmGenerator {
       const { hex1, direction } = edge;
 
       // Get edges at BOTH vertices of this edge (vertex connectivity)
-      const adjacentDirs = this.getAdjacentEdgeDirections(direction);
+      const adjacentDirs = getAdjacentEdgeDirections(direction);
 
       // Vertex 1 (clockwise): edges that share vertex between direction and direction+1
       const clockwiseDir = adjacentDirs[0];
       const v1Edges = [this.getEdgeKey(hex1.q, hex1.r, clockwiseDir)];
       const n1 = hexNeighbor(hex1.q, hex1.r, direction);
-      const n1Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[direction]);
+      const n1Adj = getAdjacentEdgeDirections(OPPOSITE_DIRECTION[direction]);
       v1Edges.push(this.getEdgeKey(n1.q, n1.r, n1Adj[1]));
       const n2 = hexNeighbor(hex1.q, hex1.r, clockwiseDir);
-      const n2Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[clockwiseDir]);
+      const n2Adj = getAdjacentEdgeDirections(OPPOSITE_DIRECTION[clockwiseDir]);
       v1Edges.push(this.getEdgeKey(n2.q, n2.r, n2Adj[0]));
 
       // Vertex 2 (counterclockwise): edges that share vertex between direction and direction-1
       const counterDir = adjacentDirs[1];
       const v2Edges = [this.getEdgeKey(hex1.q, hex1.r, counterDir)];
       const n3 = hexNeighbor(hex1.q, hex1.r, direction);
-      const n3Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[direction]);
+      const n3Adj = getAdjacentEdgeDirections(OPPOSITE_DIRECTION[direction]);
       v2Edges.push(this.getEdgeKey(n3.q, n3.r, n3Adj[0]));
       const n4 = hexNeighbor(hex1.q, hex1.r, counterDir);
-      const n4Adj = this.getAdjacentEdgeDirections(OPPOSITE_DIRECTION[counterDir]);
+      const n4Adj = getAdjacentEdgeDirections(OPPOSITE_DIRECTION[counterDir]);
       v2Edges.push(this.getEdgeKey(n4.q, n4.r, n4Adj[1]));
 
       // Add all vertex-adjacent river edges to queue
@@ -3162,9 +3066,6 @@ function StatePanel({ generator, step, renderKey }) {
         <p>Border Hexes: {generator.borderHexes.size}</p>
         <p>River Edges: {generator.riverEdges.size}</p>
         <p>Terrain Clusters: {generator.terrainClusters.size}</p>
-        <p className={generator.barrierCrossings > 0 ? 'text-red-400 font-bold' : ''}>
-          Barrier Crossings: {generator.barrierCrossings || 0}
-        </p>
       </div>
     </div>
   );

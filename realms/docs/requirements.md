@@ -321,6 +321,13 @@ Barriers are impassable edges between two passable hexes.
 - River edges CAN also be barrier edges (both properties apply)
 - Revealed when adjacent hexes are revealed
 
+**Barrier Connectivity Constraint**:
+
+- All barriers must be connected to the realm boundary (no floating "island" barriers)
+- Barriers may protrude into the traversable area but must form continuous networks from the edge
+- When placing a barrier: either touches border directly OR connects to an existing barrier that touches border
+- This is enforced at generation time (barriers that would be islands are not placed)
+
 **Barrier Cluster Shape**:
 
 - Clusters of 1–4 contiguous edges
@@ -641,7 +648,7 @@ The explorer must never be placed in a situation where all adjacent hexes are im
 
 **Enforcement Rules**:
 
-1. **Barrier Placement**: Before placing a barrier edge, verify it would not create an isolated region
+1. **Barrier Placement** (expanded): Before placing a barrier edge, verify it would not create an isolated region. Like lake placement, barriers cannot eliminate the last traversable option when a hex is revealed. Uses the same `wouldBlockOnlyPath` check as lakes to prevent cutting off the explorer's only explorable path.
 2. **Lake Placement**: Before converting a hex to a lake, verify it would not trap the explorer
 3. **Border Generation**: Border closure must leave sufficient connectivity for full exploration
 4. **Ungenerated Hexes**: Ungenerated hexes do NOT count as valid moves (they may become lakes in the same generation batch)

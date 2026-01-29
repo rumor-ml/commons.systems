@@ -4,9 +4,14 @@
   "description": "E2E tests for Mythic Bastionland Realms",
   "type": "module",
   "scripts": {
-    "test": "playwright test"
+    "test": "npm run test:fix && npm run test:playwright",
+    "test:fix": "node test-getAdjacentEdgeDirections-fix.mjs",
+    "test:playwright": "playwright test",
+    "test:realms": "node test-realms.js"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0"
+    "@playwright/test": "^1.40.0",
+    "chai": "^6.2.2",
+    "mocha": "^11.7.5"
   }
 }

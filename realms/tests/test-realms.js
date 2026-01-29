@@ -2105,3 +2105,4 @@ for (const edgeKey of visualGen.barrierEdges) {
 console.log('\n' + '='.repeat(70));
 
 traceStep(12345, 36, false);
+

@@ -530,22 +530,28 @@ export function maybeGenerateBarrier(ctx, hex, direction, neighborHex) {
     return false;
   }
 
-  if (!neighborHex || neighborHex.isBorder) return false;
+  if (!neighborHex) return false;
 
   // Never place on edges touching lake hexes
   if (hex.isLake || neighborHex.isLake) return false;
 
+  // Skip if hex is a border (barriers are only placed on explorable hex edges)
+  if (hex.isBorder) return false;
+
   // Check both possible key formats using shared function
   if (hasBarrierBetween(ctx.barrierEdges, hex.q, hex.r, direction)) return false;
 
-  // Never place on traversed edges
   const edgeKey1 = `${hex.q},${hex.r}:${direction}`;
   const oppDir = OPPOSITE_DIRECTION[direction];
   const edgeKey2 = `${neighborHex.q},${neighborHex.r}:${oppDir}`;
-  if (ctx.traversedEdges.has(edgeKey1) || ctx.traversedEdges.has(edgeKey2)) return false;
 
-  // Never place adjacent to explorer's current position
-  if (ctx.currentExplorerPos) {
+  // Never place on traversed edges (only applies to explorable-to-explorable barriers)
+  if (!neighborHex.isBorder) {
+    if (ctx.traversedEdges.has(edgeKey1) || ctx.traversedEdges.has(edgeKey2)) return false;
+  }
+
+  // Never place adjacent to explorer's current position (only for explorable-to-explorable)
+  if (!neighborHex.isBorder && ctx.currentExplorerPos) {
     const explorerQ = ctx.currentExplorerPos.q;
     const explorerR = ctx.currentExplorerPos.r;
     if (
@@ -558,17 +564,29 @@ export function maybeGenerateBarrier(ctx, hex, direction, neighborHex) {
 
   const edgeKey = edgeKey1;
 
-  // Check if barrier would block neighbor's only path forward (optimistic check)
-  if (
-    ctx.currentExplorerPos &&
-    wouldBlockOnlyPath(ctx, neighborHex.q, neighborHex.r, ctx.currentExplorerPos)
-  ) {
-    return false;
+  // Path blocking checks only apply to explorable-to-explorable barriers
+  if (!neighborHex.isBorder) {
+    // Check if barrier would block neighbor's only path forward (optimistic check)
+    if (
+      ctx.currentExplorerPos &&
+      wouldBlockOnlyPath(ctx, neighborHex.q, neighborHex.r, ctx.currentExplorerPos)
+    ) {
+      return false;
+    }
+
+    // Check if would trap explorer
+    if (ctx.wouldTrapExplorer && ctx.wouldTrapExplorer(edgeKey, null)) {
+      return false;
+    }
   }
 
-  // Check if would trap explorer
-  if (ctx.wouldTrapExplorer && ctx.wouldTrapExplorer(edgeKey, null)) {
-    return false;
+  // HARD CONSTRAINT: Barriers must be connected to the map edge
+  // Either directly (anchor point) or via existing anchored barriers
+  const isAnchor = isEdgeAnchorPoint(ctx, hex.q, hex.r, direction);
+  const isConnectedToAnchored = isEdgeConnectedToAnchoredNetwork(ctx, hex.q, hex.r, direction);
+
+  if (!isAnchor && !isConnectedToAnchored) {
+    return false; // Cannot place unconnected barrier
   }
 
   // Calculate barrier probability
@@ -595,10 +613,14 @@ export function maybeGenerateBarrier(ctx, hex, direction, neighborHex) {
     }
   }
 
-  const barrierProb = Math.min(0.5, baseProb + clusterBonus);
+  const barrierProb = Math.min(0.7, baseProb + clusterBonus);
 
   if (ctx.rng.next() < barrierProb) {
     ctx.barrierEdges.add(edgeKey);
+    // All placed barriers are guaranteed to be anchored
+    if (ctx.anchoredBarrierEdges) {
+      ctx.anchoredBarrierEdges.add(edgeKey);
+    }
     if (hex.barrierEdges) {
       hex.barrierEdges.push(direction);
     }
@@ -611,11 +633,165 @@ export function maybeGenerateBarrier(ctx, hex, direction, neighborHex) {
 
 /**
  * Get adjacent edge directions (share a vertex with given direction)
+ *
+ * @param {string} direction - Direction string (NE, E, SE, SW, W, NW)
+ * @returns {string[]} Array of two adjacent directions
  */
-function getAdjacentEdgeDirections(direction) {
+export function getAdjacentEdgeDirections(direction) {
   const DIRECTION_NAMES = ['NE', 'E', 'SE', 'SW', 'W', 'NW'];
   const idx = DIRECTION_NAMES.indexOf(direction);
   return [DIRECTION_NAMES[(idx + 1) % 6], DIRECTION_NAMES[(idx + 5) % 6]];
+}
+
+/**
+ * Check if all barriers are connected to the map border (no islands)
+ *
+ * @param {Object} ctx - Context with { barrierEdges, hexes, realmRadius }
+ * @returns {{ connected: boolean, islandCount: number, islandEdges: string[] }}
+ */
+export function checkBarrierConnectivity(ctx) {
+  const { barrierEdges, hexes, realmRadius } = ctx;
+
+  if (!barrierEdges || barrierEdges.size === 0) {
+    return { connected: true, islandCount: 0, islandEdges: [] };
+  }
+
+  // Find all barriers that directly touch the border
+  const borderConnected = new Set();
+  for (const edgeKey of barrierEdges) {
+    const [coords, direction] = edgeKey.split(':');
+    const [q, r] = coords.split(',').map(Number);
+    const neighbor = hexNeighbor(q, r, direction);
+    const neighborKey = hexKey(neighbor.q, neighbor.r);
+    const neighborHex = hexes.get(neighborKey);
+
+    if ((neighborHex && neighborHex.isBorder) ||
+        (realmRadius && hexDistance(0, 0, neighbor.q, neighbor.r) >= realmRadius)) {
+      borderConnected.add(edgeKey);
+    }
+  }
+
+  // BFS to find all barriers connected via shared vertices
+  const visited = new Set(borderConnected);
+  const queue = [...borderConnected];
+
+  while (queue.length > 0) {
+    const currentKey = queue.shift();
+    const [coords, direction] = currentKey.split(':');
+    const [q, r] = coords.split(',').map(Number);
+
+    // Check adjacent edges on this hex
+    for (const adjDir of getAdjacentEdgeDirections(direction)) {
+      if (hasBarrierBetween(barrierEdges, q, r, adjDir)) {
+        const adjKey = `${q},${r}:${adjDir}`;
+        if (!visited.has(adjKey)) {
+          visited.add(adjKey);
+          queue.push(adjKey);
+        }
+        // Also check alternate key format
+        const adjNeighbor = hexNeighbor(q, r, adjDir);
+        const altKey = `${adjNeighbor.q},${adjNeighbor.r}:${OPPOSITE_DIRECTION[adjDir]}`;
+        if (barrierEdges.has(altKey) && !visited.has(altKey)) {
+          visited.add(altKey);
+          queue.push(altKey);
+        }
+      }
+    }
+
+    // Check adjacent edges on neighbor hex
+    const edgeNeighbor = hexNeighbor(q, r, direction);
+    const oppDir = OPPOSITE_DIRECTION[direction];
+    for (const adjDir of getAdjacentEdgeDirections(oppDir)) {
+      if (hasBarrierBetween(barrierEdges, edgeNeighbor.q, edgeNeighbor.r, adjDir)) {
+        const adjKey = `${edgeNeighbor.q},${edgeNeighbor.r}:${adjDir}`;
+        if (!visited.has(adjKey)) {
+          visited.add(adjKey);
+          queue.push(adjKey);
+        }
+        const adjNeighbor = hexNeighbor(edgeNeighbor.q, edgeNeighbor.r, adjDir);
+        const altKey = `${adjNeighbor.q},${adjNeighbor.r}:${OPPOSITE_DIRECTION[adjDir]}`;
+        if (barrierEdges.has(altKey) && !visited.has(altKey)) {
+          visited.add(altKey);
+          queue.push(altKey);
+        }
+      }
+    }
+  }
+
+  // Find island barriers
+  const islandEdges = [...barrierEdges].filter(key => !visited.has(key));
+
+  return {
+    connected: islandEdges.length === 0,
+    islandCount: islandEdges.length,
+    islandEdges,
+  };
+}
+
+/**
+ * Check if an edge touches the map boundary (is an anchor point for barriers)
+ *
+ * @param {Object} ctx - Context object with { hexes, realmRadius }
+ * @param {number} q - Hex q coordinate
+ * @param {number} r - Hex r coordinate
+ * @param {string} direction - Direction to neighbor
+ * @returns {boolean} True if edge touches the map boundary
+ */
+export function isEdgeAnchorPoint(ctx, q, r, direction) {
+  const neighbor = hexNeighbor(q, r, direction);
+  const neighborKey = hexKey(neighbor.q, neighbor.r);
+  const neighborHex = ctx.hexes.get(neighborKey);
+
+  // Edge is an anchor if it touches a border hex
+  if (neighborHex && neighborHex.isBorder) {
+    return true;
+  }
+
+  // Also anchor if the neighbor position is at/beyond realm boundary
+  // (even if hex not generated yet - this ensures early barriers can anchor)
+  if (ctx.realmRadius) {
+    const neighborDist = hexDistance(0, 0, neighbor.q, neighbor.r);
+    if (neighborDist >= ctx.realmRadius) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if an edge connects to an already-anchored barrier (shares a vertex)
+ *
+ * @param {Object} ctx - Context object with { anchoredBarrierEdges }
+ * @param {number} q - Hex q coordinate
+ * @param {number} r - Hex r coordinate
+ * @param {string} direction - Direction to neighbor
+ * @returns {boolean} True if edge connects to an anchored barrier
+ */
+export function isEdgeConnectedToAnchoredNetwork(ctx, q, r, direction) {
+  if (!ctx.anchoredBarrierEdges || ctx.anchoredBarrierEdges.size === 0) {
+    return false;
+  }
+
+  // Check adjacent edges on this hex (share vertices)
+  const adjacentDirs = getAdjacentEdgeDirections(direction);
+  for (const adjDir of adjacentDirs) {
+    if (hasBarrierBetween(ctx.anchoredBarrierEdges, q, r, adjDir)) {
+      return true;
+    }
+  }
+
+  // Check adjacent edges on neighbor hex
+  const neighbor = hexNeighbor(q, r, direction);
+  const oppDir = OPPOSITE_DIRECTION[direction];
+  const neighborAdjacentDirs = getAdjacentEdgeDirections(oppDir);
+  for (const adjDir of neighborAdjacentDirs) {
+    if (hasBarrierBetween(ctx.anchoredBarrierEdges, neighbor.q, neighbor.r, adjDir)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -858,6 +1034,151 @@ export function moveExplorer(ctx, getValidMoves, exploreHex) {
   }
 
   return chosenMove;
+}
+
+
+/**
+ * Check if a border hex can reach the outer edge via borders or unrevealed hexes
+ * @param {Object} ctx - Context { hexes, borderHexes, realmRadius, revealedHexes }
+ * @param {string} borderKey - The border hex to check
+ * @param {string|null} excludeKey - Hex to exclude from paths (being revealed)
+ * @param {string|null} forceAsBorder - Treat this key as a border for path checking
+ * @returns {boolean}
+ */
+export function canBorderReachOuterEdge(ctx, borderKey, excludeKey = null, forceAsBorder = null) {
+  const { hexes, borderHexes, realmRadius, revealedHexes } = ctx;
+  const outerThreshold = realmRadius + 1;
+
+  const visited = new Set([borderKey]);
+  const queue = [borderKey];
+
+  while (queue.length > 0) {
+    const currentKey = queue.shift();
+    const { q, r } = parseHexKey(currentKey);
+    const dist = hexDistance(0, 0, q, r);
+
+    // Reached outer edge?
+    if (dist >= outerThreshold) {
+      return true;
+    }
+
+    const neighbors = hexNeighbors(q, r);
+    for (const n of neighbors) {
+      const nKey = hexKey(n.q, n.r);
+      if (visited.has(nKey) || nKey === excludeKey) continue;
+      visited.add(nKey);
+
+      // Can traverse via: border hex, forced-as-border hex, or unrevealed hex
+      const isBorder = borderHexes.has(nKey) || nKey === forceAsBorder;
+      const isUnrevealed = !revealedHexes || !revealedHexes.has(nKey);
+      const hexExists = hexes.has(nKey);
+
+      if (isBorder || (!hexExists || isUnrevealed)) {
+        queue.push(nKey);
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Convert a non-border hex to a border hex
+ */
+function convertHexToBorder(ctx, q, r) {
+  const key = hexKey(q, r);
+  const hex = ctx.hexes.get(key);
+  if (!hex) return;
+
+  // Determine border type from neighbors (clustering)
+  let borderType = 'wasteland';
+  const neighbors = hexNeighbors(q, r);
+  for (const n of neighbors) {
+    const nHex = ctx.hexes.get(hexKey(n.q, n.r));
+    if (nHex && nHex.isBorder && nHex.borderType) {
+      borderType = nHex.borderType;
+      break;
+    }
+  }
+
+  hex.isBorder = true;
+  hex.borderType = borderType;
+  hex.terrain = borderType;
+  hex.isLake = false;
+  ctx.borderHexes.add(key);
+}
+
+/**
+ * Convert a border hex back to normal terrain (cancel intrusion)
+ */
+function convertBorderToTerrain(ctx, q, r) {
+  const key = hexKey(q, r);
+  const hex = ctx.hexes.get(key);
+  if (!hex) return;
+
+  hex.isBorder = false;
+  hex.borderType = null;
+  hex.terrain = 'plains'; // Will be regenerated
+  ctx.borderHexes.delete(key);
+}
+
+/**
+ * Ensure border connectivity when revealing a hex.
+ * Returns action taken: 'ok' | 'forced' | 'cancelled'
+ *
+ * @param {Object} ctx - Context with hexes, borderHexes, realmRadius, revealedHexes, rng
+ * @param {number} q - Hex q coordinate being revealed
+ * @param {number} r - Hex r coordinate being revealed
+ * @returns {{ action: string, affectedBorders?: string[], cancelledBorders?: string[] }}
+ */
+export function ensureBorderConnectivity(ctx, q, r) {
+  const key = hexKey(q, r);
+  const hex = ctx.hexes.get(key);
+
+  // Only check for non-border hexes
+  if (!hex || hex.isBorder) {
+    return { action: 'ok' };
+  }
+
+  const neighbors = hexNeighbors(q, r);
+  let needsForcing = false;
+  const bordersToCancel = [];
+
+  // First pass: identify which borders need fixing
+  for (const n of neighbors) {
+    const nKey = hexKey(n.q, n.r);
+    if (!ctx.borderHexes.has(nKey)) continue;
+
+    // Check if this border neighbor can reach outer edge without this hex
+    if (canBorderReachOuterEdge(ctx, nKey, key, null)) {
+      continue; // Border is connected, no problem
+    }
+
+    // Border would be islanded. Can we fix by forcing this hex to be a border?
+    if (canBorderReachOuterEdge(ctx, nKey, null, key)) {
+      needsForcing = true;
+    } else {
+      // No path even if we force this hex - must cancel the intrusion
+      bordersToCancel.push({ q: n.q, r: n.r, key: nKey });
+    }
+  }
+
+  // Cancel unfixable intrusions first
+  for (const border of bordersToCancel) {
+    convertBorderToTerrain(ctx, border.q, border.r);
+  }
+
+  // Force this hex to border if any remaining borders need it
+  if (needsForcing) {
+    convertHexToBorder(ctx, q, r);
+    return { action: 'forced' };
+  }
+
+  if (bordersToCancel.length > 0) {
+    return { action: 'cancelled', cancelledBorders: bordersToCancel.map(b => b.key) };
+  }
+
+  return { action: 'ok' };
 }
 
 /**

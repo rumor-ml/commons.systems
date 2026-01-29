@@ -39,6 +39,7 @@ import {
   maybeAddFeature,
   forceCompleteFeatures as sharedForceCompleteFeatures,
   wouldTrapExplorer as sharedWouldTrapExplorer,
+  checkBarrierConnectivity as sharedCheckBarrierConnectivity,
 } from '../src/lib/realmGeneration.js';
 import {
   TERRAIN_TYPES,
@@ -80,6 +81,7 @@ class StandaloneRealmGenerator {
     this.realmBorderHexes = new Set();
     this.riverEdges = new Map();
     this.barrierEdges = new Set();
+    this.anchoredBarrierEdges = new Set();
     this.traversedEdges = new Set();
     this.lakes = [];
 
@@ -344,6 +346,7 @@ class StandaloneRealmGenerator {
             rng: this.rng,
             constraints: this.constraints,
             barrierEdges: this.barrierEdges,
+            anchoredBarrierEdges: this.anchoredBarrierEdges,
             traversedEdges: this.traversedEdges,
             currentExplorerPos: this.currentExplorerPos,
             // Required for wouldBlockOnlyPath() check
@@ -1248,8 +1251,31 @@ class StandaloneRealmGenerator {
     sharedForceCompleteFeatures(forceCtx);
   }
 
+  /**
+   * Check if all barriers are connected to the map border (no islands)
+   * Returns an object with { connected: boolean, islandCount: number, islandEdges: string[] }
+   */
+  checkBarrierConnectivity() {
+    const ctx = {
+      barrierEdges: this.barrierEdges,
+      hexes: this.hexes,
+      realmRadius: this.realmRadius,
+    };
+
+    return sharedCheckBarrierConnectivity(ctx);
+  }
+
   validateHardConstraints() {
     const violations = [];
+
+    // Check barrier connectivity (no islands)
+    const barrierCheck = this.checkBarrierConnectivity();
+    if (!barrierCheck.connected) {
+      violations.push({
+        constraint: 'Barrier Islands',
+        message: `${barrierCheck.islandCount} barriers not connected to border: ${barrierCheck.islandEdges.slice(0, 5).join(', ')}${barrierCheck.islandCount > 5 ? '...' : ''}`,
+      });
+    }
 
     if (!this.constraints.borderClosure.complete && this.exploredHexes.size >= 100) {
       violations.push({ constraint: 'Border Closure', message: 'Border not fully closed' });
