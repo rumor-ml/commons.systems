@@ -1,18 +1,20 @@
-# Makefile for printsync
+# Makefile for {{APP_NAME}}
+# Firebase + Go fullstack application
 # Follows commons.systems monorepo build patterns
 
-.PHONY: help build dev test test-unit test-e2e clean validate format lint typecheck
+.PHONY: help build dev test test-unit test-e2e clean install validate format lint typecheck
 
 help:
-	@echo "\033[36mprintsync - Print queue sync service\033[0m"
+	@echo "\033[36m{{APP_NAME}} - Firebase + Go fullstack application\033[0m"
 	@echo ""
 	@echo "\033[32mDevelopment targets:\033[0m"
 	@echo "  make dev             - Start development server"
 	@echo "  make build           - Build production bundle"
+	@echo "  make install         - Install dependencies"
 	@echo ""
 	@echo "\033[32mTest targets:\033[0m"
 	@echo "  make test            - Run all tests (unit + E2E)"
-	@echo "  make test-unit       - Run unit tests"
+	@echo "  make test-unit       - Run unit tests (Go)"
 	@echo "  make test-e2e        - Run Playwright E2E tests"
 	@echo ""
 	@echo "\033[32mValidation targets:\033[0m"
@@ -24,31 +26,26 @@ help:
 	@echo "\033[32mOther targets:\033[0m"
 	@echo "  make clean           - Clean build artifacts"
 
-# Development targets
+# Development
 dev:
-	@echo "Starting printsync in development mode..."
 	@cd site && make dev
 
+# Build
 build:
-	@echo "Building printsync..."
 	@cd site && make build
 
+# Tests
 test: test-unit test-e2e
 
 test-unit:
 	@echo "Running unit tests..."
-	@cd site && go test -v ./cmd/... ./internal/... 2>/dev/null || echo "No unit tests found"
+	@cd site && go test -v ./cmd/... ./internal/...
 
 test-e2e:
 	@echo "Running Playwright E2E tests..."
 	@cd tests && pnpm test
 
-clean:
-	@echo "Cleaning build artifacts..."
-	@cd site && make clean
-	@rm -rf tests/test-results
-
-# Validation pipeline
+# Validation
 validate: lint typecheck test
 
 format:
@@ -65,5 +62,15 @@ typecheck:
 	@echo "Type checking..."
 	@cd site && go build ./...
 	@cd tests && pnpm tsc --noEmit || true
+
+# Cleanup
+clean:
+	@cd site && make clean
+	@rm -rf tests/test-results tests/playwright-report
+
+# Install dependencies
+install:
+	@cd site && make install
+	@cd tests && pnpm install
 
 .DEFAULT_GOAL := build

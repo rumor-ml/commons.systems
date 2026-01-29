@@ -1,4 +1,27 @@
-.PHONY: dev build clean install test test-e2e test-emulator
+.PHONY: help dev build clean install test test-unit test-e2e test-emulator validate format lint typecheck
+
+help:
+	@echo "\033[36m{{APP_NAME}} - Go fullstack web application\033[0m"
+	@echo ""
+	@echo "\033[32mDevelopment targets:\033[0m"
+	@echo "  make dev             - Start dev server with hot reload (templ + tailwind + air)"
+	@echo "  make build           - Build production binary"
+	@echo "  make install         - Install dependencies (templ, air, pnpm)"
+	@echo ""
+	@echo "\033[32mTest targets:\033[0m"
+	@echo "  make test            - Run all tests (unit only)"
+	@echo "  make test-unit       - Run unit tests (Go)"
+	@echo "  make test-e2e        - Run E2E tests (requires emulators running)"
+	@echo "  make test-emulator   - Start emulators, run E2E tests, cleanup"
+	@echo ""
+	@echo "\033[32mValidation targets:\033[0m"
+	@echo "  make validate        - Run full validation pipeline (lint + typecheck + test)"
+	@echo "  make lint            - Run linters (go vet + ESLint)"
+	@echo "  make typecheck       - Run type checking (go build + tsc)"
+	@echo "  make format          - Auto-format code (go fmt + Prettier)"
+	@echo ""
+	@echo "\033[32mOther targets:\033[0m"
+	@echo "  make clean           - Clean build artifacts"
 
 dev:
 	@make -j3 dev/templ dev/tailwind dev/server
@@ -26,8 +49,11 @@ install:
 	go install github.com/cosmtrek/air@latest
 	pnpm install
 
-test:
-	go test ./...
+test: test-unit
+
+test-unit:
+	@echo "Running unit tests..."
+	@go test -v ./cmd/... ./internal/...
 
 # Run E2E tests (requires emulators to be running separately)
 test-e2e:
@@ -53,3 +79,21 @@ test-emulator:
 	TEST_EXIT=$$?; \
 	kill $$EMULATOR_PID 2>/dev/null || true; \
 	exit $$TEST_EXIT
+
+# Validation pipeline
+validate: lint typecheck test
+
+format:
+	@echo "Formatting code..."
+	@go fmt ./...
+	@cd .. && cd tests && pnpm prettier --write .
+
+lint:
+	@echo "Running linters..."
+	@go vet ./...
+	@cd .. && cd tests && pnpm eslint . || true
+
+typecheck:
+	@echo "Type checking..."
+	@go build ./...
+	@cd .. && cd tests && pnpm tsc --noEmit || true

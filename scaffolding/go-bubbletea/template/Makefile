@@ -1,7 +1,7 @@
 # Makefile for {{APP_NAME}}
 # Follows commons.systems monorepo build patterns
 
-.PHONY: build test test-unit test-e2e clean dev lint fmt cover
+.PHONY: help build test test-unit test-e2e clean dev validate format lint typecheck cover
 
 # Binary output location
 BINARY_NAME={{APP_NAME}}
@@ -11,6 +11,28 @@ BUILD_DIR=./build
 GO=go
 GOFLAGS=-v
 LDFLAGS=-ldflags "-s -w"
+
+help:
+	@echo "\033[36m{{APP_NAME}} - Bubble Tea TUI application\033[0m"
+	@echo ""
+	@echo "\033[32mBuild targets:\033[0m"
+	@echo "  make build           - Build production binary to build/"
+	@echo "  make dev             - Run in development mode"
+	@echo ""
+	@echo "\033[32mTest targets:\033[0m"
+	@echo "  make test            - Run all tests (unit + E2E)"
+	@echo "  make test-unit       - Run unit tests"
+	@echo "  make test-e2e        - Run E2E tests"
+	@echo "  make cover           - Generate coverage report"
+	@echo ""
+	@echo "\033[32mValidation targets:\033[0m"
+	@echo "  make validate        - Run full validation pipeline (lint + typecheck + test)"
+	@echo "  make lint            - Run linters (go vet)"
+	@echo "  make typecheck       - Run type checking (go build)"
+	@echo "  make format          - Auto-format code (go fmt)"
+	@echo ""
+	@echo "\033[32mOther targets:\033[0m"
+	@echo "  make clean           - Clean build artifacts"
 
 build:
 	@echo "Building {{APP_NAME}}..."
@@ -36,11 +58,20 @@ dev:
 	@echo "Starting {{APP_NAME}} in development mode..."
 	$(GO) run ./cmd/{{APP_NAME}}
 
+# Validation pipeline
+validate: lint typecheck test
+
+format:
+	@echo "Formatting code..."
+	@$(GO) fmt ./...
+
 lint:
+	@echo "Running linters..."
 	@$(GO) vet ./...
 
-fmt:
-	@$(GO) fmt ./...
+typecheck:
+	@echo "Type checking..."
+	@$(GO) build ./...
 
 cover:
 	@$(GO) test -coverprofile=coverage.out ./...
