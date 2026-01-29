@@ -43,8 +43,9 @@
             acc: line:
             # Stop collecting when we hit closing delimiter ''
             # (but not '''' which is Nix's way to escape '' inside multiline strings)
-            # Note: Assumes closing delimiter '' appears on its own line. Strings with
-            # escaped quotes followed by closing delimiter on same line may be misparsed.
+            # Note: Assumes closing delimiter '' appears on its own line.
+            # Example edge case: `foo = ''bar'';` on one line may be misparsed
+            # (closing '' detected mid-content). Standard multiline format avoids this.
             if acc.found && lib.hasInfix "''" line && acc.collecting && !lib.hasInfix "''''" line then
               acc // { collecting = false; }
             # Collect lines when we're inside the string literal
@@ -91,9 +92,7 @@
     shellPkg: shellName: code:
     let
       shellFile = pkgs.writeText "${lib.toLower shellName}-test.sh" code;
-      # Use lowercase shell name as the binary name (e.g., "Bash" -> "bash")
-      # Note: Requires shell binary name to match lowercase shell name.
-      # Supported: bash, zsh. Other shells may require modification.
+      # Assumes shell binary name is lowercase shellName (e.g., "Bash" -> "bash")
       shellBin = lib.toLower shellName;
     in
     pkgs.runCommand "validate-${lib.toLower shellName}-syntax" { buildInputs = [ shellPkg ]; } ''

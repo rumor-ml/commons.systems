@@ -46,7 +46,9 @@
         -- WSL Integration (Linux/WSL only)
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
-        -- Using lib.strings.toJSON for safe string escaping (produces JSON string literal compatible with Lua)
+        -- Using lib.strings.toJSON to wrap username in quotes and escape special characters.
+        -- This works because JSON string syntax is valid Lua string syntax.
+        -- Nix interpolation happens first, producing: config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. "username" }
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
       ''}
 
@@ -66,7 +68,35 @@
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       # Check if running on WSL (Windows mount point exists)
       if [ -d "/mnt/c/Users" ]; then
-        # Detect Windows username from /mnt/c/Users/ (independent of Linux username)
+        # Pre-check: Verify /mnt/c directory exists
+        if [ ! -d "/mnt/c" ]; then
+          echo "ERROR: /mnt/c directory does not exist" >&2
+          echo "  This system does not appear to be running under WSL" >&2
+          echo "  WezTerm configuration sync requires WSL with Windows mount" >&2
+          echo "" >&2
+          echo "If you are on WSL:" >&2
+          echo "  1. Check WSL mount configuration: cat /etc/wsl.conf" >&2
+          echo "  2. Ensure automount is enabled" >&2
+          echo "  3. Restart WSL: wsl.exe --shutdown (from Windows)" >&2
+          exit 1
+        elif [ ! -d "/mnt/c/Users" ]; then
+          echo "ERROR: /mnt/c/Users directory does not exist" >&2
+          echo "  Windows mount exists but Users directory is missing" >&2
+          echo "  This is unusual and may indicate Windows filesystem issues" >&2
+          exit 1
+        elif [ ! -r "/mnt/c/Users" ]; then
+          echo "ERROR: Permission denied accessing /mnt/c/Users/" >&2
+          echo "  WSL mount exists but directory is not readable" >&2
+          echo "" >&2
+          echo "To fix:" >&2
+          echo "  1. Check mount options: mount | grep /mnt/c" >&2
+          echo "  2. Check directory permissions: ls -ld /mnt/c/Users" >&2
+          echo "  3. May need to remount with proper permissions" >&2
+          exit 1
+        fi
+
+        # Auto-detect Windows username by finding first non-system directory in /mnt/c/Users/
+        # (does not assume it matches Linux username - simply takes first alphabetically)
         # Look for a user directory that's not a system directory
         if WINDOWS_USER=$(ls /mnt/c/Users/ 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1) && [ -n "$WINDOWS_USER" ]; then
           :
@@ -74,13 +104,7 @@
           ls_error=$(ls /mnt/c/Users/ 2>&1) || true
           echo "ERROR: Failed to list /mnt/c/Users/ directory" >&2
           echo "  Error: $ls_error" >&2
-          echo "  This indicates a WSL mount or permission issue" >&2
-          echo "  WezTerm configuration cannot be synced to Windows" >&2
-          echo "" >&2
-          echo "To diagnose:" >&2
-          echo "  1. Check WSL mount: ls -ld /mnt/c" >&2
-          echo "  2. Check permissions: ls -la /mnt/c/Users/" >&2
-          echo "  3. Verify WSL integration is working" >&2
+          echo "  Directory exists and is readable but listing failed unexpectedly" >&2
           exit 1
         fi
 

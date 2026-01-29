@@ -39,7 +39,7 @@
 }:
 
 {
-  # TODO(#1577): No tests for home-manager module integration with existing modules
+  # Integration tests in default.test.nix verify all modules work together
   imports = [
     ./bash.nix
     ./zsh.nix

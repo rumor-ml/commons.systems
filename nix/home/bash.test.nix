@@ -168,6 +168,45 @@ let
     touch $out
   '';
 
+  # Test 8: Shell continuation after source failure
+  test-continues-after-error = pkgs.runCommand "test-bash-continues-after-error" { buildInputs = [ pkgs.bash ]; } ''
+    # Create a mock init script that includes the error handling logic
+    cat > test-init.sh << 'EOF'
+${initExtraContent}
+echo "Shell initialization completed"
+EOF
+
+    # Create a failing hm-session-vars.sh in a temporary HOME
+    mkdir -p test-home/.nix-profile/etc/profile.d
+    echo "exit 1" > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh
+
+    # Run init script with HOME pointing to our mock
+    # The shell should continue execution despite the source failure
+    if ! output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash test-init.sh 2>&1); then
+      echo "FAIL: Shell should continue after source failure, but exited with error"
+      exit 1
+    fi
+
+    # Verify both warning message and completion message appear
+    if echo "$output" | grep -q "WARNING: Failed to source"; then
+      echo "PASS: Warning message present"
+    else
+      echo "FAIL: Expected warning message not found"
+      echo "Output was: $output"
+      exit 1
+    fi
+
+    if echo "$output" | grep -q "Shell initialization completed"; then
+      echo "PASS: Shell continues with warning after source failure"
+    else
+      echo "FAIL: Shell did not complete initialization after source failure"
+      echo "Output was: $output"
+      exit 1
+    fi
+
+    touch $out
+  '';
+
   # Aggregate all tests into a test suite
   allTests = [
     test-module-structure
@@ -177,6 +216,7 @@ let
     test-comments
     test-wsl-context
     test-todo-references
+    test-continues-after-error
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -203,6 +243,7 @@ in
       test-comments
       test-wsl-context
       test-todo-references
+      test-continues-after-error
       ;
   };
 

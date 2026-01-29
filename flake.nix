@@ -273,6 +273,7 @@
               bashTests = pkgs.callPackage ./nix/home/bash.test.nix { };
               zshTests = pkgs.callPackage ./nix/home/zsh.test.nix { };
               wingetTests = pkgs.callPackage ./windows/winget-packages.test.nix { };
+              homeIntegrationTests = pkgs.callPackage ./nix/home/default.test.nix { };
             in
             {
               pre-commit-check = pre-commit-check;
@@ -284,13 +285,17 @@
               bash-test-suite = bashTests.bash-test-suite;
               zsh-test-suite = zshTests.zsh-test-suite;
 
+              # Home-Manager integration tests
+              home-integration-test-suite = homeIntegrationTests.integration-test-suite;
+
               # Windows configuration tests
               winget-test-suite = wingetTests.winget-test-suite;
             }
             // weztermTests.wezterm-tests
             // bashTests.bash-tests
             // zshTests.zsh-tests
-            // wingetTests.winget-tests;
+            // wingetTests.winget-tests
+            // homeIntegrationTests.home-integration-tests;
         }
       );
 
