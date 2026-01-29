@@ -32,6 +32,11 @@ import {
   ELEVATION,
   getElevation,
   BORDER_TYPES,
+  TERRAIN_ASSETS,
+  HOLDING_ASSETS,
+  LANDMARK_ASSETS,
+  HOLDING_TYPES,
+  LANDMARK_TYPES as LANDMARK_TYPE_CONSTANTS,
 } from '../lib/terrainConstants.js';
 
 // Mapping from direction to corner index for edge rendering
@@ -172,7 +177,7 @@ class RealmGenerator {
 
   initConstraints() {
     return {
-      holdings: { placed: 0, target: 4, positions: [], spacingViolations: 0 },
+      holdings: { placed: 0, target: 4, positions: [], spacingViolations: 0, usedTypes: [] },
       mythSites: { placed: 0, target: 6, positions: [] },
       landmarks: {
         curse: { placed: 0, min: 3, max: 4 },
@@ -1843,6 +1848,7 @@ class RealmGenerator {
             r: h.r,
             terrain: h.terrain,
             feature: h.feature,
+            holdingType: h.holdingType,
             revealed: h.revealed,
             isBorder: h.isBorder,
             borderType: h.borderType,
@@ -2663,6 +2669,7 @@ function HexMap({ generator, viewBounds, renderKey }) {
   const width = viewBounds.maxX - viewBounds.minX;
   const height = viewBounds.maxY - viewBounds.minY;
 
+  const clipPathDefs = [];
   const hexElements = [];
   const riverElements = [];
   const barrierElements = [];
@@ -2677,27 +2684,92 @@ function HexMap({ generator, viewBounds, renderKey }) {
     const corners = getHexCorners(x, y, size);
     const points = corners.map((c) => `${c.x},${c.y}`).join(' ');
 
+    // Create clipPath for this hex (used to clip images to hex boundary)
+    const clipId = `hex-clip-${key}`;
+    clipPathDefs.push(
+      <clipPath key={clipId} id={clipId}>
+        <polygon points={points} />
+      </clipPath>
+    );
+
+    // Border hexes: Keep colored fills (sea, cliff, wasteland)
+    // Non-border hexes: White background with terrain icon
     let fillColor;
     if (hex.isBorder) {
       fillColor = TERRAIN_COLORS[hex.borderType];
-    } else if (hex.isLake) {
-      fillColor = TERRAIN_COLORS.lake;
     } else {
-      fillColor = TERRAIN_COLORS[hex.terrain] || '#666';
+      fillColor = '#ffffff'; // White background for non-border hexes
     }
 
     hexElements.push(
       <polygon key={key} points={points} fill={fillColor} stroke="#333" strokeWidth="1" />
     );
 
-    // Feature icon
+    // Terrain icon for non-border hexes
+    if (!hex.isBorder) {
+      let terrainAsset;
+      if (hex.isLake) {
+        terrainAsset = TERRAIN_ASSETS.lake;
+      } else {
+        terrainAsset = TERRAIN_ASSETS[hex.terrain];
+      }
+
+      if (terrainAsset) {
+        const iconSize = size * 1.8; // Scale icon larger since it will be clipped
+        featureElements.push(
+          <image
+            key={`terrain-${key}`}
+            href={terrainAsset}
+            x={x - iconSize / 2}
+            y={y - iconSize / 2}
+            width={iconSize}
+            height={iconSize}
+            preserveAspectRatio="xMidYMid meet"
+            clipPath={`url(#hex-clip-${key})`}
+          />
+        );
+      }
+    }
+
+    // Feature icon (holdings, landmarks, myth sites)
     if (hex.feature) {
-      const icon = FEATURE_ICONS[hex.feature] || '?';
-      featureElements.push(
-        <text key={`feature-${key}`} x={x} y={y + 5} textAnchor="middle" fontSize="16">
-          {icon}
-        </text>
-      );
+      let featureAsset = null;
+      let fallbackIcon = null;
+
+      if (hex.feature === 'holding' && hex.holdingType) {
+        featureAsset = HOLDING_ASSETS[hex.holdingType];
+        fallbackIcon = FEATURE_ICONS[hex.feature];
+      } else if (hex.feature === 'mythSite') {
+        // No asset for myth site - use emoji
+        fallbackIcon = FEATURE_ICONS[hex.feature];
+      } else if (hex.feature.startsWith('landmark_')) {
+        const landmarkType = hex.feature.replace('landmark_', '');
+        featureAsset = LANDMARK_ASSETS[landmarkType];
+        fallbackIcon = FEATURE_ICONS[hex.feature];
+      }
+
+      if (featureAsset) {
+        const iconSize = size * 1.8; // Scale icon larger since it will be clipped
+        featureElements.push(
+          <image
+            key={`feature-${key}`}
+            href={featureAsset}
+            x={x - iconSize / 2}
+            y={y - iconSize / 2}
+            width={iconSize}
+            height={iconSize}
+            preserveAspectRatio="xMidYMid meet"
+            clipPath={`url(#hex-clip-${key})`}
+          />
+        );
+      } else if (fallbackIcon) {
+        // Fallback to emoji for features without assets
+        featureElements.push(
+          <text key={`feature-${key}`} x={x} y={y + 5} textAnchor="middle" fontSize="16">
+            {fallbackIcon}
+          </text>
+        );
+      }
     }
   }
 
@@ -2850,6 +2922,7 @@ function HexMap({ generator, viewBounds, renderKey }) {
       className="w-full h-96 lg:h-[500px]"
       preserveAspectRatio="xMidYMid meet"
     >
+      <defs>{clipPathDefs}</defs>
       <g>
         {hexElements}
         {riverElements}

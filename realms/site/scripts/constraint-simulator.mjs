@@ -103,7 +103,7 @@ class StandaloneRealmGenerator {
     this.constraints = {
       borderClosure: { complete: false },
       explorableHexes: { count: 0, min: 100, max: 180, target: 144 },
-      holdings: { placed: 0, target: 4, positions: [] },
+      holdings: { placed: 0, target: 4, positions: [], usedTypes: [] },
       mythSites: { placed: 0, target: 6, positions: [] },
       landmarks: {
         curse: { placed: 0, min: 3, max: 6 },

@@ -119,3 +119,42 @@ export const LANDMARK_TYPES = {
   RUIN: 'ruin',
   SANCTUM: 'sanctum',
 };
+
+/**
+ * Asset paths for terrain types
+ */
+export const TERRAIN_ASSETS = {
+  [TERRAIN_TYPES.FOREST]: '/assets/terrain-forest.png',
+  [TERRAIN_TYPES.GLADE]: '/assets/terrain-glade.png',
+  [TERRAIN_TYPES.MARSH]: '/assets/terrain-marsh.png',
+  [TERRAIN_TYPES.BOG]: '/assets/terrain-bog.png',
+  [TERRAIN_TYPES.HEATH]: '/assets/terrain-heath.png',
+  [TERRAIN_TYPES.PLAINS]: '/assets/terrain-plains.png',
+  [TERRAIN_TYPES.VALLEY]: '/assets/terrain-valley.png',
+  [TERRAIN_TYPES.HILLS]: '/assets/terrain-hills.png',
+  [TERRAIN_TYPES.CRAG]: '/assets/terrain-crag.png',
+  [TERRAIN_TYPES.PEAKS]: '/assets/terrain-peaks.png',
+  lake: '/assets/terrain-lake.png',
+};
+
+/**
+ * Asset paths for holding types
+ */
+export const HOLDING_ASSETS = {
+  [HOLDING_TYPES.CASTLE]: '/assets/holding-castle.png',
+  [HOLDING_TYPES.FORTRESS]: '/assets/holding-fortress.png',
+  [HOLDING_TYPES.TOWER]: '/assets/holding-tower.png',
+  [HOLDING_TYPES.TOWN]: '/assets/holding-town.png',
+};
+
+/**
+ * Asset paths for landmark types
+ */
+export const LANDMARK_ASSETS = {
+  [LANDMARK_TYPES.CURSE]: '/assets/landmark-curses.png',
+  [LANDMARK_TYPES.DWELLING]: '/assets/landmark-dwellings.png',
+  [LANDMARK_TYPES.HAZARD]: '/assets/landmark-hazards.png',
+  [LANDMARK_TYPES.MONUMENT]: '/assets/landmark-monuments.png',
+  [LANDMARK_TYPES.SANCTUM]: '/assets/landmark-sanctums.png',
+  [LANDMARK_TYPES.RUIN]: null, // No asset - use emoji fallback
+};

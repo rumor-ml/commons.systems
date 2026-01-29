@@ -18,6 +18,7 @@ import {
   OPPOSITE_DIRECTION,
   parseHexKey,
 } from './hexMath.js';
+import { HOLDING_TYPES } from './terrainConstants.js';
 
 /**
  * Check if a barrier exists between two hexes (checks both edge key formats)
@@ -729,6 +730,28 @@ export function maybeAddFeature(ctx, hex) {
   let placedFeature = false;
   if (feature === 'holding') {
     if (ctx.canPlaceHolding && !ctx.canPlaceHolding(hex)) return null;
+
+    // Assign a unique holding type
+    const usedTypes = ctx.constraints.holdings.usedTypes || [];
+    const allTypes = [
+      HOLDING_TYPES.CASTLE,
+      HOLDING_TYPES.FORTRESS,
+      HOLDING_TYPES.TOWER,
+      HOLDING_TYPES.TOWN,
+    ];
+    const availableTypes = allTypes.filter((type) => !usedTypes.includes(type));
+
+    if (availableTypes.length > 0) {
+      const selectedType = ctx.rng.choice(availableTypes);
+      hex.holdingType = selectedType;
+
+      // Track used types
+      if (!ctx.constraints.holdings.usedTypes) {
+        ctx.constraints.holdings.usedTypes = [];
+      }
+      ctx.constraints.holdings.usedTypes.push(selectedType);
+    }
+
     ctx.constraints.holdings.placed++;
     if (ctx.constraints.holdings.positions) {
       ctx.constraints.holdings.positions.push({ q: hex.q, r: hex.r });
@@ -890,6 +913,28 @@ export function forceCompleteFeatures(ctx) {
       (!ctx.canPlaceHolding || ctx.canPlaceHolding(hex))
     ) {
       hex.feature = 'holding';
+
+      // Assign a unique holding type
+      const usedTypes = ctx.constraints.holdings.usedTypes || [];
+      const allTypes = [
+        HOLDING_TYPES.CASTLE,
+        HOLDING_TYPES.FORTRESS,
+        HOLDING_TYPES.TOWER,
+        HOLDING_TYPES.TOWN,
+      ];
+      const availableTypes = allTypes.filter((type) => !usedTypes.includes(type));
+
+      if (availableTypes.length > 0) {
+        const selectedType = ctx.rng.choice(availableTypes);
+        hex.holdingType = selectedType;
+
+        // Track used types
+        if (!ctx.constraints.holdings.usedTypes) {
+          ctx.constraints.holdings.usedTypes = [];
+        }
+        ctx.constraints.holdings.usedTypes.push(selectedType);
+      }
+
       if (ctx.features) {
         ctx.features.set(hexKey(hex.q, hex.r), 'holding');
       }
