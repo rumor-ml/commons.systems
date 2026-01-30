@@ -476,13 +476,14 @@ describe('GitError.create() factory function', () => {
     );
   });
 
+  // TODO(#1658): Consider testing stderr with special characters (unicode, null bytes, ANSI codes)
   it('should throw ValidationError for empty string stderr', () => {
     assert.throws(
       () => GitError.create('Git failed', 1, ''),
       (error: unknown) => {
         return (
           error instanceof ValidationError &&
-          error.message.includes('stderr cannot be empty string') &&
+          error.message.includes('stderr cannot be empty or whitespace-only') &&
           error.message.includes('use undefined instead')
         );
       },
@@ -496,7 +497,7 @@ describe('GitError.create() factory function', () => {
       (error: unknown) => {
         return (
           error instanceof ValidationError &&
-          error.message.includes('stderr cannot be empty string') &&
+          error.message.includes('stderr cannot be empty or whitespace-only') &&
           error.message.includes('use undefined instead')
         );
       },
@@ -509,6 +510,7 @@ describe('GitError.create() factory function', () => {
     // If someone attempts: new GitError('msg', 128, 'error')
     // TypeScript will fail compilation with: "Constructor of class 'GitError' is private"
     // This prevents the dual-pattern problem described in issue #852.
+    // TODO(#1659): Update or clarify issue reference in comment
 
     // Must use factory method instead
     const error = GitError.create('msg', 128, 'fatal error');
@@ -516,5 +518,129 @@ describe('GitError.create() factory function', () => {
     assert.strictEqual(error.message, 'msg');
     assert.strictEqual(error.exitCode, 128);
     assert.strictEqual(error.stderr, 'fatal error');
+  });
+});
+
+describe('GitError.create() validation edge cases', () => {
+  it('should throw ValidationError for empty string message', () => {
+    assert.throws(
+      () => GitError.create('', 1, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('message cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for empty message'
+    );
+  });
+
+  it('should throw ValidationError for whitespace-only message', () => {
+    assert.throws(
+      () => GitError.create('   ', 1, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('message cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for whitespace-only message'
+    );
+  });
+
+  it('should throw ValidationError for whitespace-only stderr (spaces)', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1, '   '),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for whitespace-only stderr'
+    );
+  });
+
+  it('should throw ValidationError for whitespace-only stderr (tabs)', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1, '\t'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for tab-only stderr'
+    );
+  });
+
+  it('should throw ValidationError for whitespace-only stderr (newlines)', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1, '\n'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for newline-only stderr'
+    );
+  });
+
+  it('should throw ValidationError for whitespace-only stderr (mixed)', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1, '  \n\t  '),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for mixed whitespace stderr'
+    );
+  });
+
+  it('should throw ValidationError for Infinity exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', Infinity, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('Infinity')
+        );
+      },
+      'Should throw ValidationError for Infinity exitCode'
+    );
+  });
+
+  it('should throw ValidationError for -Infinity exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', -Infinity, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('-Infinity')
+        );
+      },
+      'Should throw ValidationError for -Infinity exitCode'
+    );
+  });
+
+  it('should return GitError for stderr without exitCode', () => {
+    const result = GitError.create('Git failed', undefined, 'fatal: repository not found');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, undefined);
+    assert.strictEqual(result.stderr, 'fatal: repository not found');
+    assert.strictEqual(result.message, 'Git failed');
+  });
+
+  it('should handle very long stderr strings', () => {
+    const longStderr = 'error: '.repeat(10000); // ~70KB string
+    const result = GitError.create('Git failed', 1, longStderr);
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.stderr, longStderr);
+    assert.strictEqual(result.stderr.length, longStderr.length);
   });
 });

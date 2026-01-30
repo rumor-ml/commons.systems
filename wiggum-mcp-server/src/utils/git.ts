@@ -3,7 +3,7 @@
  */
 
 import { execa } from 'execa';
-import { GitError } from './errors.js';
+import { GitError, ValidationError } from './errors.js';
 import { logger } from './logger.js';
 
 export interface GitOptions {
@@ -46,6 +46,11 @@ export async function getGitRoot(): Promise<string> {
       result.stderr || undefined
     );
   } catch (error) {
+    // Re-throw ValidationError as-is - these are programming errors
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+
     // Re-throw GitError as-is
     if (error instanceof GitError) {
       throw error;
@@ -105,6 +110,12 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
     return result.stdout || '';
   } catch (error) {
     // TODO(#487): Broad catch-all hides programming errors - add explicit checks for system/programming errors
+
+    // Re-throw ValidationError as-is - these are programming errors that should not be wrapped
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+
     if (error instanceof GitError) {
       throw error;
     }
@@ -191,15 +202,17 @@ export async function hasRemoteTracking(branch?: string, options?: GitOptions): 
       return false;
     }
 
-    // Unexpected error - log and return false
+    // Unexpected error - log and RE-THROW (don't hide it)
     const errorMsg = error instanceof Error ? error.message : String(error);
     const exitCode = error instanceof GitError ? error.exitCode : undefined;
-    logger.warn('hasRemoteTracking: unexpected error checking remote tracking', {
+    logger.error('hasRemoteTracking: unexpected error checking remote tracking', {
       branch: branch || 'current branch',
       errorMessage: errorMsg,
       exitCode,
     });
-    return false;
+
+    // Re-throw to surface the error to the caller
+    throw error;
   }
 }
 
@@ -258,17 +271,35 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
     await git(['rev-parse', '--verify', 'main'], options);
     return 'main';
   } catch (error) {
-    // Log the error and try master as fallback
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.debug('getMainBranch: main branch not found, trying master', {
-      errorMessage: errorMsg,
-    });
+    // Only fallback to master if main branch doesn't exist (exit code 128)
+    // Re-throw all other errors (network, permissions, validation, etc.)
+    if (!(error instanceof GitError && error.exitCode === 128)) {
+      logger.error('getMainBranch: unexpected error checking main branch', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        exitCode: error instanceof GitError ? error.exitCode : undefined,
+      });
+      throw error; // Re-throw unexpected errors
+    }
+
+    // Expected: main doesn't exist, try master
+    logger.debug('getMainBranch: main branch not found, trying master');
+
     try {
       // Check if master exists
       await git(['rev-parse', '--verify', 'master'], options);
       return 'master';
     } catch (masterError) {
-      // Log the error for both branches
+      // Only accept "branch not found" error here too
+      if (!(masterError instanceof GitError && masterError.exitCode === 128)) {
+        logger.error('getMainBranch: unexpected error checking master branch', {
+          errorMessage: masterError instanceof Error ? masterError.message : String(masterError),
+          exitCode: masterError instanceof GitError ? masterError.exitCode : undefined,
+        });
+        throw masterError; // Re-throw unexpected errors
+      }
+
+      // Both branches don't exist
+      const errorMsg = error instanceof Error ? error.message : String(error);
       const masterErrorMsg =
         masterError instanceof Error ? masterError.message : String(masterError);
       logger.error('getMainBranch: neither main nor master branch found', {
