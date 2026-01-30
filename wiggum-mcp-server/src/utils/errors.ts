@@ -63,13 +63,7 @@ export {
  * The factory validates exitCode and stderr parameters.
  */
 export class GitError extends McpError {
-  /**
-   * Create a GitError
-   *
-   * @param message - Human-readable error description
-   * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
-   * @param stderr - Optional stderr output (use undefined for no stderr, empty strings throw)
-   */
+  // Private constructor - use GitError.create() factory method instead
   private constructor(
     message: string,
     public readonly exitCode?: number,
@@ -82,17 +76,20 @@ export class GitError extends McpError {
   /**
    * Factory function to create GitError with validation
    *
-   * Validates exitCode and stderr parameters and throws ValidationError if invalid.
+   * Validates message, exitCode and stderr parameters and throws ValidationError if invalid.
    * This is the only way to construct a GitError instance.
    *
    * @param message - Human-readable error description
    * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
    * @param stderr - Optional stderr output (use undefined for no stderr, empty strings throw)
    * @returns GitError instance
-   * @throws {ValidationError} If exitCode is not an integer in 0-255 range or stderr is empty string
+   * @throws {ValidationError} If message is empty/whitespace, exitCode is not in 0-255 range, or stderr is empty/whitespace
    */
   static create(message: string, exitCode?: number, stderr?: string): GitError {
-    // Validate exitCode: must be integer in 0-255 range (Unix exit code standard)
+    if (!message || message.trim() === '') {
+      throw new ValidationError('GitError: message cannot be empty or whitespace-only');
+    }
+
     if (exitCode !== undefined) {
       if (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255) {
         throw new ValidationError(
@@ -101,9 +98,10 @@ export class GitError extends McpError {
       }
     }
 
-    // Validate stderr: empty strings should throw, use undefined for no stderr
-    if (stderr === '') {
-      throw new ValidationError('GitError: stderr cannot be empty string, use undefined instead');
+    if (stderr !== undefined && stderr.trim() === '') {
+      throw new ValidationError(
+        'GitError: stderr cannot be empty or whitespace-only, use undefined instead'
+      );
     }
 
     return new GitError(message, exitCode, stderr);
