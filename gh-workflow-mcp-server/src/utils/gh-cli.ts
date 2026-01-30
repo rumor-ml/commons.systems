@@ -99,9 +99,23 @@ export async function ghCli(args: string[], options: GhCliOptions = {}): Promise
     let errorSerialized: string;
     try {
       errorSerialized = JSON.stringify(error, null, 2);
-    } catch (_serializeError) {
+    } catch (serializeError) {
       // Fallback for objects with circular references or non-enumerable properties
       errorSerialized = errorStr;
+      console.error(
+        '[gh-workflow] WARN JSON serialization failed in ghCli error handler',
+        JSON.stringify(
+          {
+            serializationError:
+              serializeError instanceof Error ? serializeError.message : String(serializeError),
+            errorType,
+            errorString: errorStr,
+            args,
+          },
+          null,
+          2
+        )
+      );
     }
 
     console.error(
