@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { detectCurrentState } from '../state/detector.js';
 import { getNextStepInstructions } from '../state/router.js';
 import { logger } from '../utils/logger.js';
-import { generateIterationLimitInstructions } from '../constants.js';
+import { generateIterationLimitInstructions, STEP_MAX } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import {
@@ -87,7 +87,7 @@ export async function wiggumInit(_input: WiggumInitInput): Promise<ToolResult> {
     });
     const output = {
       current_step: 'Iteration Limit Reached',
-      step_number: 'max',
+      step_number: STEP_MAX,
       iteration_count: state.wiggum.iteration,
       instructions: generateIterationLimitInstructions(state.wiggum, effectiveLimit),
       steps_completed_by_tool: [],

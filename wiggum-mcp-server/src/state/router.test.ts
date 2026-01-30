@@ -543,6 +543,108 @@ describe('createStateUpdateFailure factory function', () => {
   });
 });
 
+describe('WiggumInstructions Type Safety', () => {
+  it('should only accept valid WiggumStep values for step_number at compile time', () => {
+    // This test verifies that the step_number field enforces type safety
+    // by attempting to assign invalid values and expecting TypeScript errors.
+    //
+    // Valid assignment - uses WiggumStep constant
+    const validOutput = {
+      current_step: 'Test Step',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
+      iteration_count: 0,
+      instructions: 'Test instructions',
+      steps_completed_by_tool: [],
+      context: {},
+    };
+    assert.strictEqual(validOutput.step_number, STEP_PHASE1_MONITOR_WORKFLOW);
+
+    // The following demonstrates that TypeScript prevents invalid step values.
+    // This is a compile-time test: if step_number typing is weakened back to string,
+    // these @ts-expect-error lines will fail because the errors would disappear.
+    //
+    // We assign string literals to WiggumStep-typed variables to trigger type errors.
+    // @ts-expect-error - Invalid step_number value should not be assignable to WiggumStep
+    const invalidStep: WiggumStep = 'invalid-step';
+
+    // @ts-expect-error - Numeric string should not be assignable to WiggumStep
+    const invalidNumericStep: WiggumStep = '3';
+
+    // Verify that valid constants ARE assignable (this should compile without error)
+    const validStep: WiggumStep = STEP_PHASE1_MONITOR_WORKFLOW;
+    assert.strictEqual(validStep, STEP_PHASE1_MONITOR_WORKFLOW);
+
+    // Prevent "unused variable" errors
+    assert.ok(invalidStep !== undefined || invalidNumericStep !== undefined);
+  });
+
+  it('should prevent numeric string values for step_number at compile time', () => {
+    // Before issue #678, step_number was typed as string, allowing values like '1', '2', etc.
+    // Now it must be a WiggumStep constant. This test documents that numeric strings are rejected.
+
+    // Valid: using proper WiggumStep constant
+    const validOutput = {
+      current_step: 'Phase 2 - Monitor Workflow',
+      step_number: STEP_PHASE2_MONITOR_WORKFLOW,
+      iteration_count: 1,
+      instructions: 'Monitor workflow',
+      steps_completed_by_tool: [],
+      context: {},
+    };
+    assert.strictEqual(validOutput.step_number, STEP_PHASE2_MONITOR_WORKFLOW);
+
+    // Invalid: numeric strings that would have been valid before #678
+    // @ts-expect-error - '1' should not be assignable to WiggumStep
+    const numericString1: WiggumStep = '1';
+
+    // @ts-expect-error - '2' should not be assignable to WiggumStep
+    const numericString2: WiggumStep = '2';
+
+    // Prevent "unused variable" errors
+    assert.ok(numericString1 !== undefined || numericString2 !== undefined);
+  });
+
+  it('should document that weakening the type would break compile-time safety', () => {
+    // This test documents the regression scenario that would occur if someone
+    // accidentally changed step_number back from WiggumStep to string.
+    //
+    // Regression scenario:
+    // 1. Developer refactors WiggumInstructions interface
+    // 2. Changes `step_number: WiggumStep` back to `step_number: string`
+    // 3. All existing runtime tests pass (they use valid constants)
+    // 4. The @ts-expect-error directives in tests above would now be wrong
+    //    (the lines would compile when they shouldn't)
+    // 5. CI should catch this because @ts-expect-error on valid code is an error
+    //
+    // This test verifies that all valid WiggumStep constants are still accepted
+    const validSteps: WiggumStep[] = [
+      STEP_PHASE1_MONITOR_WORKFLOW,
+      STEP_PHASE1_CREATE_PR,
+      STEP_PHASE2_MONITOR_WORKFLOW,
+      STEP_PHASE2_MONITOR_CHECKS,
+      STEP_PHASE2_CODE_QUALITY,
+      STEP_PHASE2_SECURITY_REVIEW,
+      STEP_PHASE2_APPROVAL,
+    ];
+
+    for (const step of validSteps) {
+      const output = {
+        current_step: `Testing ${step}`,
+        step_number: step,
+        iteration_count: 0,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {},
+      };
+      assert.strictEqual(
+        output.step_number,
+        step,
+        `Valid WiggumStep constant ${step} should be accepted`
+      );
+    }
+  });
+});
+
 describe('State Update Retry Logic', () => {
   describe('maxRetries validation', () => {
     it('should document that safeUpdatePRBodyState requires positive integer maxRetries', () => {

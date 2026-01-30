@@ -6,7 +6,7 @@
  * to avoid JSON decoding errors and improve readability in agent logs.
  *
  * Protocol Context:
- * - Response structure must match ResponseData interface (see lines 43-50)
+ * - Response structure must match ResponseData interface (see ResponseData interface definition)
  * - All fields are required per protocol specification
  * - Context field ordering follows protocol definition but is not semantically significant
  * - Markdown output is consumed directly by LLM agents (not parsed)
@@ -24,6 +24,7 @@
 
 import { FormattingError } from './errors.js';
 import type { WiggumStep } from '../constants.js';
+import { isValidStep } from '../constants.js';
 
 /**
  * Allowed types for context values
@@ -57,7 +58,7 @@ interface ResponseData {
  * Validate response data has all required fields with correct types
  *
  * TODO(#304): Fix instructions validation contradiction (allow empty strings) - see PR review for #273
- * Enforces ResponseData interface schema requirements (see lines 43-50):
+ * Enforces ResponseData interface schema requirements (see ResponseData interface definition):
  * - All fields are required by protocol specification
  * - Types must match exactly (string, number, array, object as specified)
  * - Missing or mistyped fields indicate protocol violation
@@ -80,6 +81,14 @@ function validateResponseData(data: unknown): asserts data is ResponseData {
         `Missing or invalid ${field}: expected string, got ${typeof d[field]}`
       );
     }
+  }
+
+  // Validate step_number is a valid WiggumStep value
+  if (!isValidStep(d.step_number)) {
+    throw new FormattingError(
+      `Invalid step_number: "${d.step_number}" is not a valid WiggumStep. ` +
+        `Valid values: p1-1, p1-2, p1-3, p1-4, p2-1, p2-2, p2-3, p2-4, p2-5, approval`
+    );
   }
 
   // Validate iteration_count
