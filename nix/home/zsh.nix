@@ -15,15 +15,16 @@
     # Source session variables in zshenv (loaded for all zsh shells)
     # This ensures TZ and other Home Manager variables are always available
     # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
-    # TODO(#1638): Bash and Zsh session variable sourcing continues after failure with only warning
     envExtra = ''
       # Source Home Manager session variables
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
         if ! source_error=$(. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" 2>&1); then
-          echo "WARNING: Failed to source Home Manager session variables" >&2
+          echo "ERROR: Failed to source Home Manager session variables" >&2
           echo "  File: $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" >&2
           echo "  Error: $source_error" >&2
           echo "  This may affect environment variables like TZ (timezone)" >&2
+          echo "  Shell initialization aborted to prevent misconfiguration" >&2
+          return 1
         fi
       fi
     '';

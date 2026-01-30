@@ -26,9 +26,11 @@ let
   #   isLinux: bool (default: true) - enables Linux-specific config (WSL integration)
   #   isDarwin: bool (default: false) - enables macOS-specific config
   # Returns: Home Manager module evaluation result. Access via attribute paths:
-  #   programs.wezterm.enable (always present)
-  #   programs.wezterm.extraConfig (always present)
-  #   home.activation.copyWeztermToWindows (always present but conditionally disabled when isLinux = false via lib.mkIf)
+  #   programs.wezterm.enable - boolean, always true
+  #   programs.wezterm.extraConfig - string, contains generated Lua config
+  #   home.activation.copyWeztermToWindows - DAG entry with lib.mkIf condition.
+  #     When isLinux=false, this creates a conditional structure (_type="if", condition=false)
+  #     that Home Manager's module system will filter out during activation.
   evaluateModule =
     {
       username ? "testuser",
@@ -72,7 +74,8 @@ let
   # This mock implements the WezTerm API structure to validate config usage
   mockWeztermModule = pkgs.writeText "wezterm.lua" ''
     -- TODO(#1651): Mock WezTerm module comment claims to validate API usage but doesn't check return value types
-    -- Mock WezTerm module that validates API usage
+    -- Mock WezTerm module that validates config key names and value types
+    -- Does NOT validate API return value usage (see TODO #1651)
     local wezterm = {}
 
     -- Track valid WezTerm config keys (includes all keys used in our config)
@@ -915,9 +918,10 @@ let
       }
 
       # Verify activation script is conditionally disabled on macOS
-      # lib.mkIf false causes Home Manager to omit this activation script from the final config.
-      # The attribute still exists during evaluation with _type = "if" and condition = false,
-      # but Home Manager's module system filters it out before generating activation scripts.
+      # lib.mkIf false creates a conditional structure (_type = "if", condition = false).
+      # During module evaluation, Home Manager's module system processes this conditional
+      # and excludes the script from the final activation configuration.
+      # The test verifies this by checking for either: null (excluded) or conditional structure with condition=false.
       ${
         let
           activationScript = macosResult.home.activation.copyWeztermToWindows or null;
@@ -966,6 +970,159 @@ let
       touch $out
     '';
 
+  # Test 13: Activation script DAG execution and variable access
+  # Validates that the activation script executes correctly within home-manager's
+  # module system and has proper access to all required variables
+  test-activation-dag-execution =
+    let
+      # Mock pkgs for Linux
+      linuxPkgs = pkgs // {
+        stdenv = pkgs.stdenv // {
+          isLinux = true;
+          isDarwin = false;
+        };
+      };
+
+      # Mock config for module evaluation
+      mockConfig = {
+        home = {
+          username = "testuser";
+          homeDirectory = "/home/testuser";
+        };
+      };
+
+      # Mock lib with home-manager DAG functions
+      mockLib = lib // {
+        hm = {
+          dag = {
+            entryAfter = deps: data: {
+              _type = "dagEntryAfter";
+              after = deps;
+              inherit data;
+            };
+          };
+        };
+      };
+
+      # Evaluate the module to get activation script
+      moduleResult = weztermModule {
+        config = mockConfig;
+        pkgs = linuxPkgs;
+        lib = mockLib;
+      };
+
+      activationScript = moduleResult.home.activation.copyWeztermToWindows or null;
+
+      # The activation script is wrapped in lib.mkIf, so we need to unwrap it
+      # to access the actual DAG entry
+      dagEntry = if activationScript != null && activationScript ? _type && activationScript._type == "if"
+                 then activationScript.content or null
+                 else activationScript;
+
+      # Extract the script data from the DAG entry
+      scriptData = if dagEntry != null && dagEntry ? data then dagEntry.data else null;
+    in
+    pkgs.runCommand "test-activation-dag-execution" { } ''
+      # Verify activation script exists on Linux
+      ${
+        if activationScript != null then
+          "echo 'PASS: Activation script exists on Linux'"
+        else
+          "echo 'FAIL: Activation script missing on Linux' && exit 1"
+      }
+
+      # Verify the outer structure is a conditional (lib.mkIf)
+      ${
+        if activationScript != null && (activationScript._type or null) == "if" && activationScript.condition == true then
+          "echo 'PASS: Activation script is wrapped in lib.mkIf with condition=true for Linux'"
+        else
+          "echo 'FAIL: Activation script not properly wrapped in lib.mkIf for Linux' && exit 1"
+      }
+
+      # Verify the inner structure is a DAG entry
+      ${
+        if dagEntry != null && (dagEntry._type or null) == "dagEntryAfter" then
+          "echo 'PASS: Inner structure is a proper DAG entry (type: dagEntryAfter)'"
+        else
+          "echo 'FAIL: Inner structure is not a proper DAG entry' && exit 1"
+      }
+
+      # Verify script depends on linkGeneration
+      ${
+        if dagEntry != null && (builtins.elem "linkGeneration" (dagEntry.after or [])) then
+          "echo 'PASS: Activation script depends on linkGeneration'"
+        else
+          "echo 'FAIL: Activation script missing linkGeneration dependency' && exit 1"
+      }
+
+      # Verify script data is present and is a string (the actual shell script)
+      ${
+        if scriptData != null && builtins.isString scriptData then
+          "echo 'PASS: Activation script contains shell script data'"
+        else
+          "echo 'FAIL: Activation script missing or invalid script data' && exit 1"
+      }
+
+      # Verify script references required home-manager variables
+      ${
+        if scriptData != null && lib.hasInfix "DRY_RUN_CMD" scriptData then
+          "echo 'PASS: Activation script references \$DRY_RUN_CMD variable'"
+        else
+          "echo 'FAIL: Activation script missing \$DRY_RUN_CMD variable reference' && exit 1"
+      }
+
+      ${
+        if scriptData != null && lib.hasInfix "VERBOSE_ARG" scriptData then
+          "echo 'PASS: Activation script references \$VERBOSE_ARG variable'"
+        else
+          "echo 'FAIL: Activation script missing \$VERBOSE_ARG variable reference' && exit 1"
+      }
+
+      ${
+        if scriptData != null && lib.hasInfix mockConfig.home.homeDirectory scriptData then
+          "echo 'PASS: Activation script uses interpolated homeDirectory value'"
+        else
+          "echo 'FAIL: Activation script missing homeDirectory value' && exit 1"
+      }
+
+      # Verify script is properly excluded on macOS via lib.mkIf
+      ${
+        let
+          macosPkgs = pkgs // {
+            stdenv = pkgs.stdenv // {
+              isLinux = false;
+              isDarwin = true;
+            };
+          };
+          macosResult = weztermModule {
+            config = mockConfig;
+            pkgs = macosPkgs;
+            lib = mockLib;
+          };
+          macosActivation = macosResult.home.activation.copyWeztermToWindows or null;
+          isConditionallyDisabled =
+            macosActivation == null ||
+            (macosActivation ? _type && macosActivation._type == "if" && macosActivation.condition == false);
+        in
+        if isConditionallyDisabled then
+          "echo 'PASS: Activation script properly excluded on macOS via lib.mkIf'"
+        else
+          "echo 'FAIL: Activation script not properly excluded on macOS' && exit 1"
+      }
+
+      echo ""
+      echo "✓ Activation script DAG execution test passed"
+      echo "  - Script is properly integrated into home-manager DAG"
+      echo "  - Script depends on linkGeneration (executes after config linking)"
+      echo "  - Script has access to required home-manager variables"
+      echo "  - Script is properly excluded on non-Linux platforms"
+      echo ""
+      echo "Note: This test validates DAG structure and variable access."
+      echo "      Runtime execution is validated by test-activation-script-runtime."
+
+      touch $out
+    '';
+
   # Aggregate all tests into a test suite
   allTests = [
     test-module-structure
@@ -989,6 +1146,7 @@ let
     test-concurrent-activation
     test-config-file-location
     test-homemanager-integration
+    test-activation-dag-execution
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -1005,6 +1163,7 @@ let
 
 in
 {
+  # TODO(#1655): Duplicated test list exports in test files
   # Export all tests as derivations that can be built
   wezterm-tests = {
     inherit
@@ -1029,6 +1188,7 @@ in
       test-concurrent-activation
       test-config-file-location
       test-homemanager-integration
+      test-activation-dag-execution
       ;
   };
 

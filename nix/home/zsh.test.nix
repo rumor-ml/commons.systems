@@ -9,9 +9,8 @@
 # These tests ensure configuration syntax errors are caught at build time
 # (via nix build/check), before home-manager switch activates the configuration.
 #
-# Note: These tests validate the module source code directly rather than
-# evaluating it through Home Manager's module system, since zsh.nix is
-# designed to be imported as a Home Manager module.
+# Note: These tests include both source code validation (string pattern matching)
+# and module evaluation tests that verify Home Manager module system integration.
 
 # TODO(#1633): Test validation uses generic 'exit 1' without specific exit codes
 
@@ -21,12 +20,44 @@ let
   # Import shared test helpers
   testHelpers = import ./test-helpers.nix { inherit pkgs lib; };
 
+  # Import the zsh module for evaluation testing
+  zshModule = import ./zsh.nix;
+
   # Read the zsh module source for testing
   zshSource = builtins.readFile ./zsh.nix;
 
   # Extract the envExtra and initExtra content from source using shared helper
   envExtraContent = testHelpers.extractNixStringLiteral zshSource "envExtra";
   initExtraContent = testHelpers.extractNixStringLiteral zshSource "initExtra";
+
+  # Test helper: Evaluate module with mock config
+  # Parameters:
+  #   username: string (default: "testuser") - username for config interpolation
+  #   homeDirectory: string (default: "/home/testuser") - home directory path
+  # Returns: Home Manager module evaluation result
+  evaluateModule =
+    {
+      username ? "testuser",
+      homeDirectory ? "/home/testuser",
+    }:
+    # Validate mock configuration invariants
+    assert lib.assertMsg (username != "") "evaluateModule: username cannot be empty";
+    assert lib.assertMsg (homeDirectory != "") "evaluateModule: homeDirectory cannot be empty";
+    assert lib.assertMsg (lib.hasPrefix "/" homeDirectory)
+      "evaluateModule: homeDirectory must be an absolute path starting with /";
+    let
+      mockConfig = {
+        home = {
+          username = username;
+          homeDirectory = homeDirectory;
+        };
+      };
+    in
+    zshModule {
+      config = mockConfig;
+      pkgs = pkgs;
+      lib = lib;
+    };
 
   # Test 1: Module structure
   test-module-structure = pkgs.runCommand "test-zsh-module-structure" { } ''
@@ -89,7 +120,7 @@ let
   # Test 3: Error handling in envExtra
   test-error-handling-env = pkgs.runCommand "test-zsh-error-handling-env" { } ''
     ${
-      if lib.hasInfix "WARNING: Failed to source Home Manager session variables" envExtraContent then
+      if lib.hasInfix "ERROR: Failed to source Home Manager session variables" envExtraContent then
         "echo 'PASS: envExtra includes error message'"
       else
         "echo 'FAIL: envExtra missing error message' && exit 1"
@@ -105,6 +136,18 @@ let
         "echo 'PASS: Error message mentions TZ'"
       else
         "echo 'FAIL: Error message missing TZ reference' && exit 1"
+    }
+    ${
+      if lib.hasInfix "return 1" envExtraContent then
+        "echo 'PASS: Config aborts shell initialization on error'"
+      else
+        "echo 'FAIL: Config missing return 1 to abort initialization' && exit 1"
+    }
+    ${
+      if lib.hasInfix "Shell initialization aborted" envExtraContent then
+        "echo 'PASS: Error message explains shell initialization is aborted'"
+      else
+        "echo 'FAIL: Error message missing abort explanation' && exit 1"
     }
     touch $out
   '';
@@ -278,7 +321,95 @@ let
     touch $out
   '';
 
-  # Test 13: Comment documentation
+  # Test 13: Module evaluation through Home Manager's module system
+  test-module-evaluation =
+    let
+      result = evaluateModule {
+        username = "testuser";
+        homeDirectory = "/home/testuser";
+      };
+    in
+    pkgs.runCommand "test-zsh-module-evaluation" { } ''
+      # Verify module evaluates successfully
+      ${
+        if result.programs.zsh.enable or false then
+          "echo 'PASS: Module evaluation enables zsh'"
+        else
+          "echo 'FAIL: Module evaluation did not enable zsh' && exit 1"
+      }
+      ${
+        if result.programs.zsh ? envExtra then
+          "echo 'PASS: Module evaluation provides envExtra'"
+        else
+          "echo 'FAIL: Module evaluation missing envExtra' && exit 1"
+      }
+      ${
+        if result.programs.zsh ? initExtra then
+          "echo 'PASS: Module evaluation provides initExtra'"
+        else
+          "echo 'FAIL: Module evaluation missing initExtra' && exit 1"
+      }
+      # Verify envExtra content is properly interpolated
+      ${
+        if lib.hasInfix "hm-session-vars.sh" (result.programs.zsh.envExtra or "") then
+          "echo 'PASS: Evaluated envExtra includes session variables sourcing'"
+        else
+          "echo 'FAIL: Evaluated envExtra missing session variables sourcing' && exit 1"
+      }
+      # Verify initExtra content includes expected features
+      ${
+        if lib.hasInfix "bashcompinit" (result.programs.zsh.initExtra or "") then
+          "echo 'PASS: Evaluated initExtra includes bashcompinit'"
+        else
+          "echo 'FAIL: Evaluated initExtra missing bashcompinit' && exit 1"
+      }
+      ${
+        if lib.hasInfix "vcs_info" (result.programs.zsh.initExtra or "") then
+          "echo 'PASS: Evaluated initExtra includes vcs_info'"
+        else
+          "echo 'FAIL: Evaluated initExtra missing vcs_info' && exit 1"
+      }
+      touch $out
+    '';
+
+  # Test 14: Module evaluation with various home directories
+  test-module-evaluation-paths =
+    let
+      testCases = [
+        {
+          username = "alice";
+          homeDirectory = "/home/alice";
+        }
+        {
+          username = "bob";
+          homeDirectory = "/home/users/bob";
+        }
+        {
+          username = "root";
+          homeDirectory = "/root";
+        }
+      ];
+      results = map (testCase: evaluateModule testCase) testCases;
+    in
+    pkgs.runCommand "test-zsh-module-evaluation-paths"
+      {
+        buildInputs = [ ];
+      }
+      ''
+        ${lib.concatMapStringsSep "\n" (
+          testCase:
+          let
+            result = evaluateModule testCase;
+          in
+          if result.programs.zsh.enable or false then
+            "echo 'PASS: Module evaluates for ${testCase.username} at ${testCase.homeDirectory}'"
+          else
+            "echo 'FAIL: Module failed to evaluate for ${testCase.username}' && exit 1"
+        ) testCases}
+        touch $out
+      '';
+
+  # Test 15: Comment documentation
   test-comments = pkgs.runCommand "test-zsh-comments" { } ''
     ${
       if lib.hasInfix "Zsh Shell Configuration" zshSource then
@@ -315,6 +446,8 @@ let
     test-zsh-syntax-init
     test-zsh-syntax-combined
     test-todo-references
+    test-module-evaluation
+    test-module-evaluation-paths
     test-comments
   ];
 
@@ -347,6 +480,8 @@ in
       test-zsh-syntax-init
       test-zsh-syntax-combined
       test-todo-references
+      test-module-evaluation
+      test-module-evaluation-paths
       test-comments
       ;
   };

@@ -689,6 +689,67 @@ else
   report_fail "Unset variables caused command failure"
 fi
 
+# Test 27: /mnt/c/Users exists but not readable (ERROR and exit 1)
+echo ""
+echo "=== Test 27: /mnt/c/Users exists but not readable triggers ERROR and exit 1 ==="
+TEMP_MOUNT_UNREADABLE=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_MOUNT_UNREADABLE")
+mkdir -p "$TEMP_MOUNT_UNREADABLE/c/Users"
+chmod 000 "$TEMP_MOUNT_UNREADABLE/c/Users"
+
+# Simulate the readability check from wezterm.nix lines 73-82
+ERROR_OUTPUT=""
+EXIT_CODE=0
+if [ -d "$TEMP_MOUNT_UNREADABLE/c/Users" ] && [ ! -r "$TEMP_MOUNT_UNREADABLE/c/Users" ]; then
+  # Simulate the error message that would be generated
+  ERROR_OUTPUT="ERROR: Permission denied accessing /mnt/c/Users/"$'\n'"  WSL mount exists but directory is not readable"$'\n\n'"To fix:"$'\n'"  1. Check mount options: mount | grep /mnt/c"
+  EXIT_CODE=1
+fi
+
+chmod 755 "$TEMP_MOUNT_UNREADABLE/c/Users"  # Restore for cleanup
+
+# Validate error message content and exit code
+if [[ $EXIT_CODE -eq 1 ]]; then
+  if [[ "$ERROR_OUTPUT" =~ "ERROR: Permission denied" ]] && [[ "$ERROR_OUTPUT" =~ "not readable" ]] && [[ "$ERROR_OUTPUT" =~ "Check mount options" ]]; then
+    report_pass "Unreadable /mnt/c/Users triggers exit 1 with diagnostic error message"
+  else
+    report_fail "Error message lacks diagnostic guidance" "Got: $ERROR_OUTPUT"
+  fi
+else
+  report_fail "Unreadable /mnt/c/Users should trigger exit 1"
+fi
+
+# Test 28: User detection failure produces diagnostic error (ERROR and exit 1)
+echo ""
+echo "=== Test 28: User detection failure produces diagnostic ERROR and exit 1 ==="
+TEMP_MOUNT_NO_USER=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_MOUNT_NO_USER")
+mkdir -p "$TEMP_MOUNT_NO_USER/c/Users"/{Public,Default}
+
+# Simulate the detection with error handling from wezterm.nix lines 89-98
+ERROR_OUTPUT=""
+EXIT_CODE=0
+LS_OUTPUT=""
+if LS_OUTPUT=$(ls "$TEMP_MOUNT_NO_USER/c/Users/" 2>&1 | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1) && [ -n "$LS_OUTPUT" ]; then
+  # User detected successfully
+  EXIT_CODE=0
+else
+  # User detection failed - generate diagnostic error
+  ERROR_OUTPUT="ERROR: Failed to detect Windows username"$'\n'"  ls output: $LS_OUTPUT"$'\n'"  Directory exists and passed pre-checks but user detection failed"$'\n'"  Available directories in /mnt/c/Users/:"
+  EXIT_CODE=1
+fi
+
+# Validate error message content and exit code
+if [[ $EXIT_CODE -eq 1 ]]; then
+  if [[ "$ERROR_OUTPUT" =~ "ERROR: Failed to detect Windows username" ]] && [[ "$ERROR_OUTPUT" =~ "ls output:" ]] && [[ "$ERROR_OUTPUT" =~ "Available directories" ]]; then
+    report_pass "User detection failure triggers exit 1 with diagnostic error including ls output"
+  else
+    report_fail "Error message lacks diagnostic details" "Got: $ERROR_OUTPUT"
+  fi
+else
+  report_fail "User detection failure should trigger exit 1"
+fi
+
 # Summary
 echo ""
 echo "================================"

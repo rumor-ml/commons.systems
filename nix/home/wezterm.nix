@@ -46,8 +46,10 @@
         -- WSL Integration (Linux/WSL only)
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
-        -- Using lib.strings.toJSON to wrap username in quotes and escape special characters.
-        -- This works because JSON string syntax is valid Lua string syntax.
+        -- Using lib.strings.toJSON to wrap username in quotes and escape special characters
+        -- (quotes, backslashes, etc.) to prevent Lua syntax errors or injection.
+        -- This is critical for usernames containing characters like: ', ", \, ]]
+        -- JSON string syntax is valid Lua string syntax, making this a safe escaping mechanism.
         -- Example: if config.home.username = "alice", Nix interpolation produces:
         --   config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. "alice" }
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
@@ -63,8 +65,9 @@
   };
 
   # WSL: Copy config to Windows WezTerm location
-  # This activation script runs after Home Manager generates config files
-  # and copies them to the Windows user directory where WezTerm on Windows reads it.
+  # This activation script runs after Home Manager generates config files.
+  # DAG ordering: Must run after "linkGeneration" to ensure the source file
+  # (~/.config/wezterm/wezterm.lua) exists before attempting to copy it to Windows.
   home.activation.copyWeztermToWindows = lib.mkIf pkgs.stdenv.isLinux (
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       # Check if running on WSL (Windows mount point exists)
@@ -82,7 +85,7 @@
         fi
 
         # Auto-detect Windows username by finding first non-system directory in /mnt/c/Users/
-        # (does not assume it matches Linux username - simply takes first alphabetically)
+        # (does not assume it matches Linux username - takes first match from ls output)
         # Look for a user directory that's not a system directory
         # Pre-checks above ensure /mnt/c/Users exists and is readable
         # Any errors here are unexpected and should be captured

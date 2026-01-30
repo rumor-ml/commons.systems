@@ -14,19 +14,21 @@
   programs.bash = {
     enable = true;
 
+    # TODO(#1656): Comment in bash.nix describes shell type behavior but doesn't explain how to identify shell type
     # Source session variables in interactive non-login shells (via .bashrc)
     # This is critical for WSL where new terminal tabs start as non-login interactive shells.
     # Note: Login shells won't load this unless they explicitly source .bashrc.
     # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
-    # TODO(#1638): Bash and Zsh session variable sourcing continues after failure with only warning
     initExtra = ''
       # Source Home Manager session variables if not already loaded
       if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
         if ! source_error=$(. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" 2>&1); then
-          echo "WARNING: Failed to source Home Manager session variables" >&2
+          echo "ERROR: Failed to source Home Manager session variables" >&2
           echo "  File: $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" >&2
           echo "  Error: $source_error" >&2
           echo "  This may affect environment variables like TZ (timezone)" >&2
+          echo "  Shell initialization aborted to prevent misconfiguration" >&2
+          return 1
         fi
       fi
     '';

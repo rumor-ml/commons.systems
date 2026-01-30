@@ -4,18 +4,10 @@
 # declarative way. This allows you to version control your dotfiles and
 # ensures reproducibility across different machines.
 #
-# This configuration includes:
-# - Bash shell configuration (bash.nix)
-# - Zsh shell configuration (zsh.nix)
-# - Git configuration (git.nix)
-# - Tmux configuration (tmux.nix)
-# - WezTerm terminal emulator (wezterm.nix)
-# - Development tools: direnv, neovim (tools.nix)
-# - Claude Code CLI (claude-code.nix)
-# - Nix settings: experimental features (nix.nix)
-# - SSH client and agent configuration (ssh.nix)
-# - SSH key auto-generation (ssh-keygen.nix)
-# - SSH authorized keys management (ssh-authorized-keys.nix)
+# This configuration includes shell environments (bash, zsh), development tools
+# (direnv, neovim, claude-code), terminal emulators (wezterm), version control
+# (git, tmux), SSH management, and Nix settings. See the imports array below for
+# the complete list of managed configurations.
 #
 # To activate this configuration for your system:
 #   First time (requires experimental features flags):
