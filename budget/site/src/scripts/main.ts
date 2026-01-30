@@ -44,7 +44,7 @@ async function loadTransactions(): Promise<Transaction[]> {
         return transactions;
       })
       .catch((error) => {
-        console.error('[Budget] Failed to load from Firestore, falling back to static data:', error);
+        console.warn('[Budget] Failed to load from Firestore, falling back to static data:', error);
         transactionsLoadPromise = null;
         // Fallback to static JSON
         cachedTransactions = transactionsData.transactions as Transaction[];
