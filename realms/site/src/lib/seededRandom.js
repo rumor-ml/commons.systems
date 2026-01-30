@@ -45,4 +45,20 @@ export class SeededRNG {
   reset() {
     this.state = this.seed;
   }
+
+  /**
+   * Get a copy of the current RNG state for save/restore functionality.
+   * Returns a copy to prevent external mutation of internal state.
+   */
+  getState() {
+    return this.state;
+  }
+
+  /**
+   * Restore RNG state from a previously saved state.
+   * Accepts a state value (primitive number) to restore.
+   */
+  setState(state) {
+    this.state = state;
+  }
 }
