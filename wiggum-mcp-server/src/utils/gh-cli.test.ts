@@ -49,7 +49,7 @@ describe('Rate Limit Retry Logic', () => {
       await sleep(100);
       const duration = Date.now() - start;
 
-      // Allow 50ms tolerance for fixed duration tests
+      // Single fixed duration test - allow 50ms tolerance for timer precision and event loop scheduling variance
       assert.ok(duration >= 100 && duration < 150, `Expected ~100ms, got ${duration}ms`);
     });
 

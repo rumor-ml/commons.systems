@@ -717,6 +717,85 @@ describe('Security Review Instructions', () => {
         'Instructions should reference the correct issue number'
       );
     });
+
+    it('should include backward iteration instruction for issues found', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 552);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('restarts from Step p1-1') ||
+          instructions.includes('restart from Step p1-1'),
+        'Instructions should include backward iteration to p1-1 on issue found'
+      );
+    });
+
+    it('should include forward progression instruction when no issues found', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 552);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('Proceed to Step p1-4') ||
+          instructions.includes('proceed to Step p1-4'),
+        'Instructions should include forward progression to p1-4 when no issues'
+      );
+      assert.ok(
+        instructions.includes('Create PR') || instructions.toLowerCase().includes('create pr'),
+        'Instructions should indicate that p1-4 is the Create PR step'
+      );
+    });
+
+    it('should include commit-merge-push instruction for fixes', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 552);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('/commit-merge-push'),
+        'Instructions should include /commit-merge-push for committing fixes'
+      );
+      assert.ok(
+        instructions.includes('in-scope issues were found and fixed'),
+        'Instructions should clarify commit is only needed if fixes were made'
+      );
+    });
+
+    it('should include result aggregation instructions', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 552);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('aggregate results'),
+        'Instructions should mention aggregating results'
+      );
+      assert.ok(
+        instructions.includes('Collect result file paths') ||
+          instructions.includes('Collect all result file paths'),
+        'Instructions should explain collecting file paths'
+      );
+      assert.ok(
+        instructions.includes('Sum issue counts') || instructions.includes('Count total'),
+        'Instructions should explain summing issue counts'
+      );
+    });
   });
 
   describe('Phase 2 Security Review', () => {
@@ -769,7 +848,7 @@ describe('Security Review Instructions', () => {
 
       assert.ok(
         instructions.includes('wiggum_complete_security_review'),
-        'Instructions should reference completion tool (not pr_review)'
+        'Instructions should reference wiggum_complete_security_review (not wiggum_complete_pr_review)'
       );
       assert.ok(
         instructions.includes('command_executed'),
@@ -800,5 +879,99 @@ describe('Security Review Instructions', () => {
         'Instructions should include git log command'
       );
     });
+
+    it('should include backward iteration instruction for issues found', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      // Note: Phase 2 backward iteration is handled by wiggum_complete_security_review tool
+      // The tool returns instructions to restart from p2-1, not the handler itself
+      // However, we should verify the handler provides context for iteration
+      assert.ok(
+        instructions.includes('wiggum_complete_security_review'),
+        'Instructions should reference completion tool that handles iteration'
+      );
+    });
+
+    it('should include forward progression instruction when no issues found', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      // Note: Phase 2 forward progression is handled by wiggum_complete_security_review tool
+      // The tool returns "proceed to approval" instructions, not the handler itself
+      // We verify the handler references the tool that provides next steps
+      assert.ok(
+        instructions.includes('wiggum_complete_security_review'),
+        'Instructions should reference completion tool that provides next step'
+      );
+      assert.ok(
+        instructions.includes('returns next step instructions'),
+        'Instructions should indicate tool returns next steps'
+      );
+    });
+
+    it('should include commit-merge-push instruction for fixes', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      // Note: Phase 2 uses /security-review which includes fix instructions
+      // The /security-review command will invoke /commit-merge-push after fixes
+      // We verify the handler invokes the security review command that handles commits
+      assert.ok(
+        instructions.includes(SECURITY_REVIEW_COMMAND),
+        'Instructions should include security review command that handles commits'
+      );
+    });
+
+    it('should include result aggregation instructions', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('Capture the complete verbatim response'),
+        'Instructions should mention capturing verbatim response'
+      );
+      assert.ok(
+        instructions.includes('Count issues by priority'),
+        'Instructions should mention counting by priority'
+      );
+    });
+    // TODO(#1666): No E2E test for actual slash command invocation flow
   });
 });

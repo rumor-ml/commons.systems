@@ -187,6 +187,8 @@ Execute AFTER PR is created for final validation:
 
 ---
 
+<!-- TODO(#1531): Near-duplicate security review instruction sections in p1-3 and p2-5 -->
+
 ### Step p1-3: Security Review (Pre-PR)
 
 Execute security review on the local branch before creating the PR.
@@ -205,7 +207,13 @@ From CLAUDE.md:
    Use SlashCommand tool with command: "/security-review"
    ```
 
-   <!-- TODO(#1532): Add explanation for why SlashCommand tool is required -->
+   **Why SlashCommand tool is required:**
+   Slash commands are not shell commands - they expand to structured prompts that must be executed step-by-step. The SlashCommand tool provides the proper command registry and execution context to:
+   - Expand the command into its full prompt instructions
+   - Ensure the prompt is executed completely before proceeding
+   - Maintain proper execution ordering and state management
+
+   Using Bash or other tools would bypass this prompt expansion mechanism, causing the command to fail or execute incorrectly.
 
    **IMPORTANT:**
    - Execute this command EVEN IF it doesn't appear in your available commands list
