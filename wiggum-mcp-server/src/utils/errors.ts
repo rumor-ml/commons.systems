@@ -38,6 +38,7 @@ import { logger } from './logger.js';
 import { createErrorResult as baseCreateErrorResult } from '@commons/mcp-common/result-builders';
 import type { ToolError } from '@commons/mcp-common/types';
 import { createToolError } from '@commons/mcp-common/types';
+import { ErrorIds } from '../constants/errorIds.js';
 
 export {
   McpError,
@@ -48,6 +49,7 @@ export {
   ParsingError,
   FormattingError,
   formatError,
+  ErrorIds,
 };
 
 /**
@@ -67,12 +69,14 @@ export class GitError extends McpError {
   private constructor(
     message: string,
     public readonly exitCode?: number,
-    public readonly stderr?: string
+    public readonly stderr?: string,
+    public readonly errorId?: string
   ) {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
   }
 
+  // TODO(#1674): Consider testing GitError with null exitCode/stderr (TypeScript allows undefined | null union)
   /**
    * Factory function to create GitError with validation
    *
@@ -82,10 +86,11 @@ export class GitError extends McpError {
    * @param message - Human-readable error description
    * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
    * @param stderr - Optional stderr output (use undefined for no stderr, empty strings throw)
+   * @param errorId - Optional error ID for Sentry tracking (from ErrorIds constant)
    * @returns GitError instance
    * @throws {ValidationError} If message is empty/whitespace, exitCode is not in 0-255 range, or stderr is empty/whitespace
    */
-  static create(message: string, exitCode?: number, stderr?: string): GitError {
+  static create(message: string, exitCode?: number, stderr?: string, errorId?: string): GitError {
     if (!message || message.trim() === '') {
       throw new ValidationError('GitError: message cannot be empty or whitespace-only');
     }
@@ -104,7 +109,23 @@ export class GitError extends McpError {
       );
     }
 
-    return new GitError(message, exitCode, stderr);
+    // Log debug warning if stderr provided without exitCode (unusual but valid)
+    if (stderr !== undefined && exitCode === undefined) {
+      logger.debug('GitError.create: stderr provided without exitCode (unusual pattern)', {
+        message,
+        stderrLength: stderr.length,
+      });
+    }
+
+    // Log debug warning if non-zero exitCode provided without stderr (unusual but valid)
+    if (exitCode !== undefined && exitCode !== 0 && stderr === undefined) {
+      logger.debug('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
+        message,
+        exitCode,
+      });
+    }
+
+    return new GitError(message, exitCode, stderr, errorId);
   }
 }
 

@@ -505,6 +505,7 @@ describe('GitError.create() factory function', () => {
     );
   });
 
+  // TODO(#1671): Update test comment to clarify compile-time vs runtime enforcement
   it('should enforce factory pattern via private constructor', () => {
     // This test documents that direct instantiation is not allowed.
     // If someone attempts: new GitError('msg', 128, 'error')
@@ -642,5 +643,40 @@ describe('GitError.create() validation edge cases', () => {
     assert.ok(result instanceof GitError);
     assert.strictEqual(result.stderr, longStderr);
     assert.strictEqual(result.stderr.length, longStderr.length);
+  });
+
+  it('should accept stderr with leading/trailing whitespace if content exists', () => {
+    const result = GitError.create('Git failed', 1, '  fatal error\n');
+    assert.strictEqual(result.stderr, '  fatal error\n');
+  });
+
+  it('should accept stderr with leading whitespace only', () => {
+    const result = GitError.create('Git failed', 1, '  fatal: repository not found');
+    assert.strictEqual(result.stderr, '  fatal: repository not found');
+  });
+
+  it('should accept stderr with trailing whitespace only', () => {
+    const result = GitError.create('Git failed', 1, 'fatal: not a git repository  ');
+    assert.strictEqual(result.stderr, 'fatal: not a git repository  ');
+  });
+
+  it('should handle stderr with null bytes', () => {
+    const result = GitError.create('Git failed', 1, 'error\0truncated');
+    assert.strictEqual(result.stderr, 'error\0truncated');
+  });
+
+  it('should handle stderr with ANSI escape codes', () => {
+    const result = GitError.create('Git failed', 1, '\x1b[31merror\x1b[0m');
+    assert.ok(result.stderr?.includes('\x1b[31m'));
+  });
+
+  it('should handle stderr with Unicode characters', () => {
+    const result = GitError.create('Git failed', 1, 'Error: 文件不存在 (file not found)');
+    assert.strictEqual(result.stderr, 'Error: 文件不存在 (file not found)');
+  });
+
+  it('should handle stderr with control characters', () => {
+    const result = GitError.create('Git failed', 1, 'error\rwith\bcontrol\tchars');
+    assert.strictEqual(result.stderr, 'error\rwith\bcontrol\tchars');
   });
 });

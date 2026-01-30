@@ -5,6 +5,7 @@
 import { execa } from 'execa';
 import { GitError, ValidationError } from './errors.js';
 import { logger } from './logger.js';
+import { ErrorIds } from '../constants/errorIds.js';
 
 export interface GitOptions {
   cwd?: string;
@@ -32,6 +33,7 @@ export async function getGitRoot(): Promise<string> {
       reject: false,
     });
 
+    // TODO(#1675): Make stdout validation explicit with clear error message for empty output
     if (result.exitCode === 0 && result.stdout) {
       return result.stdout.trim();
     }
@@ -43,7 +45,8 @@ export async function getGitRoot(): Promise<string> {
         `Command: git rev-parse --show-toplevel. ` +
         `Error: ${result.stderr || 'none'}`,
       result.exitCode,
-      result.stderr || undefined
+      result.stderr || undefined,
+      result.exitCode === 128 ? ErrorIds.GIT_NOT_A_REPOSITORY : ErrorIds.GIT_COMMAND_FAILED
     );
   } catch (error) {
     // Re-throw ValidationError as-is - these are programming errors
@@ -103,7 +106,8 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
         `Git command failed (exit code ${result.exitCode}): ${errorOutput}. ` +
           `Command: git ${args.join(' ')}`,
         result.exitCode,
-        result.stderr || undefined
+        result.stderr || undefined,
+        ErrorIds.GIT_COMMAND_FAILED
       );
     }
 
@@ -209,6 +213,7 @@ export async function hasRemoteTracking(branch?: string, options?: GitOptions): 
       branch: branch || 'current branch',
       errorMessage: errorMsg,
       exitCode,
+      errorId: ErrorIds.GIT_COMMAND_FAILED,
     });
 
     // Re-throw to surface the error to the caller
@@ -277,6 +282,7 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
       logger.error('getMainBranch: unexpected error checking main branch', {
         errorMessage: error instanceof Error ? error.message : String(error),
         exitCode: error instanceof GitError ? error.exitCode : undefined,
+        errorId: ErrorIds.GIT_COMMAND_FAILED,
       });
       throw error; // Re-throw unexpected errors
     }
@@ -294,6 +300,7 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
         logger.error('getMainBranch: unexpected error checking master branch', {
           errorMessage: masterError instanceof Error ? masterError.message : String(masterError),
           exitCode: masterError instanceof GitError ? masterError.exitCode : undefined,
+          errorId: ErrorIds.GIT_COMMAND_FAILED,
         });
         throw masterError; // Re-throw unexpected errors
       }
@@ -305,11 +312,15 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
       logger.error('getMainBranch: neither main nor master branch found', {
         mainError: errorMsg,
         masterError: masterErrorMsg,
+        errorId: ErrorIds.GIT_NO_MAIN_BRANCH,
       });
       throw GitError.create(
         'Could not find main or master branch. ' +
           'Ensure at least one of these branches exists in the repository. ' +
-          `Errors: main (${errorMsg}), master (${masterErrorMsg})`
+          `Errors: main (${errorMsg}), master (${masterErrorMsg})`,
+        undefined,
+        undefined,
+        ErrorIds.GIT_NO_MAIN_BRANCH
       );
     }
   }
