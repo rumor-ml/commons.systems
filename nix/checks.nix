@@ -310,7 +310,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
           # Use --frozen-lockfile to fail if lockfile doesn't match package.json
           # Use --prefer-offline to avoid network calls and use local cache for speed
-          if ! ${pkgs.pnpm}/bin/pnpm install --frozen-lockfile --prefer-offline > /dev/null 2>&1; then
+          # Use --ignore-scripts to avoid hanging on postinstall scripts (e.g., playwright install)
+          if ! ${pkgs.pnpm}/bin/pnpm install --frozen-lockfile --prefer-offline --ignore-scripts > /dev/null 2>&1; then
             echo ""
             echo "ERROR: pnpm lockfile is out of sync with package.json files"
             echo ""

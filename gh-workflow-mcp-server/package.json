@@ -13,7 +13,7 @@
     "watch": "tsc --watch",
     "dev": "tsc && node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test --test-reporter=tap dist/utils/gh-cli.test.js dist/utils/gh-watch.test.js dist/utils/errors.test.js dist/extractors/extractors.test.js dist/tools/monitor-run.test.js dist/tools/get-failure-details.test.js dist/tools/get-deployment-urls.test.js dist/tools/check-issue-dependencies.test.js dist/tools/prioritize-issues.test.js"
+    "test": "npm run build && node --test --test-reporter=tap dist/utils/gh-cli.test.js dist/utils/gh-watch.test.js dist/utils/string-utils.test.js dist/utils/errors.test.js dist/extractors/extractors.test.js dist/tools/monitor-run.test.js dist/tools/get-failure-details.test.js dist/tools/get-deployment-urls.test.js dist/tools/check-issue-dependencies.test.js dist/tools/prioritize-issues.test.js dist/tools/add-blocker.test.js dist/tools/remove-label-if-exists.test.js dist/tools/check-todo-in-main.test.js dist/index.test.js"
   },
   "dependencies": {
     "@commons/mcp-common": "file:../mcp-common",
