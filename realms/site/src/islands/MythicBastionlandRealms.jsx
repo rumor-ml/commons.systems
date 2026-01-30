@@ -2829,9 +2829,9 @@ function HexMap({ generator, viewBounds, renderKey }) {
       <defs>{clipPathDefs}</defs>
       <g>
         {hexElements}
+        {featureElements}
         {riverElements}
         {barrierElements}
-        {featureElements}
         {explorerElements}
       </g>
     </svg>
