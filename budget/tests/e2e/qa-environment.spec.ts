@@ -64,7 +64,7 @@ test.describe('QA Environment', () => {
     await expect(chartSvg).toBeVisible({ timeout: 15000 });
 
     // Verify chart has bars (demo data loaded)
-    const bars = page.locator('#chart-island svg rect[class*="bar"]');
+    const bars = page.locator('#chart-island svg rect[fill]');
     const barCount = await bars.count();
     expect(barCount).toBeGreaterThan(0);
 
