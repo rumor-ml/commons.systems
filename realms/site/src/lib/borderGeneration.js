@@ -6,6 +6,28 @@
  */
 
 /**
+ * Create a validated border cluster object
+ * @param {number} angle - Cluster angle in radians
+ * @param {number} strength - Cluster strength in range [0, 1]
+ * @returns {Object} Frozen cluster object with {angle, strength}
+ * @throws {Error} If angle or strength are invalid
+ */
+function createBorderCluster(angle, strength) {
+  if (!Number.isFinite(angle)) {
+    throw new Error(`Invalid cluster angle: ${angle}`);
+  }
+
+  if (!Number.isFinite(strength) || strength < 0 || strength > 1) {
+    throw new Error(`Invalid cluster strength: ${strength}. Must be in [0, 1]`);
+  }
+
+  // Normalize angle to [0, 2π]
+  const normalizedAngle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+
+  return Object.freeze({ angle: normalizedAngle, strength });
+}
+
+/**
  * Initialize border clusters for organic border shapes
  * @param {Object} rng - SeededRNG instance
  * @returns {Array} Array of cluster objects with {angle, strength}
@@ -17,7 +39,7 @@ export function initializeBorderClusters(rng) {
     const baseAngle = (i * Math.PI * 2) / numClusters;
     const angle = baseAngle + (rng.next() - 0.5) * (Math.PI / 3);
     const strength = 0.3 + rng.next() * 0.4;
-    clusters.push({ angle, strength });
+    clusters.push(createBorderCluster(angle, strength));
   }
   return clusters;
 }
