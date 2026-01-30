@@ -16,6 +16,53 @@ import {
 } from './hexMath.js';
 
 /**
+ * RiverNetwork class with validated operations to enforce invariants
+ */
+class RiverNetwork {
+  static MAX_EDGES = 24;
+  static MAX_TRIBUTARIES = 3;
+
+  constructor(id) {
+    if (!Number.isInteger(id) || id < 0) {
+      throw new Error(`Invalid network ID: ${id}`);
+    }
+    this.id = id;
+    this._edges = new Set();
+    this._tributaryCount = 0;
+  }
+
+  canAddEdge() {
+    return this._edges.size < RiverNetwork.MAX_EDGES;
+  }
+
+  addEdge(edgeKey) {
+    if (!this.canAddEdge()) {
+      throw new Error(`Network ${this.id} at max size ${RiverNetwork.MAX_EDGES}`);
+    }
+    this._edges.add(edgeKey);
+  }
+
+  get edges() {
+    return this._edges;
+  }
+
+  get tributaryCount() {
+    return this._tributaryCount;
+  }
+
+  canAddTributary() {
+    return this._tributaryCount < RiverNetwork.MAX_TRIBUTARIES;
+  }
+
+  incrementTributaries() {
+    if (!this.canAddTributary()) {
+      throw new Error(`Network ${this.id} at max tributaries ${RiverNetwork.MAX_TRIBUTARIES}`);
+    }
+    this._tributaryCount++;
+  }
+}
+
+/**
  * Initiate a new river at the given hex using vertex-centric algorithm
  *
  * Algorithm:
@@ -109,7 +156,7 @@ export function initiateRiver(ctx, hex) {
   if (validEdgeDirs.length === 0) return;
 
   // Create river network
-  const network = { id: ctx.riverIdCounter++, edges: new Set(), tributaryCount: 0 };
+  const network = new RiverNetwork(ctx.riverIdCounter++);
   ctx.rivers.push(network);
 
   // Add connecting edges
@@ -143,8 +190,8 @@ export function initiateRiver(ctx, hex) {
  * @param {string} startDir - Starting direction
  */
 export function planRiverPath(ctx, network, startHex, startDir) {
-  const TARGET_LENGTH = 24;
-  const TARGET_TRIBUTARIES = 3;
+  const TARGET_LENGTH = RiverNetwork.MAX_EDGES;
+  const TARGET_TRIBUTARIES = RiverNetwork.MAX_TRIBUTARIES;
 
   // Track hexes visited during planning (not actual exploration)
   const plannedHexes = new Set();
@@ -221,7 +268,7 @@ export function planRiverPath(ctx, network, startHex, startDir) {
       // Pick top 2 by score for tributary
       scoredDirs.sort((a, b) => b.score - a.score);
       directions = scoredDirs.slice(0, 2).map((s) => s.dir);
-      network.tributaryCount++;
+      network.incrementTributaries();
     } else {
       // Weighted random for single extension
       const weights = scoredDirs.map((s) => Math.max(1, s.score * s.score));
@@ -256,7 +303,7 @@ export function planRiverPath(ctx, network, startHex, startDir) {
           direction: normalizedDir,
           networkId: network.id,
         });
-        network.edges.add(edgeKey);
+        network.addEdge(edgeKey);
 
         // Add to queue
         const nextFrontier = hexNeighbor(current.q, current.r, dir);
@@ -272,8 +319,8 @@ export function planRiverPath(ctx, network, startHex, startDir) {
 }
 
 /**
- * Get canonical edge key for an edge
- * (Helper function matching the pattern in existing code)
+ * Get canonical edge key for an edge (normalized to use the hex with smaller q,r coordinates)
+ * Ensures each edge has exactly one representation regardless of which hex it's accessed from.
  */
 function getEdgeKey(q, r, direction) {
   const neighbor = hexNeighbor(q, r, direction);
