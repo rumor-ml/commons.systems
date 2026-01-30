@@ -194,6 +194,10 @@ cleanup_backend_lock() {
 # Register cleanup on exit (trap fires even on early exits/errors)
 trap cleanup_backend_lock EXIT
 
+# Merge Firestore rules from all apps
+echo "Merging Firestore rules from all apps..."
+bash "$SCRIPT_DIR/merge-firestore-rules.sh"
+
 # Lock acquired - check if backend is already running
 if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"

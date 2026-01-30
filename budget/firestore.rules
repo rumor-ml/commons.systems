@@ -150,11 +150,11 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
     }
 
-    // LIMITATION: Collections with suffixes like budget-demo-transactions_pr_123 or
-    // budget-demo-transactions_preview_branch are NOT covered by these rules.
-    // Firebase does not support collection name patterns. Worker-0 variants are now
-    // explicitly defined above to support parallel E2E test execution.
-    // For other dynamic preview environments, consider:
+    // LIMITATION: PR and preview collections (budget-demo-transactions_pr_123,
+    // budget-demo-transactions_preview_branch) are NOT covered by these rules.
+    // Firebase does not support collection name patterns. The -worker-0 variants
+    // for local emulator testing are explicitly defined above.
+    // For dynamic PR/preview environments, consider:
     //   1. Restructuring to use subcollections: /preview/{env}/transactions/{id}
     //   2. Deploying rules updates programmatically for each preview environment
     //   3. Handling permissions at the application level

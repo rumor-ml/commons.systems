@@ -253,16 +253,40 @@ jobs:
         run: ./infrastructure/scripts/test-go-package.sh pkg/filesync
 
   # ==================== Deploy Firestore Rules ====================
+  merge-firestore-rules:
+    name: Merge Firestore Rules
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Merge rules from all apps
+        run: bash infrastructure/scripts/merge-firestore-rules.sh
+
+      - name: Upload merged rules artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-firestore-rules
+          path: .firebase/firestore.rules
+          retention-days: 1
+
   deploy-firestore-rules:
     name: Deploy Firestore Rules
     runs-on: ubuntu-latest
-    needs: [test-firebase-fellspiral]
+    needs: [test-firebase-fellspiral, merge-firestore-rules]
     if: needs.test-firebase-fellspiral.result == 'success'
     timeout-minutes: 10
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download merged rules
+        uses: actions/download-artifact@v4
+        with:
+          name: merged-firestore-rules
+          path: .firebase
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -281,7 +305,7 @@ jobs:
           set -e
           echo "Deploying Firestore rules..."
           ACCESS_TOKEN=$(gcloud auth print-access-token)
-          RULES_CONTENT=$(cat fellspiral/firestore.rules | jq -Rs '.')
+          RULES_CONTENT=$(cat .firebase/firestore.rules | jq -Rs '.')
 
           RULESET_RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \

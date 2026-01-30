@@ -85,3 +85,6 @@ index.lock
 firebase.emulator.json
 firebase.json.backup
 .firebase-*.json
+
+# Generated Firestore rules
+.firebase/
