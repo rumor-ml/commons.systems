@@ -928,6 +928,15 @@ EOF
 test_bash_session_vars() {
   print_test_header "test_bash_session_vars"
 
+  # Skip if Home Manager is not installed (e.g., CI environment)
+  SESSION_VARS_FILE="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+  if [ ! -f "$SESSION_VARS_FILE" ]; then
+    echo -e "${YELLOW}⚠ SKIP: Home Manager not installed - session vars file not found${NC}"
+    echo -e "${YELLOW}  File: $SESSION_VARS_FILE${NC}"
+    echo -e "${YELLOW}  Run 'home-manager switch' to enable these tests${NC}"
+    return 0
+  fi
+
   # Test 1: Verify .bashrc exists and is configured for Home Manager
   TESTS_RUN=$((TESTS_RUN + 1))
   if [ -f "$HOME/.bashrc" ]; then
@@ -991,6 +1000,15 @@ test_bash_session_vars() {
 # Test 15: DST transition handling
 test_timezone_dst_transitions() {
   print_test_header "test_timezone_dst_transitions"
+
+  # Skip if Home Manager is not installed (e.g., CI environment)
+  SESSION_VARS_FILE="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+  if [ ! -f "$SESSION_VARS_FILE" ]; then
+    echo -e "${YELLOW}⚠ SKIP: Home Manager not installed - session vars file not found${NC}"
+    echo -e "${YELLOW}  File: $SESSION_VARS_FILE${NC}"
+    echo -e "${YELLOW}  Run 'home-manager switch' to enable these tests${NC}"
+    return 0
+  fi
 
   # Test 1: Winter time (EST) - use date in January
   TESTS_RUN=$((TESTS_RUN + 1))
