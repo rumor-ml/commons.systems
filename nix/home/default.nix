@@ -5,6 +5,8 @@
 # ensures reproducibility across different machines.
 #
 # This configuration includes:
+# - Bash shell integration (bash.nix)
+# - Zsh shell integration (zsh.nix)
 # - Git configuration (git.nix)
 # - Tmux configuration (tmux.nix)
 # - Development tools: direnv, neovim (tools.nix)
@@ -13,6 +15,7 @@
 # - SSH client and agent configuration (ssh.nix)
 # - SSH key auto-generation (ssh-keygen.nix)
 # - SSH authorized keys management (ssh-authorized-keys.nix)
+# - Timezone configuration (timezone.nix)
 #
 # To activate this configuration for your system:
 #   First time (requires experimental features flags):
@@ -36,6 +39,8 @@
 
 {
   imports = [
+    ./bash.nix
+    ./zsh.nix
     ./git.nix
     ./tmux.nix
     ./tools.nix
@@ -44,6 +49,7 @@
     ./ssh.nix
     ./ssh-keygen.nix
     ./ssh-authorized-keys.nix
+    ./timezone.nix
   ];
 
   # User identity - detect from environment or HOME directory
