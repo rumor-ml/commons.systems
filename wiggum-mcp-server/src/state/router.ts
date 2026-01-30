@@ -6,6 +6,7 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
+// TODO(#1679): Verify that removed TODO comments for #941 and #810 are fully addressed
 // TODO(#942): Extract verbose error handling pattern in router.ts state update failures
 // TODO(#932): Add retry history tracking to StateUpdateResult for better diagnostics
 // TODO(#858): Improve state update retry loop error context capture
@@ -79,9 +80,11 @@ export type StateUpdateResult =
     };
 
 /**
- * Configuration for state update operations.
- * Encapsulates differences between PR and issue updates.
+ * Configuration for state update operations using the strategy pattern.
+ * Encapsulates resource-specific differences (PR vs issue) allowing
+ * executeStateUpdateWithRetry to handle both uniformly.
  */
+// TODO(#653): Add tests for StateUpdateConfig validation
 interface StateUpdateConfig {
   readonly resourceType: 'pr' | 'issue';
   readonly resourceId: number;
@@ -119,6 +122,26 @@ export function createStateUpdateFailure(
 }
 
 /**
+ * Safely log a message with fallback to console on error
+ * Prevents logger failures from masking original errors in catch blocks
+ */
+function safeLog(
+  level: 'info' | 'warn' | 'error',
+  message: string,
+  context: Record<string, unknown>
+): void {
+  try {
+    logger[level](message, context);
+  } catch (loggingError) {
+    console.error('CRITICAL: Logger failed', {
+      level,
+      message,
+      loggingError: loggingError instanceof Error ? loggingError.message : String(loggingError),
+    });
+  }
+}
+
+/**
  * Generic state update with retry logic for both PR and issue bodies
  *
  * State persistence is CRITICAL for race condition fix (issue #388). Without
@@ -133,10 +156,11 @@ export function createStateUpdateFailure(
  * @param config - Configuration for the specific resource type (PR or issue)
  * @param state - New wiggum state to save
  * @param step - Step identifier for logging context
- * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
+ * @param maxRetries - Maximum retry attempts for transient failures
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
+// TODO(#653): Add direct tests for executeStateUpdateWithRetry
 async function executeStateUpdateWithRetry(
   config: StateUpdateConfig,
   state: WiggumState,
@@ -144,15 +168,25 @@ async function executeStateUpdateWithRetry(
   maxRetries: number
 ): Promise<StateUpdateResult> {
   const { resourceType, resourceId, resourceLabel, verifyCommand, updateFn } = config;
-  const functionName = resourceType === 'pr' ? 'safeUpdatePRBodyState' : 'safeUpdateIssueBodyState';
+  const functionName = 'executeStateUpdateWithRetry';
+  const resourceLabel2 = resourceType === 'pr' ? 'PR' : 'Issue';
   const resourceIdField = resourceType === 'pr' ? 'prNumber' : 'issueNumber';
 
+  // TODO(#653): Add tests for dynamic field name generation
+  // Validate config.updateFn is actually a function
+  if (typeof updateFn !== 'function') {
+    throw new ValidationError(
+      `${functionName}: config.updateFn must be a function, got: ${typeof updateFn}`
+    );
+  }
+
+  // TODO(#1678): State validation error at line 187 provides detailed error but loses original Zod error stack trace
   // Validate resourceId parameter (must be positive integer)
   // CRITICAL: Invalid resourceId would cause StateApiError.create() to throw ValidationError
   // inside catch blocks, potentially masking the original error
   if (!Number.isInteger(resourceId) || resourceId <= 0) {
     throw new ValidationError(
-      `${functionName}: ${resourceIdField} must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
+      `${functionName} (${resourceLabel2}): ${resourceIdField} must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
     );
   }
 
@@ -163,7 +197,7 @@ async function executeStateUpdateWithRetry(
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
-    logger.error(`${functionName}: Invalid maxRetries parameter`, {
+    safeLog('error', `${functionName}: Invalid maxRetries parameter`, {
       [resourceIdField]: resourceId,
       step,
       maxRetries,
@@ -172,7 +206,7 @@ async function executeStateUpdateWithRetry(
       impact: 'Cannot execute retry loop with invalid parameter',
     });
     throw new Error(
-      `${functionName}: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
+      `${functionName} (${resourceLabel2}): maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
         `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
         `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
         `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
@@ -227,21 +261,67 @@ async function executeStateUpdateWithRetry(
 
       return { success: true };
     } catch (updateError) {
+      // Type guard: Handle non-Error values thrown
+      if (
+        !(updateError instanceof Error) &&
+        !(updateError instanceof GitHubCliError) &&
+        typeof updateError !== 'object'
+      ) {
+        const primitiveError = new Error(`Non-Error thrown: ${String(updateError)}`);
+        safeLog('error', `CRITICAL: Non-Error value thrown in ${functionName}`, {
+          [resourceIdField]: resourceId,
+          step,
+          thrownValue: updateError,
+          thrownType: typeof updateError,
+        });
+        throw primitiveError;
+      }
+
       // State update is CRITICAL for race condition fix (issue #388)
       // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
       //
       // Known limitations:
-      // TODO(#320): Surface state persistence failures to users instead of silent warning (user-facing)
+      // TODO(#1684): Surface state persistence failures to users instead of silent warning (user-facing)
       // TODO(#415): Add type guards to catch blocks to avoid broad exception catching (type safety)
       // TODO(#468): Broad catch-all hides programming errors - add early type validation (related to #415)
       const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
       const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
-      const stateJson = JSON.stringify(state);
 
-      // Classify error type using shared utility
+      // Safe JSON serialization with error handling
+      let stateJson: string;
+      try {
+        stateJson = JSON.stringify(state);
+      } catch (serializationError) {
+        stateJson = '<serialization failed>';
+        safeLog('warn', 'Failed to serialize state for error context', {
+          [resourceIdField]: resourceId,
+          step,
+          serializationError:
+            serializationError instanceof Error
+              ? serializationError.message
+              : String(serializationError),
+        });
+      }
+
+      // Classify error type using shared utility with error handling
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      const classification = classifyGitHubError(updateError, exitCode);
+      let classification: ReturnType<typeof classifyGitHubError>;
+      try {
+        classification = classifyGitHubError(updateError, exitCode);
+      } catch (classificationError) {
+        safeLog('error', `CRITICAL: Error classification failed in ${functionName}`, {
+          [resourceIdField]: resourceId,
+          step,
+          originalError: errorMsg,
+          classificationError:
+            classificationError instanceof Error
+              ? classificationError.message
+              : String(classificationError),
+        });
+        // Re-throw original error since we can't classify it
+        throw updateError;
+      }
 
       // Build error context including classification results for debugging
       const errorContext = {
@@ -262,7 +342,8 @@ async function executeStateUpdateWithRetry(
 
       // Critical errors: Resource not found or authentication failures - throw immediately (no retry)
       if (classification.is404) {
-        logger.error(
+        safeLog(
+          'error',
           `Critical: ${resourceType === 'pr' ? 'PR' : 'Issue'} not found - cannot update state in body`,
           {
             ...errorContext,
@@ -276,7 +357,7 @@ async function executeStateUpdateWithRetry(
       }
 
       if (classification.isAuth) {
-        logger.error('Critical: Authentication failed - cannot update state in body', {
+        safeLog('error', 'Critical: Authentication failed - cannot update state in body', {
           ...errorContext,
           impact: 'Workflow state persistence failed - insufficient permissions',
           recommendation: 'Check gh auth status and token scopes: gh auth status',
@@ -287,6 +368,7 @@ async function executeStateUpdateWithRetry(
       }
 
       // Transient errors: Rate limits or network issues - retry with backoff
+      // TODO(#653): Add tests for backoff delay capping
       if (classification.isTransient) {
         const reason = classification.isRateLimit ? 'rate_limit' : 'network';
 
@@ -294,8 +376,21 @@ async function executeStateUpdateWithRetry(
           // Exponential backoff: 2^attempt seconds, capped at 60s
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
-          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
-          logger.info('Transient error updating state - retrying with backoff', {
+          let delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+
+          // Validate delay is safe for sleep
+          if (!Number.isFinite(delayMs) || delayMs < 0 || delayMs > MAX_DELAY_MS) {
+            safeLog('error', 'Invalid delay calculated', {
+              [resourceIdField]: resourceId,
+              step,
+              delayMs,
+              uncappedDelayMs,
+              attempt,
+            });
+            delayMs = 1000; // Safe fallback
+          }
+
+          safeLog('info', 'Transient error updating state - retrying with backoff', {
             ...errorContext,
             reason,
             delayMs,
@@ -309,7 +404,7 @@ async function executeStateUpdateWithRetry(
         // All retries exhausted - return failure result with error context for debugging
         const lastErrorObj =
           updateError instanceof Error ? updateError : new Error(String(updateError));
-        logger.warn('State update failed after all retries', {
+        safeLog('warn', 'State update failed after all retries', {
           ...errorContext,
           reason,
           impact: 'Workflow halted - manual retry required',
@@ -323,7 +418,7 @@ async function executeStateUpdateWithRetry(
       }
 
       // Unexpected errors: Programming errors or unknown failures - throw immediately
-      logger.error(`Unexpected error updating state in ${resourceType} body - re-throwing`, {
+      safeLog('error', `Unexpected error updating state in ${resourceType} body - re-throwing`, {
         ...errorContext,
         impact: 'Unknown failure type - may indicate programming error',
         recommendation: 'Review error message and stack trace',
@@ -335,13 +430,20 @@ async function executeStateUpdateWithRetry(
   }
   // Fallback: TypeScript cannot prove all catch paths return/throw.
   // If this executes, investigate gap in error classification (issue #625).
-  logger.error(`INTERNAL: ${functionName} retry loop completed without returning`, {
+  // TODO(#653): Add test for fallback error path
+  let fallbackStateJson: string;
+  try {
+    fallbackStateJson = JSON.stringify(state);
+  } catch {
+    fallbackStateJson = '<serialization failed>';
+  }
+  safeLog('error', `INTERNAL: ${functionName} retry loop completed without returning`, {
     [resourceIdField]: resourceId,
     step,
     maxRetries,
     phase: state.phase,
     iteration: state.iteration,
-    stateJson: JSON.stringify(state),
+    stateJson: fallbackStateJson,
     impact: 'Programming error in retry logic',
   });
   throw new Error(
@@ -428,16 +530,8 @@ function checkBranchPushed(
 /**
  * Safely update wiggum state in PR body with error handling and retry logic
  *
- * State persistence is CRITICAL for race condition fix (issue #388). Without
- * successful state updates, workflow state may become inconsistent when tools
- * are called out-of-order or GitHub API returns stale data. This function
- * classifies errors to distinguish between transient failures (safe to retry)
- * and critical failures (require immediate intervention).
- *
- * Retry strategy (issue #799):
- * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
- * - Critical errors (404, 401/403): Throw immediately - no retry
- * - Unexpected errors: Re-throw - programming errors or unknown failures
+ * Wrapper for executeStateUpdateWithRetry configured for PR updates.
+ * See executeStateUpdateWithRetry for detailed retry strategy and error handling.
  *
  * @param prNumber - PR number to update
  * @param state - New wiggum state to save
@@ -446,6 +540,7 @@ function checkBranchPushed(
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
+// TODO(#653): Add integration tests for wrapper function parity
 export async function safeUpdatePRBodyState(
   prNumber: number,
   state: WiggumState,
@@ -469,14 +564,8 @@ export async function safeUpdatePRBodyState(
 /**
  * Safely update wiggum state in issue body with error handling and retry logic
  *
- * State persistence is CRITICAL for race condition fix (issue #388). Without
- * successful state updates, workflow state may become inconsistent when tools
- * are called out-of-order or GitHub API returns stale data.
- *
- * Retry strategy (issue #799):
- * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
- * - Critical errors (404, 401/403): Throw immediately - no retry
- * - Unexpected errors: Re-throw - programming errors or unknown failures
+ * Wrapper for executeStateUpdateWithRetry configured for issue updates.
+ * See executeStateUpdateWithRetry for detailed retry strategy and error handling.
  *
  * @param issueNumber - Issue number to update
  * @param state - New wiggum state to save
