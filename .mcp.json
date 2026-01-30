@@ -3,17 +3,17 @@
     "gh-workflow": {
       "type": "stdio",
       "command": "node",
-      "args": ["gh-workflow-mcp-server/dist/index.js"]
+      "args": ["/Users/n8/commons.systems/gh-workflow-mcp-server/dist/index.js"]
     },
     "gh-issue": {
       "type": "stdio",
       "command": "node",
-      "args": ["gh-issue-mcp-server/dist/index.js"]
+      "args": ["/Users/n8/commons.systems/gh-issue-mcp-server/dist/index.js"]
     },
     "wiggum": {
       "type": "stdio",
       "command": "node",
-      "args": ["wiggum-mcp-server/dist/index.js"]
+      "args": ["/Users/n8/commons.systems/wiggum-mcp-server/dist/index.js"]
     }
   }
 }
