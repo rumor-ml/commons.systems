@@ -10,6 +10,7 @@
 
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import { FormattingError } from '../utils/errors.js';
 import { STEP_NAMES } from '../constants.js';
 import type { WiggumStep } from '../constants.js';
 import type { WiggumState } from './types.js';
@@ -49,6 +50,7 @@ type GuaranteedError = ToolResult & { isError: true };
  * @param params - State update failure parameters
  * @returns GuaranteedError with formatted error message
  */
+// TODO(#1665): Consider adding performance test for error handler execution time
 export function handleStateUpdateFailure(params: StateUpdateFailureParams): GuaranteedError {
   const { stateResult, newState, step, targetType, targetNumber } = params;
 
@@ -97,8 +99,8 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Guar
     targetType === 'issue' ? `gh issue view ${targetNumber}` : `gh pr view ${targetNumber}`;
 
   // Build context object for formatWiggumResponse
-  // Phase 1: No PR exists yet, so context is empty
-  // Phase 2: Include pr_number for PR-related operations
+  // Phase 1: No PR exists yet, so context is empty (issue-only operations)
+  // Phase 2: Include pr_number for PR-related operations and tracking
   const context = phase === 'phase1' ? {} : { pr_number: targetNumber };
 
   // NOTE: formatWiggumResponse can throw FormattingError if data is invalid.
@@ -126,11 +128,23 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Guar
       ],
       isError: true,
     };
-  } catch (formattingError) {
-    // Log the formatting error as a programming error
+  } catch (error) {
+    // Only provide fallback for FormattingError - re-throw unexpected errors
+    if (!(error instanceof FormattingError)) {
+      // Log unexpected error and re-throw to fail fast
+      logger.error('CRITICAL: Unexpected error in handleStateUpdateFailure', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        step,
+        targetType,
+        targetNumber,
+      });
+      throw error;
+    }
+
+    // Log the formatting error as expected failure requiring fallback
     logger.error('CRITICAL: Failed to format state update error message', {
-      formattingError:
-        formattingError instanceof Error ? formattingError.message : String(formattingError),
+      formattingError: error.message,
       step,
       targetType,
       targetNumber,

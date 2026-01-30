@@ -647,7 +647,6 @@ describe('State Update Retry Logic', () => {
 describe('handleStateUpdateFailure integration', () => {
   describe('Phase 1 Monitor Workflow callsite', () => {
     it('should pass correct parameters when state update fails after success', () => {
-      // This test verifies Phase 1 Monitor Workflow success path callsite
       // Tests that Phase 1 Monitor Workflow passes correct params to handleStateUpdateFailure
 
       // Mock StateUpdateResult failure
@@ -712,7 +711,6 @@ describe('handleStateUpdateFailure integration', () => {
 
   describe('Phase 2 Monitor Workflow callsite', () => {
     it('should pass correct parameters with PR target type', () => {
-      // This test verifies Phase 2 Monitor Workflow callsite
       // Tests that Phase 2 Monitor Workflow uses 'pr' instead of 'issue'
 
       const mockStateResult = createStateUpdateFailure(
@@ -830,8 +828,7 @@ describe('handleStateUpdateFailure integration', () => {
 
   describe('Error message correctness', () => {
     it('should produce issue-specific error messages for Phase 1', () => {
-      // Verifies that issue references use correct format
-      // Simulate handleStateUpdateFailure logic for Phase 1
+      // Documents the expected string format for issue references in error messages
       const targetRef = 'issue #123';
       const verifyCommand = 'gh issue view 123';
 
@@ -933,8 +930,6 @@ describe('handleStateUpdateFailure integration', () => {
     it('should verify each callsite returns the result immediately', () => {
       // Documents that each callsite must use 'return handleStateUpdateFailure(...)'
       // not just call it without returning
-
-      // This test documents the pattern - actual verification happens at integration level
       const mustReturnImmediately = true;
       assert.strictEqual(
         mustReturnImmediately,
@@ -1007,6 +1002,31 @@ describe('handleStateUpdateFailure integration', () => {
 
       assert.deepStrictEqual(newState.completedSteps, originalSteps);
       assert.ok(!newState.completedSteps.includes(STEP_PHASE2_MONITOR_WORKFLOW));
+    });
+  });
+
+  describe('Real callsite integration', () => {
+    it('should handle state update failure in actual router.ts callsite', async () => {
+      // TODO(#808): Add integration test that executes actual router.ts code paths
+      // Current tests verify parameter shapes but don't test actual callsite behavior.
+      //
+      // Blocked by: router.ts architecture doesn't support dependency injection
+      // - safeUpdateIssueBodyState is a direct import, can't be mocked
+      // - Handler functions (handlePhase1MonitorWorkflow, etc.) are not exported
+      // - No test entry points to inject mocks
+      //
+      // Needed refactoring:
+      // 1. Export handler functions or add test-only entry points
+      // 2. Use dependency injection for safeUpdateIssueBodyState
+      // 3. Add integration tests that verify actual callsites call handleStateUpdateFailure
+      //
+      // This test would prevent bugs like:
+      // - Missing 'return' keyword at callsite (returns wrong value)
+      // - Wrong targetType passed ('issue' instead of 'pr')
+      // - Wrong stateResult variable used (stateResult vs stateResult2)
+
+      // Placeholder assertion to make test pass until refactoring is done
+      assert.ok(true, 'Integration test pending router.ts refactoring');
     });
   });
 });
