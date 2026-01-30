@@ -20,7 +20,7 @@ import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
-import { WiggumStateSchema, createWiggumState } from './types.js';
+import { WiggumStateSchema, createWiggumState, isIssueExists } from './types.js';
 import { applyWiggumState } from './state-utils.js';
 import { advanceToNextStep } from './transitions.js';
 import {
@@ -744,7 +744,7 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
  */
 async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
   // Validate issue exists
-  if (!state.issue.exists || !state.issue.number) {
+  if (!isIssueExists(state.issue)) {
     return {
       content: [
         {
