@@ -574,7 +574,8 @@ describe('ParsingError', () => {
       totalLines: 100,
     });
 
-    // TypeScript enforces readonly, but verify the property exists and is accessible
+    // TypeScript's readonly is a compile-time feature only (no runtime enforcement)
+    // Verify the property exists and is accessible at runtime
     assert.ok(error.context);
     assert.equal(error.context.totalLines, 100);
   });
@@ -584,6 +585,176 @@ describe('ParsingError', () => {
 
     assert.ok(error.context);
     assert.deepEqual(error.context, {});
+  });
+});
+
+describe('ParsingError context validation', () => {
+  it('validates successRate is between 0.0 and 1.0', () => {
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { successRate: 1.5 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid successRate: 1.5') &&
+          err.message.includes('must be 0.0-1.0')
+        );
+      }
+    );
+
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { successRate: -0.1 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return err.message.includes('Invalid successRate: -0.1');
+      }
+    );
+
+    // Valid values should not throw
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { successRate: 0.0 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { successRate: 0.5 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { successRate: 1.0 }));
+  });
+
+  it('validates minSuccessRate is between 0.0 and 1.0', () => {
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { minSuccessRate: 2.0 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid minSuccessRate: 2') &&
+          err.message.includes('must be 0.0-1.0')
+        );
+      }
+    );
+
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { minSuccessRate: -1 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return err.message.includes('Invalid minSuccessRate: -1');
+      }
+    );
+
+    // Valid values should not throw
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { minSuccessRate: 0.0 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { minSuccessRate: 0.7 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { minSuccessRate: 1.0 }));
+  });
+
+  it('validates totalLines is non-negative', () => {
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { totalLines: -100 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid totalLines: -100') &&
+          err.message.includes('must be non-negative')
+        );
+      }
+    );
+
+    // Valid values should not throw
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { totalLines: 0 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { totalLines: 100 }));
+  });
+
+  it('validates skippedLines is non-negative', () => {
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { skippedLines: -50 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid skippedLines: -50') &&
+          err.message.includes('must be non-negative')
+        );
+      }
+    );
+
+    // Valid values should not throw
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { skippedLines: 0 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { skippedLines: 50 }));
+  });
+
+  it('validates parsedLines is non-negative', () => {
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { parsedLines: -25 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid parsedLines: -25') &&
+          err.message.includes('must be non-negative')
+        );
+      }
+    );
+
+    // Valid values should not throw
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { parsedLines: 0 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { parsedLines: 25 }));
+  });
+
+  it('validates parsedSteps is non-negative', () => {
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { parsedSteps: -10 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return (
+          err.message.includes('Invalid parsedSteps: -10') &&
+          err.message.includes('must be non-negative')
+        );
+      }
+    );
+
+    // Valid values should not throw
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { parsedSteps: 0 }));
+    assert.doesNotThrow(() => new ParsingError('Parse failed', undefined, { parsedSteps: 10 }));
+  });
+
+  it('validates skippedLines does not exceed totalLines', () => {
+    assert.throws(
+      () => new ParsingError('Parse failed', undefined, { totalLines: 100, skippedLines: 150 }),
+      (err: unknown) => {
+        if (!(err instanceof ValidationError)) return false;
+        return err.message.includes('skippedLines (150) cannot exceed totalLines (100)');
+      }
+    );
+
+    // Valid values should not throw
+    assert.doesNotThrow(
+      () => new ParsingError('Parse failed', undefined, { totalLines: 100, skippedLines: 50 })
+    );
+    assert.doesNotThrow(
+      () => new ParsingError('Parse failed', undefined, { totalLines: 100, skippedLines: 100 })
+    );
+  });
+
+  it('allows valid context with all numeric constraints satisfied', () => {
+    assert.doesNotThrow(
+      () =>
+        new ParsingError('Parse failed', undefined, {
+          totalLines: 100,
+          skippedLines: 30,
+          parsedLines: 70,
+          parsedSteps: 5,
+          successRate: 0.7,
+          minSuccessRate: 0.65,
+          parseType: 'workflow-logs',
+        })
+    );
+  });
+
+  it('skips validation for undefined fields', () => {
+    // Should not throw even though some fields are undefined
+    assert.doesNotThrow(
+      () =>
+        new ParsingError('Parse failed', undefined, {
+          totalLines: undefined,
+          skippedLines: undefined,
+          successRate: undefined,
+          minSuccessRate: undefined,
+          parsedLines: undefined,
+          parsedSteps: undefined,
+        })
+    );
   });
 });
 
@@ -611,7 +782,8 @@ describe('ParsingError context serialization and inspection', () => {
     });
     const errorWithoutContext = new ParsingError('Parse failed');
 
-    // Pattern: error handlers should check context existence
+    // Pattern: error handlers should check context existence before accessing properties
+    // This prevents runtime errors when handling ParsingErrors that may not have context
     if (errorWithContext.context) {
       assert.equal(errorWithContext.context.totalLines, 100);
     } else {
@@ -659,7 +831,8 @@ describe('ParsingError context serialization and inspection', () => {
     assert.strictEqual(error.context.skippedLines, undefined);
     assert.strictEqual(error.context.successRate, undefined);
 
-    // Verify it serializes without throwing
+    // Verify context with undefined fields serializes safely for logging/metrics systems.
+    // Some error reporting systems may serialize context for storage or transmission.
     const serialized = JSON.stringify(error.context);
     assert.ok(serialized);
   });

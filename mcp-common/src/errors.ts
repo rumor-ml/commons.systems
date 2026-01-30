@@ -583,7 +583,22 @@ export interface ParsingErrorContext {
   successRate?: number;
   /** Minimum acceptable success rate threshold (0.0 to 1.0) */
   minSuccessRate?: number;
-  /** Generic count of successfully parsed items (deprecated: use parsedLines or parsedSteps) */
+  /**
+   * Parsing success counts - use the most specific field for your use case:
+   * - parsedLines: For line-by-line parsing (e.g., log files, CSV)
+   * - parsedSteps: For structural parsing (e.g., workflow steps, objects)
+   * - parsedCount: Deprecated - use parsedLines or parsedSteps
+   *
+   * Relationship: totalLines = parsedLines + skippedLines
+   */
+  /**
+   * Generic count of successfully parsed items
+   *
+   * @deprecated Use `parsedLines` for line-based parsing (e.g., log files) or
+   * `parsedSteps` for step-based parsing (e.g., workflow steps). This field is
+   * ambiguous and will be removed in a future version. The ambiguity caused
+   * confusion about whether it counted lines, steps, or other units.
+   */
   parsedCount?: number;
   /** Number of successfully parsed lines */
   parsedLines?: number;
@@ -620,13 +635,15 @@ export interface ParsingErrorContext {
  * ```typescript
  * // With structured context for metrics
  * throw new ParsingError(
- *   'Failed to parse workflow logs',
+ *   'Failed to parse workflow logs: 35.0% of lines could not be parsed',
  *   undefined,
  *   {
  *     successRate: 0.65,
  *     minSuccessRate: 0.7,
  *     totalLines: 100,
+ *     skippedLines: 35,
  *     parsedLines: 65,
+ *     parsedSteps: 5,
  *     parseType: 'workflow-logs'
  *   }
  * );
@@ -640,6 +657,56 @@ export class ParsingError extends McpError {
   ) {
     super(message, 'PARSING_ERROR');
     this.name = 'ParsingError';
+
+    // Validate context if provided
+    if (context) {
+      if (
+        context.successRate !== undefined &&
+        (context.successRate < 0 || context.successRate > 1)
+      ) {
+        throw new ValidationError(`Invalid successRate: ${context.successRate} (must be 0.0-1.0)`);
+      }
+      if (
+        context.minSuccessRate !== undefined &&
+        (context.minSuccessRate < 0 || context.minSuccessRate > 1)
+      ) {
+        throw new ValidationError(
+          `Invalid minSuccessRate: ${context.minSuccessRate} (must be 0.0-1.0)`
+        );
+      }
+      if (context.totalLines !== undefined && context.totalLines < 0) {
+        throw new ValidationError(
+          `Invalid totalLines: ${context.totalLines} (must be non-negative)`
+        );
+      }
+      if (context.skippedLines !== undefined && context.skippedLines < 0) {
+        throw new ValidationError(
+          `Invalid skippedLines: ${context.skippedLines} (must be non-negative)`
+        );
+      }
+      if (context.parsedLines !== undefined && context.parsedLines < 0) {
+        throw new ValidationError(
+          `Invalid parsedLines: ${context.parsedLines} (must be non-negative)`
+        );
+      }
+      if (context.parsedSteps !== undefined && context.parsedSteps < 0) {
+        throw new ValidationError(
+          `Invalid parsedSteps: ${context.parsedSteps} (must be non-negative)`
+        );
+      }
+
+      // Validate relational constraints
+      if (
+        context.totalLines !== undefined &&
+        context.skippedLines !== undefined &&
+        context.skippedLines > context.totalLines
+      ) {
+        throw new ValidationError(
+          `skippedLines (${context.skippedLines}) cannot exceed totalLines (${context.totalLines})`
+        );
+      }
+    }
+
     if (cause) {
       this.cause = cause;
     }

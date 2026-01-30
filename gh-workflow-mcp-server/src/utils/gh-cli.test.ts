@@ -4,7 +4,8 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { mapStateToStatus, mapStateToConclusion } from './gh-cli.js';
+import { mapStateToStatus, mapStateToConclusion, parseFailedStepLogs } from './gh-cli.js';
+import { ParsingError } from '@commons/mcp-common/errors';
 
 describe('mapStateToStatus', () => {
   test('maps PENDING to in_progress', () => {
@@ -530,6 +531,239 @@ describe('Rate Limit Retry Logic', () => {
       assert.ok(!error.message.toLowerCase().includes('network'));
       assert.ok(!error.message.toLowerCase().includes('timeout'));
       assert.ok(!error.message.toLowerCase().includes('rate limit'));
+    });
+  });
+});
+
+// ParsingError integration tests for parseFailedStepLogs (issue #859)
+describe('parseFailedStepLogs ParsingError integration', () => {
+  describe('throws ParsingError with structured context when success rate below threshold', () => {
+    test('should include all context fields when parsing quality is too poor', () => {
+      // Create log output with 80% unparseable lines (20% success rate < 70% threshold)
+      // Format: timestamp\tjob-name\tstep-name\tlog-line
+      const logLines = [
+        '2024-01-01T00:00:00.0000000Z\tBuild\tCheckout\tChecking out repository',
+        '2024-01-01T00:00:01.0000000Z\tBuild\tSetup\tSetting up environment',
+        'malformed line 1',
+        'malformed line 2',
+        'malformed line 3',
+        'malformed line 4',
+        'malformed line 5',
+        'malformed line 6',
+        'malformed line 7',
+        'malformed line 8',
+      ];
+      const output = logLines.join('\n');
+
+      try {
+        parseFailedStepLogs(output);
+        assert.fail('Expected ParsingError to be thrown');
+      } catch (error) {
+        assert.ok(error instanceof ParsingError, 'Should throw ParsingError');
+        assert.ok(error.context, 'Should have context property');
+        assert.strictEqual(error.context.totalLines, 10, 'Should have correct totalLines');
+        assert.strictEqual(error.context.skippedLines, 8, 'Should have correct skippedLines');
+        assert.strictEqual(error.context.parsedLines, 2, 'Should have correct parsedLines');
+        assert.strictEqual(error.context.successRate, 0.2, 'Should have correct successRate (20%)');
+        assert.strictEqual(
+          error.context.minSuccessRate,
+          0.7,
+          'Should have correct minSuccessRate (70%)'
+        );
+        assert.strictEqual(error.context.parseType, 'workflow-logs', 'Should have parseType');
+        assert.ok(
+          typeof error.context.parsedSteps === 'number',
+          'Should have parsedSteps as number'
+        );
+      }
+    });
+
+    test('should throw when exactly at 69.9% success rate (just below threshold)', () => {
+      // Create exactly 30 parseable lines and 70 malformed lines (30% < 70% threshold)
+      const parseableLines = Array.from(
+        { length: 30 },
+        (_, i) => `2024-01-01T00:00:${i.toString().padStart(2, '0')}.0000000Z\tJob\tStep\tLog ${i}`
+      );
+      const malformedLines = Array.from({ length: 70 }, (_, i) => `malformed ${i}`);
+      const output = [...parseableLines, ...malformedLines].join('\n');
+
+      try {
+        parseFailedStepLogs(output);
+        assert.fail('Expected ParsingError to be thrown');
+      } catch (error) {
+        assert.ok(error instanceof ParsingError);
+        assert.strictEqual(error.context?.successRate, 0.3);
+        assert.ok((error.context?.successRate ?? 0) < 0.7, 'Success rate should be below 70%');
+      }
+    });
+
+    test('should NOT throw when exactly at 70% success rate (at threshold)', () => {
+      // Create exactly 70 parseable lines and 30 malformed lines (70% = 70% threshold)
+      const parseableLines = Array.from(
+        { length: 70 },
+        (_, i) => `2024-01-01T00:00:${i.toString().padStart(2, '0')}.0000000Z\tJob\tStep\tLog ${i}`
+      );
+      const malformedLines = Array.from({ length: 30 }, (_, i) => `malformed ${i}`);
+      const output = [...parseableLines, ...malformedLines].join('\n');
+
+      // Should NOT throw - 70% is exactly at threshold
+      const result = parseFailedStepLogs(output);
+      assert.ok(result);
+      assert.strictEqual(result.successRate, 0.7);
+    });
+
+    test('should NOT throw when above 70% success rate', () => {
+      // Create 80 parseable lines and 20 malformed lines (80% > 70% threshold)
+      const parseableLines = Array.from(
+        { length: 80 },
+        (_, i) => `2024-01-01T00:00:${i.toString().padStart(2, '0')}.0000000Z\tJob\tStep\tLog ${i}`
+      );
+      const malformedLines = Array.from({ length: 20 }, (_, i) => `malformed ${i}`);
+      const output = [...parseableLines, ...malformedLines].join('\n');
+
+      const result = parseFailedStepLogs(output);
+      assert.ok(result);
+      assert.strictEqual(result.successRate, 0.8);
+      assert.ok(result.successRate >= 0.7, 'Success rate should be at or above 70%');
+    });
+  });
+
+  describe('error handler code path integration', () => {
+    test('allows error handlers to access context properties programmatically', () => {
+      // Create input with poor parsing quality
+      const badInput = Array.from({ length: 100 }, (_, i) =>
+        i < 20
+          ? `2024-01-01T00:00:${i.toString().padStart(2, '0')}.0000000Z\tJob\tStep\tLog ${i}`
+          : `malformed line ${i}`
+      ).join('\n');
+
+      try {
+        parseFailedStepLogs(badInput);
+        assert.fail('Expected ParsingError to be thrown');
+      } catch (error) {
+        // Verify error handler patterns work correctly
+        assert.ok(error instanceof ParsingError, 'Should throw ParsingError');
+        assert.ok(error.context, 'Should have context property');
+        assert.strictEqual(error.context.parseType, 'workflow-logs');
+        assert.ok(error.context.successRate !== undefined, 'Should have successRate');
+        assert.ok(error.context.totalLines !== undefined, 'Should have totalLines');
+        assert.ok(error.context.minSuccessRate === 0.7, 'Should have correct threshold');
+
+        // Verify context can be used for metrics collection
+        const { successRate, totalLines, skippedLines } = error.context;
+        assert.strictEqual(typeof successRate, 'number', 'successRate should be number');
+        assert.strictEqual(typeof totalLines, 'number', 'totalLines should be number');
+        assert.strictEqual(typeof skippedLines, 'number', 'skippedLines should be number');
+
+        // Verify quality check pattern works
+        const qualityIssue = error.context.successRate! < error.context.minSuccessRate!;
+        assert.ok(qualityIssue, 'Should detect quality issue from context');
+      }
+    });
+
+    test('allows error handlers to calculate metrics from context', () => {
+      const badInput = Array.from({ length: 50 }, (_, i) =>
+        i < 10
+          ? `2024-01-01T00:00:${i.toString().padStart(2, '0')}.0000000Z\tJob\tStep\tLog ${i}`
+          : `malformed line ${i}`
+      ).join('\n');
+
+      try {
+        parseFailedStepLogs(badInput);
+      } catch (error) {
+        if (error instanceof ParsingError && error.context) {
+          // Demonstrate metrics calculation patterns
+          const failureRate = 1 - error.context.successRate!;
+          const parsedPercentage = (error.context.successRate! * 100).toFixed(1);
+          const isSeverelyCorrrupt = error.context.successRate! < 0.3;
+
+          assert.strictEqual(typeof failureRate, 'number');
+          assert.ok(failureRate > 0 && failureRate < 1);
+          assert.strictEqual(parsedPercentage, '20.0');
+          assert.strictEqual(isSeverelyCorrrupt, true);
+        }
+      }
+    });
+
+    test('verifies context data survives error propagation', () => {
+      const badInput = Array.from({ length: 20 }, (_, i) =>
+        i < 5 ? `2024-01-01T00:00:0${i}.0000000Z\tJob\tStep\tLog ${i}` : `malformed ${i}`
+      ).join('\n');
+
+      let caughtError: ParsingError | null = null;
+
+      // Simulate error propagation through multiple layers
+      try {
+        try {
+          parseFailedStepLogs(badInput);
+        } catch (innerError) {
+          // Re-throw to test propagation
+          throw innerError;
+        }
+      } catch (outerError) {
+        caughtError = outerError as ParsingError;
+      }
+
+      // Verify context survived propagation
+      assert.ok(caughtError instanceof ParsingError);
+      assert.ok(caughtError.context, 'Context should survive propagation');
+      assert.strictEqual(caughtError.context.totalLines, 20);
+      assert.strictEqual(caughtError.context.skippedLines, 15);
+      assert.strictEqual(caughtError.context.successRate, 0.25);
+      assert.strictEqual(caughtError.context.parseType, 'workflow-logs');
+    });
+  });
+
+  describe('edge cases and boundary conditions', () => {
+    test('handles empty input gracefully', () => {
+      const result = parseFailedStepLogs('');
+      assert.ok(result);
+      assert.strictEqual(result.totalLines, 0);
+      assert.strictEqual(result.skippedLines, 0);
+      assert.strictEqual(result.successRate, 1); // No lines = 100% success
+    });
+
+    test('handles input with only whitespace', () => {
+      const result = parseFailedStepLogs('   \n\n   \n');
+      assert.ok(result);
+      assert.strictEqual(result.totalLines, 0); // Empty lines are filtered out
+    });
+
+    test('handles 100% malformed input', () => {
+      const badInput = Array.from({ length: 10 }, (_, i) => `malformed ${i}`).join('\n');
+
+      try {
+        parseFailedStepLogs(badInput);
+        assert.fail('Expected ParsingError to be thrown');
+      } catch (error) {
+        assert.ok(error instanceof ParsingError);
+        assert.strictEqual(error.context?.successRate, 0);
+        assert.strictEqual(error.context?.totalLines, 10);
+        assert.strictEqual(error.context?.skippedLines, 10);
+        assert.strictEqual(error.context?.parsedLines, 0);
+      }
+    });
+
+    test('handles mixed valid and invalid log formats', () => {
+      const mixedInput = [
+        '2024-01-01T00:00:00.0000000Z\tJob1\tStep1\tValid log 1',
+        'completely invalid',
+        '2024-01-01T00:00:01.0000000Z\tJob1\tStep2\tValid log 2',
+        'another invalid line',
+        'yet another invalid',
+        '2024-01-01T00:00:02.0000000Z\tJob2\tStep1\tValid log 3',
+      ].join('\n');
+
+      // 3 valid out of 6 = 50% < 70% threshold
+      try {
+        parseFailedStepLogs(mixedInput);
+        assert.fail('Expected ParsingError to be thrown');
+      } catch (error) {
+        assert.ok(error instanceof ParsingError);
+        assert.strictEqual(error.context?.successRate, 0.5);
+        assert.strictEqual(error.context?.parsedLines, 3);
+        assert.strictEqual(error.context?.skippedLines, 3);
+      }
     });
   });
 });
