@@ -26,6 +26,7 @@ async function loadTransactions(): Promise<Transaction[]> {
 
   // Return existing promise if load is in progress
   if (transactionsLoadPromise) {
+    console.log('[Budget] Reusing existing load promise');
     return transactionsLoadPromise;
   }
 
@@ -68,8 +69,12 @@ async function loadTransactions(): Promise<Transaction[]> {
 function updateIsland(elementId: string, componentName: string, props: object): void {
   const el = document.getElementById(elementId) as HTMLElement;
   if (el) {
+    console.log(`[Budget] Updating island ${elementId} with props:`, Object.keys(props));
     el.setAttribute('data-island-props', JSON.stringify(props));
     hydrateIsland(el, componentName);
+    console.log(`[Budget] Island ${elementId} hydrated`);
+  } else {
+    console.warn(`[Budget] Island element ${elementId} not found in DOM`);
   }
 }
 
@@ -118,7 +123,7 @@ async function updateMainView(): Promise<void> {
   console.log(`[Budget] updateMainView: loaded ${transactions.length} transactions, updating islands...`);
 
   // Update chart island
-  updateIsland('chart-island', 'BudgetChart', {
+  const chartProps = {
     transactions,
     hiddenCategories: state.hiddenCategories,
     showVacation: state.showVacation,
@@ -128,7 +133,9 @@ async function updateMainView(): Promise<void> {
     barAggregation: state.barAggregation,
     visibleIndicators: state.visibleIndicators,
     showNetIncomeIndicator: state.showNetIncomeIndicator,
-  });
+  };
+  console.log(`[Budget] Chart props: ${transactions.length} transactions`);
+  updateIsland('chart-island', 'BudgetChart', chartProps);
 
   // Update legend island
   updateIsland('legend-island', 'Legend', {
