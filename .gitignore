@@ -47,6 +47,9 @@ temp/
 *.tmp
 *.bak
 
+# Realms build artifacts
+realms/site/src/public/
+
 # Nix
 .direnv/
 .envrc.cache
