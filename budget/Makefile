@@ -2,13 +2,15 @@
 # Firebase static site
 # Follows commons.systems monorepo build patterns
 
-.PHONY: help build dev test test-unit test-e2e clean install validate format lint typecheck
+.PHONY: help build dev dev-full dev-pool test test-unit test-e2e clean install validate format lint typecheck
 
 help:
 	@echo "\033[36mbudget - Budget tracking app\033[0m"
 	@echo ""
 	@echo "\033[32mDevelopment targets:\033[0m"
-	@echo "  make dev             - Start development server"
+	@echo "  make dev             - Start development server only (emulators separate)"
+	@echo "  make dev-full        - Start emulators + dev server (singleton mode)"
+	@echo "  make dev-pool        - Start emulators + dev server (pool mode)"
 	@echo "  make build           - Build production bundle"
 	@echo "  make install         - Install dependencies"
 	@echo ""
@@ -30,6 +32,14 @@ help:
 dev:
 	@echo "Starting budget in development mode..."
 	@cd site && pnpm dev
+
+dev-full:
+	@echo "Starting budget with emulators (singleton mode)..."
+	@../infrastructure/scripts/start-dev-environment.sh budget
+
+dev-pool:
+	@echo "Starting budget with emulators (pool mode)..."
+	@../infrastructure/scripts/start-dev-environment.sh pool budget
 
 # Build
 build:

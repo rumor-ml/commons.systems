@@ -21,6 +21,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/port-utils.sh"
 
+# Get worktree root for registration (will be set by allocate-test-ports.sh in singleton mode)
+# In pool mode, it's set from environment
+WORKTREE_ROOT="${WORKTREE_ROOT:-}"
+
 # Check sandbox requirement BEFORE any emulator operations
 check_sandbox_requirement "Starting Firebase emulators" || exit 1
 
@@ -331,6 +335,38 @@ EOF
     # Don't fail startup, but warn user
   fi
   echo ""
+
+  # Seed QA users after backend emulators are confirmed healthy
+  # Only run once in singleton mode (not for each app worktree)
+  if [ -z "${POOL_INSTANCE_ID:-}" ]; then
+    echo "Seeding QA users..."
+    if command -v node &> /dev/null; then
+      # Set up environment for seed script
+      export FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:${AUTH_PORT}"
+      export GCP_PROJECT_ID="${PROJECT_ID}"
+
+      if node "${SCRIPT_DIR}/seed-qa-users.js" 2>/dev/null; then
+        echo "✓ QA users configured"
+      else
+        echo "⚠️  Failed to seed QA users (non-critical)" >&2
+      fi
+    else
+      echo "⚠️  Node.js not found, skipping QA user seeding" >&2
+    fi
+    echo ""
+  fi
+
+  # Register worktree for singleton mode (after backend emulators are confirmed running)
+  if [ -z "${POOL_INSTANCE_ID:-}" ]; then
+    # Ensure WORKTREE_ROOT is set
+    if [ -z "$WORKTREE_ROOT" ]; then
+      WORKTREE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || WORKTREE_ROOT="$PROJECT_ROOT"
+    fi
+
+    if ! "${SCRIPT_DIR}/worktree-registry.sh" register "$WORKTREE_ROOT" "$PROJECT_ID" "singleton" 2>/dev/null; then
+      echo "⚠️  Failed to register worktree (non-critical)" >&2
+    fi
+  fi
 fi
 
 # Lock will be automatically released by trap on exit
@@ -728,6 +764,18 @@ if [ $PORT_RETRY_COUNT -gt 0 ]; then
   echo "✓ Successfully started hosting emulator after ${PORT_RETRY_COUNT} port conflict(s)"
   echo "  Original port: ${ORIGINAL_HOSTING_PORT}"
   echo "  Final port: ${HOSTING_PORT}"
+fi
+
+# Register worktree for pool mode (after hosting emulator is ready and pool instance is claimed)
+if [ -n "${POOL_INSTANCE_ID:-}" ]; then
+  # Ensure WORKTREE_ROOT is set
+  if [ -z "$WORKTREE_ROOT" ]; then
+    WORKTREE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || WORKTREE_ROOT="$PROJECT_ROOT"
+  fi
+
+  if ! "${SCRIPT_DIR}/worktree-registry.sh" register "$WORKTREE_ROOT" "$PROJECT_ID" "pool" "$POOL_INSTANCE_ID" 2>/dev/null; then
+    echo "⚠️  Failed to register worktree (non-critical)" >&2
+  fi
 fi
 
 # ============================================================================

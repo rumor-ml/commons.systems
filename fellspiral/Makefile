@@ -2,13 +2,15 @@
 # Firebase static site
 # Follows commons.systems monorepo build patterns
 
-.PHONY: help build dev test test-unit test-e2e clean install validate format lint typecheck
+.PHONY: help build dev dev-full dev-pool test test-unit test-e2e clean install validate format lint typecheck
 
 help:
 	@echo "\033[36mfellspiral - Firebase static site\033[0m"
 	@echo ""
 	@echo "\033[32mDevelopment targets:\033[0m"
-	@echo "  make dev             - Start development server"
+	@echo "  make dev             - Start development server only (emulators separate)"
+	@echo "  make dev-full        - Start emulators + dev server (singleton mode)"
+	@echo "  make dev-pool        - Start emulators + dev server (pool mode)"
 	@echo "  make build           - Build production bundle"
 	@echo "  make install         - Install dependencies"
 	@echo ""
@@ -30,6 +32,14 @@ help:
 dev:
 	@echo "Starting fellspiral in development mode..."
 	@cd site && pnpm dev
+
+dev-full:
+	@echo "Starting fellspiral with emulators (singleton mode)..."
+	@../infrastructure/scripts/start-dev-environment.sh fellspiral
+
+dev-pool:
+	@echo "Starting fellspiral with emulators (pool mode)..."
+	@../infrastructure/scripts/start-dev-environment.sh pool fellspiral
 
 # Build
 build:

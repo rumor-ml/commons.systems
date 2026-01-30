@@ -1,13 +1,15 @@
 # Makefile for printsync
 # Follows commons.systems monorepo build patterns
 
-.PHONY: help build dev test test-unit test-e2e clean validate format lint typecheck
+.PHONY: help build dev dev-full dev-pool test test-unit test-e2e clean validate format lint typecheck
 
 help:
 	@echo "\033[36mprintsync - Print queue sync service\033[0m"
 	@echo ""
 	@echo "\033[32mDevelopment targets:\033[0m"
-	@echo "  make dev             - Start development server"
+	@echo "  make dev             - Start development server only (emulators separate)"
+	@echo "  make dev-full        - Start emulators + dev server (singleton mode)"
+	@echo "  make dev-pool        - Start emulators + dev server (pool mode)"
 	@echo "  make build           - Build production bundle"
 	@echo ""
 	@echo "\033[32mTest targets:\033[0m"
@@ -28,6 +30,14 @@ help:
 dev:
 	@echo "Starting printsync in development mode..."
 	@cd site && make dev
+
+dev-full:
+	@echo "Starting printsync with emulators (singleton mode)..."
+	@../infrastructure/scripts/start-dev-environment.sh printsync
+
+dev-pool:
+	@echo "Starting printsync with emulators (pool mode)..."
+	@../infrastructure/scripts/start-dev-environment.sh pool printsync
 
 build:
 	@echo "Building printsync..."
