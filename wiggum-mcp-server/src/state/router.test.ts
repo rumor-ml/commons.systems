@@ -97,7 +97,7 @@ describe('checkUncommittedChanges', () => {
     const state = createMockState({ git: { hasUncommittedChanges: true } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],
@@ -122,7 +122,7 @@ describe('checkUncommittedChanges', () => {
     const state = createMockState({ git: { hasUncommittedChanges: false } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],
@@ -140,7 +140,7 @@ describe('checkBranchPushed', () => {
     const state = createMockState({ git: { isPushed: false } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],
@@ -163,7 +163,7 @@ describe('checkBranchPushed', () => {
     const state = createMockState({ git: { isPushed: true } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],

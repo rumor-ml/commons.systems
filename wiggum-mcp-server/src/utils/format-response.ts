@@ -23,6 +23,7 @@
 // TODO(#304): Add readonly modifiers to type definitions
 
 import { FormattingError } from './errors.js';
+import type { WiggumStep } from '../constants.js';
 
 /**
  * Allowed types for context values
@@ -44,7 +45,7 @@ interface ResponseContext {
  */
 interface ResponseData {
   current_step: string;
-  step_number: string;
+  step_number: WiggumStep;
   iteration_count: number;
   instructions: string;
   steps_completed_by_tool: string[];
