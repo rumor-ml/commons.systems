@@ -15,7 +15,7 @@ import {
 } from '../constants.js';
 
 /**
- * Create a mock StateUpdateResult failure
+ * Create a mock StateUpdateResult failure (always returns success: false)
  */
 function createMockFailure(overrides?: {
   reason?: 'rate_limit' | 'network';
@@ -243,11 +243,10 @@ describe('handleStateUpdateFailure', () => {
 
     it('should exclude error details when lastError is undefined', () => {
       // Explicitly test that undefined lastError doesn't append "Actual error:"
-      // This verifies the conditional logic at line 73-75 of the implementation
+      // This verifies the conditional logic for errorDetails construction
 
       // Manually construct failure with undefined lastError using type assertion
-      // (can't use createMockFailure because it has a default)
-      // Note: TypeScript requires lastError: Error, but implementation is defensive
+      // Note: TypeScript requires lastError: Error, but we test the edge case of undefined to ensure robust error message formatting
       const failureWithoutError = {
         success: false as const,
         reason: 'network' as const,
@@ -417,6 +416,116 @@ describe('handleStateUpdateFailure', () => {
 
       const responseText = result.content[0].text;
       assert.ok(responseText.includes('after 7 attempts'));
+    });
+  });
+
+  describe('formatting error fallback', () => {
+    // NOTE: These tests verify the fallback error path behavior documented in the implementation.
+    // Testing this path requires triggering FormattingError from formatWiggumResponse, which is
+    // difficult in practice because:
+    // 1. ES module exports can't be mocked with node:test mock.method
+    // 2. TypeScript prevents passing invalid data that would trigger validation errors
+    // 3. The function constructs all required fields from validated inputs
+    //
+    // The fallback path exists as defensive programming for unexpected formatWiggumResponse bugs
+    // or changes to its validation logic. Manual testing can verify this by temporarily breaking
+    // formatWiggumResponse.
+
+    it.skip('should return fallback message when formatWiggumResponse throws FormattingError', () => {
+      // TODO(#1510): Implement test using dependency injection or test doubles
+      // Manual verification: Modify formatWiggumResponse to throw FormattingError and verify:
+      // - Fallback message includes "ERROR: State update failed"
+      // - Fallback message includes target reference (issue #123 or PR #456)
+      // - Fallback message includes iteration count
+      // - Fallback message includes note about "fallback message"
+      // - Result has isError: true
+    });
+
+    it.skip('should include all required recovery info in fallback message', () => {
+      // TODO(#1510): Implement test using dependency injection or test doubles
+      // Manual verification: Modify formatWiggumResponse to throw and verify fallback includes:
+      // - Target reference (PR #456)
+      // - Failure reason (rate_limit)
+      // - Retry attempts (Retry attempts made: 3)
+      // - Error details (Actual error: API limit)
+      // - Recovery command (gh pr view 456)
+    });
+
+    it.skip('should re-throw non-FormattingError errors', () => {
+      // TODO(#1510): Implement test using dependency injection or test doubles
+      // Manual verification: Modify formatWiggumResponse to throw TypeError and verify:
+      // - TypeError is re-thrown (not caught)
+      // - logger.error is called with 'CRITICAL: Unexpected error'
+      // - Original error propagates to caller
+    });
+  });
+
+  describe('logging', () => {
+    it('should call logger.error with correct context for issue target', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { mock } = await import('node:test');
+
+      // Mock logger.error
+      const errorMock = mock.method(loggerModule.logger, 'error', () => {});
+
+      try {
+        handleStateUpdateFailure({
+          stateResult: createMockFailure({
+            reason: 'rate_limit',
+            attemptCount: 5,
+            lastError: new Error('Rate limit exceeded'),
+          }),
+          newState: createMockState({ phase: 'phase1', iteration: 2 }),
+          step: STEP_PHASE1_MONITOR_WORKFLOW,
+          targetType: 'issue',
+          targetNumber: 789,
+        });
+
+        // Verify logger.error was called
+        assert.strictEqual(errorMock.mock.calls.length, 1);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const [message, context] = errorMock.mock.calls[0].arguments as [string, any];
+        assert.strictEqual(message, 'Critical: State update failed - halting workflow');
+        assert.strictEqual(context.issueNumber, 789);
+        assert.strictEqual(context.step, STEP_PHASE1_MONITOR_WORKFLOW);
+        assert.strictEqual(context.iteration, 2);
+        assert.strictEqual(context.phase, 'phase1');
+        assert.strictEqual(context.reason, 'rate_limit');
+        assert.strictEqual(context.lastError, 'Rate limit exceeded');
+        assert.strictEqual(context.attemptCount, 5);
+        assert.ok(context.impact);
+        assert.ok(context.recommendation);
+
+        // Verify no prNumber for issue targets
+        assert.strictEqual(context.prNumber, undefined);
+      } finally {
+        errorMock.mock.restore();
+      }
+    });
+
+    it('should call logger.error with prNumber for PR target', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { mock } = await import('node:test');
+
+      const errorMock = mock.method(loggerModule.logger, 'error', () => {});
+
+      try {
+        handleStateUpdateFailure({
+          stateResult: createMockFailure(),
+          newState: createMockState({ phase: 'phase2' }),
+          step: STEP_PHASE2_MONITOR_WORKFLOW,
+          targetType: 'pr',
+          targetNumber: 999,
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const [, context] = errorMock.mock.calls[0].arguments as [string, any];
+        assert.strictEqual(context.prNumber, 999);
+        assert.strictEqual(context.issueNumber, undefined);
+      } finally {
+        errorMock.mock.restore();
+      }
     });
   });
 });
