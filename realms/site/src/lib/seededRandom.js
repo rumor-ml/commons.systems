@@ -45,12 +45,4 @@ export class SeededRNG {
   reset() {
     this.state = this.seed;
   }
-
-  getState() {
-    return this.state;
-  }
-
-  setState(state) {
-    this.state = state;
-  }
 }
