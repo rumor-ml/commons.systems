@@ -14,10 +14,10 @@
   programs.bash = {
     enable = true;
 
-    # TODO(#1656): Comment in bash.nix describes shell type behavior but doesn't explain how to identify shell type
     # Source session variables in interactive non-login shells (via .bashrc)
     # This is critical for WSL where new terminal tabs start as non-login interactive shells.
     # Note: Login shells won't load this unless they explicitly source .bashrc.
+    # To check shell type: Login shells have $0 starting with '-', run 'echo $0' to verify.
     # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
     initExtra = ''
       # Source Home Manager session variables if not already loaded

@@ -39,39 +39,50 @@
       # This approach prevents bugs like: attempting to add content before finding start pattern,
       # or continuing to collect after finding the end delimiter.
       # The explicit state in _type makes transitions clear and self-documenting.
-      initialState = { _type = "initial"; };
+      initialState = {
+        _type = "initial";
+      };
 
-      result =
-        lib.foldl'
-          (
-            state: line:
-            # State: initial - looking for start pattern
-            if state._type == "initial" && lib.hasInfix startPattern line then
-              { _type = "collecting"; content = [ ]; }
+      result = lib.foldl' (
+        state: line:
+        # State: initial - looking for start pattern
+        if state._type == "initial" && lib.hasInfix startPattern line then
+          {
+            _type = "collecting";
+            content = [ ];
+          }
 
-            # State: collecting - check for closing delimiter or collect line
-            # Stop collecting when we hit closing delimiter ''
-            # (but not '''' which is Nix's way to escape '' inside multiline strings)
-            # Note: Assumes closing delimiter '' appears on its own line (standard Nix multiline format).
-            # Edge case: Single-line literals like `foo = ''bar'';` will be misparsed because the parser
-            # detects the closing '' on the same line and stops collecting content, returning empty result.
-            # This is by design - the function targets standard Nix multiline string formatting where
-            # the closing delimiter appears on its own line. Always use multiline format for parsed attributes.
-            # Empty multiline strings (opening '' immediately followed by closing '' on next line) will
-            # correctly return an empty string.
-            else if state._type == "collecting" && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
-              { _type = "stopped"; content = state.content; }
+        # State: collecting - check for closing delimiter or collect line
+        # Stop collecting when we hit closing delimiter ''
+        # (but not '''' which is Nix's way to escape '' inside multiline strings)
+        # Note: Assumes closing delimiter '' appears on its own line (standard Nix multiline format).
+        # Edge case: Single-line literals like `foo = ''bar'';` will be misparsed because the parser
+        # detects the closing '' on the same line and stops collecting content, returning empty result.
+        # This is by design - the function targets standard Nix multiline string formatting where
+        # the closing delimiter appears on its own line.
+        # Workaround: Use multiline format even for short strings:
+        #   foo = ''
+        #     bar
+        #   '';
+        # Empty multiline strings (opening '' immediately followed by closing '' on next line) will
+        # correctly return an empty string.
+        else if state._type == "collecting" && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
+          {
+            _type = "stopped";
+            content = state.content;
+          }
 
-            # State: collecting - append line to content
-            else if state._type == "collecting" then
-              { _type = "collecting"; content = state.content ++ [ line ]; }
+        # State: collecting - append line to content
+        else if state._type == "collecting" then
+          {
+            _type = "collecting";
+            content = state.content ++ [ line ];
+          }
 
-            # State: stopped or initial - no transitions, preserve state
-            else
-              state
-          )
-          initialState
-          lines;
+        # State: stopped or initial - no transitions, preserve state
+        else
+          state
+      ) initialState lines;
     in
     # Extract content from final state (stopped state has content, others default to empty)
     lib.concatStringsSep "\n" (result.content or [ ]);
@@ -99,9 +110,10 @@
     let
       shellFile = pkgs.writeText "${lib.toLower shellName}-test.sh" code;
       # Assumes shell binary name is lowercase shellName (e.g., "Bash" -> "bash", "Zsh" -> "zsh")
-      # This works for common shells (bash, zsh, dash, sh) but may fail for shells with
-      # different naming conventions. If adding a new shell, verify the binary name matches
-      # the lowercase shell name, or modify this function to accept explicit binary path.
+      # Works for: bash, zsh, dash, sh
+      # When adding a new shell:
+      #   1. Verify binary name matches lowercase shellName, OR
+      #   2. Modify function to accept explicit binary path parameter
       shellBin = lib.toLower shellName;
     in
     pkgs.runCommand "validate-${lib.toLower shellName}-syntax" { buildInputs = [ shellPkg ]; } ''

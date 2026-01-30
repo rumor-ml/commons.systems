@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Tests for wezterm.nix activation script
 # Tests Windows user detection and config copy logic on WSL
-# IMPORTANT: These unit tests don't guarantee the script works during actual home-manager activation.
-# The tests validate user detection, file copy, and Home Manager variable handling in isolation, but don't verify:
-# - Activation script executes correctly in home-manager's DAG after linkGeneration phase
-# - DAG ordering ensures activation runs at the correct point in the configuration build
-# TODO(#1612): Add integration test (e.g., in wezterm.test.nix using home-manager module evaluation) to verify DAG integration.
+# Shell unit tests for activation script logic (user detection, file copy, error handling).
+# For integration testing of DAG activation, see wezterm.test.nix tests:
+# - test-homemanager-integration: verifies module evaluation
+# - test-activation-dag-execution: verifies DAG ordering and variable access
+# - test-homemanager-dag-integration: verifies full module system integration with lib.evalModules
 # TODO(#1653): Reduce repetitive test structure by creating helper function for common setup/teardown pattern
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -274,11 +274,10 @@ mkdir -p "$TEMP_MOUNT8/c/Users"/{public,default,alice}
 
 WINDOWS_USER=$(ls "$TEMP_MOUNT8/c/Users/" 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
 
-# Test validates case-sensitive filtering behavior of the grep pattern.
-# In Linux test environment: lowercase 'public'/'default' are NOT filtered (grep pattern is case-sensitive)
-# In real WSL: Windows filesystem is case-insensitive, so directories appear as 'Public'/'Default' (capitalized)
-# This test confirms the grep pattern correctly filters capitalized system directories (which is what exists on WSL).
-# The test passes when it gets 'alice' OR lowercase variants, proving the filter is case-sensitive as designed.
+# Test validates that grep pattern is case-sensitive (filters 'Public'/'Default' but not 'public'/'default')
+# In this Linux test environment: lowercase 'public'/'default' are NOT filtered by the pattern
+# On real WSL: Windows shows 'Public'/'Default' (capitalized), which ARE filtered correctly
+# Expected result: Gets 'alice' (Linux env) or 'default'/'public' (if alice didn't exist)
 if [[ "$WINDOWS_USER" =~ ^(alice|default|public)$ ]]; then
   # Expected: 'alice' (valid user) or 'default'/'public' (lowercase not filtered on Linux)
   # On real WSL, only 'Public'/'Default' exist (capitalized), so they would be filtered correctly

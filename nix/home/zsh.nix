@@ -58,17 +58,18 @@
         }
       fi
 
-      # TODO(#1634): Fix error handling - function continues after print fails, may read corrupt temp file
       _pr_jobs() {
         # https://superuser.com/questions/1735201/zsh-script-not-printing-output-of-jobs-command
         if tmp=$(mktemp 2>&1); then
           # Use separate error variable to capture stderr properly
           if ! print_error=$(print $(jobs) 2>&1 > $tmp); then
             echo "WARNING: Failed to write jobs to temp file: $print_error" >&2
-          fi
-          if ! JOBS=$(<"$tmp" 2>&1); then
-            echo "WARNING: Failed to read jobs from temp file" >&2
             JOBS=""
+          else
+            if ! JOBS=$(<"$tmp" 2>&1); then
+              echo "WARNING: Failed to read jobs from temp file" >&2
+              JOBS=""
+            fi
           fi
           if ! rm "$tmp" 2>/dev/null; then
             # Only warn once per session to avoid spam

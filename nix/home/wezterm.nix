@@ -88,15 +88,25 @@
         # (does not assume it matches Linux username - takes first match from ls output)
         # Look for a user directory that's not a system directory
         # Pre-checks above ensure /mnt/c/Users exists and is readable
-        # Any errors here are unexpected and should be captured
-        if WINDOWS_USER=$(ls /mnt/c/Users/ 2>&1 | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1) && [ -n "$WINDOWS_USER" ]; then
-          :
-        else
+        # Capture ls output separately to check exit code explicitly
+        LS_OUTPUT=$(ls /mnt/c/Users/ 2>/dev/null)
+        LS_EXIT_CODE=$?
+
+        if [ $LS_EXIT_CODE -ne 0 ]; then
+          echo "ERROR: Failed to list /mnt/c/Users/ directory" >&2
+          echo "  Exit code: $LS_EXIT_CODE" >&2
+          echo "  Check permissions and mount status" >&2
+          ls -ld /mnt/c/Users/ 2>&1 || true  # Show diagnostic info
+          exit 1
+        fi
+
+        WINDOWS_USER=$(echo "$LS_OUTPUT" | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
+
+        if [ -z "$WINDOWS_USER" ]; then
           echo "ERROR: Failed to detect Windows username" >&2
-          echo "  ls output: $WINDOWS_USER" >&2
-          echo "  Directory exists and passed pre-checks but user detection failed" >&2
-          echo "  Available directories in /mnt/c/Users/:" >&2
-          ls -1 /mnt/c/Users/ 2>&1 || echo "  (ls failed)" >&2
+          echo "  Directory is readable but no valid user directories found" >&2
+          echo "  Available directories:" >&2
+          echo "$LS_OUTPUT" | sed 's/^/    /' >&2
           exit 1
         fi
 
@@ -107,28 +117,41 @@
           # Verify source file exists before copying
           SOURCE_FILE="${config.home.homeDirectory}/.config/wezterm/wezterm.lua"
           if [ ! -f "$SOURCE_FILE" ]; then
-            echo "ERROR: Source WezTerm config not found at $SOURCE_FILE"
-            echo "Home-Manager may have failed to generate the configuration"
+            echo "ERROR: Source WezTerm config not found at $SOURCE_FILE" >&2
+            echo "Home-Manager may have failed to generate the configuration" >&2
             exit 1
           fi
 
           # Copy config file with error checking
           if ! $DRY_RUN_CMD cp $VERBOSE_ARG "$SOURCE_FILE" "$TARGET_FILE"; then
-            echo "ERROR: Failed to copy WezTerm config to $TARGET_FILE"
-            echo "Check permissions, disk space, and ensure WezTerm is not running"
+            echo "ERROR: Failed to copy WezTerm config to $TARGET_FILE" >&2
+            echo "Check permissions, disk space, and ensure WezTerm is not running" >&2
             exit 1
           fi
           echo "Copied WezTerm config to Windows location: $TARGET_FILE"
         else
-          echo "WARNING: Running on WSL but could not detect Windows username"
-          echo "Available directories in /mnt/c/Users/:"
+          # User was detected but directory doesn't exist - this is an error state
+          echo "ERROR: Detected Windows username '$WINDOWS_USER' but directory does not exist" >&2
+          echo "  Expected directory: /mnt/c/Users/$WINDOWS_USER" >&2
+          echo "" >&2
+
+          # Diagnostic output - if this fails, it indicates a critical filesystem issue
           if ! ls_output=$(ls -1 /mnt/c/Users/ 2>&1); then
-            echo "  Error listing directory: $ls_output"
-          else
-            echo "$ls_output"
+            echo "ERROR: Additionally, cannot list /mnt/c/Users/ for diagnostics" >&2
+            echo "  Directory passed initial checks but is now inaccessible" >&2
+            echo "  This indicates a filesystem or permission issue" >&2
+            echo "  Error: $ls_output" >&2
+            exit 1
           fi
-          echo "To manually copy config, run:"
-          echo "  cp ~/.config/wezterm/wezterm.lua /mnt/c/Users/YOUR_USERNAME/.wezterm.lua"
+
+          echo "Available directories in /mnt/c/Users/:" >&2
+          echo "$ls_output" | sed 's/^/  /' >&2
+          echo "" >&2
+          echo "This may indicate:" >&2
+          echo "  - WSL mount configuration issue" >&2
+          echo "  - Incorrect user directory detection logic" >&2
+          echo "  - Race condition in directory availability" >&2
+          exit 1
         fi
       else
         echo "Not running on WSL, skipping Windows config copy"
