@@ -251,8 +251,16 @@ else
   TEMP_BACKEND_CONFIG="${SHARED_EMULATOR_DIR}/firebase-backend-${PROJECT_ID}.json"
 
   # Extract storage rules path from main firebase.json if it exists
+  # Convert relative paths to absolute paths since config file is in different directory
   STORAGE_RULES=$(jq -r '.storage.rules // "shared/storage.rules"' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "shared/storage.rules")
+  if [[ ! "$STORAGE_RULES" = /* ]]; then
+    STORAGE_RULES="${PROJECT_ROOT}/${STORAGE_RULES}"
+  fi
+
   FIRESTORE_RULES=$(jq -r '.firestore.rules // empty' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "")
+  if [ -n "$FIRESTORE_RULES" ] && [[ ! "$FIRESTORE_RULES" = /* ]]; then
+    FIRESTORE_RULES="${PROJECT_ROOT}/${FIRESTORE_RULES}"
+  fi
 
   # Build config with emulator ports and rules
   cat > "${TEMP_BACKEND_CONFIG}" <<EOF
