@@ -59,18 +59,31 @@ type CurrentStateWithPR = CurrentState & {
 /**
  * Configuration for resource-specific state update operations
  *
- * This interface enables the generic safeUpdateBodyState function to operate
- * on both PRs and issues with resource-specific behavior for:
- * - Error messages (using resourceLabel)
+ * This discriminated union enables the generic safeUpdateBodyState function to
+ * operate on both PRs and issues with resource-specific behavior for:
+ * - Error messages and logging (using resourceLabel, resourceType)
+ * - Error context tracking (using resourceType, resourceId)
  * - Verification commands (using verifyCommand)
  * - State persistence (using updateFn)
+ *
+ * The discriminated union enforces that resourceType, resourceLabel, and
+ * verifyCommand are consistent at compile time, preventing misconfigurations.
+ *
+ * Resolves TODO(#941) and TODO(#810): Consolidates duplicate state update pattern.
  */
-interface ResourceConfig {
-  readonly resourceType: 'pr' | 'issue';
-  readonly resourceLabel: string; // "PR" or "Issue" for error messages
-  readonly verifyCommand: string; // "gh pr view" or "gh issue view"
-  readonly updateFn: (resourceId: number, state: WiggumState) => Promise<void>;
-}
+type ResourceConfig =
+  | {
+      readonly resourceType: 'pr';
+      readonly resourceLabel: 'PR';
+      readonly verifyCommand: 'gh pr view';
+      readonly updateFn: (prNumber: number, state: WiggumState) => Promise<void>;
+    }
+  | {
+      readonly resourceType: 'issue';
+      readonly resourceLabel: 'Issue';
+      readonly verifyCommand: 'gh issue view';
+      readonly updateFn: (issueNumber: number, state: WiggumState) => Promise<void>;
+    };
 
 /**
  * Configuration for PR state updates
@@ -226,7 +239,10 @@ function checkBranchPushed(
  * and critical failures (require immediate intervention).
  *
  * Retry strategy (issue #799):
- * - Transient errors (429, network): Retry with exponential backoff (2s, 4s, 8s)
+ * - Transient errors (429, network): Retry with exponential backoff
+ *   - Formula: 2^attempt seconds (attempt 1 = 2s, attempt 2 = 4s, attempt 3 = 8s)
+ *   - Maximum delay cap: 60 seconds
+ *   - Default: 3 retries with sequence 2s, 4s, 8s
  * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
@@ -249,7 +265,7 @@ async function safeUpdateBodyState(
 
   // Validate resourceId parameter (must be positive integer for valid resource number)
   // CRITICAL: Invalid resourceId would cause StateApiError.create() to throw ValidationError
-  // inside catch blocks, potentially masking the original error
+  // during error context building in the catch block below, potentially masking the original error
   if (!Number.isInteger(resourceId) || resourceId <= 0) {
     throw new ValidationError(
       `${fnName}: resourceId must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
@@ -365,6 +381,7 @@ async function safeUpdateBodyState(
         classification,
       };
 
+      // TODO(#1663): Clarify that 404 detection uses classifyGitHubError() not direct status checking
       // Critical errors: Resource not found or authentication failures - throw immediately (no retry)
       if (classification.is404) {
         logger.error(`Critical: ${config.resourceLabel} not found - cannot update state in body`, {
@@ -461,7 +478,8 @@ async function safeUpdateBodyState(
  * Safely update wiggum state in PR body with error handling and retry logic
  *
  * Thin wrapper around safeUpdateBodyState that provides PR-specific configuration.
- * See safeUpdateBodyState for full documentation on retry strategy and error handling.
+ * See safeUpdateBodyState for retry strategy details (exponential backoff: 2s, 4s, 8s,
+ * capped at 60s) and error handling documentation.
  *
  * @param prNumber - PR number to update
  * @param state - New wiggum state to save
@@ -483,7 +501,8 @@ export async function safeUpdatePRBodyState(
  * Safely update wiggum state in issue body with error handling and retry logic
  *
  * Thin wrapper around safeUpdateBodyState that provides issue-specific configuration.
- * See safeUpdateBodyState for full documentation on retry strategy and error handling.
+ * See safeUpdateBodyState for retry strategy details (exponential backoff: 2s, 4s, 8s,
+ * capped at 60s) and error handling documentation.
  *
  * @param issueNumber - Issue number to update
  * @param state - New wiggum state to save
