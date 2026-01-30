@@ -11,6 +11,7 @@ packages:
   - 'gh-workflow-mcp-server'
   - 'gh-issue-mcp-server'
   - 'wiggum-mcp-server'
+  - 'git-mcp-server'
 
 # Allow these trusted packages to run their build scripts
 # pnpm 10 blocks lifecycle scripts by default for security

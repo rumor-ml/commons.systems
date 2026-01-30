@@ -2,6 +2,10 @@
  * Types for GitHub Workflow MCP server
  */
 
+// TODO(#1553): Consider using discriminated union for ToolResult to distinguish
+// success from error results and provide better typing:
+// export type ToolResult = ToolSuccessResult | ToolErrorResult;
+// This would make isError explicit and allow type narrowing.
 export interface ToolResult {
   content: Array<{ type: 'text'; text: string }>;
   [key: string]: unknown;
