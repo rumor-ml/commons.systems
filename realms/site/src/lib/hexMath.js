@@ -22,6 +22,14 @@ export const OPPOSITE_DIRECTION = { NE: 'SW', E: 'W', SE: 'NW', SW: 'NE', W: 'E'
  * Calculate distance between two hexes (in hex units)
  */
 export function hexDistance(q1, r1, q2, r2) {
+  if (
+    !Number.isInteger(q1) ||
+    !Number.isInteger(r1) ||
+    !Number.isInteger(q2) ||
+    !Number.isInteger(r2)
+  ) {
+    throw new Error(`Hex coordinates must be integers: got q1=${q1}, r1=${r1}, q2=${q2}, r2=${r2}`);
+  }
   return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
 }
 
@@ -29,6 +37,9 @@ export function hexDistance(q1, r1, q2, r2) {
  * Get neighboring hex coordinates in a given direction
  */
 export function hexNeighbor(q, r, direction) {
+  if (!Number.isInteger(q) || !Number.isInteger(r)) {
+    throw new Error(`Hex coordinates must be integers: got q=${q}, r=${r}`);
+  }
   const d = HEX_DIRECTIONS[direction];
   return { q: q + d.q, r: r + d.r };
 }
@@ -47,6 +58,9 @@ export function hexNeighbors(q, r) {
  * Convert hex coordinates to a unique string key
  */
 export function hexKey(q, r) {
+  if (!Number.isInteger(q) || !Number.isInteger(r)) {
+    throw new Error(`Hex coordinates must be integers: got q=${q}, r=${r}`);
+  }
   return `${q},${r}`;
 }
 
@@ -62,8 +76,8 @@ export function getAdjacentDirections(dir) {
 
 /**
  * Get the two edge directions that meet at a vertex
- * Vertices are numbered 0-5, matching the edge direction indices
- * Vertex 0 is between edges NE (index 0) and E (index 1)
+ * Vertices are numbered 0-5. Vertex N lies between edge N and edge N+1 (mod 6).
+ * Example: Vertex 0 is between edges NE (index 0) and E (index 1)
  */
 export function getVertexDirections(vertexIndex) {
   return [DIRECTION_NAMES[vertexIndex], DIRECTION_NAMES[(vertexIndex + 1) % 6]];
