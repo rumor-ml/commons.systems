@@ -68,7 +68,8 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--debug' && args[i + 1]) config.debugSeeds = args[i + 1].split(',').map(Number);
 }
 
-// Standalone RealmGenerator that mirrors the real one's river logic
+// Standalone RealmGenerator for simulation that uses the same shared generation functions
+// as the UI RealmGenerator to ensure identical RNG consumption and constraint behavior
 class StandaloneRealmGenerator {
   constructor(seed) {
     this.rng = new SeededRNG(seed);
@@ -900,6 +901,7 @@ class StandaloneRealmGenerator {
     return `${neighbor.q},${neighbor.r}:${oppDir}`;
   }
 
+  // TODO(#1687): Use shared hexMath.getAdjacentDirections instead of class method
   getAdjacentEdgeDirections(direction) {
     const idx = DIRECTION_NAMES.indexOf(direction);
     return [DIRECTION_NAMES[(idx + 1) % 6], DIRECTION_NAMES[(idx + 5) % 6]];
