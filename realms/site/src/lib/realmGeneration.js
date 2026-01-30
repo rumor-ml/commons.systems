@@ -17,6 +17,7 @@ import {
   hexDistance,
   OPPOSITE_DIRECTION,
   parseHexKey,
+  getAdjacentDirections,
 } from './hexMath.js';
 import { HOLDING_TYPES } from './terrainConstants.js';
 
@@ -375,11 +376,6 @@ export function shouldBeLake(ctx, q, r) {
     }
   }
 
-  // If adjacent to a lake, check extension probability
-  if (adjacentLake) {
-    // Continue checking for extension
-  }
-
   if (adjacentLake) {
     // Extend lake with decreasing probability based on size
     // Note: ctx.lakes array may not exist in simulator, but RNG consumption must match
@@ -606,7 +602,7 @@ export function maybeGenerateBarrier(ctx, hex, direction, neighborHex) {
 
   // Cluster bonus (adjacent barriers) using shared function
   let clusterBonus = 0;
-  const adjacentDirs = getAdjacentEdgeDirections(direction);
+  const adjacentDirs = getAdjacentDirections(direction);
   for (const adjDir of adjacentDirs) {
     if (hasBarrierBetween(ctx.barrierEdges, hex.q, hex.r, adjDir)) {
       clusterBonus += 0.25;
@@ -632,18 +628,6 @@ export function maybeGenerateBarrier(ctx, hex, direction, neighborHex) {
 }
 
 /**
- * Get adjacent edge directions (share a vertex with given direction)
- *
- * @param {string} direction - Direction string (NE, E, SE, SW, W, NW)
- * @returns {string[]} Array of two adjacent directions
- */
-export function getAdjacentEdgeDirections(direction) {
-  const DIRECTION_NAMES = ['NE', 'E', 'SE', 'SW', 'W', 'NW'];
-  const idx = DIRECTION_NAMES.indexOf(direction);
-  return [DIRECTION_NAMES[(idx + 1) % 6], DIRECTION_NAMES[(idx + 5) % 6]];
-}
-
-/**
  * Check if all barriers are connected to the map border (no islands)
  *
  * @param {Object} ctx - Context with { barrierEdges, hexes, realmRadius }
@@ -665,8 +649,10 @@ export function checkBarrierConnectivity(ctx) {
     const neighborKey = hexKey(neighbor.q, neighbor.r);
     const neighborHex = hexes.get(neighborKey);
 
-    if ((neighborHex && neighborHex.isBorder) ||
-        (realmRadius && hexDistance(0, 0, neighbor.q, neighbor.r) >= realmRadius)) {
+    if (
+      (neighborHex && neighborHex.isBorder) ||
+      (realmRadius && hexDistance(0, 0, neighbor.q, neighbor.r) >= realmRadius)
+    ) {
       borderConnected.add(edgeKey);
     }
   }
@@ -681,7 +667,7 @@ export function checkBarrierConnectivity(ctx) {
     const [q, r] = coords.split(',').map(Number);
 
     // Check adjacent edges on this hex
-    for (const adjDir of getAdjacentEdgeDirections(direction)) {
+    for (const adjDir of getAdjacentDirections(direction)) {
       if (hasBarrierBetween(barrierEdges, q, r, adjDir)) {
         const adjKey = `${q},${r}:${adjDir}`;
         if (!visited.has(adjKey)) {
@@ -701,7 +687,7 @@ export function checkBarrierConnectivity(ctx) {
     // Check adjacent edges on neighbor hex
     const edgeNeighbor = hexNeighbor(q, r, direction);
     const oppDir = OPPOSITE_DIRECTION[direction];
-    for (const adjDir of getAdjacentEdgeDirections(oppDir)) {
+    for (const adjDir of getAdjacentDirections(oppDir)) {
       if (hasBarrierBetween(barrierEdges, edgeNeighbor.q, edgeNeighbor.r, adjDir)) {
         const adjKey = `${edgeNeighbor.q},${edgeNeighbor.r}:${adjDir}`;
         if (!visited.has(adjKey)) {
@@ -719,7 +705,7 @@ export function checkBarrierConnectivity(ctx) {
   }
 
   // Find island barriers
-  const islandEdges = [...barrierEdges].filter(key => !visited.has(key));
+  const islandEdges = [...barrierEdges].filter((key) => !visited.has(key));
 
   return {
     connected: islandEdges.length === 0,
@@ -774,7 +760,7 @@ export function isEdgeConnectedToAnchoredNetwork(ctx, q, r, direction) {
   }
 
   // Check adjacent edges on this hex (share vertices)
-  const adjacentDirs = getAdjacentEdgeDirections(direction);
+  const adjacentDirs = getAdjacentDirections(direction);
   for (const adjDir of adjacentDirs) {
     if (hasBarrierBetween(ctx.anchoredBarrierEdges, q, r, adjDir)) {
       return true;
@@ -784,7 +770,7 @@ export function isEdgeConnectedToAnchoredNetwork(ctx, q, r, direction) {
   // Check adjacent edges on neighbor hex
   const neighbor = hexNeighbor(q, r, direction);
   const oppDir = OPPOSITE_DIRECTION[direction];
-  const neighborAdjacentDirs = getAdjacentEdgeDirections(oppDir);
+  const neighborAdjacentDirs = getAdjacentDirections(oppDir);
   for (const adjDir of neighborAdjacentDirs) {
     if (hasBarrierBetween(ctx.anchoredBarrierEdges, neighbor.q, neighbor.r, adjDir)) {
       return true;
@@ -1036,7 +1022,6 @@ export function moveExplorer(ctx, getValidMoves, exploreHex) {
   return chosenMove;
 }
 
-
 /**
  * Check if a border hex can reach the outer edge via borders or unrevealed hexes
  * @param {Object} ctx - Context { hexes, borderHexes, realmRadius, revealedHexes }
@@ -1073,7 +1058,7 @@ export function canBorderReachOuterEdge(ctx, borderKey, excludeKey = null, force
       const isUnrevealed = !revealedHexes || !revealedHexes.has(nKey);
       const hexExists = hexes.has(nKey);
 
-      if (isBorder || (!hexExists || isUnrevealed)) {
+      if (isBorder || !hexExists || isUnrevealed) {
         queue.push(nKey);
       }
     }
@@ -1175,7 +1160,7 @@ export function ensureBorderConnectivity(ctx, q, r) {
   }
 
   if (bordersToCancel.length > 0) {
-    return { action: 'cancelled', cancelledBorders: bordersToCancel.map(b => b.key) };
+    return { action: 'cancelled', cancelledBorders: bordersToCancel.map((b) => b.key) };
   }
 
   return { action: 'ok' };
