@@ -189,7 +189,8 @@ test.describe('Budget Visualization', () => {
 
     await page.goto('/');
     await page.waitForSelector('.app-container');
-    await page.waitForLoadState('networkidle');
+    // Wait for chart to render (indicates React hydration complete)
+    await page.waitForSelector('#chart-island svg', { timeout: 10000 });
 
     // Filter out expected non-critical warnings
     const criticalErrors = errors.filter((e) => {
@@ -371,7 +372,8 @@ test.describe('Budget Visualization', () => {
 
     await page.goto('/');
     await page.waitForSelector('.app-container');
-    await page.waitForLoadState('networkidle');
+    // Wait for chart to render (indicates React hydration complete)
+    await page.waitForSelector('#chart-island svg', { timeout: 10000 });
 
     // Check for error messages in UI
     const chartError = page.locator('#chart-island >> text=/Error loading/i');
