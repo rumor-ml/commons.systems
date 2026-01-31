@@ -42,7 +42,8 @@ test.describe('Budget Visualization', () => {
     await page.goto('/');
     await page.waitForSelector('.app-container');
 
-    const header = page.locator('.app-header h1');
+    // Scope selector to main view to avoid matching hidden views
+    const header = page.locator('#main-view .app-header h1');
     await expect(header).toBeVisible();
     await expect(header).toContainText('Budget Visualization');
   });
