@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:fix && npm run test:playwright",
-    "test:fix": "node test-getAdjacentEdgeDirections-fix.mjs",
+    "test:fix": "node test-getEdgeKey-fix.mjs",
     "test:playwright": "playwright test",
     "test:realms": "node test-realms.js"
   },

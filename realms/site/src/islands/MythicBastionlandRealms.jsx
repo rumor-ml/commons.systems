@@ -1538,6 +1538,26 @@ class RealmGenerator {
     return maxDist;
   }
 
+  calculateRiverMetrics() {
+    // Calculate metrics from current river networks
+    const networkCount = this.rivers.length;
+
+    // Sum up all tributary counts across networks
+    const totalTributaries = this.rivers.reduce(
+      (sum, network) => sum + (network.tributaryCount || 0),
+      0
+    );
+
+    // Calculate span using existing method
+    const span = this.calculateRiverNetworkSpan();
+
+    return {
+      networkCount,
+      tributaryCount: totalTributaries,
+      span,
+    };
+  }
+
   getConstraintReport() {
     const metrics = this.calculateRiverMetrics();
 
