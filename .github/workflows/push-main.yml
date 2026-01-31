@@ -110,6 +110,25 @@ jobs:
 
           exit $TEST_EXIT_CODE
 
+      - name: Kill emulator supervisor
+        run: |
+          # Stop the supervisor to ensure E2E tests start fresh emulators with current rules
+          SUPERVISOR_PID_FILE="$HOME/.firebase-emulators/supervisor.pid"
+          if [ -f "$SUPERVISOR_PID_FILE" ]; then
+            PID=$(cat "$SUPERVISOR_PID_FILE")
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "Stopping supervisor (PID: $PID)..."
+              kill "$PID" || true
+              rm -f "$SUPERVISOR_PID_FILE"
+              echo "✓ Supervisor stopped"
+            else
+              echo "Supervisor PID file exists but process not running"
+              rm -f "$SUPERVISOR_PID_FILE"
+            fi
+          else
+            echo "No supervisor running"
+          fi
+
       - name: Run E2E tests
         run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
 
