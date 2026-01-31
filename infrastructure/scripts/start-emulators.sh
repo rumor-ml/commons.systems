@@ -248,7 +248,8 @@ else
 
   # Create temporary firebase config for backend emulators with custom ports
   # Required for pool mode to use instance-specific ports
-  TEMP_BACKEND_CONFIG="${SHARED_EMULATOR_DIR}/firebase-backend-${PROJECT_ID}.json"
+  # Config must be in PROJECT_ROOT so Firebase CLI resolves relative paths correctly
+  TEMP_BACKEND_CONFIG="${PROJECT_ROOT}/.firebase-backend-${PROJECT_ID}.json"
 
   # Extract storage rules path from main firebase.json if it exists
   # Keep paths relative since firebase CLI is run from PROJECT_ROOT and resolves paths relative to CWD
