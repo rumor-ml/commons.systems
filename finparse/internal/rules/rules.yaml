@@ -4,11 +4,10 @@
 #   800-899: Transfers (payments, Zelle, ATM)
 #   700-799: Travel/vacation
 #   600-699: Housing/utilities
-#   500-599: Recurring bills
 #   400-499: Groceries
-#   300-399: Dining/entertainment
-#   200-299: Shopping
-#   100-199: Healthcare
+#   300-399: Dining
+#   200-299: Shopping and Entertainment
+#   100-199: Healthcare and Transportation
 #   0-99: Catch-all
 
 rules:
@@ -1242,7 +1241,7 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  # Entertainment/Media (300-399) - Lower priority than dining
+  # Entertainment/Media (235-260) - Lower priority than dining
   - name: 'Flickr'
     pattern: 'FLICKR'
     match_type: 'contains'
@@ -1309,7 +1308,7 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  # Transportation (200-299) - Gas stations
+  # Transportation (115-199) - Gas stations
   - name: 'Shell Gas'
     pattern: 'SHELL'
     match_type: 'contains'
@@ -1544,7 +1543,7 @@ rules:
       transfer: true
     redemption_rate: 0.0
 
-  # Dining & Entertainment Rules
+  # Dining (265-350) - Local and specialty restaurants
   - name: 'Pennsylvania Renaissance Faire'
     pattern: 'RENAISSANCE FAIRE'
     match_type: 'contains'
@@ -1600,7 +1599,7 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  - name: 'Chick-fil-A'
+  - name: 'Chick-fil-A (Hyphenated)'
     pattern: 'CHICK-FIL-A'
     match_type: 'contains'
     priority: 325
@@ -1743,7 +1742,7 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  # Shopping & Retail Rules
+  # Shopping & Retail (135-260) - Digital goods and specialty retailers
   - name: 'Nintendo eShop'
     pattern: 'Nintendo C'
     match_type: 'contains'
@@ -2008,7 +2007,7 @@ rules:
       transfer: false
     redemption_rate: 0.01
 
-  # Travel & Vacation Rules
+  # Travel/Vacation (700-799) - Car rentals and regional destinations
   - name: 'Enterprise Rent-A-Car'
     pattern: 'ENTERPRISE RENT-A-CAR'
     match_type: 'contains'

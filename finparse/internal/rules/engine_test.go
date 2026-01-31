@@ -1029,18 +1029,91 @@ func TestEmbeddedRules_CoverageRequirement(t *testing.T) {
 	// Report results
 	t.Logf("Coverage: %.2f%% (%d/%d matched)", coveragePercent, matched, len(descriptions))
 
+	// ALWAYS log unmatched transactions for visibility
+	if len(unmatched) > 0 {
+		t.Logf("Unmatched transactions (%d of %d, %.2f%% uncovered):",
+			len(unmatched), len(descriptions), 100.0-coveragePercent)
+		for i, desc := range unmatched {
+			if i < 50 { // Show first 50
+				t.Logf("  [%d] %s", i+1, desc)
+			}
+		}
+		if len(unmatched) > 50 {
+			t.Logf("  ... and %d more", len(unmatched)-50)
+		}
+	}
+
 	// Require ≥95% coverage
 	if coverage < 0.95 {
 		t.Errorf("Coverage %.2f%% below requirement (95%%)", coveragePercent)
-		t.Logf("Unmatched transactions (%d):", len(unmatched))
-		for i, desc := range unmatched {
-			if i < 20 { // Show first 20
-				t.Logf("  - %s", desc)
+	}
+}
+
+func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
+	// Load embedded rules
+	engine, err := LoadEmbedded()
+	if err != nil {
+		t.Fatalf("LoadEmbedded() error = %v", err)
+	}
+
+	tests := []struct {
+		desc           string
+		wantCategory   domain.Category
+		wantVacation   bool
+		wantRedeemable bool
+	}{
+		// Food delivery via Venmo (check whitespace handling)
+		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
+		// Note: VENMO with 2 spaces currently falls through to "other" due to internal whitespace non-normalization
+		// This is a known limitation documented in TestMatch_InternalWhitespaceNormalization
+		{"VENMO  *UBER EATS", domain.CategoryOther, false, false}, // 2 spaces - not matched by current rule
+		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
+
+		// Major retailers
+		{"AMAZON MKTPL*XB8MO38V3", domain.CategoryShopping, false, true},
+		{"Amazon.com*MI4KC34I3", domain.CategoryShopping, false, true},   // lowercase variation
+		{"TARGET        00028456", domain.CategoryShopping, false, true}, // multiple spaces
+		{"WALMART.COM", domain.CategoryShopping, false, true},
+
+		// Groceries
+		{"KROGER #0789", domain.CategoryGroceries, false, true},
+		{"TRADER JOE'S #567", domain.CategoryGroceries, false, true},
+		{"GIANT FOOD #1234", domain.CategoryGroceries, false, true},
+
+		// Travel with vacation flag
+		{"MARRIOTT HOTEL", domain.CategoryTravel, true, true}, // Travel is redeemable
+		{"UNITED AIRLINES", domain.CategoryTravel, true, true},
+		{"DELTA AIR 0062123456789", domain.CategoryTravel, true, true},
+
+		// Dining - Chick-fil-A variations
+		{"CHICKFILA #1234", domain.CategoryDining, false, true},
+		{"CHICK-FIL-A #5678", domain.CategoryDining, false, true}, // Hyphenated version
+
+		// Negative cases - should NOT match specific patterns
+		{"REGULAR VENMO PAYMENT", domain.CategoryOther, false, false}, // Not food delivery
+		{"VENMO *John Smith", domain.CategoryOther, false, false},     // Personal transfer
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			result, matched, err := engine.Match(tt.desc)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
 			}
-		}
-		if len(unmatched) > 20 {
-			t.Logf("  ... and %d more", len(unmatched)-20)
-		}
+			if !matched {
+				t.Errorf("Expected match for %q but got no match", tt.desc)
+				return
+			}
+			if result.Category != tt.wantCategory {
+				t.Errorf("Match(%q) category = %s, want %s", tt.desc, result.Category, tt.wantCategory)
+			}
+			if result.Vacation != tt.wantVacation {
+				t.Errorf("Match(%q) vacation = %v, want %v", tt.desc, result.Vacation, tt.wantVacation)
+			}
+			if result.Redeemable != tt.wantRedeemable {
+				t.Errorf("Match(%q) redeemable = %v, want %v", tt.desc, result.Redeemable, tt.wantRedeemable)
+			}
+		})
 	}
 }
 
@@ -1311,6 +1384,7 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 	}
 
 	// Verify expected rule count (from carriercommons migration)
+	// TODO(#1741): Update test threshold to match actual rule count
 	if len(engine.rules) < 50 {
 		t.Errorf("Expected ~56 rules from carriercommons migration, got %d", len(engine.rules))
 	}
@@ -1395,3 +1469,7 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 		}
 	}
 }
+
+// TODO(#1745): Add tests for priority ordering between new rule categories
+// Priority ordering determines which rule wins when multiple patterns match.
+// Without these tests, we can't verify that more specific rules beat generic ones.
