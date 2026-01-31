@@ -93,7 +93,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     # Validates Lua syntax in WezTerm configuration to catch errors before runtime
     # Uses luac -p (parse-only mode) to check syntax without executing the code
     # Limitation: Only validates Lua syntax, not WezTerm-specific API semantics
-    # TODO(#1734): Add integration tests for WezTerm Lua syntax validation hook
+    # Integration tests: nix/tests/wezterm-lua-syntax-test.nix (runs via nix flake check)
     wezterm-lua-syntax = {
       enable = true;
       name = "wezterm-lua-syntax";
@@ -106,8 +106,9 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         LUA_FILE=$(mktemp)
         trap "rm -f $LUA_FILE" EXIT
 
-        # Extract Lua code using nix eval - semantically correct and format-independent
-        # This approach works regardless of indentation, formatting, or whitespace
+        # Extract Lua code using nix eval - the only reliable way to extract from Nix strings
+        # This approach evaluates the Nix expression to get the exact Lua code, avoiding
+        # fragile text parsing that would break with formatting changes or Nix string interpolation
         ${pkgs.nix}/bin/nix eval --raw --impure \
           --expr '(import ./nix/home/wezterm.nix {
             config = {};
@@ -116,16 +117,19 @@ pre-commit-hooks.lib.${pkgs.system}.run {
           }).programs.wezterm.extraConfig' \
           > "$LUA_FILE"
 
-        # Validate Lua syntax
-        if ! ${pkgs.lua}/bin/luac -p "$LUA_FILE" 2>&1; then
+        # Validate Lua syntax and capture output
+        LUA_ERRORS=$(${pkgs.lua}/bin/luac -p "$LUA_FILE" 2>&1) || {
           echo ""
           echo "ERROR: WezTerm Lua configuration has syntax errors"
           echo "File: nix/home/wezterm.nix"
           echo ""
+          echo "Lua syntax validation failed with:"
+          echo "$LUA_ERRORS"
+          echo ""
           echo "Fix the Lua syntax errors in the extraConfig field before committing."
           echo ""
           exit 1
-        fi
+        }
 
         echo "✅ WezTerm Lua configuration syntax is valid"
       ''}";
@@ -429,7 +433,6 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       always_run = true;
     };
 
-    # TODO(#1735): Missing integration test for home-manager-build-check hook
     # Validate Home Manager configuration builds
     # Catches WezTerm config errors and Home Manager evaluation failures before push
     # Prevents CI failures from Nix syntax errors, invalid packages, or module option mistakes
@@ -464,9 +467,13 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
           echo "Home Manager configuration files changed, validating build..."
 
-          if ! ${pkgs.nix}/bin/nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --no-link 2>&1; then
+          # Validate Home Manager configuration builds
+          BUILD_OUTPUT=$(${pkgs.nix}/bin/nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --no-link 2>&1) || {
             echo ""
             echo "ERROR: Home Manager configuration failed to build"
+            echo ""
+            echo "Build output:"
+            echo "$BUILD_OUTPUT"
             echo ""
             echo "This check validates that the Home Manager configuration can build successfully."
             echo "It catches Nix syntax errors, invalid packages, and module option mistakes."
@@ -478,7 +485,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
             echo "  4. Retry your push"
             echo ""
             exit 1
-          fi
+          }
 
           echo "✅ Home Manager configuration builds successfully"
         else

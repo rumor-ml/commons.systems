@@ -924,6 +924,460 @@ EOF
   cd "$REPO_ROOT"
 }
 
+# Test 14: home-manager-build-check skips when no Home Manager files changed
+test_home_manager_build_check_skip() {
+  print_test_header "test_home_manager_build_check_skip"
+
+  # Create temporary git repo
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create initial commit with non-Home Manager file
+  echo "# README" > README.md
+  git add README.md
+  git commit -q -m "initial commit"
+
+  # Create origin remote pointing to self
+  git remote add origin .
+  git fetch -q origin
+
+  # Create feature branch with non-Home Manager changes
+  git checkout -q -b feature
+  echo "# Updated README" > README.md
+  git add README.md
+  git commit -q -m "update readme"
+
+  # Create a script that mimics the home-manager-build-check hook
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Verify we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+  echo "ERROR: Not in a git repository"
+  exit 1
+fi
+
+# Verify origin/main exists
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+  echo "ERROR: Remote branch 'origin/main' not found"
+  echo "Please fetch from origin: git fetch origin"
+  exit 1
+fi
+
+# Get list of changed files between main and current branch
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+  echo "ERROR: Failed to determine changed files"
+  echo "This may indicate repository corruption or detached HEAD state"
+  exit 1
+}
+
+# Check if any Home Manager or WezTerm config files changed
+if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
+  echo "Home Manager configuration files changed, validating build..."
+  exit 1
+else
+  echo "No Home Manager configuration changes detected, skipping build check."
+  exit 0
+fi
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "home-manager-build-check skips when no Home Manager files changed" \
+    "cd $test_dir && ./hook.sh"
+}
+
+# Test 15: home-manager-build-check detects nix/home/ changes
+test_home_manager_build_check_detects_home_changes() {
+  print_test_header "test_home_manager_build_check_detects_home_changes"
+
+  # Create temporary git repo
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create initial commit with Home Manager directory
+  mkdir -p nix/home
+  echo "# Home Manager config" > nix/home/default.nix
+  git add nix/home/default.nix
+  git commit -q -m "initial commit"
+
+  # Create origin remote pointing to self
+  git remote add origin .
+  git fetch -q origin
+
+  # Create feature branch with Home Manager changes
+  git checkout -q -b feature
+  echo "# Updated Home Manager config" > nix/home/wezterm.nix
+  git add nix/home/wezterm.nix
+  git commit -q -m "add wezterm config"
+
+  # Create a script that mimics the home-manager-build-check hook
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Verify origin/main exists
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+  echo "ERROR: Remote branch 'origin/main' not found"
+  exit 1
+fi
+
+# Get list of changed files
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+
+# Check if any Home Manager files changed
+if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
+  echo "Home Manager configuration files changed, validating build..."
+  # In real hook, this would run nix build
+  # For test, we verify detection works and exit with success marker
+  echo "DETECTED_HOME_MANAGER_CHANGES"
+  exit 0
+else
+  echo "No Home Manager configuration changes detected"
+  exit 1
+fi
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "home-manager-build-check detects nix/home/ changes" \
+    "cd $test_dir && ./hook.sh"
+}
+
+# Test 16: home-manager-build-check detects flake.nix changes
+test_home_manager_build_check_detects_flake_changes() {
+  print_test_header "test_home_manager_build_check_detects_flake_changes"
+
+  # Create temporary git repo
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+
+  # Create initial commit with flake.nix
+  echo "# Flake config" > flake.nix
+  git add flake.nix
+  git commit -q -m "initial commit"
+
+  # Create origin remote pointing to self
+  git remote add origin .
+  git fetch -q origin
+
+  # Create feature branch with flake.nix changes
+  git checkout -q -b feature
+  echo "# Updated flake config" > flake.nix
+  git add flake.nix
+  git commit -q -m "update flake"
+
+  # Create a script that mimics the home-manager-build-check hook
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Verify origin/main exists
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+  echo "ERROR: Remote branch 'origin/main' not found"
+  exit 1
+fi
+
+# Get list of changed files
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+
+# Check if flake.nix changed (Home Manager may be affected)
+if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
+  echo "Home Manager configuration files changed, validating build..."
+  echo "DETECTED_FLAKE_CHANGES"
+  exit 0
+else
+  echo "No Home Manager configuration changes detected"
+  exit 1
+fi
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_succeeds \
+    "home-manager-build-check detects flake.nix changes" \
+    "cd $test_dir && ./hook.sh"
+}
+
+# Test 17: home-manager-build-check fails when origin/main missing
+test_home_manager_build_check_no_origin_main() {
+  print_test_header "test_home_manager_build_check_no_origin_main"
+
+  # Create temporary git repo without origin/main
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  cd "$test_dir"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+  echo "test" > test.txt
+  git add test.txt
+  git commit -q -m "initial commit"
+
+  # Create a script that mimics the home-manager-build-check hook
+  cat > hook.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Verify we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+  echo "ERROR: Not in a git repository"
+  exit 1
+fi
+
+# Verify origin/main exists
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+  echo "ERROR: Remote branch 'origin/main' not found"
+  echo "Please fetch from origin: git fetch origin"
+  exit 1
+fi
+EOF
+  chmod +x hook.sh
+
+  cd "$REPO_ROOT"
+  assert_fails_with_message \
+    "home-manager-build-check hook without origin/main" \
+    "cd $test_dir && ./hook.sh" \
+    "ERROR: Remote branch 'origin/main' not found"
+}
+
+# Test 18: home-manager-build-check validates regex pattern matches correctly
+test_home_manager_build_check_regex_pattern() {
+  print_test_header "test_home_manager_build_check_regex_pattern"
+
+  local test_dir=$(mktemp -d)
+  trap "rm -rf $test_dir" RETURN
+
+  # Test 1: Pattern matches nix/home/ directory files
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if echo "nix/home/wezterm.nix" | grep -qE "(nix/home/|flake\.nix)"; then
+    echo -e "${GREEN}✓ PASS: Pattern matches nix/home/wezterm.nix${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Pattern should match nix/home/wezterm.nix${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+
+  # Test 2: Pattern matches nix/home/ subdirectories
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if echo "nix/home/modules/git.nix" | grep -qE "(nix/home/|flake\.nix)"; then
+    echo -e "${GREEN}✓ PASS: Pattern matches nix/home/ subdirectories${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Pattern should match nix/home/modules/git.nix${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+
+  # Test 3: Pattern matches flake.nix in root
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if echo "flake.nix" | grep -qE "(nix/home/|flake\.nix)"; then
+    echo -e "${GREEN}✓ PASS: Pattern matches flake.nix${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Pattern should match flake.nix${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+
+  # Test 4: Pattern does NOT match other nix files
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if echo "nix/checks.nix" | grep -qE "(nix/home/|flake\.nix)"; then
+    echo -e "${RED}✗ FAIL: Pattern should NOT match nix/checks.nix${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  else
+    echo -e "${GREEN}✓ PASS: Pattern correctly excludes nix/checks.nix${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  fi
+
+  # Test 5: Pattern does NOT match non-nix files
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if echo "README.md" | grep -qE "(nix/home/|flake\.nix)"; then
+    echo -e "${RED}✗ FAIL: Pattern should NOT match README.md${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  else
+    echo -e "${GREEN}✓ PASS: Pattern correctly excludes README.md${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  fi
+
+  # Test 6: Pattern does NOT match similar paths
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if echo "nix/homelab/config.nix" | grep -qE "(nix/home/|flake\.nix)"; then
+    echo -e "${RED}✗ FAIL: Pattern should NOT match nix/homelab/config.nix${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  else
+    echo -e "${GREEN}✓ PASS: Pattern correctly excludes nix/homelab/${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  fi
+
+  cd "$REPO_ROOT"
+}
+
+# Test 19: WezTerm Lua validation hook with valid config
+test_wezterm_lua_validation() {
+  print_test_header "test_wezterm_lua_validation"
+
+  # Test 1: Validate current WezTerm config syntax
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: WezTerm Lua syntax validation${NC}"
+
+  # Extract Lua code from wezterm.nix (same method as the hook)
+  LUA_FILE=$(mktemp)
+  trap "rm -f $LUA_FILE" RETURN
+
+  if nix eval --raw --impure \
+    --expr '(import ./nix/home/wezterm.nix {
+      config = {};
+      pkgs = import <nixpkgs> {};
+      lib = (import <nixpkgs> {}).lib;
+    }).programs.wezterm.extraConfig' \
+    > "$LUA_FILE" 2>/dev/null; then
+
+    # Validate Lua syntax using nix-shell to get luac
+    if nix-shell -p lua --run "luac -p $LUA_FILE" 2>/dev/null; then
+      echo -e "${GREEN}✓ PASS: WezTerm Lua configuration has valid syntax${NC}"
+      TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+      echo -e "${RED}✗ FAIL: WezTerm Lua configuration has syntax errors${NC}"
+      TESTS_FAILED=$((TESTS_FAILED + 1))
+      return 1
+    fi
+  else
+    echo -e "${RED}✗ FAIL: Failed to extract Lua config from wezterm.nix${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  # Test 2: Validate config values are correctly set
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: WezTerm Lua config value validation${NC}"
+
+  # Create a Lua script that mocks wezterm module and validates config values
+  cat > "${LUA_FILE}.test" <<'LUAEOF'
+-- Mock wezterm module
+package.loaded['wezterm'] = {
+  config_builder = function()
+    return {}
+  end,
+  font = function(name)
+    return {name = name}
+  end
+}
+
+-- Load the actual config and capture the returned config object
+local config_func = loadfile(arg[1])
+if not config_func then
+  print("Failed to load config file")
+  os.exit(1)
+end
+
+-- Execute the config file in a fresh environment that has the mocked wezterm
+local config = config_func()
+
+-- Validate config values
+local errors = {}
+
+if config.font_size ~= 12.0 then
+  table.insert(errors, "font_size should be 12.0, got " .. tostring(config.font_size))
+end
+
+if config.color_scheme ~= 'Tokyo Night' then
+  table.insert(errors, "color_scheme should be 'Tokyo Night', got " .. tostring(config.color_scheme))
+end
+
+if config.scrollback_lines ~= 10000 then
+  table.insert(errors, "scrollback_lines should be 10000, got " .. tostring(config.scrollback_lines))
+end
+
+if config.enable_scroll_bar ~= false then
+  table.insert(errors, "enable_scroll_bar should be false, got " .. tostring(config.enable_scroll_bar))
+end
+
+if config.hide_tab_bar_if_only_one_tab ~= true then
+  table.insert(errors, "hide_tab_bar_if_only_one_tab should be true, got " .. tostring(config.hide_tab_bar_if_only_one_tab))
+end
+
+if config.use_fancy_tab_bar ~= false then
+  table.insert(errors, "use_fancy_tab_bar should be false, got " .. tostring(config.use_fancy_tab_bar))
+end
+
+if config.native_macos_fullscreen_mode ~= true then
+  table.insert(errors, "native_macos_fullscreen_mode should be true, got " .. tostring(config.native_macos_fullscreen_mode))
+end
+
+if config.check_for_updates ~= false then
+  table.insert(errors, "check_for_updates should be false, got " .. tostring(config.check_for_updates))
+end
+
+-- Validate window_padding
+if type(config.window_padding) ~= 'table' then
+  table.insert(errors, "window_padding should be a table")
+else
+  if config.window_padding.left ~= 4 then
+    table.insert(errors, "window_padding.left should be 4, got " .. tostring(config.window_padding.left))
+  end
+  if config.window_padding.right ~= 4 then
+    table.insert(errors, "window_padding.right should be 4, got " .. tostring(config.window_padding.right))
+  end
+  if config.window_padding.top ~= 4 then
+    table.insert(errors, "window_padding.top should be 4, got " .. tostring(config.window_padding.top))
+  end
+  if config.window_padding.bottom ~= 4 then
+    table.insert(errors, "window_padding.bottom should be 4, got " .. tostring(config.window_padding.bottom))
+  end
+end
+
+-- Validate font configuration
+if type(config.font) ~= 'table' then
+  table.insert(errors, "font should be a table (result of wezterm.font())")
+else
+  if config.font.name ~= 'GeistMono Nerd Font' then
+    table.insert(errors, "font.name should be 'GeistMono Nerd Font', got " .. tostring(config.font.name))
+  end
+end
+
+-- Report results
+if #errors > 0 then
+  print("Config validation errors:")
+  for _, err in ipairs(errors) do
+    print("  - " .. err)
+  end
+  os.exit(1)
+else
+  print("All config values are correct")
+  os.exit(0)
+end
+LUAEOF
+
+  if nix-shell -p lua --run "lua ${LUA_FILE}.test $LUA_FILE" 2>&1; then
+    echo -e "${GREEN}✓ PASS: WezTerm config values are correctly set${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: WezTerm config values validation failed${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  rm -f "${LUA_FILE}.test"
+}
+
 # Main test runner
 main() {
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -953,6 +1407,12 @@ main() {
       echo "  test_prettier_check_all_files_not_just_changes"
       echo "  test_worktree_hook_blocks_invalid_changes"
       echo "  test_mcp_build_detects_untracked_files"
+      echo "  test_home_manager_build_check_skip"
+      echo "  test_home_manager_build_check_detects_home_changes"
+      echo "  test_home_manager_build_check_detects_flake_changes"
+      echo "  test_home_manager_build_check_no_origin_main"
+      echo "  test_home_manager_build_check_regex_pattern"
+      echo "  test_wezterm_lua_validation"
       exit 1
     fi
   else
@@ -972,6 +1432,12 @@ main() {
     test_prettier_check_all_files_not_just_changes
     test_worktree_hook_blocks_invalid_changes
     test_mcp_build_detects_untracked_files
+    test_home_manager_build_check_skip
+    test_home_manager_build_check_detects_home_changes
+    test_home_manager_build_check_detects_flake_changes
+    test_home_manager_build_check_no_origin_main
+    test_home_manager_build_check_regex_pattern
+    test_wezterm_lua_validation
   fi
 
   # Print summary

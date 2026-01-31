@@ -4,10 +4,11 @@
 # WezTerm provides GPU-accelerated terminal emulation with true color support,
 # ligatures, multiplexing, and Lua-based configuration.
 #
-# Features enabled:
-# - True color support
-# - Configurable via Lua for extensibility
-# - Native macOS integration
+# Configuration highlights:
+# - GeistMono Nerd Font (matching system fonts)
+# - Tokyo Night color scheme
+# - Native macOS fullscreen mode
+# - Shell integration (Bash/Zsh)
 #
 # After activation:
 #   1. Launch with: wezterm
@@ -17,9 +18,7 @@
 # Learn more: https://wezfurlong.org/wezterm/
 
 {
-  config,
   pkgs,
-  lib,
   ...
 }:
 
@@ -28,11 +27,15 @@
     # Only enable on Darwin (macOS)
     enable = pkgs.stdenv.isDarwin;
 
-    # Enable shell integration for command tracking and semantic zones
+    # Enable shell integration to track command boundaries and enable features like:
+    # - Jump between prompts with keyboard shortcuts
+    # - Copy command output without the prompt
+    # - Semantic zone navigation
     enableBashIntegration = true;
     enableZshIntegration = true;
 
-    # Lua configuration
+    # Lua configuration (note: Lua uses -- for comments, not #)
+    # TODO(#1737): Add explanatory comment about mixed comment syntax
     extraConfig = ''
       local wezterm = require('wezterm')
       local config = wezterm.config_builder()

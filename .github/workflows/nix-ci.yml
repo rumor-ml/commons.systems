@@ -59,8 +59,17 @@ jobs:
             which gh-workflow-mcp-server && echo "✓ gh-workflow-mcp-server found" || echo "✗ gh-workflow-mcp-server missing"
           '
 
-      # Cross-compile test: Verify Home Manager configuration builds on Darwin
-      # This validates Nix evaluation and Home Manager configuration syntax even when running on Linux CI
+      # Cross-compile test: Build Darwin Home Manager configuration on Linux CI
+      # Validates that the complete aarch64-darwin configuration evaluates and builds successfully
+      # Catches Nix evaluation errors, missing packages, and module configuration issues
+      #
+      # What this validates:
+      # - Home Manager configuration evaluates without errors
+      # - WezTerm configuration (including Lua syntax) is valid
+      # - All packages in the configuration are available for aarch64-darwin
+      # - Cross-compilation to aarch64-darwin works on Linux runners
+      #
+      # Manual test: Introduce syntax error in nix/home/wezterm.nix and verify CI fails
       - name: Verify Home Manager configuration builds
         run: |
           echo "Building Home Manager configuration (aarch64-darwin)..."
