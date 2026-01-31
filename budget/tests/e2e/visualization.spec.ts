@@ -164,8 +164,8 @@ test.describe('Budget Visualization', () => {
     await page.goto('/');
     await page.waitForSelector('.app-container');
 
-    // Header should still be visible
-    await expect(page.locator('.app-header')).toBeVisible();
+    // Header should still be visible (scope to main view)
+    await expect(page.locator('#main-view .app-header')).toBeVisible();
 
     // Summary cards should reflow
     await expect(page.locator('.summary-cards')).toBeVisible();
