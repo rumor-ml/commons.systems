@@ -52,7 +52,7 @@ test: test-e2e
 test-unit:
 	@echo "No unit tests for static site"
 
-test-e2e:
+test-e2e: build
 	@echo "Running Playwright E2E tests..."
 	@cd tests && pnpm test
 
