@@ -77,7 +77,9 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
     props = JSON.parse(element.dataset.islandProps || '{}');
     // Debug logging for chart island
     if (componentName === 'BudgetChart' && 'transactions' in props) {
-      console.log(`[Islands] Hydrating ${componentName} with ${(props as any).transactions?.length || 0} transactions`);
+      console.log(
+        `[Islands] Hydrating ${componentName} with ${(props as any).transactions?.length || 0} transactions`
+      );
     }
   } catch (error) {
     logger.error(`Failed to parse island props for "${componentName}"`, {
@@ -144,7 +146,9 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
       element.dataset.islandHydrated = 'true';
       // Debug logging for chart island
       if (componentName === 'BudgetChart' && 'transactions' in props) {
-        console.log(`[Islands] Rendered ${componentName} with ${(props as any).transactions?.length || 0} transactions`);
+        console.log(
+          `[Islands] Rendered ${componentName} with ${(props as any).transactions?.length || 0} transactions`
+        );
       }
     } catch (renderError) {
       const { message: errorMessage, stack: errorStack } = extractErrorInfo(renderError);

@@ -48,7 +48,9 @@ async function loadTransactions(): Promise<Transaction[]> {
         transactionsLoadPromise = null;
         // Fallback to static JSON
         cachedTransactions = transactionsData.transactions as Transaction[];
-        console.log(`[Budget] Using static data fallback: ${cachedTransactions.length} transactions`);
+        console.log(
+          `[Budget] Using static data fallback: ${cachedTransactions.length} transactions`
+        );
         return cachedTransactions;
       });
     return transactionsLoadPromise;
@@ -120,7 +122,9 @@ async function updateMainView(): Promise<void> {
   console.log('[Budget] updateMainView: loading transactions...');
   const state = StateManager.load();
   const transactions = await loadTransactions();
-  console.log(`[Budget] updateMainView: loaded ${transactions.length} transactions, updating islands...`);
+  console.log(
+    `[Budget] updateMainView: loaded ${transactions.length} transactions, updating islands...`
+  );
 
   // Update chart island
   const chartProps = {

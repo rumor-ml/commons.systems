@@ -83,15 +83,11 @@ function getFirebaseConfig() {
     // Emulator mode: use dummy values, only projectId matters
     return {
       apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'dummy-api-key-for-emulator',
-      authDomain:
-        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
       projectId,
-      storageBucket:
-        import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`,
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`,
       messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '000000000000',
-      appId:
-        import.meta.env.VITE_FIREBASE_APP_ID ||
-        '1:000000000000:web:0000000000000000000000',
+      appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:000000000000:web:0000000000000000000000',
     };
   } else {
     // Production mode: validate all required env vars
