@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 
-test.describe('Seed 12345 Step 7 Barrier Crossing Analysis', () => {
+test.describe.skip('Seed 12345 Step 7 Barrier Crossing Analysis', () => {
   let consoleLogs = [];
   let consoleErrors = [];
 

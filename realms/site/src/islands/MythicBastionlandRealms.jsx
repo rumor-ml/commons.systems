@@ -1855,7 +1855,8 @@ export default function MythicBastionlandRealms() {
 
   useEffect(() => {
     initializeGenerator();
-  }, [initializeGenerator]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Expose for console testing
   useEffect(() => {

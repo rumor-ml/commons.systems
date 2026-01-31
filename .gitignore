@@ -88,3 +88,4 @@ index.lock
 firebase.emulator.json
 firebase.json.backup
 .firebase-*.json
+.test-env.json
