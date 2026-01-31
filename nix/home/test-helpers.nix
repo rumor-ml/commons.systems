@@ -44,6 +44,13 @@
       # Pattern to match: attributeName = ''
       startPattern = "${attributeName} = ''";
 
+      # Valid state types for the parser state machine
+      validStateTypes = [
+        "initial"
+        "collecting"
+        "stopped"
+      ];
+
       # State constructor functions with validation to enforce invariants
       # Note: Prefer using these constructors and accessors rather than direct field access
       # to maintain encapsulation and allow future refactoring.
@@ -56,35 +63,25 @@
       mkCollectingState =
         content:
         let
-          validTypes = [
-            "initial"
-            "collecting"
-            "stopped"
-          ];
           state = {
             _type = "collecting";
             inherit content;
           };
         in
         assert lib.assertMsg (lib.isList content) "mkCollectingState: content must be a list";
-        assert lib.assertMsg (lib.elem state._type validTypes) "Invalid state type: ${state._type}";
+        assert lib.assertMsg (lib.elem state._type validStateTypes) "Invalid state type: ${state._type}";
         state;
 
       mkStoppedState =
         content:
         let
-          validTypes = [
-            "initial"
-            "collecting"
-            "stopped"
-          ];
           state = {
             _type = "stopped";
             inherit content;
           };
         in
         assert lib.assertMsg (lib.isList content) "mkStoppedState: content must be a list";
-        assert lib.assertMsg (lib.elem state._type validTypes) "Invalid state type: ${state._type}";
+        assert lib.assertMsg (lib.elem state._type validStateTypes) "Invalid state type: ${state._type}";
         state;
 
       # Accessor functions to hide internal structure and improve encapsulation

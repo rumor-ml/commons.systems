@@ -30,11 +30,13 @@ WezTerm configuration is declaratively managed through Home-Manager:
 
 When running on WSL, the configuration includes:
 
-- **WSL Integration**: Sets `default_prog` to launch WSL automatically
+- **WSL Integration**: Sets `default_prog` to launch WSL automatically, with your username interpolated from `config.home.username`:
 
   ```lua
-  config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/<username>' }
+  config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. "your-username" }
   ```
+
+  (The actual generated config concatenates `/home/` with your username using Lua's `..` operator)
 
 - **Windows Copy**: Activation script copies config to Windows location
   - Source: `~/.config/wezterm/wezterm.lua`
@@ -54,7 +56,7 @@ When running on macOS, the configuration includes:
 
 Common settings applied on all platforms:
 
-- **Font**: JetBrains Mono at 11pt (must be installed separately - see Initial Setup)
+- **Font**: JetBrains Mono Nerd Font at 11pt (must be installed separately - see Initial Setup)
 - **Color Scheme**: Tokyo Night
 - **Scrollback**: 10,000 lines
 - **Tab Bar**: Hidden when only one tab is open
@@ -112,8 +114,8 @@ Common settings applied on all platforms:
    ls -la /mnt/c/Users/$(whoami)/.wezterm.lua
    ```
 
-4. **Install Required Fonts**: The configuration uses **JetBrains Mono** font. Ensure it's installed:
-   - **WSL**: Install JetBrains Mono on Windows (the WezTerm process runs on Windows and looks for fonts there, not in WSL)
+4. **Install Required Fonts**: The configuration uses **JetBrains Mono Nerd Font**. Ensure it's installed:
+   - **WSL**: Install JetBrains Mono Nerd Font on Windows (the WezTerm process runs on Windows and looks for fonts there, not in WSL)
      - Download from https://www.jetbrains.com/lp/mono/
      - Or install via winget: `winget install JetBrains.JetBrainsMono.NerdFont`
 
@@ -146,7 +148,7 @@ Common settings applied on all platforms:
    - **macOS**: Check Font Book application
    - **Windows**: Check Settings → Fonts
 
-   **Note**: If JetBrains Mono is not installed, WezTerm will typically fall back to its default font. To verify your font is being used, open WezTerm and check the terminal appearance matches the intended design.
+   **Note**: If JetBrains Mono Nerd Font is not installed, WezTerm will typically fall back to its default font. To verify your font is being used, open WezTerm and check the terminal appearance matches the intended design.
 
 ### Making Changes
 
@@ -242,7 +244,8 @@ diff ~/.config/wezterm/wezterm.lua /mnt/c/Users/$(whoami)/.wezterm.lua
 ### Verify WezTerm Reads Config
 
 1. Open WezTerm
-2. Press `Ctrl+Shift+L` to open the debug overlay
+2. Press `Ctrl+Shift+L` to open the launcher, then select "Debug Overlay"
+   (or check Help → Show Debug Overlay from the menu)
 3. Check for configuration errors in the output
 4. Verify settings match your expectations (font, colors, etc.)
 

@@ -572,6 +572,385 @@ let
             touch $out
       '';
 
+  # Test 18: Error handling structure - bashcompinit autoload failure
+  test-runtime-bashcompinit-failure =
+    pkgs.runCommand "test-runtime-bashcompinit-failure"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+        # Validates error handling structure for bashcompinit autoload failure.
+        # Runtime testing of autoload failures is limited because:
+        # - autoload is a zsh builtin that cannot be easily mocked
+        # - Manipulating fpath affects all autoload calls, not just specific ones
+        # Instead, we validate the error handling pattern is correctly structured.
+
+        # Verify error handling pattern exists
+        ${
+          if lib.hasInfix "if ! autoload -U +X bashcompinit || ! bashcompinit" initExtraContent then
+            "echo 'PASS: bashcompinit has error handling pattern with autoload check'"
+          else
+            "echo 'FAIL: bashcompinit missing error handling pattern' && exit 1"
+        }
+
+        # Verify warning message to user
+        ${
+          if lib.hasInfix "WARNING: Failed to initialize bash completions" initExtraContent then
+            "echo 'PASS: bashcompinit failure warning message exists'"
+          else
+            "echo 'FAIL: bashcompinit error message missing' && exit 1"
+        }
+
+        # Verify warning goes to stderr
+        ${
+          if lib.hasInfix "WARNING: Failed to initialize bash completions for zsh\" >&2" initExtraContent then
+            "echo 'PASS: bashcompinit warning directed to stderr'"
+          else
+            "echo 'FAIL: bashcompinit warning should go to stderr' && exit 1"
+        }
+
+        # Verify graceful continuation (no exit/return after bashcompinit error)
+        # The error block is: if ! autoload...; then echo WARNING >&2; fi
+        # After the fi, execution should continue to next section (vcs_info setup)
+        ${
+          if lib.hasInfix "# Git status in prompt" initExtraContent then
+            "echo 'PASS: Shell continues to vcs_info section after bashcompinit check'"
+          else
+            "echo 'FAIL: initExtra should continue after bashcompinit' && exit 1"
+        }
+
+        touch $out
+      '';
+
+  # Test 19: Error handling structure - vcs_info autoload failure
+  test-runtime-vcs-info-autoload-failure =
+    pkgs.runCommand "test-runtime-vcs-info-autoload-failure"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+        # Validates error handling structure for vcs_info autoload failure.
+        # See test-runtime-bashcompinit-failure comment for why we use pattern validation.
+
+        # Verify error handling pattern exists
+        ${
+          if lib.hasInfix "if ! autoload -Uz vcs_info" initExtraContent then
+            "echo 'PASS: vcs_info has error handling pattern with autoload check'"
+          else
+            "echo 'FAIL: vcs_info missing error handling pattern' && exit 1"
+        }
+
+        # Verify warning message to user
+        ${
+          if lib.hasInfix "WARNING: Failed to load vcs_info" initExtraContent then
+            "echo 'PASS: vcs_info autoload failure warning message exists'"
+          else
+            "echo 'FAIL: vcs_info error message missing' && exit 1"
+        }
+
+        # Verify warning explains impact on user
+        ${
+          if lib.hasInfix "Git branch will not appear in prompt" initExtraContent then
+            "echo 'PASS: vcs_info warning explains git prompt impact'"
+          else
+            "echo 'FAIL: vcs_info warning should explain impact' && exit 1"
+        }
+
+        # Verify diagnostic guidance
+        ${
+          if lib.hasInfix "incomplete zsh installation" initExtraContent then
+            "echo 'PASS: vcs_info warning provides diagnostic guidance'"
+          else
+            "echo 'FAIL: vcs_info warning should mention incomplete installation' && exit 1"
+        }
+
+        # Verify warnings go to stderr
+        ${
+          if
+            lib.hasInfix "WARNING: Failed to load vcs_info for git prompt integration\" >&2" initExtraContent
+          then
+            "echo 'PASS: vcs_info warnings directed to stderr'"
+          else
+            "echo 'FAIL: vcs_info warnings should go to stderr' && exit 1"
+        }
+
+        # Verify else block defines precmd when autoload succeeds
+        ${
+          if lib.hasInfix "else" initExtraContent && lib.hasInfix "precmd()" initExtraContent then
+            "echo 'PASS: vcs_info defines precmd in else block (when autoload succeeds)'"
+          else
+            "echo 'FAIL: vcs_info should define precmd when autoload succeeds' && exit 1"
+        }
+
+        touch $out
+      '';
+
+  # Test 20: Runtime test - vcs_info execution failure in precmd
+  test-runtime-vcs-info-execution-failure =
+    pkgs.runCommand "test-runtime-vcs-info-execution-failure"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create test zshrc with mock vcs_info that fails
+            cat > test-zshrc << 'EOF'
+        # Mock vcs_info to fail at execution time (not autoload time)
+        vcs_info() {
+          echo "fatal: not a git repository" >&2
+          return 1
+        }
+        ${initExtraContent}
+        echo "Shell initialization completed"
+        EOF
+
+            # Run zsh and trigger precmd
+            output=$(ZDOTDIR=$(pwd) ${pkgs.zsh}/bin/zsh -c "source test-zshrc && precmd" 2>&1) || true
+
+            # Verify one-time warning appears
+            if echo "$output" | grep -q "WARNING: vcs_info failed"; then
+              echo "PASS: vcs_info execution failure produces warning"
+            else
+              echo "FAIL: Expected vcs_info execution warning not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify error details are included
+            if echo "$output" | grep -q "fatal: not a git repository"; then
+              echo "PASS: Warning includes vcs_info error details"
+            else
+              echo "FAIL: Warning should include error details"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify suppression flag is set (run precmd again, should not warn)
+            output2=$(ZDOTDIR=$(pwd) ${pkgs.zsh}/bin/zsh -c "source test-zshrc && precmd && precmd" 2>&1) || true
+            warning_count=$(echo "$output2" | grep -c "WARNING: vcs_info failed" || true)
+            if [ "$warning_count" -eq 1 ]; then
+              echo "PASS: Warning appears only once (suppression works)"
+            else
+              echo "FAIL: Warning should appear only once, found $warning_count times"
+              echo "Output was: $output2"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
+  # Test 21: Runtime test - mktemp failure in _pr_jobs
+  test-runtime-pr-jobs-mktemp-failure =
+    pkgs.runCommand "test-runtime-pr-jobs-mktemp-failure"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create mock mktemp that fails
+            mkdir -p bin
+            cat > bin/mktemp << 'MKTEMP_MOCK'
+        #!/bin/sh
+        echo "mktemp: failed to create file: No space left on device" >&2
+        exit 1
+        MKTEMP_MOCK
+            chmod +x bin/mktemp
+
+            # Create test zshrc with initExtra content
+            cat > test-zshrc << 'EOF'
+        ${initExtraContent}
+        EOF
+
+            # Run zsh with PATH override to use failing mktemp
+            output=$(PATH=$(pwd)/bin:$PATH ZDOTDIR=$(pwd) ${pkgs.zsh}/bin/zsh -c "source test-zshrc && _pr_jobs" 2>&1) || true
+
+            # Verify warning appears
+            if echo "$output" | grep -q "WARNING: Failed to create temp file"; then
+              echo "PASS: mktemp failure produces warning"
+            else
+              echo "FAIL: Expected mktemp warning not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify mktemp error details included
+            if echo "$output" | grep -q "No space left on device"; then
+              echo "PASS: Warning includes mktemp error details"
+            else
+              echo "FAIL: Warning should include mktemp error"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify JOBS is set to empty (safe default)
+            output_jobs=$(PATH=$(pwd)/bin:$PATH ZDOTDIR=$(pwd) ${pkgs.zsh}/bin/zsh -c "source test-zshrc && _pr_jobs && echo \"JOBS=[\$JOBS]\"" 2>&1) || true
+            if echo "$output_jobs" | grep -q "JOBS=\[\]"; then
+              echo "PASS: JOBS variable set to empty on mktemp failure"
+            else
+              echo "FAIL: JOBS should be empty on mktemp failure"
+              echo "Output was: $output_jobs"
+              exit 1
+            fi
+
+            # Verify suppression flag prevents repeated warnings
+            output2=$(PATH=$(pwd)/bin:$PATH ZDOTDIR=$(pwd) ${pkgs.zsh}/bin/zsh -c "source test-zshrc && _pr_jobs && _pr_jobs" 2>&1) || true
+            warning_count=$(echo "$output2" | grep -c "WARNING: Failed to create temp file" || true)
+            if [ "$warning_count" -eq 1 ]; then
+              echo "PASS: mktemp warning appears only once (suppression works)"
+            else
+              echo "FAIL: mktemp warning should appear only once, found $warning_count times"
+              echo "Output was: $output2"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
+  # Test 22: Error handling structure - print/read failure in _pr_jobs
+  test-runtime-pr-jobs-print-read-failure =
+    pkgs.runCommand "test-runtime-pr-jobs-print-read-failure"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+        # Validates error handling structure for print/read failures in _pr_jobs.
+        # Testing runtime behavior of print builtin failures is complex.
+        # Instead, we validate the error handling pattern is correctly structured.
+
+        # Verify print error handling exists
+        ${
+          if lib.hasInfix "if ! print_error=\$(print \$(jobs) 2>&1 > \$tmp)" initExtraContent then
+            "echo 'PASS: _pr_jobs has error handling for print command'"
+          else
+            "echo 'FAIL: _pr_jobs missing print error handling' && exit 1"
+        }
+
+        # Verify print error produces warning
+        ${
+          if lib.hasInfix "WARNING: Failed to write jobs to temp file" initExtraContent then
+            "echo 'PASS: print failure warning message exists'"
+          else
+            "echo 'FAIL: print failure warning missing' && exit 1"
+        }
+
+        # Verify print error includes error details
+        ${
+          if lib.hasInfix "\$print_error" initExtraContent then
+            "echo 'PASS: print warning includes error details variable'"
+          else
+            "echo 'FAIL: print warning should include error details' && exit 1"
+        }
+
+        # Verify JOBS set to empty on print error
+        ${
+          let
+            # Look for pattern: if ! print_error=...; then ... JOBS=""; ...
+            hasSafeDefault = lib.hasInfix "JOBS=\"\"" initExtraContent;
+          in
+          if hasSafeDefault then
+            "echo 'PASS: JOBS set to empty string on print failure (safe default)'"
+          else
+            "echo 'FAIL: JOBS should be set to empty on error' && exit 1"
+        }
+
+        # Verify read error handling exists
+        ${
+          if lib.hasInfix "if ! JOBS=\$(<\"\$tmp\" 2>&1)" initExtraContent then
+            "echo 'PASS: _pr_jobs has error handling for read operation'"
+          else
+            "echo 'FAIL: _pr_jobs missing read error handling' && exit 1"
+        }
+
+        # Verify read error produces warning
+        ${
+          if lib.hasInfix "WARNING: Failed to read jobs from temp file" initExtraContent then
+            "echo 'PASS: read failure warning message exists'"
+          else
+            "echo 'FAIL: read failure warning missing' && exit 1"
+        }
+
+        touch $out
+      '';
+
+  # Test 23: Error handling structure - add-zsh-hook autoload failure
+  test-runtime-add-zsh-hook-failure =
+    pkgs.runCommand "test-runtime-add-zsh-hook-failure"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+        # Validates error handling structure for add-zsh-hook autoload failure.
+        # See test-runtime-bashcompinit-failure comment for why we use pattern validation.
+
+        # Verify error handling pattern exists
+        ${
+          if lib.hasInfix "if ! autoload -Uz add-zsh-hook" initExtraContent then
+            "echo 'PASS: add-zsh-hook has error handling pattern with autoload check'"
+          else
+            "echo 'FAIL: add-zsh-hook missing error handling pattern' && exit 1"
+        }
+
+        # Verify warning message to user
+        ${
+          if lib.hasInfix "WARNING: Failed to load add-zsh-hook" initExtraContent then
+            "echo 'PASS: add-zsh-hook autoload failure warning message exists'"
+          else
+            "echo 'FAIL: add-zsh-hook error message missing' && exit 1"
+        }
+
+        # Verify warning explains impact on user
+        ${
+          if lib.hasInfix "Background job indicator will not work" initExtraContent then
+            "echo 'PASS: add-zsh-hook warning explains job indicator impact'"
+          else
+            "echo 'FAIL: add-zsh-hook warning should explain impact' && exit 1"
+        }
+
+        # Verify diagnostic guidance
+        ${
+          if lib.hasInfix "incomplete zsh installation" initExtraContent then
+            "echo 'PASS: add-zsh-hook warning provides diagnostic guidance'"
+          else
+            "echo 'FAIL: add-zsh-hook warning should mention incomplete installation' && exit 1"
+        }
+
+        # Verify warnings go to stderr
+        ${
+          if lib.hasInfix "WARNING: Failed to load add-zsh-hook for job display\" >&2" initExtraContent then
+            "echo 'PASS: add-zsh-hook warnings directed to stderr'"
+          else
+            "echo 'FAIL: add-zsh-hook warnings should go to stderr' && exit 1"
+        }
+
+        # Verify else block calls add-zsh-hook when autoload succeeds
+        ${
+          if
+            lib.hasInfix "else" initExtraContent && lib.hasInfix "add-zsh-hook precmd _pr_jobs" initExtraContent
+          then
+            "echo 'PASS: add-zsh-hook registers precmd in else block (when autoload succeeds)'"
+          else
+            "echo 'FAIL: add-zsh-hook should register precmd when autoload succeeds' && exit 1"
+        }
+
+        touch $out
+      '';
+
   # Aggregate all tests into a test suite
   allTests = [
     test-module-structure
@@ -591,6 +970,12 @@ let
     test-comments
     test-missing-session-vars-file
     test-environment-preservation-after-error
+    test-runtime-bashcompinit-failure
+    test-runtime-vcs-info-autoload-failure
+    test-runtime-vcs-info-execution-failure
+    test-runtime-pr-jobs-mktemp-failure
+    test-runtime-pr-jobs-print-read-failure
+    test-runtime-add-zsh-hook-failure
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -627,6 +1012,12 @@ in
       test-comments
       test-missing-session-vars-file
       test-environment-preservation-after-error
+      test-runtime-bashcompinit-failure
+      test-runtime-vcs-info-autoload-failure
+      test-runtime-vcs-info-execution-failure
+      test-runtime-pr-jobs-mktemp-failure
+      test-runtime-pr-jobs-print-read-failure
+      test-runtime-add-zsh-hook-failure
       ;
   };
 

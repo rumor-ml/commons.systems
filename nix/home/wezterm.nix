@@ -47,7 +47,8 @@
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
         -- Using lib.strings.toJSON to safely escape special characters in username (prevents Lua injection).
-        -- Example: username with quote becomes "user\"name" in generated Lua, avoiding broken syntax like: "user"name"
+        -- Example: username 'test"user' becomes "test\"user" (JSON string), then concatenated: '/home/' .. "test\"user"
+        -- This prevents broken Lua syntax that would occur with unescaped interpolation
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
       ''}
 
@@ -188,7 +189,7 @@
           echo "" >&2
 
           # Attempt to list /mnt/c/Users again for diagnostic output
-          # If this second ls fails, directory passed initial readability check (line 84) but is now inaccessible - indicates race condition or filesystem issue
+          # If this second ls fails, directory passed initial readability check (line 88) but is now inaccessible - indicates race condition or filesystem issue
           if ! ls_output=$(ls -1 /mnt/c/Users/ 2>&1); then
             echo "ERROR: Additionally, cannot list /mnt/c/Users/ for diagnostics" >&2
             echo "  Directory passed initial checks but is now inaccessible" >&2

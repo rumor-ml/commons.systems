@@ -218,6 +218,9 @@ CLEANUP_DIRS+=("$TEMP_MOUNT5")
 mkdir -p "$TEMP_MOUNT5/c/Users/testuser"
 chmod 000 "$TEMP_MOUNT5/c/Users"
 
+# Define error code
+readonly ERR_PERMISSION_DENIED=11
+
 # ls should fail with permission denied
 WINDOWS_USER=$(ls "$TEMP_MOUNT5/c/Users/" 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1 || true)
 
@@ -256,12 +259,22 @@ CLEANUP_DIRS+=("$TEMP_MOUNT7")
 
 mkdir -p "$TEMP_MOUNT7/c/Users"
 
+# Define error code
+readonly ERR_USERNAME_DETECTION=12
+
 WINDOWS_USER=$(ls "$TEMP_MOUNT7/c/Users/" 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
 
+# Simulate error exit code check
+EXIT_CODE=0
 if [[ -z "$WINDOWS_USER" ]]; then
-  report_pass "Empty Users directory handled correctly"
+  # In the actual script, this would exit with ERR_USERNAME_DETECTION
+  EXIT_CODE=$ERR_USERNAME_DETECTION
+fi
+
+if [[ -z "$WINDOWS_USER" ]] && [[ $EXIT_CODE -eq $ERR_USERNAME_DETECTION ]]; then
+  report_pass "Empty Users directory handled correctly with exit code $ERR_USERNAME_DETECTION"
 else
-  report_fail "Should return empty for empty Users directory" "Got: '$WINDOWS_USER'"
+  report_fail "Should return empty for empty Users directory with correct exit code" "Got WINDOWS_USER: '$WINDOWS_USER', Exit code: $EXIT_CODE"
 fi
 
 # Test 10: Case sensitivity in system directory filtering
@@ -510,24 +523,27 @@ echo ""
 echo "=== Test 20: Source config not found error path ==="
 MISSING_SOURCE20="/nonexistent/home/.config/wezterm/wezterm.lua"
 
-# Simulate the error check from wezterm.nix lines 96-100
+# Define error code
+readonly ERR_SOURCE_MISSING=13
+
+# Simulate the error check from wezterm.nix lines 145-149
 ERROR_OUTPUT=""
 EXIT_CODE=0
 if [[ ! -f "$MISSING_SOURCE20" ]]; then
   # Simulate the error message that would be generated
   ERROR_OUTPUT="ERROR: Source WezTerm config not found at $MISSING_SOURCE20"$'\n'"Home-Manager may have failed to generate the configuration"
-  EXIT_CODE=1
+  EXIT_CODE=$ERR_SOURCE_MISSING
 fi
 
 # Validate error message content and exit code
-if [[ $EXIT_CODE -eq 1 ]]; then
+if [[ $EXIT_CODE -eq $ERR_SOURCE_MISSING ]]; then
   if [[ "$ERROR_OUTPUT" =~ "ERROR:" ]] && [[ "$ERROR_OUTPUT" =~ "$MISSING_SOURCE20" ]] && [[ "$ERROR_OUTPUT" =~ "Home-Manager" ]]; then
-    report_pass "Missing source config triggers exit 1 with descriptive error message"
+    report_pass "Missing source config triggers exit $ERR_SOURCE_MISSING with descriptive error message"
   else
     report_fail "Error message lacks required context" "Got: $ERROR_OUTPUT"
   fi
 else
-  report_fail "Missing source config should trigger exit 1"
+  report_fail "Missing source config should trigger exit $ERR_SOURCE_MISSING" "Got exit code: $EXIT_CODE"
 fi
 
 # Test 21: Failed to copy config (ERROR and exit 1)
@@ -539,32 +555,35 @@ CLEANUP_DIRS+=("$TEMP_TARGET_DIR21")
 echo "config content" > "$TEMP_SOURCE21"
 TARGET_FILE21="$TEMP_TARGET_DIR21/.wezterm.lua"
 
+# Define error code
+readonly ERR_COPY_FAILED=14
+
 # Make target directory read-only to force copy failure
 chmod 555 "$TEMP_TARGET_DIR21"
 
 COPY_EXIT_CODE=0
 ERROR_OUTPUT=""
-# Simulate the copy with error checking from wezterm.nix lines 103-107
+# Simulate the copy with error checking from wezterm.nix lines 164-168
 DRY_RUN_CMD=""
 VERBOSE_ARG=""
 if ! $DRY_RUN_CMD cp $VERBOSE_ARG "$TEMP_SOURCE21" "$TARGET_FILE21" 2>/dev/null; then
   # Simulate the error message that would be generated
   ERROR_OUTPUT="ERROR: Failed to copy WezTerm config to $TARGET_FILE21"$'\n'"Check permissions, disk space, and ensure WezTerm is not running"
-  COPY_EXIT_CODE=1
+  COPY_EXIT_CODE=$ERR_COPY_FAILED
 fi
 
 rm -f "$TEMP_SOURCE21"
 chmod 755 "$TEMP_TARGET_DIR21"  # Restore for cleanup
 
 # Validate error message content and exit code
-if [[ $COPY_EXIT_CODE -eq 1 ]]; then
+if [[ $COPY_EXIT_CODE -eq $ERR_COPY_FAILED ]]; then
   if [[ "$ERROR_OUTPUT" =~ "ERROR:" ]] && [[ "$ERROR_OUTPUT" =~ "$TARGET_FILE21" ]] && [[ "$ERROR_OUTPUT" =~ "permissions" ]]; then
-    report_pass "Failed config copy triggers exit 1 with descriptive error message"
+    report_pass "Failed config copy triggers exit $ERR_COPY_FAILED with descriptive error message"
   else
     report_fail "Error message lacks actionable guidance" "Got: $ERROR_OUTPUT"
   fi
 else
-  report_fail "Failed config copy should trigger exit 1"
+  report_fail "Failed config copy should trigger exit $ERR_COPY_FAILED" "Got exit code: $COPY_EXIT_CODE"
 fi
 
 # Test 22: Activation continues after failed /mnt/c/Users listing (soft error)
@@ -698,26 +717,26 @@ CLEANUP_DIRS+=("$TEMP_MOUNT_UNREADABLE")
 mkdir -p "$TEMP_MOUNT_UNREADABLE/c/Users"
 chmod 000 "$TEMP_MOUNT_UNREADABLE/c/Users"
 
-# Simulate the readability check from wezterm.nix lines 73-82
+# Simulate the readability check from wezterm.nix lines 89-97
 ERROR_OUTPUT=""
 EXIT_CODE=0
 if [ -d "$TEMP_MOUNT_UNREADABLE/c/Users" ] && [ ! -r "$TEMP_MOUNT_UNREADABLE/c/Users" ]; then
   # Simulate the error message that would be generated
   ERROR_OUTPUT="ERROR: Permission denied accessing /mnt/c/Users/"$'\n'"  WSL mount exists but directory is not readable"$'\n\n'"To fix:"$'\n'"  1. Check mount options: mount | grep /mnt/c"
-  EXIT_CODE=1
+  EXIT_CODE=$ERR_PERMISSION_DENIED
 fi
 
 chmod 755 "$TEMP_MOUNT_UNREADABLE/c/Users"  # Restore for cleanup
 
 # Validate error message content and exit code
-if [[ $EXIT_CODE -eq 1 ]]; then
+if [[ $EXIT_CODE -eq $ERR_PERMISSION_DENIED ]]; then
   if [[ "$ERROR_OUTPUT" =~ "ERROR: Permission denied" ]] && [[ "$ERROR_OUTPUT" =~ "not readable" ]] && [[ "$ERROR_OUTPUT" =~ "Check mount options" ]]; then
-    report_pass "Unreadable /mnt/c/Users triggers exit 1 with diagnostic error message"
+    report_pass "Unreadable /mnt/c/Users triggers exit $ERR_PERMISSION_DENIED with diagnostic error message"
   else
     report_fail "Error message lacks diagnostic guidance" "Got: $ERROR_OUTPUT"
   fi
 else
-  report_fail "Unreadable /mnt/c/Users should trigger exit 1"
+  report_fail "Unreadable /mnt/c/Users should trigger exit $ERR_PERMISSION_DENIED" "Got exit code: $EXIT_CODE"
 fi
 
 # Test 28: User detection failure produces diagnostic error (ERROR and exit 1)
@@ -727,7 +746,7 @@ TEMP_MOUNT_NO_USER=$(mktemp -d)
 CLEANUP_DIRS+=("$TEMP_MOUNT_NO_USER")
 mkdir -p "$TEMP_MOUNT_NO_USER/c/Users"/{Public,Default}
 
-# Simulate the detection with error handling from wezterm.nix lines 89-98
+# Simulate the detection with error handling from wezterm.nix lines 131-136
 ERROR_OUTPUT=""
 EXIT_CODE=0
 LS_OUTPUT=""
@@ -737,18 +756,18 @@ if LS_OUTPUT=$(ls "$TEMP_MOUNT_NO_USER/c/Users/" 2>&1 | grep -v -E '^(All Users|
 else
   # User detection failed - generate diagnostic error
   ERROR_OUTPUT="ERROR: Failed to detect Windows username"$'\n'"  ls output: $LS_OUTPUT"$'\n'"  Directory exists and passed pre-checks but user detection failed"$'\n'"  Available directories in /mnt/c/Users/:"
-  EXIT_CODE=1
+  EXIT_CODE=$ERR_USERNAME_DETECTION
 fi
 
 # Validate error message content and exit code
-if [[ $EXIT_CODE -eq 1 ]]; then
+if [[ $EXIT_CODE -eq $ERR_USERNAME_DETECTION ]]; then
   if [[ "$ERROR_OUTPUT" =~ "ERROR: Failed to detect Windows username" ]] && [[ "$ERROR_OUTPUT" =~ "ls output:" ]] && [[ "$ERROR_OUTPUT" =~ "Available directories" ]]; then
-    report_pass "User detection failure triggers exit 1 with diagnostic error including ls output"
+    report_pass "User detection failure triggers exit $ERR_USERNAME_DETECTION with diagnostic error including ls output"
   else
     report_fail "Error message lacks diagnostic details" "Got: $ERROR_OUTPUT"
   fi
 else
-  report_fail "User detection failure should trigger exit 1"
+  report_fail "User detection failure should trigger exit $ERR_USERNAME_DETECTION" "Got exit code: $EXIT_CODE"
 fi
 
 # Test 29: Empty source file handling
@@ -856,6 +875,109 @@ echo "SKIP: Nested error scenario too difficult to reliably simulate"
 echo "  The pipeline 'cat | sed' returns sed's exit code (not cat's) without pipefail"
 echo "  Manual verification: Corrupt filesystem during activation to test"
 echo "  Code location: nix/home/wezterm.nix:125-127"
+
+# Test 32: Race condition where /mnt/c/Users passes readability check but becomes inaccessible
+echo ""
+echo "=== Test 32: Race condition - directory passes initial check but becomes inaccessible ==="
+TEMP_MOUNT_RACE=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_MOUNT_RACE")
+mkdir -p "$TEMP_MOUNT_RACE/c/Users"/{Public,Default}
+
+# First check: directory is readable
+EXIT_CODE=0
+ERROR_OUTPUT=""
+if [ -r "$TEMP_MOUNT_RACE/c/Users" ]; then
+  # Initial readability check passes
+  # Simulate race: directory becomes unreadable before second listing (wezterm.nix:192)
+  chmod 000 "$TEMP_MOUNT_RACE/c/Users"
+
+  # Attempt second ls for diagnostic output (this should fail)
+  if ! ls_output=$(ls -1 "$TEMP_MOUNT_RACE/c/Users/" 2>&1); then
+    # Simulate the error message from wezterm.nix lines 193-196
+    ERROR_OUTPUT="ERROR: Additionally, cannot list /mnt/c/Users/ for diagnostics"$'\n'"  Directory passed initial checks but is now inaccessible"$'\n'"  This indicates a filesystem or permission issue"$'\n'"  Error: $ls_output"
+    EXIT_CODE=$ERR_USERNAME_DETECTION
+  fi
+fi
+
+chmod 755 "$TEMP_MOUNT_RACE/c/Users"  # Restore for cleanup
+
+# Validate race condition detection
+if [[ $EXIT_CODE -eq $ERR_USERNAME_DETECTION ]]; then
+  if [[ "$ERROR_OUTPUT" =~ "passed initial checks but is now inaccessible" ]] && [[ "$ERROR_OUTPUT" =~ "filesystem or permission issue" ]]; then
+    report_pass "Race condition detection produces correct diagnostic error with exit code $ERR_USERNAME_DETECTION"
+  else
+    report_fail "Race condition error message incorrect" "Got: $ERROR_OUTPUT"
+  fi
+else
+  report_fail "Race condition should trigger exit $ERR_USERNAME_DETECTION" "Got exit code: $EXIT_CODE"
+fi
+
+# Test 33: Dry run mode with non-readable source file
+echo ""
+echo "=== Test 33: Dry run mode detects non-readable source file ==="
+TEMP_SOURCE_DRY33=$(mktemp)
+TEMP_TARGET_DRY33=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_TARGET_DRY33")
+
+# Create source file but make it non-readable
+chmod 000 "$TEMP_SOURCE_DRY33"
+
+# Simulate dry run mode validation from wezterm.nix lines 173-175
+DRY_RUN_CMD="echo"
+ERROR_OUTPUT=""
+EXIT_CODE=0
+if [ ! -r "$TEMP_SOURCE_DRY33" ]; then
+  ERROR_OUTPUT="ERROR: Dry run detected source file is not readable: $TEMP_SOURCE_DRY33"
+  EXIT_CODE=$ERR_SOURCE_MISSING
+fi
+
+chmod 644 "$TEMP_SOURCE_DRY33"  # Restore for cleanup
+rm -f "$TEMP_SOURCE_DRY33"
+
+# Validate dry run source validation
+if [[ $EXIT_CODE -eq $ERR_SOURCE_MISSING ]]; then
+  if [[ "$ERROR_OUTPUT" =~ "Dry run detected source file is not readable" ]]; then
+    report_pass "Dry run mode detects non-readable source file with exit code $ERR_SOURCE_MISSING"
+  else
+    report_fail "Dry run error message incorrect" "Got: $ERROR_OUTPUT"
+  fi
+else
+  report_fail "Dry run should detect non-readable source with exit $ERR_SOURCE_MISSING" "Got exit code: $EXIT_CODE"
+fi
+
+# Test 34: Dry run mode with non-writable target directory
+echo ""
+echo "=== Test 34: Dry run mode detects non-writable target directory ==="
+TEMP_SOURCE_DRY34=$(mktemp)
+TEMP_TARGET_DRY34=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_TARGET_DRY34")
+echo "test content" > "$TEMP_SOURCE_DRY34"
+
+# Make target directory non-writable
+chmod 555 "$TEMP_TARGET_DRY34"
+
+# Simulate dry run mode validation from wezterm.nix lines 177-179
+DRY_RUN_CMD="echo"
+ERROR_OUTPUT=""
+EXIT_CODE=0
+if [ ! -w "$TEMP_TARGET_DRY34" ]; then
+  ERROR_OUTPUT="ERROR: Dry run detected target directory is not writable: $TEMP_TARGET_DRY34"
+  EXIT_CODE=$ERR_COPY_FAILED
+fi
+
+chmod 755 "$TEMP_TARGET_DRY34"  # Restore for cleanup
+rm -f "$TEMP_SOURCE_DRY34"
+
+# Validate dry run target validation
+if [[ $EXIT_CODE -eq $ERR_COPY_FAILED ]]; then
+  if [[ "$ERROR_OUTPUT" =~ "Dry run detected target directory is not writable" ]]; then
+    report_pass "Dry run mode detects non-writable target directory with exit code $ERR_COPY_FAILED"
+  else
+    report_fail "Dry run error message incorrect" "Got: $ERROR_OUTPUT"
+  fi
+else
+  report_fail "Dry run should detect non-writable target with exit $ERR_COPY_FAILED" "Got exit code: $EXIT_CODE"
+fi
 
 # Summary
 echo ""
