@@ -285,3 +285,12 @@ echo "  - budget/firestore.rules"
 mv "$REPO_ROOT/fellspiral/firestore.rules" "$REPO_ROOT/fellspiral/firestore.rules.source" 2>/dev/null || true
 mv "$REPO_ROOT/budget/firestore.rules" "$REPO_ROOT/budget/firestore.rules.source" 2>/dev/null || true
 echo "✓ Renamed source rules files to .source (prevents accidental emulator loading)"
+
+# CRITICAL FIX: Clear Firestore emulator cache to force reload of rules
+# The emulator may cache compiled rules, and the cache key in CI doesn't include rules content
+# This ensures the emulator loads the freshly merged rules instead of stale cached rules
+if [ -d "$HOME/.cache/firebase/emulators" ]; then
+  # Remove any firestore-related cache files but keep emulator binaries
+  find "$HOME/.cache/firebase/emulators" -name "*firestore*" -type f -delete 2>/dev/null || true
+  echo "✓ Cleared Firestore emulator cache"
+fi
