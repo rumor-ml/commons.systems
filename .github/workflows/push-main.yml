@@ -110,23 +110,31 @@ jobs:
 
           exit $TEST_EXIT_CODE
 
-      - name: Kill emulator supervisor
+      - name: Kill backend emulators
         run: |
-          # Stop the supervisor to ensure E2E tests start fresh emulators with current rules
+          # Stop the backend emulators to ensure E2E tests start fresh with current rules
+          BACKEND_PID_FILE="$HOME/.firebase-emulators/firebase-backend-emulators.pid"
+          if [ -f "$BACKEND_PID_FILE" ]; then
+            PID=$(cat "$BACKEND_PID_FILE")
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "Stopping backend emulators (PID: $PID)..."
+              kill "$PID" || true
+              rm -f "$BACKEND_PID_FILE"
+              echo "✓ Backend emulators stopped"
+            else
+              echo "Backend PID file exists but process not running"
+              rm -f "$BACKEND_PID_FILE"
+            fi
+          else
+            echo "No backend emulators running"
+          fi
+
+          # Also remove any supervisor PID if it exists
           SUPERVISOR_PID_FILE="$HOME/.firebase-emulators/supervisor.pid"
           if [ -f "$SUPERVISOR_PID_FILE" ]; then
             PID=$(cat "$SUPERVISOR_PID_FILE")
-            if kill -0 "$PID" 2>/dev/null; then
-              echo "Stopping supervisor (PID: $PID)..."
-              kill "$PID" || true
-              rm -f "$SUPERVISOR_PID_FILE"
-              echo "✓ Supervisor stopped"
-            else
-              echo "Supervisor PID file exists but process not running"
-              rm -f "$SUPERVISOR_PID_FILE"
-            fi
-          else
-            echo "No supervisor running"
+            kill "$PID" 2>/dev/null || true
+            rm -f "$SUPERVISOR_PID_FILE"
           fi
 
       - name: Run E2E tests
