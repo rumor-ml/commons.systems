@@ -210,9 +210,11 @@ else
 
   # Start ONLY backend emulators (shared)
   # Import seed data from fellspiral/emulator-data (includes QA test user)
+  # Explicitly specify config to ensure root firebase.json is used (not app-level configs)
   npx firebase-tools emulators:start \
     --only auth,firestore,storage \
     --project="${PROJECT_ID}" \
+    --config="${PROJECT_ROOT}/firebase.json" \
     --import="${PROJECT_ROOT}/fellspiral/emulator-data" \
     > "$BACKEND_LOG_FILE" 2>&1 &
 
