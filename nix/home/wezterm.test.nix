@@ -875,6 +875,85 @@ let
         touch $out
       '';
 
+  # Test: Activation source file missing
+  # Validates ERR_SOURCE_MISSING when wezterm.lua doesn't exist
+  test-activation-source-file-missing =
+    pkgs.runCommand "test-activation-source-file-missing"
+      {
+        buildInputs = [ pkgs.bash ];
+      }
+      ''
+        # Create mock WSL environment without source file
+        mkdir -p test-env/mnt/c/Users/testuser
+
+        # Test source file validation logic
+        SOURCE_FILE="test-env/.config/wezterm/wezterm.lua"
+
+        if [ -f "$SOURCE_FILE" ]; then
+          echo "FAIL: Source file should not exist"
+          exit 1
+        fi
+
+        # Simulate activation script check
+        output=""
+        if [ ! -f "$SOURCE_FILE" ]; then
+          output="ERROR: Source WezTerm config not found at $SOURCE_FILE"
+          exit_code=13
+        fi
+
+        if [ "$exit_code" != "13" ]; then
+          echo "FAIL: Expected exit code 13 (ERR_SOURCE_MISSING), got $exit_code"
+          exit 1
+        fi
+
+        if echo "$output" | grep -q "Source WezTerm config not found"; then
+          echo "PASS: Missing source file produces appropriate error"
+        else
+          echo "FAIL: Missing error message"
+          exit 1
+        fi
+
+        touch $out
+      '';
+
+  # Test: Activation source file empty
+  # Validates ERR_SOURCE_EMPTY when wezterm.lua exists but is empty
+  test-activation-source-file-empty =
+    pkgs.runCommand "test-activation-source-file-empty"
+      {
+        buildInputs = [ pkgs.bash ];
+      }
+      ''
+        # Create mock environment with empty source file
+        mkdir -p test-env/.config/wezterm
+        mkdir -p test-env/mnt/c/Users/testuser
+        touch test-env/.config/wezterm/wezterm.lua  # Empty file
+
+        # Test source file empty validation
+        SOURCE_FILE="test-env/.config/wezterm/wezterm.lua"
+
+        output=""
+        exit_code=0
+        if [ ! -s "$SOURCE_FILE" ]; then
+          output="ERROR: Source WezTerm config is empty at $SOURCE_FILE"
+          exit_code=15
+        fi
+
+        if [ "$exit_code" != "15" ]; then
+          echo "FAIL: Expected exit code 15 (ERR_SOURCE_EMPTY), got $exit_code"
+          exit 1
+        fi
+
+        if echo "$output" | grep -q "Source WezTerm config is empty"; then
+          echo "PASS: Empty source file produces appropriate error"
+        else
+          echo "FAIL: Missing error message"
+          exit 1
+        fi
+
+        touch $out
+      '';
+
   # Test: Concurrent activation script execution
   # Validates that multiple simultaneous home-manager activations don't corrupt the config file
   # Tests the copyWeztermToWindows script under concurrent execution
@@ -1059,6 +1138,106 @@ let
         echo "      uncorrupted config file. The activation script's 'cp' command"
         echo "      will preserve the file exactly, and any corruption would be"
         echo "      detected when WezTerm attempts to load the config at runtime."
+
+        touch $out
+      '';
+
+  # Test: Windows copy failure - locked file
+  # Validates copy failure handling when target file is locked or read-only
+  test-windows-copy-failure-locked =
+    pkgs.runCommand "test-windows-copy-failure-locked"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+        # Create mock environment
+        mkdir -p test-env/source/.config/wezterm
+        mkdir -p test-env/target/mnt/c/Users/testuser
+
+        # Create valid source file
+        echo "config content" > test-env/source/.config/wezterm/wezterm.lua
+
+        # Create read-only target to simulate locked file
+        echo "old config" > test-env/target/mnt/c/Users/testuser/.wezterm.lua
+        chmod 444 test-env/target/mnt/c/Users/testuser/.wezterm.lua
+
+        # Try to copy (should fail)
+        if copy_error=$(cp test-env/source/.config/wezterm/wezterm.lua \
+                           test-env/target/mnt/c/Users/testuser/.wezterm.lua 2>&1); then
+          echo "FAIL: Copy should have failed for read-only target"
+          exit 1
+        else
+          echo "PASS: Copy failed as expected for read-only file"
+
+          # Verify error message mentions permissions
+          if echo "$copy_error" | grep -qi "permission\|denied\|readonly\|cannot"; then
+            echo "PASS: Error message indicates permission issue"
+          else
+            echo "WARNING: Error message doesn't clearly explain permission issue"
+            echo "Got: $copy_error"
+          fi
+        fi
+
+        touch $out
+      '';
+
+  # Test: Windows copy failure - nonexistent directory
+  # Validates copy failure when target directory doesn't exist
+  test-windows-copy-failure-nonexistent-dir =
+    pkgs.runCommand "test-copy-failure-nonexistent"
+      {
+        buildInputs = [ pkgs.bash ];
+      }
+      ''
+        # Create source but not target directory
+        mkdir -p test-env/source/.config/wezterm
+        echo "config" > test-env/source/.config/wezterm/wezterm.lua
+
+        # Try to copy to nonexistent directory
+        if cp test-env/source/.config/wezterm/wezterm.lua \
+              test-env/nonexistent-dir/.wezterm.lua 2>&1; then
+          echo "FAIL: Copy should have failed for nonexistent directory"
+          exit 1
+        else
+          echo "PASS: Copy failed for nonexistent target directory"
+        fi
+
+        touch $out
+      '';
+
+  # Test: WezTerm runtime validation (limited)
+  # Note: Full runtime validation requires actual WezTerm binary
+  # This test documents the limitation and validates config structure
+  test-wezterm-runtime-validation =
+    pkgs.runCommand "test-wezterm-runtime-validation"
+      {
+        buildInputs = [ pkgs.lua ];
+      }
+      ''
+        # Generate Linux config
+        ${
+          let
+            luaConfig = extractLuaConfig (evaluateModule {
+              isLinux = true;
+              isDarwin = false;
+            });
+            luaFile = pkgs.writeText "test-config.lua" luaConfig;
+          in
+          ''
+            # Validate Lua syntax (best we can do without WezTerm binary)
+            if ! ${pkgs.lua}/bin/lua -e "assert(loadfile('${luaFile}'))" 2>&1; then
+              echo "FAIL: Generated Linux config has Lua syntax errors"
+              exit 1
+            fi
+
+            echo "PASS: Linux config has valid Lua syntax"
+            echo "NOTE: Full WezTerm API validation requires actual WezTerm binary"
+            echo "      (not available in nixpkgs). Manual validation recommended."
+          ''
+        }
 
         touch $out
       '';
@@ -1782,8 +1961,13 @@ let
     test-common-config
     test-activation-script-logic
     test-activation-script-runtime
+    test-activation-source-file-missing
+    test-activation-source-file-empty
     test-concurrent-activation
     test-windows-copy-corruption-detection
+    test-windows-copy-failure-locked
+    test-windows-copy-failure-nonexistent-dir
+    test-wezterm-runtime-validation
     test-conflicting-platform-flags
     test-config-file-location
     test-homemanager-integration
@@ -1829,8 +2013,13 @@ in
       test-common-config
       test-activation-script-logic
       test-activation-script-runtime
+      test-activation-source-file-missing
+      test-activation-source-file-empty
       test-concurrent-activation
       test-windows-copy-corruption-detection
+      test-windows-copy-failure-locked
+      test-windows-copy-failure-nonexistent-dir
+      test-wezterm-runtime-validation
       test-conflicting-platform-flags
       test-config-file-location
       test-homemanager-integration

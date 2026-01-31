@@ -35,10 +35,27 @@ let
   initExtraContent = testHelpers.extractNixStringLiteral zshSource "initExtra";
 
   # Test helper: Evaluate module with mock config
-  # Parameters:
-  #   username: string (default: "testuser") - username for config interpolation
-  #   homeDirectory: string (default: "/home/testuser") - home directory path
-  # Returns: Home Manager module evaluation result
+  #
+  # Evaluates the zsh module through Home Manager's module system with mock configuration.
+  # This allows testing module evaluation without requiring a full Home Manager setup.
+  #
+  # Parameters (attribute set):
+  #   - username: non-empty string (default: "testuser")
+  #       The username for config interpolation. Must not be empty.
+  #       Example: "alice", "bob", "root"
+  #   - homeDirectory: absolute path string starting with "/" (default: "/home/testuser")
+  #       The home directory path. Must be absolute (start with /).
+  #       Example: "/home/alice", "/home/users/bob", "/root"
+  #
+  # Returns: Home Manager module evaluation result with programs.zsh configuration
+  #
+  # Invariants (enforced via assertions):
+  #   - username must be non-empty string
+  #   - homeDirectory must be non-empty string
+  #   - homeDirectory must be an absolute path starting with "/"
+  #
+  # Example:
+  #   evaluateModule { username = "alice"; homeDirectory = "/home/alice"; }
   evaluateModule =
     {
       username ? "testuser",
@@ -494,6 +511,67 @@ let
             touch $out
       '';
 
+  # Test 17: Environment preservation after sourcing error
+  test-environment-preservation-after-error =
+    pkgs.runCommand "test-environment-preservation-after-error"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create test zshenv with envExtra content and pre-existing environment
+            cat > test-zshenv << 'EOF'
+        # Set up pre-existing environment that should survive errors
+        export PRE_EXISTING_VAR="should_survive"
+        ${envExtraContent}
+        # After sourcing attempt (with error), test environment is still usable
+        echo "After error return"
+        EOF
+
+            # Create failing hm-session-vars.sh
+            mkdir -p test-home/.nix-profile/etc/profile.d
+            echo "exit 1" > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh
+
+            # Run zsh in a way that doesn't exit on return 1 in sourced file
+            # Use zsh -c with explicit sourcing that continues after error
+            output=$(PRE_EXISTING_VAR="should_survive" HOME=$(pwd)/test-home ${pkgs.zsh}/bin/zsh -c \
+                     "source test-zshenv 2>&1 || true; \
+                      echo PATH=\$PATH; \
+                      echo PRE_EXISTING_VAR=\$PRE_EXISTING_VAR; \
+                      ${pkgs.coreutils}/bin/true && echo 'Command succeeded'" 2>&1) || true
+
+            # Verify pre-existing environment variables are preserved
+            if echo "$output" | grep -q "PRE_EXISTING_VAR=should_survive"; then
+              echo "PASS: Pre-existing environment variables preserved after sourcing error"
+            else
+              echo "FAIL: Environment corrupted after sourcing failure"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify PATH is not empty/corrupted (shell needs PATH to work)
+            if echo "$output" | grep -q "PATH=" && ! echo "$output" | grep -q "PATH=$"; then
+              echo "PASS: PATH environment variable preserved"
+            else
+              echo "FAIL: PATH corrupted after sourcing failure"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify shell can execute child processes after sourcing error
+            if echo "$output" | grep -q "Command succeeded"; then
+              echo "PASS: Shell can execute child processes after sourcing error"
+            else
+              echo "FAIL: Shell cannot execute commands after error"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
   # Aggregate all tests into a test suite
   allTests = [
     test-module-structure
@@ -512,6 +590,7 @@ let
     test-module-evaluation-paths
     test-comments
     test-missing-session-vars-file
+    test-environment-preservation-after-error
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -547,6 +626,7 @@ in
       test-module-evaluation-paths
       test-comments
       test-missing-session-vars-file
+      test-environment-preservation-after-error
       ;
   };
 

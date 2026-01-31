@@ -45,11 +45,12 @@ in
       else
         # TODO(#1636): Warning suppression prevents visibility into repeated failures
         precmd() {
-          # TODO(#1688): vcs_info stderr redirection hides diagnostic information
-          if ! vcs_info 2>/dev/null; then
+          # Capture stderr to provide diagnostic information
+          if ! vcs_info_error=$(vcs_info 2>&1); then
             # Only warn once per session to avoid spam
             if [[ -z "$_VCS_INFO_WARNED" ]]; then
               echo "WARNING: vcs_info failed - git prompt integration disabled" >&2
+              echo "  Error: $vcs_info_error" >&2
               echo "  Check git installation and repository health" >&2
               export _VCS_INFO_WARNED=1
             fi

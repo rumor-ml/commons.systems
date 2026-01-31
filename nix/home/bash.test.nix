@@ -32,10 +32,27 @@ let
   initExtraContent = testHelpers.extractNixStringLiteral shellHelpersSource "sessionVarsSourcingScript";
 
   # Test helper: Evaluate module with mock config
-  # Parameters:
-  #   username: string (default: "testuser") - username for config interpolation
-  #   homeDirectory: string (default: "/home/testuser") - home directory path
-  # Returns: Home Manager module evaluation result
+  #
+  # Evaluates the bash module through Home Manager's module system with mock configuration.
+  # This allows testing module evaluation without requiring a full Home Manager setup.
+  #
+  # Parameters (attribute set):
+  #   - username: non-empty string (default: "testuser")
+  #       The username for config interpolation. Must not be empty.
+  #       Example: "alice", "bob", "root"
+  #   - homeDirectory: absolute path string starting with "/" (default: "/home/testuser")
+  #       The home directory path. Must be absolute (start with /).
+  #       Example: "/home/alice", "/home/users/bob", "/root"
+  #
+  # Returns: Home Manager module evaluation result with programs.bash configuration
+  #
+  # Invariants (enforced via assertions):
+  #   - username must be non-empty string
+  #   - homeDirectory must be non-empty string
+  #   - homeDirectory must be an absolute path starting with "/"
+  #
+  # Example:
+  #   evaluateModule { username = "alice"; homeDirectory = "/home/alice"; }
   evaluateModule =
     {
       username ? "testuser",
@@ -414,7 +431,64 @@ let
             touch $out
       '';
 
-  # Test 12: Environment variable propagation
+  # Test 12: Environment preservation after sourcing error
+  test-environment-preservation-after-error =
+    pkgs.runCommand "test-environment-preservation-after-error"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create a mock .bashrc with initExtra content
+            cat > test-bashrc << 'EOF'
+        # Set up pre-existing environment that should survive errors
+        export PRE_EXISTING_VAR="should_survive"
+        ${initExtraContent}
+        echo "After error return"
+        EOF
+
+            # Create failing hm-session-vars.sh
+            mkdir -p test-home/.nix-profile/etc/profile.d
+            echo "exit 1" > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh
+
+            # Run bash and verify pre-existing vars survive sourcing failure
+            output=$(PRE_EXISTING_VAR="should_survive" HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i \
+                     -c "echo PATH=\$PATH; echo PRE_EXISTING_VAR=\$PRE_EXISTING_VAR; \
+                         ${pkgs.coreutils}/bin/true && echo 'Command succeeded'" 2>&1) || true
+
+            # Verify pre-existing environment variables are preserved
+            if echo "$output" | grep -q "PRE_EXISTING_VAR=should_survive"; then
+              echo "PASS: Pre-existing environment variables preserved after sourcing error"
+            else
+              echo "FAIL: Environment corrupted after sourcing failure"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify PATH is not empty/corrupted (shell needs PATH to work)
+            if echo "$output" | grep -q "PATH=" && ! echo "$output" | grep -q "PATH=$"; then
+              echo "PASS: PATH environment variable preserved"
+            else
+              echo "FAIL: PATH corrupted after sourcing failure"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify shell can execute child processes after sourcing error
+            if echo "$output" | grep -q "Command succeeded"; then
+              echo "PASS: Shell can execute child processes after sourcing error"
+            else
+              echo "FAIL: Shell cannot execute commands after error"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
+  # Test 13: Environment variable propagation
   test-environment-variable-propagation =
     pkgs.runCommand "test-environment-variable-propagation"
       {
@@ -536,6 +610,7 @@ let
     test-module-evaluation-paths
     test-aborts-after-error
     test-missing-session-vars-file
+    test-environment-preservation-after-error
     test-environment-variable-propagation
   ];
 
@@ -567,6 +642,7 @@ in
       test-module-evaluation-paths
       test-aborts-after-error
       test-missing-session-vars-file
+      test-environment-preservation-after-error
       test-environment-variable-propagation
       ;
   };

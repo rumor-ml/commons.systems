@@ -146,7 +146,7 @@ Common settings applied on all platforms:
    - **macOS**: Check Font Book application
    - **Windows**: Check Settings → Fonts
 
-   **Note**: If JetBrains Mono is not installed, WezTerm will silently fall back to its default font. The configuration will still work but the terminal appearance will differ from the intended design.
+   **Note**: If JetBrains Mono is not installed, WezTerm will typically fall back to its default font. To verify your font is being used, open WezTerm and check the terminal appearance matches the intended design.
 
 ### Making Changes
 

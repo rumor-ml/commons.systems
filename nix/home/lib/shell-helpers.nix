@@ -8,15 +8,15 @@
 {
   # Session variable sourcing script with robust error handling.
   #
-  # This script handles both verbose failures (script writes to stderr) and silent
-  # failures (script exits non-zero without output). Uses a temp file to capture
-  # stderr because command substitution can lose error output in some shells.
+  # Type: string (bash/zsh script)
   #
-  # Why both cases: Some shell initialization scripts fail silently (just 'exit 1')
-  # while others write error messages. We need to detect both to provide useful diagnostics.
+  # Invariants:
+  #   - Handles missing hm-session-vars.sh gracefully (no error if file not found)
+  #   - Aborts shell initialization (return 1) on source failures
+  #   - Uses temp file to capture stderr for diagnostics
   #
   # Returns:
-  #   Shell script that defines and calls sourceHomeManagerSessionVars function
+  #   Shell script that sources Home Manager session variables with two-phase error handling
   #
   # Usage in a module:
   #   let shellHelpers = import ./lib/shell-helpers.nix { inherit lib; };
@@ -33,9 +33,9 @@
         return 1
       fi
 
-      # Phase 1: Test source in subshell to catch 'exit' commands safely
-      # If hm-session-vars.sh contains 'exit', it would close the user's terminal if sourced directly.
-      # Subshell test (with parentheses) isolates the exit - only the subshell dies, not the terminal.
+      # Phase 1: Test source in subshell to detect failures without affecting current shell
+      # The subshell isolates failures (command errors, exit/return statements) so they don't
+      # affect the parent shell. This prevents partial variable exports from a failing script.
       # Note: Subshell test doesn't export variables to parent shell, so we need phase 2.
       if ! (. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh") 2>"$error_file"; then
         source_error=$(cat "$error_file" 2>&1)

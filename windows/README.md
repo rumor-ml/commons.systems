@@ -25,7 +25,8 @@ winget export -o packages.json
 Then copy the file to this repository:
 
 ```bash
-cp /mnt/c/Users/natha/packages.json windows/winget-packages.json
+cp /mnt/c/Users/$(whoami)/packages.json windows/winget-packages.json
+# Or replace $(whoami) with your Windows username
 ```
 
 ### Package List

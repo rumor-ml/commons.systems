@@ -56,11 +56,7 @@
           inherit content;
         };
 
-      # Track parser state using _type field with three states:
-      #   - "initial": Scanning lines, looking for the start pattern (attributeName = '')
-      #   - "collecting": Found start, accumulating content lines
-      #   - "stopped": Found closing delimiter (''), extraction complete
-      # Using explicit states prevents continuing to scan after extraction is done.
+      # Parser states: initial (scanning) → collecting (accumulating) → stopped (done)
       initialState = mkInitialState;
 
       result = lib.foldl' (
@@ -84,13 +80,9 @@
           state
       ) initialState lines;
     in
-    # Extract content from final state
-    #   - 'stopped' state: extraction succeeded, return accumulated content
-    #   - 'collecting'/'initial' states: extraction failed, return empty (silently ignores malformed input)
-    #
-    # Note: Silent failure is acceptable for optional test validations. For required attributes,
-    # callers should validate the result is non-empty before use to catch typos or format changes.
-    # TODO(#1699): Add strict mode parameter to error on malformed input for critical extractions
+    # Note: Returns empty string if extraction failed. For required attributes,
+    # callers should validate non-empty result to catch typos or format changes.
+    # TODO(#1699): Add strict mode parameter to error on malformed input
     lib.concatStringsSep "\n" (result.content or [ ]);
 
   # Validate shell syntax using a shell interpreter.
@@ -118,15 +110,12 @@
     let
       shellFile = pkgs.writeText "${lib.toLower shellName}-test.sh" code;
       # TODO(#1686): Make shell binary name and validation flag explicit parameters
-      # Currently infers binary name by lowercasing shellName ("Bash" -> "bash").
-      # This is validated at build time (derivation checks binary exists), but explicit
-      # parameters would make the API clearer and reduce coupling to naming convention.
-      # Tested shells: bash, zsh, dash, sh (any shell supporting -n syntax check flag)
+      # Currently infers binary name by lowercasing shellName
       shellBin = lib.toLower shellName;
       shellBinPath = "${shellPkg}/bin/${shellBin}";
     in
     pkgs.runCommand "validate-${lib.toLower shellName}-syntax" { buildInputs = [ shellPkg ]; } ''
-      # Validate that shell binary exists (enforces shellName lowercasing assumption: "Bash" -> "bash")
+      # Validate that shell binary exists
       if ! command -v ${shellBin} >/dev/null 2>&1; then
         echo "ERROR: Shell binary '${shellBin}' not found in PATH"
         echo "This indicates shellName '${shellName}' does not match the shell binary name when lowercased."
