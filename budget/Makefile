@@ -54,7 +54,7 @@ test-unit:
 
 test-e2e:
 	@echo "Running Playwright E2E tests..."
-	@cd tests && pnpm test
+	@../infrastructure/scripts/run-e2e-tests.sh firebase budget
 
 # Validation
 validate: lint typecheck test

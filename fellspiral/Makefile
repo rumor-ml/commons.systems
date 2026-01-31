@@ -52,9 +52,9 @@ test: test-e2e
 test-unit:
 	@echo "No unit tests for static site"
 
-test-e2e: build
+test-e2e:
 	@echo "Running Playwright E2E tests..."
-	@cd tests && pnpm test
+	@../infrastructure/scripts/run-e2e-tests.sh firebase fellspiral
 
 # Validation
 validate: lint typecheck test
