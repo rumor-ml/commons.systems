@@ -68,13 +68,27 @@ fi
 
 # Stop backend emulators (shared - only stop if requested)
 if [ -f "$BACKEND_PID_FILE" ]; then
-  echo "Backend emulators are shared across worktrees."
-  echo "PID file: ${BACKEND_PID_FILE}"
-  echo ""
-  echo "To stop backend emulators (will affect all worktrees):"
-  echo "  kill \$(cat ${BACKEND_PID_FILE})"
-  echo "  rm -f ${BACKEND_PID_FILE}"
-  echo ""
+  # In CI, always stop backend emulators to ensure fresh rules are loaded
+  if [ "${CI:-false}" = "true" ] || [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    echo "Stopping backend emulators (CI environment)..."
+    if parse_pid_file "$BACKEND_PID_FILE"; then
+      kill_process_group "$PARSED_PID" "$PARSED_PGID"
+      echo "✓ Successfully stopped backend emulators"
+    else
+      echo "WARNING: PID file exists but could not be parsed" >&2
+    fi
+    rm -f "$BACKEND_PID_FILE"
+    echo "✓ Cleaned up backend PID file"
+  else
+    # Local development: don't stop shared emulators
+    echo "Backend emulators are shared across worktrees."
+    echo "PID file: ${BACKEND_PID_FILE}"
+    echo ""
+    echo "To stop backend emulators (will affect all worktrees):"
+    echo "  kill \$(cat ${BACKEND_PID_FILE})"
+    echo "  rm -f ${BACKEND_PID_FILE}"
+    echo ""
+  fi
 else
   echo "No backend emulator PID file found (may not be running)"
   echo ""
