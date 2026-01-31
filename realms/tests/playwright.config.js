@@ -10,6 +10,12 @@ export default defineConfig({
     viewport: { width: 1280, height: 720 },
     screenshot: 'only-on-failure',
   },
+  webServer: {
+    command: 'cd ../site && pnpm preview --port 5001',
+    port: 5001,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120000,
+  },
   projects: [
     {
       name: 'chromium',
