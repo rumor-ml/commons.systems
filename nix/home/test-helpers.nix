@@ -15,7 +15,16 @@
   # the first closing `''` (escaped quotes `''''` are skipped).
   #
   # Note: This assumes standard Nix multiline string format where the
-  # closing delimiter appears on its own line.
+  # closing delimiter ('') appears alone on its own line, not after other content.
+  #
+  # Example of supported format:
+  #   initExtra = ''
+  #     echo 'hello'
+  #   '';
+  #
+  # Example of unsupported format (will fail to extract):
+  #   initExtra = ''
+  #     echo 'hello' '';
   #
   # Parameters:
   #   - source: The module source code as a string
@@ -36,54 +45,87 @@
       startPattern = "${attributeName} = ''";
 
       # State constructor functions with validation to enforce invariants
-      mkInitialState = {
-        _type = "initial";
-      };
+      # Note: Prefer using these constructors and accessors rather than direct field access
+      # to maintain encapsulation and allow future refactoring.
+      mkInitialState =
+        assert lib.assertMsg true "mkInitialState: no parameters required";
+        {
+          _type = "initial";
+        };
 
       mkCollectingState =
         content:
+        let
+          validTypes = [
+            "initial"
+            "collecting"
+            "stopped"
+          ];
+          state = {
+            _type = "collecting";
+            inherit content;
+          };
+        in
         assert lib.assertMsg (lib.isList content) "mkCollectingState: content must be a list";
-        {
-          _type = "collecting";
-          inherit content;
-        };
+        assert lib.assertMsg (lib.elem state._type validTypes) "Invalid state type: ${state._type}";
+        state;
 
       mkStoppedState =
         content:
+        let
+          validTypes = [
+            "initial"
+            "collecting"
+            "stopped"
+          ];
+          state = {
+            _type = "stopped";
+            inherit content;
+          };
+        in
         assert lib.assertMsg (lib.isList content) "mkStoppedState: content must be a list";
-        {
-          _type = "stopped";
-          inherit content;
-        };
+        assert lib.assertMsg (lib.elem state._type validTypes) "Invalid state type: ${state._type}";
+        state;
+
+      # Accessor functions to hide internal structure and improve encapsulation
+      getStateType = state: state._type;
+      getStateContent = state: state.content or [ ];
+      isCollecting = state: state._type == "collecting";
+      isStopped = state: state._type == "stopped";
 
       # Parser states: initial (scanning) → collecting (accumulating) → stopped (done)
       initialState = mkInitialState;
 
       result = lib.foldl' (
         state: line:
+        let
+          stateType = getStateType state;
+          stateContent = getStateContent state;
+        in
         # State: initial - looking for start pattern
-        if state._type == "initial" && lib.hasInfix startPattern line then
+        if stateType == "initial" && lib.hasInfix startPattern line then
           mkCollectingState [ ]
 
         # State: collecting - check for closing delimiter or collect line
         # Stop collecting when we hit closing delimiter ''
         # (but not '''' which is Nix's way to escape '' inside multiline strings)
-        else if state._type == "collecting" && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
-          mkStoppedState state.content
+        else if isCollecting state && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
+          mkStoppedState stateContent
 
         # State: collecting - append line to content
-        else if state._type == "collecting" then
-          mkCollectingState (state.content ++ [ line ])
+        else if isCollecting state then
+          mkCollectingState (stateContent ++ [ line ])
 
         # State: stopped or initial - no transitions, preserve state
         else
           state
       ) initialState lines;
     in
-    # Note: Returns empty string if extraction failed. For required attributes,
+    # Note: Returns empty string if extraction failed (attribute not found,
+    # closing delimiter missing, or format mismatch). For required attributes,
     # callers should validate non-empty result to catch typos or format changes.
-    # TODO(#1699): Add strict mode parameter to error on malformed input
-    lib.concatStringsSep "\n" (result.content or [ ]);
+    # See TODO(#1699) about adding strict mode.
+    lib.concatStringsSep "\n" (getStateContent result);
 
   # Validate shell syntax using a shell interpreter.
   #

@@ -4,7 +4,7 @@
 # a symlink to a Nix store file. This generated file sources Home Manager's
 # initialization scripts during shell startup.
 #
-# Manual edits to ~/.bashrc are not possible because it is a symlink to a Nix store file.
+# Manual edits to ~/.bashrc are not possible because it is a symlink to a read-only file in the Nix store.
 # To add custom configuration, use the 'initExtra' option which gets included in the
 # generated .bashrc content.
 #
@@ -25,7 +25,7 @@ in
     # environment variables are available in new tabs.
     #
     # Note: Login shells won't load this unless they explicitly source .bashrc.
-    # To check shell type: Run 'echo $0'. Login shells show '-bash', non-login show 'bash'.
+    # To check if bash is a login shell: Run 'echo $0'. Login shells show '-bash', non-login show 'bash'.
     #
     # Shared logic defined in lib/shell-helpers.nix
     initExtra = shellHelpers.sessionVarsSourcingScript;

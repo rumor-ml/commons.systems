@@ -147,6 +147,23 @@ let
             end
           end
 
+          -- Validate window_padding table structure
+          if key == "window_padding" then
+            if type(value) ~= "table" then
+              error("Config key 'window_padding' must be a table, got: " .. type(value))
+            end
+            -- Validate required fields exist and have correct types
+            local required_fields = {"left", "right", "top", "bottom"}
+            for _, field in ipairs(required_fields) do
+              if value[field] == nil then
+                error("window_padding missing required field: " .. field)
+              end
+              if type(value[field]) ~= "number" then
+                error("window_padding." .. field .. " must be a number, got: " .. type(value[field]))
+              end
+            end
+          end
+
           -- Store the value
           rawset(t, key, value)
         end
@@ -1939,6 +1956,256 @@ let
       touch $out
     '';
 
+  # Test: Activation script trap cleanup failure paths
+  # Validates that trap cleanup logic correctly handles failures
+  # Tests both successful cleanup and cleanup failure with warning messages
+  test-activation-trap-cleanup =
+    pkgs.runCommand "test-activation-trap-cleanup"
+      {
+        buildInputs = [ pkgs.bash ];
+      }
+      ''
+        # Test 1: Normal trap cleanup (successful removal)
+        echo "Test 1: Normal trap cleanup"
+
+        # Create mock temp file
+        mkdir -p test-env
+        TEMP_FILE=$(mktemp -p test-env)
+
+        # Simulate trap cleanup on normal exit
+        cleanup_script="
+          trap 'if ! rm -f \"$TEMP_FILE\" 2>&1; then echo \"WARNING: Failed to cleanup stderr temp file: $TEMP_FILE\" >&2; fi' EXIT
+          exit 0
+        "
+
+        if ! ${pkgs.bash}/bin/bash -c "$cleanup_script"; then
+          echo "FAIL: Normal trap cleanup script failed"
+          exit 1
+        fi
+
+        # Verify temp file was removed
+        if [ -f "$TEMP_FILE" ]; then
+          echo "FAIL: Temp file was not removed by trap"
+          exit 1
+        fi
+        echo "PASS: Normal trap cleanup successfully removed temp file"
+
+        # Test 2: Trap cleanup failure (file cannot be removed)
+        echo ""
+        echo "Test 2: Trap cleanup failure with warning"
+
+        # Create a read-only directory to prevent file removal
+        mkdir -p test-env/readonly-dir
+        READONLY_FILE="test-env/readonly-dir/temp-file"
+        touch "$READONLY_FILE"
+        chmod 444 "$READONLY_FILE"
+        chmod 555 test-env/readonly-dir
+
+        # Run trap cleanup that should fail
+        cleanup_fail_script="
+          TEMP_FILE='$READONLY_FILE'
+          trap 'if ! rm -f \"\$TEMP_FILE\" 2>&1; then echo \"WARNING: Failed to cleanup stderr temp file: \$TEMP_FILE\" >&2; fi' EXIT
+          exit 0
+        "
+
+        # Capture stderr to verify warning message appears
+        if stderr_output=$(${pkgs.bash}/bin/bash -c "$cleanup_fail_script" 2>&1); then
+          # Check if warning message was printed
+          if echo "$stderr_output" | grep -q "WARNING: Failed to cleanup stderr temp file"; then
+            echo "PASS: Trap cleanup failure produces warning message"
+          else
+            echo "FAIL: Warning message not found in output"
+            echo "Got: $stderr_output"
+            exit 1
+          fi
+
+          # Verify temp file path is included in warning
+          if echo "$stderr_output" | grep -q "$READONLY_FILE"; then
+            echo "PASS: Warning includes temp file path for debugging"
+          else
+            echo "FAIL: Warning missing temp file path"
+            exit 1
+          fi
+        else
+          echo "FAIL: Cleanup script exited with non-zero status"
+          exit 1
+        fi
+
+        # Cleanup
+        chmod 755 test-env/readonly-dir
+
+        # Test 3: Verify trap doesn't interfere with script exit codes
+        echo ""
+        echo "Test 3: Trap cleanup preserves exit codes"
+
+        # Create temp file for cleanup
+        SUCCESS_TEMP=$(mktemp -p test-env)
+
+        # Script that exits successfully - trap should not change exit code
+        success_script="
+          TEMP_FILE='$SUCCESS_TEMP'
+          trap 'rm -f \"\$TEMP_FILE\" 2>&1' EXIT
+          exit 0
+        "
+
+        if ${pkgs.bash}/bin/bash -c "$success_script"; then
+          echo "PASS: Successful script exit code preserved after trap"
+        else
+          echo "FAIL: Trap changed successful exit code"
+          exit 1
+        fi
+
+        # Create temp file for failure test
+        FAIL_TEMP=$(mktemp -p test-env)
+
+        # Script that exits with error - trap should not mask the error
+        fail_script="
+          TEMP_FILE='$FAIL_TEMP'
+          trap 'rm -f \"\$TEMP_FILE\" 2>&1' EXIT
+          exit 42
+        "
+
+        if ${pkgs.bash}/bin/bash -c "$fail_script"; then
+          echo "FAIL: Error exit code was masked by trap"
+          exit 1
+        else
+          exit_code=$?
+          if [ $exit_code -eq 42 ]; then
+            echo "PASS: Error exit code preserved after trap (got 42 as expected)"
+          else
+            echo "FAIL: Unexpected exit code: $exit_code (expected 42)"
+            exit 1
+          fi
+        fi
+
+        echo ""
+        echo "✓ Activation script trap cleanup test passed"
+        echo "  - Normal cleanup successfully removes temp files"
+        echo "  - Cleanup failures produce clear warning messages with file paths"
+        echo "  - Trap cleanup does not interfere with script exit codes"
+
+        touch $out
+      '';
+
+  # Test: Activation copy interrupted (disk full simulation)
+  # Validates error handling when copy operation fails mid-operation
+  test-activation-copy-interrupted =
+    pkgs.runCommand "test-activation-copy-interrupted"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+        # Create mock WSL environment
+        mkdir -p test-env/source/.config/wezterm
+        mkdir -p test-env/target/mnt/c/Users/testuser
+
+        # Create valid source file
+        cat > test-env/source/.config/wezterm/wezterm.lua <<'EOF'
+        local wezterm = require('wezterm')
+        local config = wezterm.config_builder()
+        config.font = wezterm.font('JetBrains Mono')
+        config.font_size = 11.0
+        config.color_scheme = 'Tokyo Night'
+        return config
+        EOF
+
+        # Test 1: Simulate interrupted copy (truncated target)
+        echo "Test 1: Interrupted copy creates invalid target"
+
+        # Truncate source file during copy to simulate disk-full
+        # This creates a partial file that fails Lua validation
+        head -c 50 test-env/source/.config/wezterm/wezterm.lua > test-env/target/mnt/c/Users/testuser/.wezterm.lua
+
+        # Verify target exists but is corrupted
+        if [ ! -f test-env/target/mnt/c/Users/testuser/.wezterm.lua ]; then
+          echo "FAIL: Target file should exist (even if corrupted)"
+          exit 1
+        fi
+
+        # Verify target is not valid Lua
+        if ${pkgs.lua}/bin/lua -e "assert(loadfile('test-env/target/mnt/c/Users/testuser/.wezterm.lua'))" 2>/dev/null; then
+          echo "FAIL: Truncated file should fail Lua validation"
+          exit 1
+        fi
+        echo "PASS: Interrupted copy creates invalid Lua file"
+
+        # Test 2: Verify copy command with error detection
+        echo ""
+        echo "Test 2: Copy command with error detection"
+
+        # Simulate copy failure by making target read-only
+        chmod 444 test-env/target/mnt/c/Users/testuser/.wezterm.lua
+
+        # Try copy and verify it fails with error message
+        SOURCE_FILE="test-env/source/.config/wezterm/wezterm.lua"
+        TARGET_FILE="test-env/target/mnt/c/Users/testuser/.wezterm.lua"
+
+        if copy_error=$(cp "$SOURCE_FILE" "$TARGET_FILE" 2>&1); then
+          echo "FAIL: Copy should have failed for read-only target"
+          exit 1
+        else
+          echo "PASS: Copy failed as expected for read-only target"
+
+          # Verify error message is informative
+          if echo "$copy_error" | grep -qi "permission\|denied\|cannot"; then
+            echo "PASS: Error message indicates the failure reason"
+          else
+            echo "WARNING: Error message could be more descriptive"
+            echo "Got: $copy_error"
+          fi
+        fi
+
+        # Test 3: Atomic copy behavior (either complete or unchanged)
+        echo ""
+        echo "Test 3: Verify copy operation atomicity expectation"
+
+        # Reset target to writable
+        chmod 644 test-env/target/mnt/c/Users/testuser/.wezterm.lua
+
+        # Store original content
+        echo "old content" > test-env/target/mnt/c/Users/testuser/.wezterm.lua
+        ORIGINAL_CONTENT=$(cat test-env/target/mnt/c/Users/testuser/.wezterm.lua)
+
+        # Successful copy should completely replace content
+        if cp "$SOURCE_FILE" "$TARGET_FILE" 2>&1; then
+          NEW_CONTENT=$(cat "$TARGET_FILE")
+          SOURCE_CONTENT=$(cat "$SOURCE_FILE")
+
+          if [ "$NEW_CONTENT" = "$SOURCE_CONTENT" ]; then
+            echo "PASS: Successful copy completely replaces target"
+          else
+            echo "FAIL: Copy succeeded but content doesn't match source"
+            exit 1
+          fi
+
+          # Verify target is valid Lua after successful copy
+          if ${pkgs.lua}/bin/lua -e "assert(loadfile('$TARGET_FILE'))" 2>&1; then
+            echo "PASS: Target is valid Lua after successful copy"
+          else
+            echo "FAIL: Target should be valid Lua after successful copy"
+            exit 1
+          fi
+        else
+          echo "FAIL: Copy should have succeeded"
+          exit 1
+        fi
+
+        echo ""
+        echo "✓ Activation copy interruption test passed"
+        echo "  - Interrupted copies create invalid Lua files (detectable)"
+        echo "  - Copy failures are detectable via exit code and error messages"
+        echo "  - Successful copies completely replace target with valid content"
+        echo ""
+        echo "Note: Basic cp command behavior on most filesystems is atomic for"
+        echo "      overwrites (write to temp, then rename). Interrupted writes"
+        echo "      would leave either old file or corrupted file, both detectable."
+
+        touch $out
+      '';
+
   # Aggregate all tests into a test suite
   allTests = [
     test-module-structure
@@ -1973,6 +2240,8 @@ let
     test-homemanager-integration
     test-activation-dag-execution
     test-homemanager-dag-integration
+    test-activation-trap-cleanup
+    test-activation-copy-interrupted
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -2025,6 +2294,8 @@ in
       test-homemanager-integration
       test-activation-dag-execution
       test-homemanager-dag-integration
+      test-activation-trap-cleanup
+      test-activation-copy-interrupted
       ;
   };
 

@@ -584,6 +584,116 @@ let
     touch $out
   '';
 
+  # Test 14: Environment mutation between subshell test and main shell source
+  test-environment-mutation-between-phases =
+    pkgs.runCommand "test-shell-helpers-env-mutation"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # This test validates that the error message for phase 2 failures
+            # mentions "race condition or environment difference", which helps
+            # users diagnose cases where environmental factors (not file changes)
+            # cause phase 2 to fail after phase 1 succeeds.
+
+            # Create test script with session vars sourcing logic
+            cat > test-script.sh << 'EOF'
+        ${sessionVarsScript}
+        EOF
+
+            # Create session vars file that behaves differently on consecutive calls
+            # This simulates environment mutation between phase 1 and phase 2
+            mkdir -p test-home/.nix-profile/etc/profile.d
+            cat > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh << 'VARS_EOF'
+        # Use a counter file to distinguish between subshell (phase 1) and main shell (phase 2)
+        counter_file="$HOME/.source_counter"
+        if [ ! -f "$counter_file" ]; then
+          echo "1" > "$counter_file"
+          # First invocation (subshell test) - succeed
+          export TEST_VAR=success
+        else
+          # Second invocation (main shell source) - fail due to environment change
+          # This simulates a scenario where another script sets a conflicting variable
+          # between phase 1 and phase 2
+          echo "ERROR: Environment mutated between phases - conflicting state detected" >&2
+          return 1
+        fi
+        VARS_EOF
+
+            # Run script - should detect phase 2 failure after phase 1 success
+            output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash -c ". test-script.sh" 2>&1) || true
+
+            # Verify phase 2 specific error message appears
+            if echo "$output" | grep -q "ERROR: Subshell test succeeded but main shell source failed"; then
+              echo "PASS: Phase 2 failure detected with specific error message"
+            else
+              echo "FAIL: Expected phase 2 specific error message not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # CRITICAL: Verify error message mentions environment difference as a possible cause
+            # This is the key improvement - helping users diagnose environment-related issues
+            if echo "$output" | grep -q "race condition or environment difference"; then
+              echo "PASS: Error message explains environment difference as possible cause"
+            else
+              echo "FAIL: Error message should mention environment difference to aid diagnosis"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify the actual error from the session vars script is included
+            if echo "$output" | grep -q "Environment mutated between phases"; then
+              echo "PASS: Error includes stderr from failed session vars script"
+            else
+              echo "FAIL: Should include error details from session vars script"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify shell initialization is aborted
+            if echo "$output" | grep -q "Shell initialization aborted"; then
+              echo "PASS: Shell initialization aborted on phase 2 failure"
+            else
+              echo "FAIL: Expected abort message not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Test second scenario: verify diagnostic message helps identify
+            # that environment differences (not just race conditions) can cause failures
+            # Create a different session vars file that checks environment state
+            cat > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh << 'VARS2_EOF'
+        counter_file="$HOME/.source_counter2"
+        if [ ! -f "$counter_file" ]; then
+          echo "1" > "$counter_file"
+          # Phase 1: succeed
+          export TEST_VAR=success
+        else
+          # Phase 2: fail with error mentioning environment state
+          echo "ERROR: Required environment variable PATH_SENTINEL not found" >&2
+          return 1
+        fi
+        VARS2_EOF
+
+            output2=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash -c ". test-script.sh" 2>&1) || true
+
+            # Verify generic error message still mentions environment difference
+            # (helps users understand PATH, shell options, or other env vars could be the issue)
+            if echo "$output2" | grep -q "race condition or environment difference"; then
+              echo "PASS: Generic diagnostic message covers environment-related failures"
+            else
+              echo "FAIL: Should provide diagnostic help for environment issues"
+              echo "Output was: $output2"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
   # Aggregate all tests
   allTests = [
     test-bash-syntax
@@ -599,6 +709,7 @@ let
     test-subshell-isolation
     test-race-condition-subshell-vs-main
     test-cleanup-warning-suppression
+    test-environment-mutation-between-phases
   ];
 
   # Test suite runner
@@ -631,6 +742,7 @@ in
       test-subshell-isolation
       test-race-condition-subshell-vs-main
       test-cleanup-warning-suppression
+      test-environment-mutation-between-phases
       ;
   };
 

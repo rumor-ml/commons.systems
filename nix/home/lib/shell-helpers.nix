@@ -39,6 +39,9 @@
       # Note: Subshell test doesn't export variables to parent shell, so we need phase 2.
       if ! (. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh") 2>"$error_file"; then
         source_error=$(cat "$error_file" 2>&1)
+        # Cleanup failure is non-fatal - shell init continues after displaying source error
+        # We warn about cleanup issues but don't abort, as the critical failure is the source error
+        # (Later cleanup attempts use _HM_CLEANUP_WARNED flag to avoid repeated warnings)
         if ! rm -f "$error_file" 2>&1; then
           echo "WARNING: Failed to cleanup temp file: $error_file" >&2
           echo "  This may indicate filesystem or permission issues" >&2

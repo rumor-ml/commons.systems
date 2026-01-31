@@ -597,6 +597,81 @@ let
             touch $out
       '';
 
+  # Test 14: Syntax error in session vars file
+  test-syntax-error-in-session-vars =
+    pkgs.runCommand "test-syntax-error-in-session-vars"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create a mock .bashrc with initExtra content
+            cat > test-bashrc << 'EOF'
+        ${initExtraContent}
+        echo "Shell initialization completed"
+        EOF
+
+            # Create hm-session-vars.sh with bash syntax error (unclosed string)
+            mkdir -p test-home/.nix-profile/etc/profile.d
+            cat > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh << 'VARS_EOF'
+        export TZ="America/New_York
+        export TEST_VAR=test_value
+        VARS_EOF
+
+            # Run bash with our mock .bashrc
+            output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "echo 'Shell accessible'" 2>&1) || true
+
+            # Verify error message appears
+            if echo "$output" | grep -q "ERROR: Failed to source"; then
+              echo "PASS: Error message present for syntax error"
+            else
+              echo "FAIL: Expected error message not found for syntax error"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify shell initialization aborted message
+            if echo "$output" | grep -q "Shell initialization aborted"; then
+              echo "PASS: Error message explains initialization is aborted"
+            else
+              echo "FAIL: Expected abort message not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify syntax error details are captured in output
+            # The two-phase sourcing (subshell test) should capture stderr from bash
+            if echo "$output" | grep -qi "unexpected\|syntax"; then
+              echo "PASS: Syntax error details captured in error output"
+            else
+              echo "FAIL: Syntax error details should be captured"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify .bashrc sourcing stopped (completion message should not appear)
+            if echo "$output" | grep -q "Shell initialization completed"; then
+              echo "FAIL: .bashrc should abort before completion message (return 1)"
+              echo "Output was: $output"
+              exit 1
+            else
+              echo "PASS: .bashrc sourcing aborted before completion message"
+            fi
+
+            # Verify shell remains accessible for recovery
+            if echo "$output" | grep -q "Shell accessible"; then
+              echo "PASS: Shell remains accessible despite syntax error in session vars"
+            else
+              echo "FAIL: Shell should remain accessible for recovery"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
   # Aggregate all tests into a test suite
   allTests = [
     test-module-structure
@@ -612,6 +687,7 @@ let
     test-missing-session-vars-file
     test-environment-preservation-after-error
     test-environment-variable-propagation
+    test-syntax-error-in-session-vars
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -644,6 +720,7 @@ in
       test-missing-session-vars-file
       test-environment-preservation-after-error
       test-environment-variable-propagation
+      test-syntax-error-in-session-vars
       ;
   };
 

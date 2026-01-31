@@ -113,7 +113,7 @@ Common settings applied on all platforms:
    ```
 
 4. **Install Required Fonts**: The configuration uses **JetBrains Mono** font. Ensure it's installed:
-   - **WSL**: Install JetBrains Mono on Windows (not in WSL)
+   - **WSL**: Install JetBrains Mono on Windows (the WezTerm process runs on Windows and looks for fonts there, not in WSL)
      - Download from https://www.jetbrains.com/lp/mono/
      - Or install via winget: `winget install JetBrains.JetBrainsMono.NerdFont`
 

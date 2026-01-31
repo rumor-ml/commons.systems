@@ -46,8 +46,8 @@
         -- WSL Integration (Linux/WSL only)
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
-        -- Using lib.strings.toJSON to format username as JSON string (valid Lua syntax).
-        -- Example: if config.home.username = "alice", generates: '/home/' .. "alice"
+        -- Using lib.strings.toJSON to safely escape special characters in username (prevents Lua injection).
+        -- Example: username with quote becomes "user\"name" in generated Lua, avoiding broken syntax like: "user"name"
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
       ''}
 
@@ -78,6 +78,11 @@
       readonly ERR_COPY_FAILED=14          # Copy to Windows location failed
       readonly ERR_SOURCE_EMPTY=15         # wezterm.lua exists but is empty
 
+      # Enable strict error handling
+      set -e  # Exit immediately if any command fails
+      set -u  # Error on undefined variable expansion
+      set -o pipefail  # Pipelines fail if any command in pipe fails
+
       # Check if running on WSL (Windows mount point exists)
       if [ -d "/mnt/c/Users" ]; then
         # Verify /mnt/c/Users is readable
@@ -98,6 +103,7 @@
         # Capture ls output and stderr separately for better error diagnostics
         LS_STDERR=$(mktemp)
         # Cleanup temp file on exit to prevent /tmp accumulation
+        # Cleanup failures only warn (not fail) to avoid blocking activation on transient filesystem issues
         trap 'if ! rm -f "$LS_STDERR" 2>&1; then echo "WARNING: Failed to cleanup stderr temp file: $LS_STDERR" >&2; fi' EXIT
         LS_OUTPUT=$(ls /mnt/c/Users/ 2>"$LS_STDERR")
         LS_EXIT_CODE=$?
@@ -161,11 +167,20 @@
               echo "  Common causes: permissions, disk space, file locked by running WezTerm" >&2
               exit $ERR_COPY_FAILED
             fi
+            echo "Copied WezTerm config to Windows location: $TARGET_FILE"
           else
-            # Dry run mode: execute but don't fail on dry run
+            # Dry run mode: show command without executing, but validate paths
+            if [ ! -r "$SOURCE_FILE" ]; then
+              echo "ERROR: Dry run detected source file is not readable: $SOURCE_FILE" >&2
+              exit $ERR_SOURCE_MISSING
+            fi
+            if [ ! -w "$TARGET_DIR" ]; then
+              echo "ERROR: Dry run detected target directory is not writable: $TARGET_DIR" >&2
+              exit $ERR_COPY_FAILED
+            fi
             $DRY_RUN_CMD cp ''${VERBOSE_ARG:+"$VERBOSE_ARG"} "$SOURCE_FILE" "$TARGET_FILE"
+            echo "Would copy WezTerm config to Windows location: $TARGET_FILE"
           fi
-          echo "Copied WezTerm config to Windows location: $TARGET_FILE"
         else
           # User was detected but directory doesn't exist - this is an error state
           echo "ERROR: Detected Windows username '$WINDOWS_USER' but directory does not exist" >&2
@@ -173,7 +188,7 @@
           echo "" >&2
 
           # Attempt to list /mnt/c/Users again for diagnostic output
-          # If this second ls fails, directory became inaccessible between checks (race condition or filesystem issue)
+          # If this second ls fails, directory passed initial readability check (line 84) but is now inaccessible - indicates race condition or filesystem issue
           if ! ls_output=$(ls -1 /mnt/c/Users/ 2>&1); then
             echo "ERROR: Additionally, cannot list /mnt/c/Users/ for diagnostics" >&2
             echo "  Directory passed initial checks but is now inaccessible" >&2
