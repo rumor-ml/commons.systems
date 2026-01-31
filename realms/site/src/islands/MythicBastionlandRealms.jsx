@@ -2163,6 +2163,27 @@ function HexMap({ generator, viewBounds, renderKey }) {
   const featureElements = [];
   const explorerElements = [];
 
+  // Early return if generator is not ready
+  if (!generator || !generator.hexes || generator.hexes.size === 0) {
+    return (
+      <svg
+        viewBox={`${viewBounds.minX} ${viewBounds.minY} ${width} ${height}`}
+        className="w-full h-96 lg:h-[500px]"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <text
+          x={viewBounds.minX + width / 2}
+          y={viewBounds.minY + height / 2}
+          textAnchor="middle"
+          fill="#666"
+          fontSize="16"
+        >
+          Initializing generator...
+        </text>
+      </svg>
+    );
+  }
+
   // Render hexes
   for (const [key, hex] of generator.hexes) {
     if (!hex.revealed) continue;
