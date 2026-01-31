@@ -5,33 +5,30 @@
       "command": "bash",
       "args": [
         "-c",
-        "cd /Users/n8/commons.systems && eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
+        "eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
         "--",
         "gh-workflow-mcp-server/dist/index.js"
-      ],
-      "cwd": "/Users/n8/commons.systems"
+      ]
     },
     "gh-issue": {
       "type": "stdio",
       "command": "bash",
       "args": [
         "-c",
-        "cd /Users/n8/commons.systems && eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
+        "eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
         "--",
         "gh-issue-mcp-server/dist/index.js"
-      ],
-      "cwd": "/Users/n8/commons.systems"
+      ]
     },
     "wiggum": {
       "type": "stdio",
       "command": "bash",
       "args": [
         "-c",
-        "cd /Users/n8/commons.systems && eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
+        "eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
         "--",
         "wiggum-mcp-server/dist/index.js"
-      ],
-      "cwd": "/Users/n8/commons.systems"
+      ]
     }
   }
 }
