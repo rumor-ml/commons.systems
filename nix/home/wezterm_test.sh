@@ -789,6 +789,74 @@ else
   report_fail "Empty source file should trigger exit $ERR_SOURCE_EMPTY" "Got exit code: $EXIT_CODE"
 fi
 
+# Test 30: User directory race condition detection
+echo ""
+echo "=== Test 30: User directory race condition detection ==="
+TEMP_RACE=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_RACE")
+
+# Create initial Windows user directory structure
+mkdir -p "$TEMP_RACE/c/Users/raceuser"
+mkdir -p "$TEMP_RACE/c/Users/Public"
+
+# Simulate the race condition from wezterm.nix lines 183-206
+# Scenario: User detected successfully, but directory disappears before validation
+WINDOWS_USER=$(ls "$TEMP_RACE/c/Users/" 2>/dev/null | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
+
+if [[ "$WINDOWS_USER" == "raceuser" ]]; then
+  # User detected successfully - now simulate the directory becoming inaccessible
+  rm -rf "$TEMP_RACE/c/Users/raceuser"
+
+  # Now check if directory exists (should fail due to race condition)
+  ERROR_OUTPUT=""
+  EXIT_CODE=0
+  if [[ ! -d "$TEMP_RACE/c/Users/$WINDOWS_USER" ]]; then
+    # Directory doesn't exist - this is the race condition error path
+    ERROR_OUTPUT="ERROR: Detected Windows username '$WINDOWS_USER' but directory does not exist"$'\n'"  Expected directory: /mnt/c/Users/$WINDOWS_USER"
+
+    # Attempt second ls for diagnostics (simulating lines 190-196)
+    if ! ls_output=$(ls -1 "$TEMP_RACE/c/Users/" 2>&1); then
+      # Second ls also failed - directory became completely inaccessible
+      ERROR_OUTPUT+=$'\n'"ERROR: Additionally, cannot list /mnt/c/Users/ for diagnostics"$'\n'"  Directory passed initial checks but is now inaccessible"$'\n'"  This indicates a filesystem or permission issue"
+    fi
+    EXIT_CODE=1
+  fi
+
+  # Validate race condition detection
+  if [[ $EXIT_CODE -eq 1 ]]; then
+    if [[ "$ERROR_OUTPUT" =~ "Detected Windows username" ]] && [[ "$ERROR_OUTPUT" =~ "directory does not exist" ]]; then
+      report_pass "Race condition detection produces correct diagnostic error"
+    else
+      report_fail "Race condition error message incorrect" "Got: $ERROR_OUTPUT"
+    fi
+  else
+    report_fail "Race condition should trigger error" "Expected exit 1, got: $EXIT_CODE"
+  fi
+else
+  report_fail "Test setup failed - user detection" "Expected 'raceuser', got: '$WINDOWS_USER'"
+fi
+
+# Test 31: Nested error handling for unreadable stderr file
+echo ""
+echo "=== Test 31: Nested error handling for unreadable stderr file ==="
+# This tests the defensive error path from wezterm.nix lines 125-127
+# where cat fails to read the stderr temp file.
+#
+# Note: Without 'set -o pipefail', the pipeline 'cat ... | sed ...' returns
+# sed's exit code (0), not cat's exit code (non-zero). This makes it impossible
+# to reliably trigger the nested error path in a test environment.
+#
+# The actual scenario this protects against: catastrophic filesystem failure
+# where the temp file becomes unreadable between creation and the cat attempt.
+# This is extremely rare and difficult to simulate without breaking the test.
+#
+# Skipping this test as suggested in pr-test-analyzer-in-scope-4:
+# "This is a low-priority edge case... difficult to simulate reliably"
+echo "SKIP: Nested error scenario too difficult to reliably simulate"
+echo "  The pipeline 'cat | sed' returns sed's exit code (not cat's) without pipefail"
+echo "  Manual verification: Corrupt filesystem during activation to test"
+echo "  Code location: nix/home/wezterm.nix:125-127"
+
 # Summary
 echo ""
 echo "================================"

@@ -48,7 +48,6 @@
 
   # User identity - detect from environment or HOME directory
   # TODO(#1685): Add validation of extracted username values (e.g., check for "..", ".", or "/" prefixes)
-  # TODO(#1707): Add validation of extracted username values (e.g., check for "..", ".", or "/" prefixes)
   home.username = lib.mkDefault (
     let
       envUser = builtins.getEnv "USER";

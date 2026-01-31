@@ -8,7 +8,8 @@
 #
 # These tests ensure configuration syntax errors are caught at build time
 # (via nix build/check), before home-manager switch activates the configuration.
-# They do not verify runtime behavior like font availability or WSL integration.
+# Runtime behavior tests include activation script execution, WSL detection,
+# Windows user auto-detection, and config copy logic (via mock environments).
 
 # TODO(#1633): Test validation uses generic 'exit 1' without specific exit codes
 # TODO(#1650): Large test file could benefit from test grouping by concern
@@ -524,12 +525,12 @@ let
         isDarwin = false;
       });
       # Replace the valid font() call with a raw string assignment
-      # Match: config.font = wezterm.font('JetBrains Mono')
-      # Replace with: config.font = 'JetBrains Mono'
+      # Match: config.font = wezterm.font('JetBrains Mono Nerd Font')
+      # Replace with: config.font = 'JetBrains Mono Nerd Font'
       invalidLuaConfig =
         builtins.replaceStrings
-          [ "config.font = wezterm.font('JetBrains Mono')" ]
-          [ "config.font = 'JetBrains Mono'" ]
+          [ "config.font = wezterm.font('JetBrains Mono Nerd Font')" ]
+          [ "config.font = 'JetBrains Mono Nerd Font'" ]
           validLuaConfig;
 
       invalidConfigFile = pkgs.writeText "invalid-font-value-config.lua" invalidLuaConfig;
@@ -574,6 +575,73 @@ let
       touch $out
     '';
 
+  # Test: Invalid config key rejection
+  # Validates that the mock WezTerm module correctly rejects unknown config keys
+  # This ensures typos in config keys (e.g., config.font_sizes instead of config.font_size)
+  # are caught during testing rather than causing runtime errors in WezTerm
+  test-invalid-config-key =
+    let
+      # Create config with a valid base
+      validLuaConfig = extractLuaConfig (evaluateModule {
+        isLinux = true;
+        isDarwin = false;
+      });
+
+      # Inject an invalid config key before the return statement
+      # This simulates a typo or unknown config key being added
+      invalidLuaConfig =
+        builtins.replaceStrings
+          [ "return config" ]
+          [
+            ''
+              config.invalid_nonexistent_key = "should fail"
+              return config
+            ''
+          ]
+          validLuaConfig;
+
+      invalidConfigFile = pkgs.writeText "invalid-key-config.lua" invalidLuaConfig;
+
+      # Create a test script that loads the config with the shared mock module
+      testScript = pkgs.writeText "wezterm-invalid-key-test.lua" ''
+        -- Add mock module to package.path
+        package.path = "${mockWeztermModule};" .. package.path
+
+        -- Load and execute the invalid config
+        local config_func = loadfile('${invalidConfigFile}')
+        local success, result = pcall(config_func)
+
+        if success then
+          print("FAIL: Invalid config key was NOT rejected")
+          print("  Expected: error about invalid config key")
+          print("  Got: successful config loading")
+          os.exit(1)
+        end
+
+        -- Check that error message mentions the invalid key
+        if string.match(result, "Invalid WezTerm config key") then
+          print("PASS: Invalid config key correctly rejected")
+          print("  Error message: " .. result)
+          os.exit(0)
+        else
+          print("FAIL: Validation failed but with wrong error")
+          print("  Expected: error mentioning 'Invalid WezTerm config key'")
+          print("  Got: " .. result)
+          os.exit(1)
+        end
+      '';
+    in
+    pkgs.runCommand "test-invalid-config-key" { buildInputs = [ pkgs.lua ]; } ''
+      if ! ${pkgs.lua}/bin/lua ${testScript} 2>&1; then
+        echo "Test execution failed"
+        echo "Config being tested:"
+        head -n 40 '${invalidConfigFile}'
+        exit 1
+      fi
+
+      touch $out
+    '';
+
   # Test 5: Username interpolation
   test-username-interpolation =
     let
@@ -604,7 +672,7 @@ let
       touch $out
     '';
 
-  # Test 6: Username with special characters causing Lua injection
+  # Test 6: Username with special characters requiring escaping
   test-special-chars-username =
     let
       # Test usernames that could cause Lua syntax errors with single-quoted strings
@@ -1706,6 +1774,7 @@ let
     test-invalid-color-scheme
     test-invalid-font-size
     test-invalid-font-value
+    test-invalid-config-key
     test-username-interpolation
     test-special-chars-username
     test-activation-script-linux
@@ -1752,6 +1821,7 @@ in
       test-invalid-color-scheme
       test-invalid-font-size
       test-invalid-font-value
+      test-invalid-config-key
       test-username-interpolation
       test-special-chars-username
       test-activation-script-linux

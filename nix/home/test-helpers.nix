@@ -28,7 +28,6 @@
   #   extractNixStringLiteral bashSource "initExtra"
   #   => "# Content from initExtra\necho 'hello'"
   # TODO(#1699): Add strict mode or logging for extraction failures
-  # TODO(#1710): Add state constructor functions with validation
   extractNixStringLiteral =
     source: attributeName:
     let
@@ -36,39 +35,49 @@
       # Pattern to match: attributeName = ''
       startPattern = "${attributeName} = ''";
 
+      # State constructor functions with validation to enforce invariants
+      mkInitialState = {
+        _type = "initial";
+      };
+
+      mkCollectingState =
+        content:
+        assert lib.assertMsg (lib.isList content) "mkCollectingState: content must be a list";
+        {
+          _type = "collecting";
+          inherit content;
+        };
+
+      mkStoppedState =
+        content:
+        assert lib.assertMsg (lib.isList content) "mkStoppedState: content must be a list";
+        {
+          _type = "stopped";
+          inherit content;
+        };
+
       # Track parser state using _type field with three states:
       #   - "initial": Scanning lines, looking for the start pattern (attributeName = '')
       #   - "collecting": Found start, accumulating content lines
       #   - "stopped": Found closing delimiter (''), extraction complete
       # Using explicit states prevents continuing to scan after extraction is done.
-      initialState = {
-        _type = "initial";
-      };
+      initialState = mkInitialState;
 
       result = lib.foldl' (
         state: line:
         # State: initial - looking for start pattern
         if state._type == "initial" && lib.hasInfix startPattern line then
-          {
-            _type = "collecting";
-            content = [ ];
-          }
+          mkCollectingState [ ]
 
         # State: collecting - check for closing delimiter or collect line
         # Stop collecting when we hit closing delimiter ''
         # (but not '''' which is Nix's way to escape '' inside multiline strings)
         else if state._type == "collecting" && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
-          {
-            _type = "stopped";
-            content = state.content;
-          }
+          mkStoppedState state.content
 
         # State: collecting - append line to content
         else if state._type == "collecting" then
-          {
-            _type = "collecting";
-            content = state.content ++ [ line ];
-          }
+          mkCollectingState (state.content ++ [ line ])
 
         # State: stopped or initial - no transitions, preserve state
         else
@@ -78,7 +87,10 @@
     # Extract content from final state
     #   - 'stopped' state: extraction succeeded, return accumulated content
     #   - 'collecting'/'initial' states: extraction failed, return empty (silently ignores malformed input)
-    # TODO(#1699): Add strict mode to error on malformed input instead of returning empty
+    #
+    # Note: Silent failure is acceptable for optional test validations. For required attributes,
+    # callers should validate the result is non-empty before use to catch typos or format changes.
+    # TODO(#1699): Add strict mode parameter to error on malformed input for critical extractions
     lib.concatStringsSep "\n" (result.content or [ ]);
 
   # Validate shell syntax using a shell interpreter.
@@ -114,7 +126,7 @@
       shellBinPath = "${shellPkg}/bin/${shellBin}";
     in
     pkgs.runCommand "validate-${lib.toLower shellName}-syntax" { buildInputs = [ shellPkg ]; } ''
-      # Validate that shell binary exists (enforces naming assumption)
+      # Validate that shell binary exists (enforces shellName lowercasing assumption: "Bash" -> "bash")
       if ! command -v ${shellBin} >/dev/null 2>&1; then
         echo "ERROR: Shell binary '${shellBin}' not found in PATH"
         echo "This indicates shellName '${shellName}' does not match the shell binary name when lowercased."

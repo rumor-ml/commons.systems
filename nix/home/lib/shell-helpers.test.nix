@@ -451,6 +451,139 @@ let
             touch $out
       '';
 
+  # Test 12: Race condition - subshell succeeds but main shell source fails
+  test-race-condition-subshell-vs-main =
+    pkgs.runCommand "test-shell-helpers-race-condition"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create test script
+            cat > test-script.sh << 'EOF'
+        ${sessionVarsScript}
+        EOF
+
+            # Create session vars file that behaves differently on first vs second source
+            # This simulates a race condition where environment state changes between
+            # the subshell test and the main shell source
+            mkdir -p test-home/.nix-profile/etc/profile.d
+            cat > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh << 'VARS_EOF'
+        # Use a counter file to track invocations (subshell vs main shell)
+        counter_file="$HOME/.source_counter"
+        if [ ! -f "$counter_file" ]; then
+          echo "1" > "$counter_file"
+          # First invocation (subshell test) - succeed with true
+          true
+        else
+          # Second invocation (main shell source) - fail
+          echo "Race condition: environment changed between sources" >&2
+          return 1
+        fi
+        VARS_EOF
+
+            # Run script - should detect the race condition
+            output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash -c ". test-script.sh" 2>&1) || true
+
+            # Verify race condition error message is detected
+            if echo "$output" | grep -q "ERROR: Subshell test succeeded but main shell source failed"; then
+              echo "PASS: Race condition error message detected"
+            else
+              echo "FAIL: Race condition error message not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify error explains it's a race condition or environment difference
+            if echo "$output" | grep -q "race condition or environment difference"; then
+              echo "PASS: Error message explains race condition"
+            else
+              echo "FAIL: Expected race condition explanation not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify shell initialization is aborted
+            if echo "$output" | grep -q "Shell initialization aborted"; then
+              echo "PASS: Shell initialization aborted on race condition"
+            else
+              echo "FAIL: Expected abort message not found"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
+  # Test 13: Cleanup warning suppression mechanism
+  test-cleanup-warning-suppression = pkgs.runCommand "test-shell-helpers-cleanup-suppression" { } ''
+    # Verify the script contains the cleanup warning suppression pattern
+    ${
+      if lib.hasInfix "_HM_CLEANUP_WARNED" sessionVarsScript then
+        "echo 'PASS: Script includes _HM_CLEANUP_WARNED variable for suppression'"
+      else
+        "echo 'FAIL: Script missing _HM_CLEANUP_WARNED variable' && exit 1"
+    }
+
+    # Verify the suppression check exists (if [ -z "$_HM_CLEANUP_WARNED" ])
+    ${
+      if lib.hasInfix "if [ -z \"$_HM_CLEANUP_WARNED\" ]" sessionVarsScript then
+        "echo 'PASS: Script checks if _HM_CLEANUP_WARNED is unset'"
+      else
+        "echo 'FAIL: Script missing _HM_CLEANUP_WARNED check' && exit 1"
+    }
+
+    # Verify the variable gets exported to suppress future warnings
+    ${
+      if lib.hasInfix "export _HM_CLEANUP_WARNED=1" sessionVarsScript then
+        "echo 'PASS: Script exports _HM_CLEANUP_WARNED after first warning'"
+      else
+        "echo 'FAIL: Script missing export _HM_CLEANUP_WARNED=1' && exit 1"
+    }
+
+    # Verify there are at least 2 cleanup warning blocks (one after subshell failure, one after main shell success)
+    # Both should have the suppression check
+    ${
+      let
+        # Count occurrences of the suppression pattern
+        suppressionCount =
+          lib.length (
+            lib.filter (x: x != "") (lib.splitString "if [ -z \"$_HM_CLEANUP_WARNED\" ]" sessionVarsScript)
+          )
+          - 1;
+      in
+      if suppressionCount >= 2 then
+        "echo 'PASS: Script has multiple cleanup warning blocks with suppression (count: ${toString suppressionCount})'"
+      else
+        "echo 'FAIL: Expected at least 2 suppression checks, found: ${toString suppressionCount}' && exit 1"
+    }
+
+    # Verify the warning message includes diagnostic guidance
+    ${
+      if lib.hasInfix "Check /tmp directory health" sessionVarsScript then
+        "echo 'PASS: Warning includes diagnostic guidance about /tmp health'"
+      else
+        "echo 'FAIL: Warning missing diagnostic guidance' && exit 1"
+    }
+
+    # Verify cleanup happens in multiple places (after errors and after success)
+    ${
+      let
+        rmCount =
+          lib.length (lib.filter (x: x != "") (lib.splitString "rm -f \"$error_file\"" sessionVarsScript))
+          - 1;
+      in
+      if rmCount >= 3 then
+        "echo 'PASS: Script attempts cleanup in multiple places (count: ${toString rmCount})'"
+      else
+        "echo 'FAIL: Expected at least 3 rm cleanup attempts, found: ${toString rmCount}' && exit 1"
+    }
+
+    touch $out
+  '';
+
   # Aggregate all tests
   allTests = [
     test-bash-syntax
@@ -464,6 +597,8 @@ let
     test-script-structure
     test-comments
     test-subshell-isolation
+    test-race-condition-subshell-vs-main
+    test-cleanup-warning-suppression
   ];
 
   # Test suite runner
@@ -494,6 +629,8 @@ in
       test-script-structure
       test-comments
       test-subshell-isolation
+      test-race-condition-subshell-vs-main
+      test-cleanup-warning-suppression
       ;
   };
 

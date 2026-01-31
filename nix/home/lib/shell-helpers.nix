@@ -33,10 +33,10 @@
         return 1
       fi
 
-      # Test source in subshell first to catch 'exit' commands
-      # If hm-session-vars.sh contains 'exit', running it directly would close the user's terminal.
+      # Phase 1: Test source in subshell to catch 'exit' commands safely
+      # If hm-session-vars.sh contains 'exit', it would close the user's terminal if sourced directly.
       # Subshell test (with parentheses) isolates the exit - only the subshell dies, not the terminal.
-      # If test succeeds, we source again in the current shell to actually set the environment variables.
+      # Note: Subshell test doesn't export variables to parent shell, so we need phase 2.
       if ! (. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh") 2>"$error_file"; then
         source_error=$(cat "$error_file" 2>&1)
         if ! rm -f "$error_file" 2>&1; then
@@ -57,8 +57,9 @@
         return 1
       fi
 
-      # Source succeeded in subshell, now source in current shell to get exports
-      # CRITICAL: Check for errors here too - race conditions or state differences could cause failure
+      # Phase 2: Source in current shell to actually set environment variables
+      # CRITICAL: Still check for errors - race conditions or environment differences could cause failure
+      # even though subshell test succeeded. This is the actual sourcing that exports variables.
       if ! . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" 2>"$error_file"; then
         main_error=$(cat "$error_file" 2>&1)
         if ! rm -f "$error_file" 2>/dev/null; then

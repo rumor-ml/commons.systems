@@ -26,7 +26,7 @@
       local wezterm = require('wezterm')
       local config = wezterm.config_builder()
 
-      config.font = wezterm.font('JetBrains Mono')
+      config.font = wezterm.font('JetBrains Mono Nerd Font')
       config.font_size = 11.0
 
       config.color_scheme = 'Tokyo Night'
@@ -46,10 +46,10 @@
         -- WSL Integration (Linux/WSL only)
         -- When running on Linux/WSL, include default_prog to automatically
         -- launch into WSL when the Windows WezTerm application reads this config.
-        -- Using lib.strings.toJSON to wrap username in quotes and escape special characters
-        -- to prevent Lua syntax errors or injection from special characters.
-        -- This is critical for usernames containing: single quotes ('), double quotes ("), backslashes (\), or bracket sequences (]])
-        -- JSON string syntax is valid Lua string syntax, making this a safe escaping mechanism.
+        -- Using lib.strings.toJSON to safely escape username special characters.
+        -- This prevents Lua syntax errors from usernames containing: single quotes ('),
+        -- double quotes ("), backslashes (\), or bracket sequences (]])
+        -- JSON string syntax is valid Lua string syntax, making this a reliable escaping mechanism.
         -- Example: if config.home.username = "alice", the generated Lua code will be:
         --   config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. "alice" }
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
@@ -110,7 +110,10 @@
         #   - Command failure (permission/mount issues) → different error code/message
         #   - Empty output (no user directories) → indicates username detection failure
         LS_STDERR=$(mktemp)
-        trap 'if ! rm -f "$LS_STDERR" 2>&1; then echo "WARNING: Failed to cleanup stderr temp file: $LS_STDERR" >&2; fi' EXIT  # Clean up temp file to prevent /tmp accumulation, even on error exit
+        # Cleanup temp file on exit (success or failure) to prevent /tmp accumulation.
+        # Cleanup failure indicates filesystem issues (readonly, no space, permissions).
+        # We warn but don't fail the script since the temp file is small and transient.
+        trap 'if ! rm -f "$LS_STDERR" 2>&1; then echo "WARNING: Failed to cleanup stderr temp file: $LS_STDERR" >&2; fi' EXIT
         LS_OUTPUT=$(ls /mnt/c/Users/ 2>"$LS_STDERR")
         LS_EXIT_CODE=$?
 
