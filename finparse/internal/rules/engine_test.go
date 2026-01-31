@@ -995,7 +995,6 @@ rules:
 }
 
 func TestEmbeddedRules_CoverageRequirement(t *testing.T) {
-	t.Skip("TODO(#1261): Rule coverage requirement (95%) not yet met. Currently at ~84%. This is a feature in progress.")
 	// Load embedded rules
 	engine, err := LoadEmbedded()
 	if err != nil {
