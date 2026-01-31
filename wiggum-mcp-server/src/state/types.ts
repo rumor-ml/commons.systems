@@ -245,6 +245,7 @@ export function isPRExists(state: PRState): state is PRExists {
   return state.exists === true;
 }
 
+// TODO(#1728): Missing unit tests for isPRExists() type guard to complete type guard coverage
 /**
  * Type guard to check if a PRState indicates no PR
  *

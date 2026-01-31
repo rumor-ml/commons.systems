@@ -5,8 +5,7 @@
 # WezTerm provides GPU-accelerated terminal emulation with modern features.
 #
 # Features enabled:
-# - True color support and font ligatures
-# TODO(#1720): Misleading comment claims font ligatures are enabled
+# - True color support
 # - Configurable via Lua for extensibility
 # - Native macOS integration
 #

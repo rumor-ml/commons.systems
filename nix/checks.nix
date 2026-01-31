@@ -89,6 +89,45 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       description = "Validate JSON syntax";
     };
 
+    # === WezTerm Lua Validation ===
+    # Validates Lua syntax in WezTerm configuration to catch errors before runtime
+    # Uses luac -p (parse-only mode) to check syntax without executing the code
+    # Limitation: Only validates Lua syntax, not WezTerm-specific API semantics
+    wezterm-lua-syntax = {
+      enable = true;
+      name = "wezterm-lua-syntax";
+      description = "Validate WezTerm Lua configuration syntax";
+      entry = "${pkgs.writeShellScript "wezterm-lua-syntax" ''
+        set -e
+
+        # Extract Lua code from nix/home/wezterm.nix
+        # The extraConfig field contains Lua code in a Nix multiline string
+        LUA_FILE=$(mktemp)
+        trap "rm -f $LUA_FILE" EXIT
+
+        # Extract Lua code: find lines between extraConfig start and end markers
+        # Skip the first line (Nix syntax) and last line (closing delimiter)
+        sed -n '/extraConfig =/,/^    '"'''"';/p' nix/home/wezterm.nix | \
+          sed '1d;$d' > "$LUA_FILE"
+
+        # Validate Lua syntax
+        if ! ${pkgs.lua}/bin/luac -p "$LUA_FILE" 2>&1; then
+          echo ""
+          echo "ERROR: WezTerm Lua configuration has syntax errors"
+          echo "File: nix/home/wezterm.nix"
+          echo ""
+          echo "Fix the Lua syntax errors in the extraConfig field before committing."
+          echo ""
+          exit 1
+        fi
+
+        echo "✅ WezTerm Lua configuration syntax is valid"
+      ''}";
+      language = "system";
+      files = "nix/home/wezterm\\.nix$";
+      pass_filenames = false;
+    };
+
     # === Nix Hooks ===
     nixfmt-rfc-style = {
       enable = true;
@@ -216,6 +255,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       entry = "${pkgs.writeShellScript "mcp-npm-test" ''
         set -e
 
+        # TODO(#1727): Duplicate direnv comment pattern in checks.nix
+        # TODO(#1732): Silent fallback to wrong Node.js in pre-commit hook when direnv fails
         # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
         # This prevents ICU4c library version conflicts on macOS
         eval "$(${pkgs.direnv}/bin/direnv export bash 2>/dev/null)" || true
@@ -375,6 +416,67 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         fi
 
         echo "✅ Nix development shell evaluation successful"
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
+    # Validate Home Manager configuration builds
+    # Catches WezTerm config errors and Home Manager evaluation failures before push
+    # Prevents CI failures from Nix syntax errors, invalid packages, or module option mistakes
+    home-manager-build-check = {
+      enable = true;
+      name = "home-manager-build-check";
+      description = "Validate Home Manager configuration builds";
+      entry = "${pkgs.writeShellScript "home-manager-build-check" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
+
+        # Check if any Home Manager or WezTerm config files changed
+        if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
+          echo "Home Manager configuration files changed, validating build..."
+
+          if ! ${pkgs.nix}/bin/nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --no-link 2>&1; then
+            echo ""
+            echo "ERROR: Home Manager configuration failed to build"
+            echo ""
+            echo "This check validates that the Home Manager configuration can build successfully."
+            echo "It catches Nix syntax errors, invalid packages, and module option mistakes."
+            echo ""
+            echo "To fix this issue:"
+            echo "  1. Review the Nix error messages above"
+            echo "  2. Check nix/home/*.nix files for errors"
+            echo "  3. Verify all packages exist and options are valid"
+            echo "  4. Retry your push"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ Home Manager configuration builds successfully"
+        else
+          echo "No Home Manager configuration changes detected, skipping build check."
+        fi
       ''}";
       language = "system";
       stages = [ "pre-push" ];

@@ -59,6 +59,9 @@ jobs:
             which gh-workflow-mcp-server && echo "✓ gh-workflow-mcp-server found" || echo "✗ gh-workflow-mcp-server missing"
           '
 
+      # Cross-compile test: Verify Home Manager configuration builds on Darwin
+      # This validates Nix evaluation and WezTerm configuration even when running on Linux CI
+      # TODO(#1731): Add conditional success message to avoid misleading logs if build fails
       - name: Verify Home Manager configuration builds
         run: |
           echo "Building Home Manager configuration (aarch64-darwin)..."

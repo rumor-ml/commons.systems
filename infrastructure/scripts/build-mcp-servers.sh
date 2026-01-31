@@ -19,6 +19,8 @@
 
 set -euo pipefail
 
+# TODO(#1726): Clarify macOS-specific nature of this comment
+# TODO(#1730): Silent fallback to wrong Node.js in build script when direnv fails
 # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
 # This prevents ICU4c library version conflicts on macOS
 eval "$(direnv export bash 2>/dev/null)" || true
