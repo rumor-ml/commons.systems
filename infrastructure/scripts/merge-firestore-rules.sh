@@ -15,6 +15,10 @@ mkdir -p "$OUTPUT_DIR"
 
 echo "Merging Firestore rules..."
 
+# Restore source rules files if they were renamed (from previous merge run)
+[ -f "$REPO_ROOT/fellspiral/firestore.rules.source" ] && mv "$REPO_ROOT/fellspiral/firestore.rules.source" "$REPO_ROOT/fellspiral/firestore.rules"
+[ -f "$REPO_ROOT/budget/firestore.rules.source" ] && mv "$REPO_ROOT/budget/firestore.rules.source" "$REPO_ROOT/budget/firestore.rules"
+
 # Start with rules version and shared helper functions
 cat > "$OUTPUT_FILE" << 'EOF'
 rules_version = '2';
@@ -273,3 +277,11 @@ fi
 echo "Merged the following rule files:"
 echo "  - fellspiral/firestore.rules"
 echo "  - budget/firestore.rules"
+
+# CRITICAL FIX: Rename source rules files to prevent emulator from accidentally loading them
+# The emulator should ONLY load from .firebase/firestore.rules (merged file)
+# Background: Firebase CLI may discover and load app-level firestore.rules files
+# even when --config explicitly points to root firebase.json
+mv "$REPO_ROOT/fellspiral/firestore.rules" "$REPO_ROOT/fellspiral/firestore.rules.source" 2>/dev/null || true
+mv "$REPO_ROOT/budget/firestore.rules" "$REPO_ROOT/budget/firestore.rules.source" 2>/dev/null || true
+echo "✓ Renamed source rules files to .source (prevents accidental emulator loading)"
