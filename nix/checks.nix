@@ -216,6 +216,10 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       entry = "${pkgs.writeShellScript "mcp-npm-test" ''
         set -e
 
+        # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
+        # This prevents ICU4c library version conflicts on macOS
+        eval "$(${pkgs.direnv}/bin/direnv export bash 2>/dev/null)" || true
+
         # Verify we're in a git repository
         if ! git rev-parse --git-dir > /dev/null 2>&1; then
           echo "ERROR: Not in a git repository"
