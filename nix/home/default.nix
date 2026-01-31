@@ -53,7 +53,10 @@
     let
       envUser = builtins.getEnv "USER";
       # Fallback: extract username from HOME environment variable
-      # e.g., /home/username -> username
+      # Uses builtins.baseNameOf to get the last path component
+      # Examples: /home/alice -> alice, /Users/bob -> bob
+      # Edge case: if HOME=/ then extractedUser would be "/" (caught by validation below)
+      # Note: This fallback is unusual - USER should be set in most Unix environments
       homeDir = builtins.getEnv "HOME";
       extractedUser = if homeDir != "" then builtins.baseNameOf homeDir else "";
 

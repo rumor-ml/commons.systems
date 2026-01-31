@@ -32,10 +32,8 @@ let
   #     Tests must unwrap the mkIf wrapper (_type="if") to verify the inner DAG structure.
   #     When isLinux=true, condition=true and content contains the DAG entry.
   #     When isLinux=false, condition=false and Home Manager filters it out during activation.
-  # TODO(#1696): Duplicated evaluateModule helper function across test files
   # TODO(#1668): Consolidate duplicated evaluateModule helper into test-helpers.nix
-  # TODO(#1682): Consider using platform enum instead of boolean flags for type safety
-  # TODO(#1706): evaluateModule test helper lacks compile-time type safety for platform exclusivity
+  # TODO(#1682): Consider using platform enum instead of boolean flags for type safety (consolidated from #1706)
   evaluateModule =
     {
       username ? "testuser",
@@ -203,7 +201,6 @@ let
       luaFile = pkgs.writeText "wezterm-test.lua" luaCode;
       # Create a test script that loads the config with the mock module
       # TODO(#1677): Add explicit validation that mock module is accessible before testing config
-      # TODO(#1702): Add explicit validation that mock module is accessible before testing config
       testScript = pkgs.writeText "wezterm-validate.lua" ''
         -- Add mock module to package.path
         package.path = "${mockWeztermModule};" .. package.path

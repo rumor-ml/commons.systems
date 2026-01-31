@@ -272,6 +272,7 @@
               weztermTests = pkgs.callPackage ./nix/home/wezterm.test.nix { };
               bashTests = pkgs.callPackage ./nix/home/bash.test.nix { };
               zshTests = pkgs.callPackage ./nix/home/zsh.test.nix { };
+              shellHelpersTests = pkgs.callPackage ./nix/home/lib/shell-helpers.test.nix { };
               wingetTests = pkgs.callPackage ./windows/winget-packages.test.nix { };
               homeIntegrationTests = pkgs.callPackage ./nix/home/default.test.nix { };
             in
@@ -284,6 +285,7 @@
               # Shell module tests
               bash-test-suite = bashTests.bash-test-suite;
               zsh-test-suite = zshTests.zsh-test-suite;
+              shell-helpers-test-suite = shellHelpersTests.shell-helpers-test-suite;
 
               # Home-Manager integration tests
               home-integration-test-suite = homeIntegrationTests.integration-test-suite;
@@ -294,6 +296,7 @@
             // weztermTests.wezterm-tests
             // bashTests.bash-tests
             // zshTests.zsh-tests
+            // shellHelpersTests.shell-helpers-tests
             // wingetTests.winget-tests
             // homeIntegrationTests.home-integration-tests;
         }

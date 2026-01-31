@@ -20,14 +20,18 @@ let
   # Import shared test helpers
   testHelpers = import ./test-helpers.nix { inherit pkgs lib; };
 
+  # Import shell helpers for envExtra content
+  shellHelpers = import ./lib/shell-helpers.nix { inherit lib; };
+
   # Import the zsh module for evaluation testing
   zshModule = import ./zsh.nix;
 
   # Read the zsh module source for testing
   zshSource = builtins.readFile ./zsh.nix;
 
-  # Extract the envExtra and initExtra content from source using shared helper
-  envExtraContent = testHelpers.extractNixStringLiteral zshSource "envExtra";
+  # Get envExtra content from shell-helpers (not extracting from zsh.nix since it uses a variable reference)
+  envExtraContent = shellHelpers.sessionVarsSourcingScript;
+  # Extract initExtra content from source using shared helper
   initExtraContent = testHelpers.extractNixStringLiteral zshSource "initExtra";
 
   # Test helper: Evaluate module with mock config
@@ -432,6 +436,64 @@ let
     touch $out
   '';
 
+  # Test 16: Missing session vars file handling
+  test-missing-session-vars-file =
+    pkgs.runCommand "test-missing-session-vars-file"
+      {
+        buildInputs = [
+          pkgs.zsh
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create test zshrc with envExtra content
+            cat > test-zshenv << 'EOF'
+        ${envExtraContent}
+        EOF
+
+            # Create test zshrc with initExtra content
+            cat > test-zshrc << 'EOF'
+        ${initExtraContent}
+        echo "Shell initialization completed"
+        EOF
+
+            # Create environment WITHOUT hm-session-vars.sh
+            mkdir -p test-home
+            # Note: Intentionally not creating .nix-profile/etc/profile.d/hm-session-vars.sh
+
+            # Run zsh with our mock config files
+            output=$(ZDOTDIR=$(pwd) HOME=$(pwd)/test-home ${pkgs.zsh}/bin/zsh -c "source test-zshenv && source test-zshrc && echo 'Shell works'" 2>&1) || true
+
+            # Verify no error messages (should be graceful fallback)
+            if echo "$output" | grep -qi "error"; then
+              echo "FAIL: Should not error when session vars file missing"
+              echo "Output was: $output"
+              exit 1
+            else
+              echo "PASS: No error messages when session vars file missing"
+            fi
+
+            # Verify initialization completed (no abort)
+            if echo "$output" | grep -q "Shell initialization completed"; then
+              echo "PASS: Shell initialization completed normally"
+            else
+              echo "FAIL: Shell initialization should complete when file missing"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify shell remains functional
+            if echo "$output" | grep -q "Shell works"; then
+              echo "PASS: Shell remains functional when session vars file missing"
+            else
+              echo "FAIL: Shell should be functional"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
   # Aggregate all tests into a test suite
   allTests = [
     test-module-structure
@@ -449,6 +511,7 @@ let
     test-module-evaluation
     test-module-evaluation-paths
     test-comments
+    test-missing-session-vars-file
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -483,6 +546,7 @@ in
       test-module-evaluation
       test-module-evaluation-paths
       test-comments
+      test-missing-session-vars-file
       ;
   };
 

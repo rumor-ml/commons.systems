@@ -14,7 +14,7 @@ WezTerm configuration is declaratively managed through Home-Manager:
    - Includes platform-specific settings via `lib.optionalString`
 
 2. **Generated Configuration**: `~/.config/wezterm/wezterm.lua`
-   <!-- TODO(#1669): Documentation comment could specify XDG_CONFIG_HOME default value -->
+   - Respects `$XDG_CONFIG_HOME` (defaults to `~/.config`)
    - Home-Manager generates this file during `home-manager switch`
    - Contains the final Lua configuration that WezTerm reads
    - Regenerated on every Home-Manager activation

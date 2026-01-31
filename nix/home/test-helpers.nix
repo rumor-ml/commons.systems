@@ -28,6 +28,7 @@
   #   extractNixStringLiteral bashSource "initExtra"
   #   => "# Content from initExtra\necho 'hello'"
   # TODO(#1699): Add strict mode or logging for extraction failures
+  # TODO(#1710): Add state constructor functions with validation
   extractNixStringLiteral =
     source: attributeName:
     let
@@ -35,8 +36,11 @@
       # Pattern to match: attributeName = ''
       startPattern = "${attributeName} = ''";
 
-      # Track parser state: whether we're searching for the start pattern, collecting content, or stopped
-      # Uses _type field to distinguish states: "initial", "collecting", "stopped"
+      # Track parser state using _type field with three states:
+      #   - "initial": Scanning lines, looking for the start pattern (attributeName = '')
+      #   - "collecting": Found start, accumulating content lines
+      #   - "stopped": Found closing delimiter (''), extraction complete
+      # Using explicit states prevents continuing to scan after extraction is done.
       initialState = {
         _type = "initial";
       };
@@ -71,7 +75,10 @@
           state
       ) initialState lines;
     in
-    # Extract content from final state (stopped state has content, others default to empty)
+    # Extract content from final state
+    #   - 'stopped' state: extraction succeeded, return accumulated content
+    #   - 'collecting'/'initial' states: extraction failed, return empty (silently ignores malformed input)
+    # TODO(#1699): Add strict mode to error on malformed input instead of returning empty
     lib.concatStringsSep "\n" (result.content or [ ]);
 
   # Validate shell syntax using a shell interpreter.
@@ -99,11 +106,10 @@
     let
       shellFile = pkgs.writeText "${lib.toLower shellName}-test.sh" code;
       # TODO(#1686): Make shell binary name and validation flag explicit parameters
-      # Assumes shell binary name is lowercase shellName (e.g., "Bash" -> "bash", "Zsh" -> "zsh")
-      # This assumption is validated at build time - the derivation checks if the binary exists
-      # and fails with a detailed error if the naming doesn't match.
-      # TODO(#1708): Make shell binary name and validation flag explicit parameters
-      # Currently validated shells: bash, zsh, dash, sh
+      # Currently infers binary name by lowercasing shellName ("Bash" -> "bash").
+      # This is validated at build time (derivation checks binary exists), but explicit
+      # parameters would make the API clearer and reduce coupling to naming convention.
+      # Tested shells: bash, zsh, dash, sh (any shell supporting -n syntax check flag)
       shellBin = lib.toLower shellName;
       shellBinPath = "${shellPkg}/bin/${shellBin}";
     in

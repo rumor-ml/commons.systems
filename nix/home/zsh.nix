@@ -3,6 +3,13 @@
 # Enables Home Manager's zsh integration, which manages .zshrc and .zshenv
 # by creating symlinks to Nix store files that source Home Manager's configuration.
 #
+# Key differences:
+#   - .zshenv: Sourced by ALL zsh shells (login, non-login, interactive, scripts)
+#   - .zshrc: Sourced only by interactive shells (terminal sessions)
+#
+# Session variables go in .zshenv (via envExtra) to ensure availability everywhere.
+# Interactive features go in .zshrc (via initExtra) to avoid affecting scripts.
+#
 # This ensures that all Home Manager-managed environment variables
 # (like TZ for timezone) are properly loaded in new shell sessions.
 
@@ -53,7 +60,6 @@ in
       _pr_jobs() {
         # https://superuser.com/questions/1735201/zsh-script-not-printing-output-of-jobs-command
         # TODO(#1670): Multiple error paths in zsh _pr_jobs use one-time warnings that hide recurring failures
-        # TODO(#1700): Multiple error paths in zsh _pr_jobs use one-time warnings that hide recurring failures
         if tmp=$(mktemp 2>&1); then
           # Use separate error variable to capture stderr properly
           if ! print_error=$(print $(jobs) 2>&1 > $tmp); then

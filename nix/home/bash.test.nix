@@ -361,7 +361,60 @@ let
             touch $out
       '';
 
-  # Test 11: Environment variable propagation
+  # Test 11: Missing session vars file handling
+  test-missing-session-vars-file =
+    pkgs.runCommand "test-missing-session-vars-file"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create a mock .bashrc with initExtra content
+            cat > test-bashrc << 'EOF'
+        ${initExtraContent}
+        echo "Shell initialization completed"
+        EOF
+
+            # Create environment WITHOUT hm-session-vars.sh
+            mkdir -p test-home
+            # Note: Intentionally not creating .nix-profile/etc/profile.d/hm-session-vars.sh
+
+            # Run bash with our mock .bashrc
+            output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "echo 'Shell works'" 2>&1) || true
+
+            # Verify no error messages (should be graceful fallback)
+            if echo "$output" | grep -qi "error"; then
+              echo "FAIL: Should not error when session vars file missing"
+              echo "Output was: $output"
+              exit 1
+            else
+              echo "PASS: No error messages when session vars file missing"
+            fi
+
+            # Verify initialization completed (no abort)
+            if echo "$output" | grep -q "Shell initialization completed"; then
+              echo "PASS: Shell initialization completed normally"
+            else
+              echo "FAIL: Shell initialization should complete when file missing"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Verify shell remains functional
+            if echo "$output" | grep -q "Shell works"; then
+              echo "PASS: Shell remains functional when session vars file missing"
+            else
+              echo "FAIL: Shell should be functional"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            touch $out
+      '';
+
+  # Test 12: Environment variable propagation
   test-environment-variable-propagation =
     pkgs.runCommand "test-environment-variable-propagation"
       {
@@ -482,6 +535,7 @@ let
     test-module-evaluation
     test-module-evaluation-paths
     test-aborts-after-error
+    test-missing-session-vars-file
     test-environment-variable-propagation
   ];
 
@@ -512,6 +566,7 @@ in
       test-module-evaluation
       test-module-evaluation-paths
       test-aborts-after-error
+      test-missing-session-vars-file
       test-environment-variable-propagation
       ;
   };
