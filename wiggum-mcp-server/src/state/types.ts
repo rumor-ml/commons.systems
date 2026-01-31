@@ -245,7 +245,6 @@ export function isPRExists(state: PRState): state is PRExists {
   return state.exists === true;
 }
 
-// TODO(#1728): Missing unit tests for isPRExists() type guard to complete type guard coverage
 /**
  * Type guard to check if a PRState indicates no PR
  *
@@ -331,7 +330,6 @@ export function createIssueDoesNotExist(): IssueDoesNotExist {
  * }
  * ```
  */
-// TODO(#1719): Add unit tests for isIssueExists type guard
 export function isIssueExists(state: IssueState): state is IssueExists {
   return state.exists === true;
 }
@@ -352,7 +350,6 @@ export function isIssueExists(state: IssueState): state is IssueExists {
  * }
  * ```
  */
-// TODO(#1724): Add unit tests for isIssueDoesNotExist type guard
 export function isIssueDoesNotExist(state: IssueState): state is IssueDoesNotExist {
   return state.exists === false;
 }
