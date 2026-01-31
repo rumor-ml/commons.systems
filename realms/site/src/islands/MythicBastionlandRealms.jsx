@@ -1841,16 +1841,21 @@ export default function MythicBastionlandRealms() {
 
   // Initialize generator
   const initializeGenerator = useCallback(() => {
-    const gen = new RealmGenerator(seed);
-    gen.initialize(startAtBorder);
-    setGenerator(gen);
-    setStep(0);
-    setRenderKey((prev) => prev + 1);
+    try {
+      const gen = new RealmGenerator(seed);
+      gen.initialize(startAtBorder);
+      setGenerator(gen);
+      setStep(0);
+      setRenderKey((prev) => prev + 1);
+    } catch (error) {
+      console.error('Failed to initialize generator:', error);
+      throw error;
+    }
   }, [seed, startAtBorder]);
 
   useEffect(() => {
     initializeGenerator();
-  }, []);
+  }, [initializeGenerator]);
 
   // Expose for console testing
   useEffect(() => {
