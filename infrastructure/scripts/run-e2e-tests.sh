@@ -203,7 +203,15 @@ else
   echo ""
 fi
 
-echo "Using ports: App=${TEST_PORT:-$HOSTING_PORT}, Auth=${FIREBASE_AUTH_EMULATOR_HOST}, Firestore=${FIRESTORE_EMULATOR_HOST}, Storage=${STORAGE_EMULATOR_HOST}"
+echo ""
+echo "=== Port Configuration ==="
+echo "Hosting Port: ${HOSTING_PORT}"
+echo "Auth Emulator: ${FIREBASE_AUTH_EMULATOR_HOST}"
+echo "Firestore Emulator: ${FIRESTORE_EMULATOR_HOST}"
+echo "Storage Emulator: ${STORAGE_EMULATOR_HOST}"
+echo "Project ID: ${GCP_PROJECT_ID}"
+echo "=========================="
+echo ""
 
 # --- Type-specific setup ---
 case "$APP_TYPE" in
@@ -247,6 +255,130 @@ case "$APP_TYPE" in
         echo "✓ Emulators ready under supervision"
       else
         echo "ℹ️  Using existing supervised emulators"
+
+        # CRITICAL FIX: Check if THIS worktree's hosting emulator is running
+        # When supervisor is running in another worktree, this worktree's hosting
+        # emulator may not be running. We need to start it independently.
+        echo "🔍 Verifying hosting emulator for this worktree..."
+        echo "   Expected hosting port: ${HOSTING_PORT}"
+
+        if ! nc -z 127.0.0.1 "${HOSTING_PORT}" 2>/dev/null; then
+          echo "⚠️  Hosting emulator not running on port ${HOSTING_PORT}"
+          echo "🚀 Starting hosting emulator independently for this worktree..."
+
+          # Start hosting emulator in background
+          mkdir -p "${ROOT_DIR}/tmp/infrastructure"
+          HOSTING_LOG="${ROOT_DIR}/tmp/infrastructure/firebase-hosting-${GCP_PROJECT_ID}.log"
+          TEMP_CONFIG="${ROOT_DIR}/.firebase-${GCP_PROJECT_ID}.json"
+
+          # Map app name to Firebase site ID (must match firebase.json hosting.site values)
+          get_firebase_site_id() {
+            local app_name="$1"
+            case "$app_name" in
+              videobrowser) echo "videobrowser-7696a" ;;
+              print) echo "print-dfb47" ;;
+              budget) echo "budget-81cb7" ;;
+              fellspiral) echo "fellspiral" ;;
+              audiobrowser) echo "audiobrowser" ;;
+              *) echo "$app_name" ;;  # Default: use app name as-is
+            esac
+          }
+
+          SITE_ID=$(get_firebase_site_id "$APP_NAME")
+
+          # Extract the one site config and remove site/target fields
+          # This avoids port conflicts when firebase.json has multiple hosting targets
+          JQ_ERROR=$(mktemp)
+          HOSTING_CONFIG=$(jq --arg site "$SITE_ID" \
+            '.hosting[] | select(.site == $site) | del(.site, .target)' \
+            "${ROOT_DIR}/firebase.json" 2>"$JQ_ERROR")
+          JQ_EXIT=$?
+
+          if [ $JQ_EXIT -ne 0 ]; then
+            echo "ERROR: jq command failed while processing firebase.json" >&2
+            echo "jq exit code: $JQ_EXIT" >&2
+            if [ -s "$JQ_ERROR" ]; then
+              echo "jq error output:" >&2
+              cat "$JQ_ERROR" >&2
+            fi
+            rm -f "$JQ_ERROR"
+            exit 1
+          fi
+          rm -f "$JQ_ERROR"
+
+          if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ]; then
+            echo "ERROR: No hosting config found for site '$SITE_ID' (app: '$APP_NAME') in firebase.json" >&2
+            AVAILABLE_SITES=$(jq -r '.hosting[].site // empty' "${ROOT_DIR}/firebase.json" 2>/dev/null)
+            if [ -n "$AVAILABLE_SITES" ]; then
+              echo "Available sites:" >&2
+              echo "$AVAILABLE_SITES" | sed 's/^/  - /' >&2
+            fi
+            exit 1
+          fi
+
+          # Create temporary firebase config with only this app's hosting config
+          cat > "${TEMP_CONFIG}" <<EOF
+{
+  "emulators": {
+    "hosting": {
+      "port": ${HOSTING_PORT}
+    }
+  },
+  "hosting": ${HOSTING_CONFIG}
+}
+EOF
+
+          echo "   Created temporary config: ${TEMP_CONFIG}"
+          echo "   Hosting site: $SITE_ID (app: $APP_NAME) on port ${HOSTING_PORT}"
+
+          firebase emulators:start \
+            --only hosting \
+            --project "${GCP_PROJECT_ID}" \
+            --config "${TEMP_CONFIG}" \
+            > "$HOSTING_LOG" 2>&1 &
+
+          HOSTING_PID=$!
+          echo "   Hosting emulator started (PID: $HOSTING_PID)"
+
+          # Wait for hosting to be ready
+          echo "⏳ Waiting for hosting emulator to start on port ${HOSTING_PORT}..."
+          max_wait=30
+          waited=0
+          while [[ $waited -lt $max_wait ]]; do
+            if nc -z 127.0.0.1 "${HOSTING_PORT}" 2>/dev/null; then
+              echo "✓ Hosting emulator ready on port ${HOSTING_PORT}"
+              break
+            fi
+            sleep 1
+            waited=$((waited + 1))
+          done
+
+          if [[ $waited -ge $max_wait ]]; then
+            echo "ERROR: Hosting emulator failed to start within ${max_wait}s"
+            echo "Log output:"
+            cat "$HOSTING_LOG" 2>/dev/null || true
+            # Clean up temp config on failure
+            rm -f "${TEMP_CONFIG}"
+            exit 1
+          fi
+
+          # Set up cleanup for independently-started hosting emulator
+          cleanup_independent_hosting() {
+            if [ -n "$HOSTING_PID" ]; then
+              echo "Stopping independent hosting emulator (PID: $HOSTING_PID)..."
+              kill -TERM "$HOSTING_PID" 2>/dev/null || true
+              sleep 1
+              kill -KILL "$HOSTING_PID" 2>/dev/null || true
+            fi
+            # Clean up temp config
+            if [ -n "$TEMP_CONFIG" ]; then
+              rm -f "$TEMP_CONFIG"
+            fi
+          }
+          trap cleanup_independent_hosting EXIT
+        else
+          echo "✓ Hosting emulator already running on port ${HOSTING_PORT}"
+        fi
       fi
     fi
 
@@ -280,6 +412,26 @@ case "$APP_TYPE" in
     TEST_ENV_CONFIG="${ROOT_DIR}/.test-env.json"
     TIMEOUT_MULTIPLIER="${TIMEOUT_MULTIPLIER:-1}"
     DEPLOYED_URL="${DEPLOYED_URL:-}"
+
+    # CRITICAL VERIFICATION: Ensure hosting emulator is actually running before writing config
+    echo ""
+    echo "=== Pre-Config Verification ==="
+    echo "Verifying hosting emulator on port ${HOSTING_PORT}..."
+    if ! nc -z 127.0.0.1 "${HOSTING_PORT}" 2>/dev/null; then
+      echo "ERROR: Hosting emulator is not running on port ${HOSTING_PORT}"
+      echo "This should not happen - emulator startup logic has failed"
+      echo ""
+      echo "Debug information:"
+      echo "  HOSTING_PORT: ${HOSTING_PORT}"
+      echo "  GCP_PROJECT_ID: ${GCP_PROJECT_ID}"
+      echo "  REUSE_EMULATORS: ${REUSE_EMULATORS}"
+      echo ""
+      echo "Check logs at: ${ROOT_DIR}/tmp/infrastructure/firebase-hosting-${GCP_PROJECT_ID}.log"
+      exit 1
+    fi
+    echo "✓ Hosting emulator verified on port ${HOSTING_PORT}"
+    echo "==============================="
+    echo ""
 
     cat > "$TEST_ENV_CONFIG" << EOF
 {
