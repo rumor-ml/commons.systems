@@ -255,57 +255,6 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isOwner(userId);
     }
 
-    // Budget Demo Transactions - publicly readable, user-owned writes
-    match /budget-demo-transactions/{transactionId} {
-      allow read: if true; // Publicly readable demo data
-      allow create: if isAuthenticated()
-                    && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.createdAt == request.time;
-      allow update: if isAuthenticated() && isOwner(resource.data.userId)
-                    && request.resource.data.userId == resource.data.userId;
-      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
-    }
-
-    // Budget Demo Statements - publicly readable, user-owned writes
-    match /budget-demo-statements/{statementId} {
-      allow read: if true; // Publicly readable demo data
-      allow create: if isAuthenticated()
-                    && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.createdAt == request.time;
-      allow update: if isAuthenticated() && isOwner(resource.data.userId)
-                    && request.resource.data.userId == resource.data.userId;
-      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
-    }
-
-    // Budget Demo Accounts - publicly readable, user-owned writes
-    match /budget-demo-accounts/{accountId} {
-      allow read: if true; // Publicly readable demo data
-      allow create: if isAuthenticated()
-                    && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.createdAt == request.time;
-      allow update: if isAuthenticated() && isOwner(resource.data.userId)
-                    && request.resource.data.userId == resource.data.userId;
-      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
-    }
-
-    // Budget Demo Institutions - publicly readable, user-owned writes
-    match /budget-demo-institutions/{institutionId} {
-      allow read: if true; // Publicly readable demo data
-      allow create: if isAuthenticated()
-                    && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.createdAt == request.time;
-      allow update: if isAuthenticated() && isOwner(resource.data.userId)
-                    && request.resource.data.userId == resource.data.userId;
-      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
-    }
-
-    // NOTE: Firebase Firestore security rules do NOT support wildcard collection names.
-    // Collections like budget-demo-transactions-worker-0, budget-demo-transactions_pr_123,
-    // or budget-demo-transactions_preview_branch require separate match blocks.
-    // For dynamic preview environments, consider using subcollections or collection groups:
-    // - Subcollection pattern: /budget-demo/{env_id}/transactions/{transactionId}
-    // - Collection group: match /{path=**}/budget-transactions/{transactionId}
-
     // Default: deny all access to other collections
     match /{document=**} {
       allow read, write: if false;

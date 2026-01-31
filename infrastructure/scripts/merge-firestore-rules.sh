@@ -247,6 +247,20 @@ awk '
   END { if (pending_brace) print "}" }
 ' "$OUTPUT_FILE" > "$OUTPUT_FILE.tmp" && mv "$OUTPUT_FILE.tmp" "$OUTPUT_FILE"
 
+# Validate brace balance
+OPEN_BRACES=$(grep -o '{' "$OUTPUT_FILE" | wc -l)
+CLOSE_BRACES=$(grep -o '}' "$OUTPUT_FILE" | wc -l)
+
+if [ "$OPEN_BRACES" != "$CLOSE_BRACES" ]; then
+  echo "❌ ERROR: Merged rules have unbalanced braces"
+  echo "   Opening braces: $OPEN_BRACES"
+  echo "   Closing braces: $CLOSE_BRACES"
+  echo "   Difference: $((OPEN_BRACES - CLOSE_BRACES))"
+  exit 1
+fi
+
+echo "✓ Brace validation passed ($OPEN_BRACES pairs)"
+
 echo "✓ Merged rules written to: $OUTPUT_FILE"
 
 # Validate syntax by attempting to parse with firebase CLI if available
