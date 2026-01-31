@@ -38,6 +38,32 @@ Current packages managed:
 - **Anthropic.Claude** - Claude desktop application
 - **Inkscape.Inkscape** - Vector graphics editor
 
+### Verifying Package Identifiers
+
+> **⚠️ Build-Time Limitation:** The Nix build tests validate JSON structure and package identifier format, but **cannot verify** that packages are actually installable on Windows. Package availability depends on the winget repository state and your Windows version. Always verify package identifiers on Windows before adding them to the configuration.
+
+To manually verify a package identifier before adding it to the configuration:
+
+```powershell
+# Search for a package
+winget search <package-name>
+
+# Show detailed information about a package
+winget show <PackageIdentifier>
+
+# Example: Verify WezTerm is available
+winget show wez.wezterm
+```
+
+Common issues that build-time tests cannot catch:
+
+- **Typos in package identifiers** - `wez.weztrem` instead of `wez.wezterm`
+- **Deprecated or removed packages** - Package was renamed or removed from winget
+- **Version compatibility** - Package requires Windows 11 but you have Windows 10
+- **Architecture mismatches** - Package only supports ARM64 but you have x64
+
+If a package fails to install, verify the identifier with `winget search` and check the official winget package repository at https://github.com/microsoft/winget-pkgs.
+
 ### Related Configuration
 
 - WezTerm configuration is managed via Home-Manager (see `nix/home/wezterm.nix`)

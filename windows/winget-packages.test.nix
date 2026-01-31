@@ -94,6 +94,22 @@ let
       '';
 
   # Test 3: Validate WezTerm package is present
+  #
+  # LIMITATION: This test only validates that the package identifier "wez.wezterm"
+  # is present in the JSON structure. It CANNOT verify:
+  # - The package identifier actually exists in the winget repository
+  # - The package is compatible with the user's Windows version
+  # - The package can be successfully installed
+  # - The package hasn't been renamed, deprecated, or removed
+  #
+  # Why? Build-time validation runs on Linux/NixOS, which cannot query the Windows
+  # winget repository. Package availability depends on runtime state of the winget
+  # repository and the user's Windows environment.
+  #
+  # Manual verification: Users should verify package identifiers on Windows with:
+  #   winget show wez.wezterm
+  #
+  # See windows/README.md "Verifying Package Identifiers" for full details.
   test-wezterm-package =
     pkgs.runCommand "test-winget-wezterm-package"
       {
@@ -104,6 +120,9 @@ let
 
         if ${pkgs.jq}/bin/jq -e '.Sources[].Packages[] | select(.PackageIdentifier == "wez.wezterm")' ${wingetPackagesPath} > /dev/null; then
           echo "PASS: WezTerm package (wez.wezterm) is present"
+          echo ""
+          echo "NOTE: This test only validates presence in JSON, not actual installability."
+          echo "Package availability must be verified on Windows with: winget show wez.wezterm"
         else
           echo "FAIL: WezTerm package (wez.wezterm) is missing"
           echo ""

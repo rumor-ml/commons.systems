@@ -14,6 +14,7 @@ WezTerm configuration is declaratively managed through Home-Manager:
    - Includes platform-specific settings via `lib.optionalString`
 
 2. **Generated Configuration**: `~/.config/wezterm/wezterm.lua`
+   <!-- TODO(#1669): Documentation comment could specify XDG_CONFIG_HOME default value -->
    - Home-Manager generates this file during `home-manager switch`
    - Contains the final Lua configuration that WezTerm reads
    - Regenerated on every Home-Manager activation
@@ -112,18 +113,19 @@ Common settings applied on all platforms:
    ```
 
 4. **Install Required Fonts**: The configuration uses **JetBrains Mono** font. Ensure it's installed:
-
    - **WSL**: Install JetBrains Mono on Windows (not in WSL)
      - Download from https://www.jetbrains.com/lp/mono/
      - Or install via winget: `winget install JetBrains.JetBrainsMono.NerdFont`
 
    - **macOS**: Install via Homebrew
+
      ```bash
      brew tap homebrew/cask-fonts
      brew install --cask font-jetbrains-mono
      ```
 
    - **Linux**: Install via package manager or manually
+
      ```bash
      # Debian/Ubuntu
      sudo apt install fonts-jetbrains-mono

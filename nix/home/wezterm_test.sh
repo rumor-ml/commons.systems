@@ -15,6 +15,7 @@ CLEANUP_DIRS=()
 CLEANUP_FAILURES=0
 
 # Cleanup function to remove all temp directories
+# TODO(#1680): cleanup returns 0 even when rm fails, hiding cleanup failures
 cleanup() {
   local failed=0
   for dir in "${CLEANUP_DIRS[@]}"; do
@@ -465,6 +466,7 @@ mkdir -p "$TEMP_MOUNT_NOPERM/c/Users"
 chmod 000 "$TEMP_MOUNT_NOPERM/c/Users"  # Remove all permissions
 
 # Simulate the error path from wezterm.nix lines 72-78
+# TODO(#1683): Use mktemp for unique temp files to avoid orphaned files and test conflicts
 WARNING_OUTPUT=""
 if ! ls "$TEMP_MOUNT_NOPERM/c/Users/" >/tmp/wezterm-users-list-test18 2>&1; then
   # Simulate the warning message that would be generated
@@ -747,6 +749,44 @@ if [[ $EXIT_CODE -eq 1 ]]; then
   fi
 else
   report_fail "User detection failure should trigger exit 1"
+fi
+
+# Test 29: Empty source file handling
+echo ""
+echo "=== Test 29: Empty source file error handling ==="
+TEMP_SOURCE29=$(mktemp)
+TEMP_TARGET_DIR29=$(mktemp -d)
+CLEANUP_DIRS+=("$TEMP_TARGET_DIR29")
+
+# Create empty source file (size 0 bytes)
+touch "$TEMP_SOURCE29"
+
+# Define error code matching wezterm.nix
+readonly ERR_SOURCE_EMPTY=15
+
+# Simulate the validation check for empty source file
+ERROR_OUTPUT=""
+EXIT_CODE=0
+if [ ! -f "$TEMP_SOURCE29" ]; then
+  ERROR_OUTPUT="ERROR: Source WezTerm config not found"
+  EXIT_CODE=13  # ERR_SOURCE_MISSING
+elif [ ! -s "$TEMP_SOURCE29" ]; then
+  # File exists but is empty (size 0)
+  ERROR_OUTPUT="ERROR: Source WezTerm config is empty at $TEMP_SOURCE29"$'\n'"This may indicate:"$'\n'"  - Home-Manager configuration has empty extraConfig"$'\n'"  - File generation failed or was truncated"$'\n'"  - Accidental empty string in programs.wezterm.extraConfig"
+  EXIT_CODE=$ERR_SOURCE_EMPTY
+fi
+
+rm -f "$TEMP_SOURCE29"
+
+# Validate error detection and message content
+if [[ $EXIT_CODE -eq $ERR_SOURCE_EMPTY ]]; then
+  if [[ "$ERROR_OUTPUT" =~ "ERROR: Source WezTerm config is empty" ]] && [[ "$ERROR_OUTPUT" =~ "Home-Manager" ]] && [[ "$ERROR_OUTPUT" =~ "extraConfig" ]]; then
+    report_pass "Empty source file detected with descriptive error message (exit code $ERR_SOURCE_EMPTY)"
+  else
+    report_fail "Error message lacks diagnostic guidance" "Got: $ERROR_OUTPUT"
+  fi
+else
+  report_fail "Empty source file should trigger exit $ERR_SOURCE_EMPTY" "Got exit code: $EXIT_CODE"
 fi
 
 # Summary

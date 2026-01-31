@@ -47,6 +47,8 @@
   ];
 
   # User identity - detect from environment or HOME directory
+  # TODO(#1685): Add validation of extracted username values (e.g., check for "..", ".", or "/" prefixes)
+  # TODO(#1707): Add validation of extracted username values (e.g., check for "..", ".", or "/" prefixes)
   home.username = lib.mkDefault (
     let
       envUser = builtins.getEnv "USER";
@@ -54,13 +56,28 @@
       # e.g., /home/username -> username
       homeDir = builtins.getEnv "HOME";
       extractedUser = if homeDir != "" then builtins.baseNameOf homeDir else "";
+
+      # Build diagnostic message showing actual environment state
+      diagnosticMsg = ''
+        Could not determine username. Environment variable diagnostics:
+          USER=${if envUser != "" then envUser else "(empty)"}
+          HOME=${if homeDir != "" then homeDir else "(empty)"}
+          Extracted from HOME=${
+            if extractedUser != "" then extractedUser else "(failed - HOME is / or invalid)"
+          }
+
+        To fix:
+          - Set USER environment variable to your username, OR
+          - Set HOME environment variable to your home directory path
+          - Ensure HOME is not set to "/" (root directory)
+      '';
     in
     if envUser != "" then
       envUser
     else if extractedUser != "" then
       extractedUser
     else
-      throw "Could not determine username. Please set USER or HOME environment variable."
+      throw diagnosticMsg
   );
 
   home.homeDirectory = lib.mkDefault (

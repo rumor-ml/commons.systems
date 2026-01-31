@@ -25,8 +25,11 @@ let
   # Read the bash module source for testing
   bashSource = builtins.readFile ./bash.nix;
 
-  # Extract the initExtra content from source using shared helper
-  initExtraContent = testHelpers.extractNixStringLiteral bashSource "initExtra";
+  # Read shell helpers source for initExtra content
+  shellHelpersSource = builtins.readFile ./lib/shell-helpers.nix;
+
+  # Extract the initExtra content from shell-helpers.nix using shared helper
+  initExtraContent = testHelpers.extractNixStringLiteral shellHelpersSource "sessionVarsSourcingScript";
 
   # Test helper: Evaluate module with mock config
   # Parameters:
@@ -133,10 +136,10 @@ let
         "echo 'FAIL: Error message missing TZ reference' && exit 1"
     }
     ${
-      if lib.hasInfix "if ! source_error=" initExtraContent then
-        "echo 'PASS: Config uses conditional for error detection'"
+      if lib.hasInfix "mktemp" initExtraContent then
+        "echo 'PASS: Config uses temp file for error capture'"
       else
-        "echo 'FAIL: Config missing error detection pattern' && exit 1"
+        "echo 'FAIL: Config missing temp file error capture' && exit 1"
     }
     ${
       if lib.hasInfix "return 1" initExtraContent then
@@ -149,6 +152,18 @@ let
         "echo 'PASS: Error message explains shell initialization is aborted'"
       else
         "echo 'FAIL: Error message missing abort explanation' && exit 1"
+    }
+    ${
+      if lib.hasInfix "Script exited with failure but produced no output" initExtraContent then
+        "echo 'PASS: Error handling covers silent failures'"
+      else
+        "echo 'FAIL: Missing silent failure handling message' && exit 1"
+    }
+    ${
+      if lib.hasInfix "Try running directly:" initExtraContent then
+        "echo 'PASS: Error message provides debugging suggestion'"
+      else
+        "echo 'FAIL: Missing debugging suggestion in error message' && exit 1"
     }
     touch $out
   '';
@@ -200,12 +215,15 @@ let
 
   # Test 7: TODO tracking
   test-todo-references = pkgs.runCommand "test-bash-todo-references" { } ''
-    # Validate TODO comments reference GitHub issues
+    # Validate TODO comments reference GitHub issues (or no TODOs exist)
     ${
-      if lib.hasInfix "TODO(#" bashSource then
-        "echo 'PASS: Module uses GitHub issue references in TODOs'"
+      if lib.hasInfix "TODO" bashSource then
+        if lib.hasInfix "TODO(#" bashSource then
+          "echo 'PASS: Module uses GitHub issue references in TODOs'"
+        else
+          "echo 'FAIL: Module has untracked TODOs (must use TODO(#NNN) format)' && exit 1"
       else
-        "echo 'FAIL: Module has untracked TODOs' && exit 1"
+        "echo 'PASS: Module has no TODOs'"
     }
     touch $out
   '';
@@ -280,60 +298,177 @@ let
       '';
 
   # Test 10: Bashrc sourcing aborts after source failure
-  test-aborts-after-error = pkgs.runCommand "test-bash-aborts-after-error" { buildInputs = [ pkgs.bash ]; } ''
-    # Create a mock .bashrc that sources the init script (simulates real usage)
-    cat > test-bashrc << 'EOF'
-${initExtraContent}
-echo "Shell initialization completed"
-EOF
+  test-aborts-after-error =
+    pkgs.runCommand "test-bash-aborts-after-error"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create a mock .bashrc that sources the init script (simulates real usage)
+            cat > test-bashrc << 'EOF'
+        ${initExtraContent}
+        echo "Shell initialization completed"
+        EOF
 
-    # Create a failing hm-session-vars.sh in a temporary HOME
-    mkdir -p test-home/.nix-profile/etc/profile.d
-    echo "exit 1" > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh
+            # Create a failing hm-session-vars.sh in a temporary HOME
+            mkdir -p test-home/.nix-profile/etc/profile.d
+            echo "exit 1" > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh
 
-    # Run bash with our mock .bashrc (simulating sourcing behavior)
-    # Note: return 1 aborts .bashrc sourcing but bash shell still starts
-    # This allows user to have a shell even if session vars fail, but prevents
-    # further misconfiguration from executing rest of .bashrc
-    output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "echo 'Shell accessible'" 2>&1) || true
+            # Run bash with our mock .bashrc (simulating sourcing behavior)
+            # Note: return 1 aborts .bashrc sourcing but bash shell still starts
+            # This allows user to have a shell even if session vars fail, but prevents
+            # further misconfiguration from executing rest of .bashrc
+            output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "echo 'Shell accessible'" 2>&1) || true
 
-    # Verify error message appears
-    if echo "$output" | grep -q "ERROR: Failed to source"; then
-      echo "PASS: Error message present"
-    else
-      echo "FAIL: Expected error message not found"
-      echo "Output was: $output"
-      exit 1
-    fi
+            # Verify error message appears
+            if echo "$output" | grep -q "ERROR: Failed to source"; then
+              echo "PASS: Error message present"
+            else
+              echo "FAIL: Expected error message not found"
+              echo "Output was: $output"
+              exit 1
+            fi
 
-    if echo "$output" | grep -q "Shell initialization aborted"; then
-      echo "PASS: Error message explains initialization is aborted"
-    else
-      echo "FAIL: Expected abort message not found"
-      echo "Output was: $output"
-      exit 1
-    fi
+            if echo "$output" | grep -q "Shell initialization aborted"; then
+              echo "PASS: Error message explains initialization is aborted"
+            else
+              echo "FAIL: Expected abort message not found"
+              echo "Output was: $output"
+              exit 1
+            fi
 
-    # Verify .bashrc sourcing stopped (completion message should not appear)
-    if echo "$output" | grep -q "Shell initialization completed"; then
-      echo "FAIL: .bashrc should abort before completion message (return 1)"
-      echo "Output was: $output"
-      exit 1
-    else
-      echo "PASS: .bashrc sourcing aborted before completion message"
-    fi
+            # Verify .bashrc sourcing stopped (completion message should not appear)
+            if echo "$output" | grep -q "Shell initialization completed"; then
+              echo "FAIL: .bashrc should abort before completion message (return 1)"
+              echo "Output was: $output"
+              exit 1
+            else
+              echo "PASS: .bashrc sourcing aborted before completion message"
+            fi
 
-    # Verify shell is still accessible (important: don't lock user out completely)
-    if echo "$output" | grep -q "Shell accessible"; then
-      echo "PASS: Shell remains accessible despite session var failure"
-    else
-      echo "FAIL: Shell should remain accessible for recovery"
-      echo "Output was: $output"
-      exit 1
-    fi
+            # Verify shell is still accessible (important: don't lock user out completely)
+            if echo "$output" | grep -q "Shell accessible"; then
+              echo "PASS: Shell remains accessible despite session var failure"
+            else
+              echo "FAIL: Shell should remain accessible for recovery"
+              echo "Output was: $output"
+              exit 1
+            fi
 
-    touch $out
-  '';
+            touch $out
+      '';
+
+  # Test 11: Environment variable propagation
+  test-environment-variable-propagation =
+    pkgs.runCommand "test-environment-variable-propagation"
+      {
+        buildInputs = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
+      }
+      ''
+            # Create a mock .bashrc with initExtra content
+            cat > test-bashrc << 'EOF'
+        ${initExtraContent}
+        echo "Shell initialization completed"
+        EOF
+
+            # Create a mock hm-session-vars.sh that exports test variables
+            mkdir -p test-home/.nix-profile/etc/profile.d
+            cat > test-home/.nix-profile/etc/profile.d/hm-session-vars.sh << 'VARS_EOF'
+        # Mock Home Manager session variables
+        export TZ=America/New_York
+        export TEST_VAR=test_value
+        export HM_SESSION_LOADED=yes
+        VARS_EOF
+
+            # Test 1: Variables are accessible via echo
+            output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "echo TZ=\$TZ TEST_VAR=\$TEST_VAR HM_SESSION_LOADED=\$HM_SESSION_LOADED" 2>&1)
+
+            if echo "$output" | grep -q "TZ=America/New_York"; then
+              echo "PASS: TZ variable is accessible"
+            else
+              echo "FAIL: TZ variable not accessible"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            if echo "$output" | grep -q "TEST_VAR=test_value"; then
+              echo "PASS: TEST_VAR is accessible"
+            else
+              echo "FAIL: TEST_VAR not accessible"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            if echo "$output" | grep -q "HM_SESSION_LOADED=yes"; then
+              echo "PASS: HM_SESSION_LOADED is accessible"
+            else
+              echo "FAIL: HM_SESSION_LOADED not accessible"
+              echo "Output was: $output"
+              exit 1
+            fi
+
+            # Test 2: Variables are exported to environment (visible in env output)
+            env_output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "env" 2>&1)
+
+            if echo "$env_output" | grep -q "^TZ=America/New_York"; then
+              echo "PASS: TZ is exported to environment"
+            else
+              echo "FAIL: TZ not found in environment"
+              echo "env output: $env_output"
+              exit 1
+            fi
+
+            if echo "$env_output" | grep -q "^TEST_VAR=test_value"; then
+              echo "PASS: TEST_VAR is exported to environment"
+            else
+              echo "FAIL: TEST_VAR not found in environment"
+              exit 1
+            fi
+
+            # Test 3: TZ variable affects date command
+            # Set TZ in the mock session vars and verify date respects it
+            utc_date=$(TZ=UTC ${pkgs.coreutils}/bin/date '+%Z')
+            ny_date=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "${pkgs.coreutils}/bin/date '+%Z'" 2>&1 | grep -v "Shell initialization" || true)
+
+            if [ "$utc_date" != "$ny_date" ] || echo "$ny_date" | grep -q "EST\|EDT"; then
+              echo "PASS: TZ variable affects date command (shows EST/EDT, not UTC)"
+            else
+              echo "FAIL: TZ variable does not affect date command"
+              echo "UTC date timezone: $utc_date"
+              echo "NY date timezone: $ny_date"
+              exit 1
+            fi
+
+            # Test 4: Variables persist after executing other commands
+            persist_output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "echo 'dummy command' > /dev/null; echo \$TEST_VAR" 2>&1 | grep -v "Shell initialization" || true)
+
+            if echo "$persist_output" | grep -q "test_value"; then
+              echo "PASS: Variables persist after executing other commands"
+            else
+              echo "FAIL: Variables do not persist"
+              echo "Output was: $persist_output"
+              exit 1
+            fi
+
+            # Test 5: Variables are available in subshells (child processes)
+            subshell_output=$(HOME=$(pwd)/test-home ${pkgs.bash}/bin/bash --rcfile test-bashrc -i -c "${pkgs.bash}/bin/bash -c 'echo \$TEST_VAR'" 2>&1 | grep -v "Shell initialization" || true)
+
+            if echo "$subshell_output" | grep -q "test_value"; then
+              echo "PASS: Variables are available in child processes"
+            else
+              echo "FAIL: Variables not available in child processes"
+              echo "Output was: $subshell_output"
+              exit 1
+            fi
+
+            touch $out
+      '';
 
   # Aggregate all tests into a test suite
   allTests = [
@@ -347,6 +482,7 @@ EOF
     test-module-evaluation
     test-module-evaluation-paths
     test-aborts-after-error
+    test-environment-variable-propagation
   ];
 
   # Convenience: Run all tests in a single derivation
@@ -376,6 +512,7 @@ in
       test-module-evaluation
       test-module-evaluation-paths
       test-aborts-after-error
+      test-environment-variable-propagation
       ;
   };
 

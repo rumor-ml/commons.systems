@@ -27,6 +27,7 @@
   # Example:
   #   extractNixStringLiteral bashSource "initExtra"
   #   => "# Content from initExtra\necho 'hello'"
+  # TODO(#1699): Add strict mode or logging for extraction failures
   extractNixStringLiteral =
     source: attributeName:
     let
@@ -34,11 +35,8 @@
       # Pattern to match: attributeName = ''
       startPattern = "${attributeName} = ''";
 
-      # State machine using tagged union (attrset with _type field)
-      # States: initial (searching for start pattern) -> collecting (accumulating lines) -> stopped (found end)
-      # This approach prevents bugs like: attempting to add content before finding start pattern,
-      # or continuing to collect after finding the end delimiter.
-      # The explicit state in _type makes transitions clear and self-documenting.
+      # Track parser state: whether we're searching for the start pattern, collecting content, or stopped
+      # Uses _type field to distinguish states: "initial", "collecting", "stopped"
       initialState = {
         _type = "initial";
       };
@@ -55,17 +53,6 @@
         # State: collecting - check for closing delimiter or collect line
         # Stop collecting when we hit closing delimiter ''
         # (but not '''' which is Nix's way to escape '' inside multiline strings)
-        # Note: Assumes closing delimiter '' appears on its own line (standard Nix multiline format).
-        # Edge case: Single-line literals like `foo = ''bar'';` will be misparsed because the parser
-        # detects the closing '' on the same line and stops collecting content, returning empty result.
-        # This is by design - the function targets standard Nix multiline string formatting where
-        # the closing delimiter appears on its own line.
-        # Workaround: Use multiline format even for short strings:
-        #   foo = ''
-        #     bar
-        #   '';
-        # Empty multiline strings (opening '' immediately followed by closing '' on next line) will
-        # correctly return an empty string.
         else if state._type == "collecting" && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
           {
             _type = "stopped";
@@ -94,6 +81,8 @@
   # If validation fails, it outputs detailed error information including
   # the error message, the generated config, and the file path.
   #
+  # TODO(#1672): extractNixStringLiteral silently returns empty string on malformed input
+  #
   # Parameters:
   #   - shellPkg: The shell package to use for validation (e.g., pkgs.bash, pkgs.zsh)
   #   - shellName: Human-readable name of the shell (e.g., "Bash", "Zsh")
@@ -109,15 +98,28 @@
     shellPkg: shellName: code:
     let
       shellFile = pkgs.writeText "${lib.toLower shellName}-test.sh" code;
+      # TODO(#1686): Make shell binary name and validation flag explicit parameters
       # Assumes shell binary name is lowercase shellName (e.g., "Bash" -> "bash", "Zsh" -> "zsh")
-      # Works for: bash, zsh, dash, sh
-      # When adding a new shell:
-      #   1. Verify binary name matches lowercase shellName, OR
-      #   2. Modify function to accept explicit binary path parameter
+      # This assumption is validated at build time - the derivation checks if the binary exists
+      # and fails with a detailed error if the naming doesn't match.
+      # TODO(#1708): Make shell binary name and validation flag explicit parameters
+      # Currently validated shells: bash, zsh, dash, sh
       shellBin = lib.toLower shellName;
+      shellBinPath = "${shellPkg}/bin/${shellBin}";
     in
     pkgs.runCommand "validate-${lib.toLower shellName}-syntax" { buildInputs = [ shellPkg ]; } ''
+      # Validate that shell binary exists (enforces naming assumption)
+      if ! command -v ${shellBin} >/dev/null 2>&1; then
+        echo "ERROR: Shell binary '${shellBin}' not found in PATH"
+        echo "This indicates shellName '${shellName}' does not match the shell binary name when lowercased."
+        echo "Supported shells: bash, zsh, dash, sh"
+        echo "Available binaries in ${shellPkg}/bin:"
+        ls -1 ${shellPkg}/bin/ || echo "(failed to list binaries)"
+        exit 1
+      fi
+
       # Validate syntax and capture error output
+      # TODO(#1701): Improve error reporting by showing context around syntax errors
       if ! shell_error=$(${shellBin} -n '${shellFile}' 2>&1); then
         echo "${shellName} syntax validation failed:"
         echo "----------------------------------------"

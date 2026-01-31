@@ -6,28 +6,19 @@
 # This ensures that all Home Manager-managed environment variables
 # (like TZ for timezone) are properly loaded in new shell sessions.
 
-{ ... }:
+{ lib, ... }:
 
+let
+  shellHelpers = import ./lib/shell-helpers.nix { inherit lib; };
+in
 {
   programs.zsh = {
     enable = true;
 
     # Source session variables in zshenv (loaded for all zsh shells)
     # This ensures TZ and other Home Manager variables are always available
-    # TODO(#1610): Duplicated session variables sourcing logic in bash.nix and zsh.nix
-    envExtra = ''
-      # Source Home Manager session variables
-      if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
-        if ! source_error=$(. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" 2>&1); then
-          echo "ERROR: Failed to source Home Manager session variables" >&2
-          echo "  File: $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" >&2
-          echo "  Error: $source_error" >&2
-          echo "  This may affect environment variables like TZ (timezone)" >&2
-          echo "  Shell initialization aborted to prevent misconfiguration" >&2
-          return 1
-        fi
-      fi
-    '';
+    # Shared logic defined in lib/shell-helpers.nix
+    envExtra = shellHelpers.sessionVarsSourcingScript;
 
     # Custom zsh initialization (added to Home Manager-managed .zshrc)
     # Home Manager creates its own .zshrc that sources this content during shell startup
@@ -47,6 +38,7 @@
       else
         # TODO(#1636): Warning suppression prevents visibility into repeated failures
         precmd() {
+          # TODO(#1688): vcs_info stderr redirection hides diagnostic information
           if ! vcs_info 2>/dev/null; then
             # Only warn once per session to avoid spam
             if [[ -z "$_VCS_INFO_WARNED" ]]; then
@@ -60,6 +52,8 @@
 
       _pr_jobs() {
         # https://superuser.com/questions/1735201/zsh-script-not-printing-output-of-jobs-command
+        # TODO(#1670): Multiple error paths in zsh _pr_jobs use one-time warnings that hide recurring failures
+        # TODO(#1700): Multiple error paths in zsh _pr_jobs use one-time warnings that hide recurring failures
         if tmp=$(mktemp 2>&1); then
           # Use separate error variable to capture stderr properly
           if ! print_error=$(print $(jobs) 2>&1 > $tmp); then
