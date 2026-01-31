@@ -1,10 +1,12 @@
 # WezTerm Terminal Emulator Configuration
 #
 # This module configures WezTerm through Home Manager on Darwin (macOS) only.
+# TODO(#1715): Vague comment about "modern features" lacks specificity
 # WezTerm provides GPU-accelerated terminal emulation with modern features.
 #
 # Features enabled:
 # - True color support and font ligatures
+# TODO(#1720): Misleading comment claims font ligatures are enabled
 # - Configurable via Lua for extensibility
 # - Native macOS integration
 #
@@ -42,6 +44,7 @@
       config.font_size = 12.0
 
       -- Color Scheme - Tokyo Night for consistency
+      -- TODO(#1716): Vague reference to "consistency" without context
       config.color_scheme = 'Tokyo Night'
 
       -- Performance and Features

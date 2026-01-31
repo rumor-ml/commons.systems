@@ -59,6 +59,12 @@ jobs:
             which gh-workflow-mcp-server && echo "✓ gh-workflow-mcp-server found" || echo "✗ gh-workflow-mcp-server missing"
           '
 
+      - name: Verify Home Manager configuration builds
+        run: |
+          echo "Building Home Manager configuration (aarch64-darwin)..."
+          nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --no-link
+          echo "✓ Home Manager configuration builds successfully"
+
       - name: Build tmux-tui package
         run: nix build .#tmux-tui
 

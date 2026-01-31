@@ -330,6 +330,7 @@ export function createIssueDoesNotExist(): IssueDoesNotExist {
  * }
  * ```
  */
+// TODO(#1719): Add unit tests for isIssueExists type guard
 export function isIssueExists(state: IssueState): state is IssueExists {
   return state.exists === true;
 }
@@ -350,6 +351,7 @@ export function isIssueExists(state: IssueState): state is IssueExists {
  * }
  * ```
  */
+// TODO(#1724): Add unit tests for isIssueDoesNotExist type guard
 export function isIssueDoesNotExist(state: IssueState): state is IssueDoesNotExist {
   return state.exists === false;
 }

@@ -1040,6 +1040,7 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
     );
   }
 
+  // TODO(#1721): Replace unsafe PR state check with isPRExists() type guard
   if (state.wiggum.phase === 'phase2' && (!state.pr.exists || !state.pr.number)) {
     // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
@@ -1519,6 +1520,7 @@ async function updateBodyState(
     }
     return await safeUpdateIssueBodyState(state.issue.number, newState, newState.step);
   } else {
+    // TODO(#1721): Replace unsafe PR state check with isPRExists() type guard
     if (!state.pr.exists || !state.pr.number) {
       // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
