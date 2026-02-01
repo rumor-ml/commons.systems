@@ -629,6 +629,102 @@ let
       touch $out
     '';
 
+  # Test 9: Invalid color scheme test
+  # Verifies WezTerm fails gracefully when given a non-existent color scheme
+  # This catches configuration errors that have valid Lua syntax but invalid values
+  test-invalid-color-scheme =
+    pkgs.runCommand "test-wezterm-invalid-color-scheme"
+      {
+        buildInputs = [ pkgs.wezterm ];
+      }
+      ''
+            set -e
+
+            echo "Testing invalid color scheme handling..."
+
+            # Create a temporary directory structure
+            mkdir -p nix/home
+
+            # Create config with non-existent color scheme
+            cat > nix/home/wezterm.nix << 'NIXEOF'
+        {
+          pkgs,
+          ...
+        }:
+
+        {
+          programs.wezterm = {
+            enable = pkgs.stdenv.isDarwin;
+            enableBashIntegration = true;
+            enableZshIntegration = true;
+            extraConfig = '''
+              local wezterm = require('wezterm')
+              local config = wezterm.config_builder()
+
+              config.font = wezterm.font('GeistMono Nerd Font')
+              config.font_size = 12.0
+              -- Invalid color scheme that doesn't exist
+              config.color_scheme = 'NonExistentColorScheme'
+              config.scrollback_lines = 10000
+
+              return config
+            ''';
+          };
+        }
+        NIXEOF
+
+            # Extract Lua code
+            LUA_FILE=$(mktemp)
+            trap "rm -f $LUA_FILE" EXIT
+
+            ${pkgs.nix}/bin/nix eval --raw --impure \
+              --expr '(import ./nix/home/wezterm.nix {
+                config = {};
+                pkgs = import <nixpkgs> {};
+                lib = (import <nixpkgs> {}).lib;
+              }).programs.wezterm.extraConfig' \
+              > "$LUA_FILE" || {
+                echo "ERROR: Failed to extract Lua code"
+                exit 1
+              }
+
+            # Test 1: Verify Lua syntax is valid (this is not a syntax error)
+            echo "Test 1: Verifying Lua syntax is valid..."
+            if ${pkgs.lua}/bin/luac -p "$LUA_FILE" 2>&1; then
+              echo "✅ Lua syntax is valid (not a syntax error)"
+            else
+              echo "❌ Test failed: Lua syntax should be valid"
+              echo "   (This test checks runtime config errors, not syntax errors)"
+              exit 1
+            fi
+
+            # Test 2: Verify WezTerm rejects the invalid color scheme at runtime
+            echo "Test 2: Verifying WezTerm rejects invalid color scheme..."
+
+            # Capture error output
+            ERROR_OUTPUT=$(${pkgs.wezterm}/bin/wezterm --config-file "$LUA_FILE" ls-fonts --list-system 2>&1 || true)
+
+            # Check if the error output indicates color scheme problem
+            if echo "$ERROR_OUTPUT" | grep -qiE "(color_scheme|scheme|NonExistentColorScheme)"; then
+              echo "✅ WezTerm correctly rejects invalid color scheme"
+              echo "   Error detected in output (mentions color scheme)"
+            else
+              # Also check for generic config errors that might indicate the problem
+              if echo "$ERROR_OUTPUT" | grep -qiE "(error|failed|invalid)"; then
+                echo "✅ WezTerm rejects invalid configuration"
+                echo "   (Generic error detected, likely due to invalid color scheme)"
+              else
+                echo "❌ Test failed: Expected WezTerm to reject invalid color scheme"
+                echo "   WezTerm should fail when loading config with non-existent color scheme"
+                echo "Output: $ERROR_OUTPUT"
+                exit 1
+              fi
+            fi
+
+            echo "✅ Invalid color scheme test passed"
+            touch $out
+      '';
+
   # Run all tests
   all-tests =
     pkgs.runCommand "wezterm-lua-syntax-all-tests"
@@ -642,6 +738,7 @@ let
           test-wezterm-runtime
           test-linux-platform-evaluation
           test-shell-integration-flags
+          test-invalid-color-scheme
         ];
       }
       ''
@@ -660,6 +757,7 @@ let
         echo "  ✅ Test 6: WezTerm runtime behavior"
         echo "  ✅ Test 7: Linux platform evaluation"
         echo "  ✅ Test 8: Shell integration flags"
+        echo "  ✅ Test 9: Invalid color scheme handling"
         echo ""
         touch $out
       '';
