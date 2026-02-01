@@ -421,7 +421,7 @@ if [ "$APP_TYPE" = "firebase" ]; then
     FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST}" \
     FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST}" \
     STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST}" \
-    npx playwright test
+    nix develop --command npx playwright test
 
 elif [ "$APP_TYPE" = "go-tui" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   # Go apps use make test-e2e
