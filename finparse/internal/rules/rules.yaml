@@ -649,6 +649,9 @@ rules:
     redemption_rate: 0.02
 
   - name: 'Gap'
+    # Pattern: Contains "GAP" (3 letters)
+    # Risk assessment: Low false positive risk - potential matches like "GAPLESS" are rare in financial transactions
+    # Gap store transactions consistently contain "GAP" without qualifiers
     pattern: 'GAP'
     match_type: 'contains'
     priority: 201
@@ -1912,6 +1915,9 @@ rules:
     redemption_rate: 0.01
 
   - name: 'GOG Digital Games'
+    # Pattern: Contains "GOG" (3 letters)
+    # Risk assessment: Low false positive risk - GOG is distinctive gaming platform identifier
+    # GOG.com transactions consistently contain "GOG" without qualifiers
     pattern: 'GOG'
     match_type: 'contains'
     priority: 190

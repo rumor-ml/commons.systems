@@ -1163,6 +1163,9 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
 		// Note: Internal whitespace is NOT normalized by design (see TestMatch_InternalWhitespaceNormalization).
 		// Pattern matching is exact for internal spaces to avoid unexpected regex behavior.
+		// BUG: This causes VENMO with 2 spaces to fall through to "other" instead of matching the dining rule.
+		// TODO: Fix whitespace normalization to handle variable spacing (tracked separately from #1645 coverage work).
+		// {"VENMO  *UBER EATS", domain.CategoryDining, false, true}, // 2 spaces - skipped until whitespace bug is fixed
 		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
 
 		// Major retailers
@@ -1226,9 +1229,9 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 
 		// Pattern boundary cases - known limitations of substring matching
 		// TODO: Consider more specific patterns to reduce false positives
-		{"GIANT EAGLE AUTO SERVICE", domain.CategoryGroceries, false, true}, // Matches GIANT FOOD pattern despite being auto service
+		{"GIANT EAGLE AUTO SERVICE", domain.CategoryGroceries, false, true}, // Matches GIANT pattern (false positive - documents current behavior)
 		{"AMAZON WEB SERVICES", domain.CategoryShopping, false, true},       // Correctly matches AMAZON (AWS is an Amazon service)
-		{"SHELL CORPORATION", domain.CategoryTransportation, false, true},   // Matches SHELL gas station pattern despite being unrelated entity
+		{"SHELL CORPORATION", domain.CategoryTransportation, false, true},   // Matches SHELL pattern (false positive - documents current behavior)
 		// Note: DELTA DENTAL would not match any rule (no healthcare dental rules exist yet)
 	}
 
@@ -1614,6 +1617,7 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 
 	// Verify minimum rule count to detect accidental rule deletions
 	// Threshold reflects baseline from #1645 work (56 original + 137 new rules)
+	// Expected at least 190 rules (~193: 56 from carriercommons + 137 from #1645)
 	if len(engine.rules) < 190 {
 		t.Errorf("Rule count regression: expected at least 190 rules, got %d", len(engine.rules))
 	}
@@ -1808,3 +1812,7 @@ func BenchmarkMatch_FullRuleSet(b *testing.B) {
 		}
 	}
 }
+
+// TODO(#1745): Add tests for priority ordering between new rule categories
+// Priority ordering determines which rule wins when multiple patterns match.
+// Without these tests, we can't verify that more specific rules beat generic ones.
