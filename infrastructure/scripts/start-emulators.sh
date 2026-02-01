@@ -198,8 +198,8 @@ trap cleanup_backend_lock EXIT
 echo "Merging Firestore rules from all apps..."
 bash "$SCRIPT_DIR/merge-firestore-rules.sh"
 
-# Small delay to ensure files are fully written before emulator reads them
-# This prevents race conditions where emulator reads incomplete files
+# Small delay after merge for filesystem buffers to flush
+# The merge script uses atomic writes (mv), so this is just extra safety
 sleep 1
 
 # Lock acquired - check if backend is already running

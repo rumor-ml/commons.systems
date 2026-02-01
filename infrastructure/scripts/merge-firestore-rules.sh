@@ -10,6 +10,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OUTPUT_DIR="$REPO_ROOT/.firebase"
 OUTPUT_FILE="$OUTPUT_DIR/firestore.rules"
 
+# Use a temporary file for atomic writes to prevent file watchers from seeing partial content
+# The emulator's file watcher can trigger mid-write if we write directly to the output file
+TEMP_FILE="$OUTPUT_DIR/firestore.rules.tmp.$$"
+
 # Source rules files (these are the authoritative sources, committed to git)
 # The .rules files (without .source) are generated and gitignored
 FELLSPIRAL_RULES="$REPO_ROOT/fellspiral/firestore.rules.source"
@@ -22,8 +26,15 @@ echo "Merging Firestore rules..."
 echo "  Source: $(basename "$FELLSPIRAL_RULES") ($(wc -l < "$FELLSPIRAL_RULES") lines)"
 echo "  Source: $(basename "$BUDGET_RULES") ($(wc -l < "$BUDGET_RULES") lines)"
 
+# Cleanup function to remove temp file on error
+cleanup_temp() {
+  rm -f "$TEMP_FILE" "$TEMP_FILE.tmp"
+}
+trap cleanup_temp EXIT
+
 # Start with rules version and shared helper functions
-cat > "$OUTPUT_FILE" << 'EOF'
+# Write to temp file to avoid partial reads by file watchers
+cat > "$TEMP_FILE" << 'EOF'
 rules_version = '2';
 
 service cloud.firestore {
@@ -140,10 +151,10 @@ awk '
       print lines[i]
     }
   }
-' "$FELLSPIRAL_RULES" >> "$OUTPUT_FILE"
+' "$FELLSPIRAL_RULES" >> "$TEMP_FILE"
 
 # Add section separator
-cat >> "$OUTPUT_FILE" << 'EOF'
+cat >> "$TEMP_FILE" << 'EOF'
 
     // ========================================
     // BUDGET APP RULES
@@ -229,10 +240,10 @@ awk '
       print lines[i]
     }
   }
-' "$BUDGET_RULES" >> "$OUTPUT_FILE"
+' "$BUDGET_RULES" >> "$TEMP_FILE"
 
 # Add deny-all rule and close the service block
-cat >> "$OUTPUT_FILE" << 'EOF'
+cat >> "$TEMP_FILE" << 'EOF'
 
     // Deny all other access
     match /{document=**} { allow read, write: if false; }
@@ -252,11 +263,11 @@ awk '
   }
   { if (!pending_brace || NF > 0) print }
   END { if (pending_brace) print "}" }
-' "$OUTPUT_FILE" > "$OUTPUT_FILE.tmp" && mv "$OUTPUT_FILE.tmp" "$OUTPUT_FILE"
+' "$TEMP_FILE" > "$TEMP_FILE.tmp" && mv "$TEMP_FILE.tmp" "$TEMP_FILE"
 
-# Validate brace balance
-OPEN_BRACES=$(grep -o '{' "$OUTPUT_FILE" | wc -l)
-CLOSE_BRACES=$(grep -o '}' "$OUTPUT_FILE" | wc -l)
+# Validate brace balance on temp file before atomic move
+OPEN_BRACES=$(grep -o '{' "$TEMP_FILE" | wc -l)
+CLOSE_BRACES=$(grep -o '}' "$TEMP_FILE" | wc -l)
 
 if [ "$OPEN_BRACES" != "$CLOSE_BRACES" ]; then
   echo "❌ ERROR: Merged rules have unbalanced braces"
@@ -267,6 +278,11 @@ if [ "$OPEN_BRACES" != "$CLOSE_BRACES" ]; then
 fi
 
 echo "✓ Brace validation passed ($OPEN_BRACES pairs)"
+
+# ATOMIC WRITE: Move temp file to final location
+# This prevents file watchers (like Firebase emulator) from seeing partial content
+# mv is atomic on the same filesystem, so the watcher only sees complete files
+mv "$TEMP_FILE" "$OUTPUT_FILE"
 
 echo "✓ Merged rules written to: $OUTPUT_FILE"
 
@@ -281,14 +297,17 @@ echo "Merged the following source files:"
 echo "  - fellspiral/firestore.rules.source"
 echo "  - budget/firestore.rules.source"
 
-# Copy merged rules to app-level locations
+# Copy merged rules to app-level locations using atomic writes
 # Firebase emulator may discover firestore.rules files in app directories
 # despite --config flag. Copy merged file to ensure consistency.
 # Since source files are now .rules.source, the .rules files are generated.
 echo ""
-echo "Copying merged rules to app-level locations..."
-cp "$OUTPUT_FILE" "$REPO_ROOT/fellspiral/firestore.rules"
-cp "$OUTPUT_FILE" "$REPO_ROOT/budget/firestore.rules"
+echo "Copying merged rules to app-level locations (atomic)..."
+# Use cp to temp then mv for atomic writes to each location
+cp "$OUTPUT_FILE" "$REPO_ROOT/fellspiral/firestore.rules.tmp"
+mv "$REPO_ROOT/fellspiral/firestore.rules.tmp" "$REPO_ROOT/fellspiral/firestore.rules"
+cp "$OUTPUT_FILE" "$REPO_ROOT/budget/firestore.rules.tmp"
+mv "$REPO_ROOT/budget/firestore.rules.tmp" "$REPO_ROOT/budget/firestore.rules"
 # Ensure files are flushed to disk before emulator reads them
 sync
 echo "✓ Merged rules copied to fellspiral/firestore.rules"
