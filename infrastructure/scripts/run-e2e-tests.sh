@@ -53,10 +53,20 @@ is_supervisor_running() {
     local pid
     pid=$(cat "$SUPERVISOR_PID_FILE")
     if kill -0 "$pid" 2>/dev/null; then
-      echo "✓ Supervisor already running (PID: $pid)"
-      return 0
+      # Validate the process is actually the supervisor script (not some random process with reused PID)
+      local cmdline
+      cmdline=$(cat /proc/"$pid"/cmdline 2>/dev/null | tr '\0' ' ' || echo "")
+      if [[ "$cmdline" == *"emulator-supervisor"* ]]; then
+        echo "✓ Supervisor already running (PID: $pid)"
+        return 0
+      else
+        # PID file is stale - process exists but is not the supervisor
+        echo "⚠️  Stale supervisor PID file found (PID: $pid is not supervisor), removing..."
+        rm -f "$SUPERVISOR_PID_FILE"
+      fi
+    else
+      rm -f "$SUPERVISOR_PID_FILE"
     fi
-    rm -f "$SUPERVISOR_PID_FILE"
   fi
   return 1
 }

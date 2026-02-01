@@ -15,9 +15,10 @@ source "${SCRIPT_DIR}/allocate-test-ports.sh"
 # Shared directory for backend emulator state (shared across all worktrees)
 SHARED_EMULATOR_DIR="${HOME}/.firebase-emulators"
 
-# PID files for backend and hosting emulators
+# PID files for backend, hosting, and supervisor
 # Backend emulator is SHARED across worktrees - use shared location
 BACKEND_PID_FILE="${SHARED_EMULATOR_DIR}/firebase-backend-emulators.pid"
+SUPERVISOR_PID_FILE="${SHARED_EMULATOR_DIR}/supervisor.pid"
 
 # Hosting emulator is PER-WORKTREE - use worktree-local location
 HOSTING_PID_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.pid"
@@ -92,6 +93,15 @@ if [ -f "$BACKEND_PID_FILE" ]; then
 else
   echo "No backend emulator PID file found (may not be running)"
   echo ""
+fi
+
+# Clean up supervisor PID file in CI to prevent stale PID issues
+# The supervisor PID file may persist across CI runs due to caching
+if [ "${CI:-false}" = "true" ] || [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+  if [ -f "$SUPERVISOR_PID_FILE" ]; then
+    rm -f "$SUPERVISOR_PID_FILE"
+    echo "✓ Cleaned up supervisor PID file"
+  fi
 fi
 
 echo "✓ Hosting emulator stopped successfully"
