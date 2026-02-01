@@ -289,6 +289,8 @@ echo ""
 echo "Copying merged rules to app-level locations..."
 cp "$OUTPUT_FILE" "$REPO_ROOT/fellspiral/firestore.rules"
 cp "$OUTPUT_FILE" "$REPO_ROOT/budget/firestore.rules"
+# Ensure files are flushed to disk before emulator reads them
+sync
 echo "✓ Merged rules copied to fellspiral/firestore.rules"
 echo "✓ Merged rules copied to budget/firestore.rules"
 
