@@ -62,7 +62,7 @@ import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
-import { createWiggumState, isIssueExists } from '../state/types.js';
+import { createWiggumState, isIssueExists, isPRExists } from '../state/types.js';
 import { readFile, stat } from 'fs/promises';
 import { REVIEW_AGENT_NAMES, isReviewAgentName } from './manifest-utils.js';
 
@@ -1040,8 +1040,7 @@ function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): v
     );
   }
 
-  // TODO(#1721): Replace unsafe PR state check with isPRExists() type guard
-  if (state.wiggum.phase === 'phase2' && (!state.pr.exists || !state.pr.number)) {
+  if (state.wiggum.phase === 'phase2' && !isPRExists(state.pr)) {
     // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `No PR found. Cannot complete ${config.reviewTypeLabel.toLowerCase()} review.`
@@ -1520,8 +1519,7 @@ async function updateBodyState(
     }
     return await safeUpdateIssueBodyState(state.issue.number, newState, newState.step);
   } else {
-    // TODO(#1721): Replace unsafe PR state check with isPRExists() type guard
-    if (!state.pr.exists || !state.pr.number) {
+    if (!isPRExists(state.pr)) {
       // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'

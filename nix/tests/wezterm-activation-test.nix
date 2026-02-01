@@ -1,17 +1,20 @@
-# Integration test for WezTerm Home Manager activation
+# Integration test for WezTerm Home Manager activation package structure
 #
 # This test verifies that the Home Manager WezTerm module:
-# 1. Activates successfully without errors
-# 2. Makes the wezterm binary available in PATH
-# 3. Generates the correct configuration file at ~/.config/wezterm/wezterm.lua
-# 4. Adds shell integration hooks to ~/.bashrc and ~/.zshrc (when enabled)
+# 1. Builds an activation package successfully
+# 2. Makes the wezterm binary available in the package PATH
+# 3. Generates the correct configuration file structure
+# 4. Includes shell integration hooks in the package
+#
+# Note: This test does NOT execute the activation script itself.
+# It validates the package structure that would be used during activation.
 #
 # What this catches:
-# - Home Manager activation failures (module evaluation vs runtime activation)
+# - Home Manager module evaluation failures
 # - Missing or broken wezterm package links
-# - Configuration file generation issues (paths, permissions)
-# - Shell integration script failures
-# - Regressions in Home Manager's wezterm module behavior
+# - Configuration file generation issues in the package
+# - Shell integration script inclusion failures
+# - Regressions in Home Manager's wezterm module package building
 #
 # Usage:
 #   nix-build nix/tests/wezterm-activation-test.nix
@@ -294,11 +297,11 @@ let
         echo "╚═══════════════════════════════════════════════════════════╝"
         echo ""
         echo "Tests validated:"
-        echo "  ✅ Home Manager activation completes successfully"
+        echo "  ✅ Home Manager activation package builds successfully"
         echo "  ✅ wezterm binary is available and functional"
         echo "  ✅ Configuration file is generated correctly"
         echo "  ✅ Configuration contains expected values"
-        echo "  ✅ Shell integration is configured (Bash/Zsh)"
+        echo "  ✅ Shell integration checked (Bash/Zsh)"
         echo "  ✅ Generated Lua has valid syntax"
         echo "  ✅ WezTerm loads configuration without errors"
         echo ""

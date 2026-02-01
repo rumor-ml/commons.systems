@@ -661,15 +661,25 @@ HOOKEOF
 
   # Attempt push (will fail due to no remote, but hook should execute)
   rm -f /tmp/hook-execution-marker
-  git push -u origin test-branch 2>&1 || true
+  push_output=$(git push -u origin test-branch 2>&1 || true)
 
-  # Verify hook executed
+  # Verify push actually attempted (not network/auth error)
+  if [[ -z "$push_output" ]]; then
+    echo -e "${RED}✗ FAIL: Push produced no output - git may not have run${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  # Verify hook executed (marker file created)
   if [ -f /tmp/hook-execution-marker ]; then
     assert_succeeds "Worktree pre-push hook executed" "grep -q 'Hook executed' /tmp/hook-execution-marker"
   else
     echo -e "${RED}✗ FAIL: Pre-push hook did not execute in worktree${NC}"
-    echo "Hook marker file not created at /tmp/hook-execution-marker"
-    echo "This indicates core.hooksPath configuration is not working"
+    echo "Push output: $push_output"
+    echo "This could indicate:"
+    echo "  - Hook didn't run (core.hooksPath not configured)"
+    echo "  - Push failed before hook execution"
+    echo "  - Network/auth error prevented push attempt"
     TESTS_FAILED=$((TESTS_FAILED + 1))
     return 1
   fi
@@ -848,6 +858,15 @@ HOOKEOF
   TESTS_RUN=$((TESTS_RUN + 1))
   # Capture push output (expect failure, so disable exit-on-error temporarily)
   push_output=$(git push -u origin test-branch 2>&1 || true)
+
+  # Verify push actually attempted (not network/auth error)
+  if [[ -z "$push_output" ]]; then
+    echo -e "${RED}✗ FAIL: Push produced no output - git may not have run${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    cd "$REPO_ROOT"
+    return 1
+  fi
+
   if echo "$push_output" | grep -q "Pre-push hook blocked"; then
     echo -e "${GREEN}✓ PASS: Pre-push hook correctly blocked invalid changes in worktree${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -855,6 +874,10 @@ HOOKEOF
     echo -e "${RED}✗ FAIL: Pre-push hook should have blocked invalid changes in worktree${NC}"
     echo "Push output was:"
     echo "$push_output"
+    echo "This could indicate:"
+    echo "  - Hook didn't block (not configured or check failed)"
+    echo "  - Push failed before hook execution"
+    echo "  - Network/auth error prevented push attempt"
     TESTS_FAILED=$((TESTS_FAILED + 1))
   fi
 
@@ -1333,14 +1356,17 @@ test_wezterm_lua_validation() {
   LUA_FILE=$(mktemp)
   trap "rm -f $LUA_FILE" RETURN
 
-  # TODO(#1768): Capture and display nix eval stderr to avoid silently suppressing errors
+  # Capture both stdout and stderr for diagnostic purposes
+  NIX_EVAL_STDERR=$(mktemp)
+  trap "rm -f $LUA_FILE $NIX_EVAL_STDERR" RETURN
+
   if nix eval --raw --impure \
     --expr '(import ./nix/home/wezterm.nix {
       config = {};
       pkgs = import <nixpkgs> {};
       lib = (import <nixpkgs> {}).lib;
     }).programs.wezterm.extraConfig' \
-    > "$LUA_FILE" 2>/dev/null; then
+    > "$LUA_FILE" 2>"$NIX_EVAL_STDERR"; then
 
     # Validate Lua syntax using nix-shell to get luac
     LUAC_OUTPUT=$(nix-shell -p lua --run "luac -p $LUA_FILE" 2>&1)
@@ -1358,6 +1384,8 @@ test_wezterm_lua_validation() {
     fi
   else
     echo -e "${RED}✗ FAIL: Failed to extract Lua config from wezterm.nix${NC}"
+    echo -e "${RED}Nix evaluation stderr:${NC}"
+    cat "$NIX_EVAL_STDERR"
     TESTS_FAILED=$((TESTS_FAILED + 1))
     return 1
   fi
@@ -1529,11 +1557,17 @@ if git diff --cached --name-only | grep -q "nix/home/wezterm.nix"; then
     sed '1d;$d' > "$LUA_FILE"
 
   # Validate Lua syntax using nix-shell to get luac
-  # TODO(#1769): Test hook doesn't capture luac error output for display
-  if ! nix-shell -p lua --run "luac -p $LUA_FILE" 2>&1; then
+  # Capture luac output for error reporting
+  LUAC_OUTPUT=$(nix-shell -p lua --run "luac -p $LUA_FILE" 2>&1)
+  LUAC_EXIT=$?
+
+  if [ $LUAC_EXIT -ne 0 ]; then
     echo ""
     echo "ERROR: WezTerm Lua configuration has syntax errors"
     echo "File: nix/home/wezterm.nix"
+    echo ""
+    echo "Lua syntax errors:"
+    echo "$LUAC_OUTPUT"
     echo ""
     echo "Fix the Lua syntax errors in the extraConfig field before committing."
     echo ""
@@ -1575,6 +1609,11 @@ WEZTERMEOF
   commit_output=$(git commit -m "Invalid Lua" 2>&1) || commit_failed=1
   if [[ $commit_failed -eq 1 ]] && echo "$commit_output" | grep -q "ERROR: WezTerm Lua"; then
     echo -e "${GREEN}✓ PASS: Hook correctly blocked commit with invalid Lua${NC}"
+    # Display Lua error details for debugging test failures
+    if echo "$commit_output" | grep -q "Lua syntax errors:"; then
+      echo -e "${BLUE}Lua syntax error details:${NC}"
+      echo "$commit_output" | sed -n '/Lua syntax errors:/,/Fix the Lua/p' | head -n -1
+    fi
     TESTS_PASSED=$((TESTS_PASSED + 1))
   else
     echo -e "${RED}✗ FAIL: Hook did not block commit with invalid Lua${NC}"

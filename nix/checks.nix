@@ -97,6 +97,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     # - Only validates Lua syntax, not WezTerm-specific API semantics
     # - Does not verify fonts or color schemes are available
     # - Does not test runtime behavior or configuration correctness
+    # - Hardcoded to nix/home/wezterm.nix and programs.wezterm.extraConfig field path
+    # - Requires Nix evaluation (uses nix eval --impure)
     # Integration tests: nix/tests/wezterm-lua-syntax-test.nix (runs via nix flake check)
     wezterm-lua-syntax = {
       enable = true;
@@ -176,8 +178,28 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
         for site in fellspiral videobrowser audiobrowser print; do
           if [ -d "$site/site/src" ]; then
-            # TODO(#1749): Grep errors silently ignored in no-console-log hook
-            if grep -r "console\.log" "$site/site/src/" 2>/dev/null; then
+            # Capture grep output and errors separately
+            GREP_OUTPUT=$(grep -r "console\.log" "$site/site/src/" 2>&1) || GREP_EXIT=$?
+
+            # Exit 0 or 1 from grep are normal (no match or match found)
+            # Any other exit code indicates an error
+            if [ -n "$GREP_EXIT" ] && [ "$GREP_EXIT" -ne 0 ] && [ "$GREP_EXIT" -ne 1 ]; then
+              echo ""
+              echo "ERROR: Failed to search for console.log statements in $site/site/src/"
+              echo "grep exited with code: $GREP_EXIT"
+              echo "Error output: $GREP_OUTPUT"
+              echo ""
+              echo "This may indicate:"
+              echo "  - Permission denied accessing files"
+              echo "  - Filesystem corruption or I/O errors"
+              echo "  - Broken symlinks in source directory"
+              echo ""
+              exit 1
+            fi
+
+            # If grep found matches (exit 1), record them
+            if [ -n "$GREP_OUTPUT" ]; then
+              echo "$GREP_OUTPUT"
               FOUND_LOGS=1
             fi
           fi
@@ -455,8 +477,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       always_run = true;
     };
 
-    # Validate Home Manager configuration builds
-    # Catches Nix evaluation errors in Home Manager modules (including WezTerm) before push
+    # Pre-push hook: Validate Home Manager configuration builds
+    # Catches Nix evaluation errors in Home Manager modules (including WezTerm)
     # Prevents CI failures from Nix syntax errors, invalid packages, or module option mistakes
     home-manager-build-check = {
       enable = true;

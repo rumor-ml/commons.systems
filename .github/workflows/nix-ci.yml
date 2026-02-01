@@ -69,13 +69,14 @@ jobs:
       # - Package references are valid for aarch64-darwin
       # - Configuration can be evaluated on Linux runners (cross-platform evaluation)
       #
-      # Note: This validates that the configuration evaluates and builds successfully on Linux CI.
-      # It does not verify that all packages are available in the binary cache for aarch64-darwin,
-      # so some packages may need to be built from source during actual activation on macOS.
+      # Note: This validates on Linux CI that the aarch64-darwin configuration evaluates
+      # and builds successfully. Actual activation on macOS may require building some packages
+      # from source if they're not in the binary cache.
       #
       # Note: Uses --no-link to avoid creating result symlink (build artifacts are in /nix/store)
       #
-      # Manual test: Introduce syntax error in nix/home/wezterm.nix and verify CI fails
+      # Manual test: Introduce Nix syntax error (e.g., remove closing brace on line 78)
+      # in nix/home/wezterm.nix and verify CI fails with Nix evaluation error
       # TODO(#1760): Add E2E test for actual Home Manager activation on macOS runner
       - name: Verify Home Manager configuration builds
         run: |
