@@ -1,4 +1,5 @@
 # Finparse Category Rules
+# TODO(#1750): Add comment explaining the priority band design philosophy or reference documentation about priority allocation strategy
 # Priority bands:
 #   900-999: Income
 #   800-899: Transfers (payments, Zelle, ATM)
@@ -493,6 +494,17 @@ rules:
   # Shopping/Retail (200-299)
   - name: 'Amazon'
     pattern: 'AMAZON'
+    match_type: 'contains'
+    priority: 250
+    category: 'shopping'
+    flags:
+      redeemable: true
+      vacation: false
+      transfer: false
+    redemption_rate: 0.02
+
+  - name: 'Amazon (AMZN)'
+    pattern: 'AMZN'
     match_type: 'contains'
     priority: 250
     category: 'shopping'

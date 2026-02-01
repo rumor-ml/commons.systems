@@ -1064,14 +1064,17 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 	}{
 		// Food delivery via Venmo (check whitespace handling)
 		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
-		// Note: VENMO with 2 spaces currently falls through to "other" due to internal whitespace non-normalization
-		// This is a known limitation documented in TestMatch_InternalWhitespaceNormalization
-		{"VENMO  *UBER EATS", domain.CategoryOther, false, false}, // 2 spaces - not matched by current rule
+		// Note: Internal whitespace is NOT normalized (see whitespace normalization tests).
+		// VENMO with 2 spaces falls through to "other" instead of matching the dining rule.
+		{"VENMO  *UBER EATS", domain.CategoryOther, false, false}, // 2 spaces - not matched
 		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
 
 		// Major retailers
 		{"AMAZON MKTPL*XB8MO38V3", domain.CategoryShopping, false, true},
 		{"Amazon.com*MI4KC34I3", domain.CategoryShopping, false, true},   // lowercase variation
+		{"AMZN Mktp US*BF8VM7243", domain.CategoryShopping, false, true}, // AMZN abbreviation
+		{"AMZN Mktp US*R98UJ1YB1", domain.CategoryShopping, false, true}, // AMZN abbreviation
+		{"AMZN MKTPLACE PMTS", domain.CategoryShopping, false, true},     // AMZN marketplace
 		{"TARGET        00028456", domain.CategoryShopping, false, true}, // multiple spaces
 		{"WALMART.COM", domain.CategoryShopping, false, true},
 
@@ -1081,7 +1084,7 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		{"GIANT FOOD #1234", domain.CategoryGroceries, false, true},
 
 		// Travel with vacation flag
-		{"MARRIOTT HOTEL", domain.CategoryTravel, true, true}, // Travel is redeemable
+		{"MARRIOTT HOTEL", domain.CategoryTravel, true, true},
 		{"UNITED AIRLINES", domain.CategoryTravel, true, true},
 		{"DELTA AIR 0062123456789", domain.CategoryTravel, true, true},
 
@@ -1383,10 +1386,10 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 		t.Fatalf("LoadEmbedded() failed: %v", err)
 	}
 
-	// Verify expected rule count (from carriercommons migration)
-	// TODO(#1741): Update test threshold to match actual rule count
-	if len(engine.rules) < 50 {
-		t.Errorf("Expected ~56 rules from carriercommons migration, got %d", len(engine.rules))
+	// Verify expected rule count
+	// After adding 137 rules in #1645, we now have ~194 total rules
+	if len(engine.rules) < 190 {
+		t.Errorf("Expected ~194 rules (56 from carriercommons + 137 from #1645 + 1 AMZN variant), got %d", len(engine.rules))
 	}
 
 	// Verify priority distribution matches migration doc

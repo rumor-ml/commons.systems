@@ -218,6 +218,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
         # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
         # This prevents ICU4c library version conflicts on macOS
+        # TODO(#1753): direnv errors silently suppressed - consider failing fast or warning on errors
         eval "$(${pkgs.direnv}/bin/direnv export bash 2>/dev/null)" || true
 
         # Verify we're in a git repository
