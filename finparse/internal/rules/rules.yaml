@@ -148,7 +148,7 @@ rules:
       transfer: true
     redemption_rate: 0.0
 
-  # Food delivery via Venmo - Higher priority to catch before general Venmo
+  # Food delivery via Venmo - Specific patterns (processed before general Venmo at 819)
   - name: 'Venmo Uber Eats'
     pattern: 'VENMO *UBER EATS'
     match_type: 'contains'
