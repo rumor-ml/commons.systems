@@ -99,7 +99,7 @@ describe('isIssueDoesNotExist type guard', () => {
       // TypeScript should enforce that exists is false
       assert.strictEqual(state.exists, false);
       // @ts-expect-error - number should not exist on IssueDoesNotExist
-      const num = state.number;
+      state.number;
     } else {
       assert.fail('Expected isIssueDoesNotExist to return true');
     }
@@ -265,9 +265,9 @@ describe('isPRDoesNotExist type guard', () => {
       // TypeScript should enforce that exists is false
       assert.strictEqual(state.exists, false);
       // @ts-expect-error - number should not exist on PRDoesNotExist
-      const num = state.number;
+      state.number;
       // @ts-expect-error - state should not exist on PRDoesNotExist
-      const prState = state.state;
+      state.state;
     } else {
       assert.fail('Expected isPRDoesNotExist to return true');
     }
