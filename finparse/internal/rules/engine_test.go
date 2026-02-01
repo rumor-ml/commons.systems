@@ -822,8 +822,9 @@ rules:
 }
 
 func TestMatch_CaseInsensitivityUnicode(t *testing.T) {
-	// Document behavior with Unicode characters (accented, non-Latin).
-	// Current implementation uses strings.ToUpper() which handles most Unicode correctly.
+	// Document case-insensitive matching behavior with Unicode characters.
+	// Current implementation uses strings.ToUpper() for case normalization but does NOT
+	// normalize Unicode composition (accents, diacritics). Pattern 'CAFÉ' matches 'café' or 'CAFÉ' but NOT 'CAFE'.
 	rulesYAML := `
 rules:
   - name: "Unicode Test"
@@ -1158,14 +1159,13 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		wantVacation   bool
 		wantRedeemable bool
 	}{
-		// Food delivery via Venmo (check whitespace handling)
-		// TODO: Consolidate duplicate test assertions - this entry may be redundant with priority ordering tests
+		// Food delivery via Venmo - verifies merchant-specific routing (distinct from generic Venmo transfer tests)
 		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
-		// Note: Internal whitespace is NOT normalized by design (see TestMatch_InternalWhitespaceNormalization).
-		// Pattern matching is exact for internal spaces to avoid unexpected regex behavior.
-		// Known limitation: This causes VENMO with 2 spaces to fall through to "other" instead of matching the dining rule.
-		// TODO: Consider whitespace normalization enhancement to handle variable spacing (tracked separately from #1645 coverage work).
-		// {"VENMO  *UBER EATS", domain.CategoryDining, false, true}, // 2 spaces - skipped until whitespace bug is fixed
+		// Note: Internal whitespace is preserved exactly - pattern "VENMO *UBER" requires single space.
+		// This is intentional to maintain predictable matching behavior.
+		// Limitation: "VENMO  *UBER EATS" (2 spaces) will not match and falls through to CategoryOther.
+		// TODO(#1645): Consider whitespace normalization in future enhancement (tracked separately).
+		// {"VENMO  *UBER EATS", domain.CategoryDining, false, true}, // Skipped - requires whitespace normalization
 		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
 
 		// Major retailers
@@ -1227,15 +1227,16 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		{"REGULAR VENMO PAYMENT", domain.CategoryOther, false, false}, // Not food delivery
 		{"VENMO *John Smith", domain.CategoryOther, false, false},     // Personal transfer
 
-		// Pattern boundary cases - known limitations of substring matching
-		// These are accepted trade-offs for simplicity. See TestEmbeddedRules_KnownLimitations for comprehensive documentation.
-		{"GIANT EAGLE AUTO SERVICE", domain.CategoryGroceries, false, true}, // False positive: substring match (accepted trade-off)
-		{"AMAZON WEB SERVICES", domain.CategoryShopping, false, true},       // False positive: substring match (accepted trade-off - AWS is Amazon service)
-		{"SHELL CORPORATION", domain.CategoryTransportation, false, true},   // False positive: substring match (accepted trade-off)
-		{"TST SYSTEMS INC", domain.CategoryDining, false, true},             // False positive: substring match (accepted trade-off)
-		{"GIANT CONSTRUCTION", domain.CategoryGroceries, false, true},       // False positive: substring match (accepted trade-off)
-		{"GAP ANALYSIS", domain.CategoryShopping, false, true},              // False positive: substring match (accepted trade-off)
-		// Note: DELTA DENTAL would match Delta Airlines pattern (false positive - add specific dental rules if needed)
+		// Substring matching edge cases - intentional behavior
+		// These demonstrate that substring patterns will match broader contexts (design decision for simplicity).
+		// See TestEmbeddedRules_KnownLimitations for comprehensive documentation of limitations.
+		{"GIANT EAGLE AUTO SERVICE", domain.CategoryGroceries, false, true}, // Matches "GIANT" pattern (substring behavior)
+		{"AMAZON WEB SERVICES", domain.CategoryShopping, false, true},       // Matches "AMAZON" pattern (AWS is Amazon service)
+		{"SHELL CORPORATION", domain.CategoryTransportation, false, true},   // Matches "SHELL" pattern (substring behavior)
+		{"TST SYSTEMS INC", domain.CategoryDining, false, true},             // Matches "TST" pattern (substring behavior)
+		{"GIANT CONSTRUCTION", domain.CategoryGroceries, false, true},       // Matches "GIANT" pattern (substring behavior)
+		{"GAP ANALYSIS", domain.CategoryShopping, false, true},              // Matches "GAP" pattern (substring behavior)
+		// Note: DELTA DENTAL does NOT match (pattern is "DELTA AIR", not "DELTA") - limitation: dental transactions uncategorized
 
 		// Issue examples from #1645
 		{"POPEYES 13858", domain.CategoryDining, false, true},
@@ -1447,7 +1448,7 @@ func loadEmbeddedReferenceTransactions(t *testing.T) []string {
 // DEPRECATED: Use loadEmbeddedReferenceTransactions instead.
 // This function is kept for manual verification during development.
 // To verify: compare output with loadEmbeddedReferenceTransactions.
-// TODO: Remove after embedded testdata is proven stable in production (target: after 3 months stable, ~Q2 2026).
+// TODO(#1645): Remove after verifying no remaining callers and embedded data is stable (target: Q3 2026).
 func loadTransactionDescriptions(t *testing.T, dbPath string) []string {
 	t.Helper()
 
@@ -1634,7 +1635,7 @@ func TestEmbeddedRules_CoverageProgress(t *testing.T) {
 	}
 
 	coverage := float64(matched) / float64(len(descriptions))
-	currentTarget := 0.84 // Update this threshold whenever coverage increases by 1% or more (after verifying no regressions)
+	currentTarget := 0.84 // Baseline coverage floor - DO NOT increase until new coverage is stable for 30+ days (regression detection)
 
 	if coverage < currentTarget {
 		t.Errorf("Coverage regressed: %.2f%% < %.2f%%", coverage*100, currentTarget*100)
@@ -1724,9 +1725,9 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 		t.Fatalf("LoadEmbedded() failed: %v", err)
 	}
 
-	// Verify minimum rule count to detect accidental rule deletions
-	// Threshold reflects baseline from #1645 work (56 original + 137 new rules)
-	// Use 190 as minimum threshold to allow for minor variations (expected: ~193 = 56 + 137)
+	// Verify minimum rule count to detect accidental deletions
+	// Baseline: 193 rules (56 original + 137 from #1645)
+	// Use 190 threshold to allow for minor consolidations without false alarms
 	if len(engine.rules) < 190 {
 		t.Errorf("Rule count regression: expected at least 190 rules, got %d", len(engine.rules))
 	}
@@ -2002,6 +2003,124 @@ func TestEmbeddedRules_EdgeCases(t *testing.T) {
 			_, matched, err := engine.Match(tt.input)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectMatch, matched)
+		})
+	}
+}
+
+func TestNewMatchResult(t *testing.T) {
+	tests := []struct {
+		name           string
+		category       domain.Category
+		redeemable     bool
+		vacation       bool
+		transfer       bool
+		redemptionRate float64
+		ruleName       string
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name:           "valid redeemable result",
+			category:       domain.CategoryDining,
+			redeemable:     true,
+			redemptionRate: 0.02,
+			ruleName:       "test",
+			wantErr:        false,
+		},
+		{
+			name:           "valid non-redeemable result",
+			category:       domain.CategoryOther,
+			redeemable:     false,
+			redemptionRate: 0.0,
+			ruleName:       "test",
+			wantErr:        false,
+		},
+		{
+			name:           "valid with vacation flag",
+			category:       domain.CategoryTravel,
+			redeemable:     true,
+			vacation:       true,
+			redemptionRate: 0.03,
+			ruleName:       "test",
+			wantErr:        false,
+		},
+		{
+			name:           "valid with transfer flag",
+			category:       domain.CategoryOther,
+			redeemable:     false,
+			transfer:       true,
+			redemptionRate: 0.0,
+			ruleName:       "test",
+			wantErr:        false,
+		},
+		{
+			name:           "invalid category",
+			category:       "invalid_category",
+			redeemable:     false,
+			redemptionRate: 0.0,
+			ruleName:       "test",
+			wantErr:        true,
+			errContains:    "invalid category",
+		},
+		{
+			name:           "redeemable=true with rate=0",
+			category:       domain.CategoryDining,
+			redeemable:     true,
+			redemptionRate: 0.0,
+			ruleName:       "test",
+			wantErr:        true,
+			errContains:    "redeemable=true requires redemption_rate > 0",
+		},
+		{
+			name:           "redeemable=false with rate>0",
+			category:       domain.CategoryOther,
+			redeemable:     false,
+			redemptionRate: 0.02,
+			ruleName:       "test",
+			wantErr:        true,
+			errContains:    "redeemable=false requires redemption_rate = 0",
+		},
+		{
+			name:           "edge case: very small positive rate",
+			category:       domain.CategoryGroceries,
+			redeemable:     true,
+			redemptionRate: 0.001,
+			ruleName:       "test",
+			wantErr:        false,
+		},
+		{
+			name:           "edge case: high redemption rate",
+			category:       domain.CategoryDining,
+			redeemable:     true,
+			redemptionRate: 0.10,
+			ruleName:       "test",
+			wantErr:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := NewMatchResult(
+				tt.category, tt.redeemable, tt.vacation,
+				tt.transfer, tt.redemptionRate, tt.ruleName,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				assert.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, result)
+				assert.Equal(t, tt.category, result.Category)
+				assert.Equal(t, tt.redeemable, result.Redeemable)
+				assert.Equal(t, tt.vacation, result.Vacation)
+				assert.Equal(t, tt.transfer, result.Transfer)
+				assert.Equal(t, tt.redemptionRate, result.RedemptionRate)
+				assert.Equal(t, tt.ruleName, result.RuleName)
+			}
 		})
 	}
 }
