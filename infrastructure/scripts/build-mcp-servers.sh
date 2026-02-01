@@ -21,8 +21,13 @@ set -euo pipefail
 
 # Load direnv environment to ensure Nix Node.js is used instead of Homebrew Node.js.
 # This prevents ICU4c library version conflicts on macOS.
-DIRENV_OUTPUT=$(direnv export bash 2>&1)
+DIRENV_OUTPUT=$(direnv export bash 2>/dev/null)
 DIRENV_EXIT=$?
+
+if [ $DIRENV_EXIT -ne 0 ]; then
+  # Capture full output including stderr for diagnostics
+  DIRENV_OUTPUT=$(direnv export bash 2>&1)
+fi
 
 if [ $DIRENV_EXIT -ne 0 ] || [ -z "$DIRENV_OUTPUT" ]; then
   echo "ERROR: direnv environment setup failed"
