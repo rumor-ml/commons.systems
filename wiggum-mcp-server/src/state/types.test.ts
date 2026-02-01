@@ -20,7 +20,6 @@ import {
   type PRState,
 } from './types.js';
 
-// TODO(#1747): Add negative test cases for runtime discriminated union validation
 describe('isIssueExists type guard', () => {
   it('should return true when state.exists is true and number exists', () => {
     const state: IssueState = createIssueExists(123);
@@ -53,6 +52,36 @@ describe('isIssueExists type guard', () => {
   });
 });
 
+describe('isIssueExists negative cases', () => {
+  it('should return true for malformed object with exists:true but missing number', () => {
+    // Type guard only checks exists field, doesn't validate required fields
+    const malformed = { exists: true } as any;
+    // This reveals the type guard doesn't validate all required fields
+    // In production, this would cause runtime errors when accessing state.number
+    assert.strictEqual(isIssueExists(malformed), true);
+  });
+
+  it('should return false for completely invalid objects', () => {
+    const invalid = { random: 'data' } as any;
+    assert.strictEqual(isIssueExists(invalid), false);
+  });
+
+  it('should return false for object with wrong exists type', () => {
+    const wrongType = { exists: 'true', number: 123 } as any;
+    assert.strictEqual(isIssueExists(wrongType), false);
+  });
+
+  it('should throw TypeError for null', () => {
+    // Type guards don't handle null gracefully - they expect valid objects
+    assert.throws(() => isIssueExists(null as any), TypeError);
+  });
+
+  it('should throw TypeError for undefined', () => {
+    // Type guards don't handle undefined gracefully - they expect valid objects
+    assert.throws(() => isIssueExists(undefined as any), TypeError);
+  });
+});
+
 describe('isIssueDoesNotExist type guard', () => {
   it('should return true when state.exists is false', () => {
     const state: IssueState = createIssueDoesNotExist();
@@ -74,6 +103,29 @@ describe('isIssueDoesNotExist type guard', () => {
     } else {
       assert.fail('Expected isIssueDoesNotExist to return true');
     }
+  });
+});
+
+describe('isIssueDoesNotExist negative cases', () => {
+  it('should return true for malformed object with exists:false but unexpected fields', () => {
+    const malformed = { exists: false, number: 123 } as any;
+    // Type guard only checks exists field
+    assert.strictEqual(isIssueDoesNotExist(malformed), true);
+  });
+
+  it('should return false for completely invalid objects', () => {
+    const invalid = { random: 'data' } as any;
+    assert.strictEqual(isIssueDoesNotExist(invalid), false);
+  });
+
+  it('should throw TypeError for null', () => {
+    // Type guards don't handle null gracefully - they expect valid objects
+    assert.throws(() => isIssueDoesNotExist(null as any), TypeError);
+  });
+
+  it('should throw TypeError for undefined', () => {
+    // Type guards don't handle undefined gracefully - they expect valid objects
+    assert.throws(() => isIssueDoesNotExist(undefined as any), TypeError);
   });
 });
 
@@ -152,6 +204,42 @@ describe('isPRExists type guard', () => {
   });
 });
 
+describe('isPRExists negative cases', () => {
+  it('should return true for malformed object with exists:true but missing required fields', () => {
+    // Type guard only checks exists field, doesn't validate all PR fields
+    const malformed = { exists: true } as any;
+    // This reveals the type guard doesn't validate required fields
+    // In production, this would cause runtime errors when accessing PR properties
+    assert.strictEqual(isPRExists(malformed), true);
+  });
+
+  it('should return true for partial PR data', () => {
+    const partial = { exists: true, number: 123 } as any;
+    // Missing title, state, url, etc., but type guard still returns true
+    assert.strictEqual(isPRExists(partial), true);
+  });
+
+  it('should return false for completely invalid objects', () => {
+    const invalid = { random: 'data' } as any;
+    assert.strictEqual(isPRExists(invalid), false);
+  });
+
+  it('should return false for object with wrong exists type', () => {
+    const wrongType = { exists: 'true', number: 123, title: 'Test' } as any;
+    assert.strictEqual(isPRExists(wrongType), false);
+  });
+
+  it('should throw TypeError for null', () => {
+    // Type guards don't handle null gracefully - they expect valid objects
+    assert.throws(() => isPRExists(null as any), TypeError);
+  });
+
+  it('should throw TypeError for undefined', () => {
+    // Type guards don't handle undefined gracefully - they expect valid objects
+    assert.throws(() => isPRExists(undefined as any), TypeError);
+  });
+});
+
 describe('isPRDoesNotExist type guard', () => {
   it('should return true when state.exists is false', () => {
     const state: PRState = createPRDoesNotExist();
@@ -183,5 +271,33 @@ describe('isPRDoesNotExist type guard', () => {
     } else {
       assert.fail('Expected isPRDoesNotExist to return true');
     }
+  });
+});
+
+describe('isPRDoesNotExist negative cases', () => {
+  it('should return true for malformed object with exists:false but unexpected PR fields', () => {
+    const malformed = {
+      exists: false,
+      number: 123,
+      title: 'Should not be here',
+      state: 'OPEN',
+    } as any;
+    // Type guard only checks exists field
+    assert.strictEqual(isPRDoesNotExist(malformed), true);
+  });
+
+  it('should return false for completely invalid objects', () => {
+    const invalid = { random: 'data' } as any;
+    assert.strictEqual(isPRDoesNotExist(invalid), false);
+  });
+
+  it('should throw TypeError for null', () => {
+    // Type guards don't handle null gracefully - they expect valid objects
+    assert.throws(() => isPRDoesNotExist(null as any), TypeError);
+  });
+
+  it('should throw TypeError for undefined', () => {
+    // Type guards don't handle undefined gracefully - they expect valid objects
+    assert.throws(() => isPRDoesNotExist(undefined as any), TypeError);
   });
 });

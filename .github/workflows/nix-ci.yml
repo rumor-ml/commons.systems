@@ -69,8 +69,9 @@ jobs:
       # - Package references are valid for aarch64-darwin
       # - Configuration can be evaluated on Linux runners (cross-platform evaluation)
       #
-      # Note: This only validates evaluation, not compilation. It does not verify packages
-      # build successfully or are available in the binary cache for aarch64-darwin.
+      # Note: This validates that the configuration evaluates and builds successfully on Linux CI.
+      # It does not verify that all packages are available in the binary cache for aarch64-darwin,
+      # so some packages may need to be built from source during actual activation on macOS.
       #
       # Note: Uses --no-link to avoid creating result symlink (build artifacts are in /nix/store)
       #
