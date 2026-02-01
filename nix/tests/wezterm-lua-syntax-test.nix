@@ -434,10 +434,11 @@ let
               exit 1
             fi
 
-            # Test 2: Verify the configured font is recognized by WezTerm
-            echo "Test 2: Verifying configured font is recognized..."
+            # Test 2: Verify WezTerm accepts font configuration syntax
+            echo "Test 2: Verifying WezTerm loads font configuration without errors..."
             FONT_OUTPUT=$(${pkgs.wezterm}/bin/wezterm --config-file "$LUA_FILE" ls-fonts 2>&1 || true)
 
+            # TODO(#1761): Verify that GeistMono Nerd Font is actually available at runtime
             # Note: GeistMono Nerd Font may not be installed in the Nix build environment
             # So we verify that ls-fonts runs successfully, which validates the config loads
             # In a real environment, the font would need to be installed separately
@@ -448,12 +449,12 @@ let
               echo "   (Font installation is environment-dependent)"
             fi
 
-            # Test 3: Verify color scheme is valid
-            # WezTerm's ls-fonts command loading proves the config is valid
-            # Color schemes are built-in to WezTerm, so 'Tokyo Night' should always work
-            echo "Test 3: Verifying color scheme doesn't cause runtime errors..."
+            # Test 3: Verify color scheme configuration syntax
+            # Note: Color scheme validity was already verified in Test 1's successful config load
+            # This test confirms the color scheme setting is present in the generated config
+            echo "Test 3: Verifying color scheme configuration is present..."
             if grep -q "config.color_scheme = 'Tokyo Night'" "$LUA_FILE"; then
-              echo "✅ Color scheme is configured (Tokyo Night is a built-in scheme)"
+              echo "✅ Color scheme is configured (validated by Test 1's successful load)"
             fi
 
             # Test 4: Verify invalid API calls produce runtime errors

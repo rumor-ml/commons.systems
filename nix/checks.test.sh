@@ -978,12 +978,13 @@ CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
 }
 
 # Check if any Home Manager or WezTerm config files changed
+# Test expects hook to skip when no files changed - this branch should NOT execute
 if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
   echo "Home Manager configuration files changed, validating build..."
-  exit 1
+  exit 1  # Unexpected: test_home_manager_build_check_skip should not detect changes
 else
   echo "No Home Manager configuration changes detected, skipping build check."
-  exit 0
+  exit 0  # Expected: test passes when hook correctly skips validation
 fi
 EOF
   chmod +x hook.sh
@@ -1496,7 +1497,8 @@ test_wezterm_lua_syntax_pre_commit_hook_e2e() {
 WEZTERMEOF
 
   # Create pre-commit hook that mimics wezterm-lua-syntax validation
-  # Uses simplified Lua extraction (grep) since we don't have full Nix environment
+  # Uses simplified sed extraction instead of nix eval to avoid dependency issues
+  # in test environment (test creates minimal wezterm.nix without full context)
   mkdir -p .git/hooks
   cat > .git/hooks/pre-commit <<'HOOKEOF'
 #!/bin/bash
@@ -1511,6 +1513,7 @@ if git diff --cached --name-only | grep -q "nix/home/wezterm.nix"; then
   trap "rm -f $LUA_FILE" EXIT
 
   # Extract content between the two single quotes after extraConfig
+  # (Production hook uses 'nix eval' for proper Nix string handling)
   sed -n "/extraConfig = ''/,/'';/p" nix/home/wezterm.nix | \
     sed '1d;$d' > "$LUA_FILE"
 

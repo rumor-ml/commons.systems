@@ -19,10 +19,19 @@
 
 set -euo pipefail
 
-# TODO(#1730): Silent fallback to wrong Node.js in build script when direnv fails
 # Load direnv environment to ensure Nix Node.js is used instead of Homebrew Node.js.
 # This prevents ICU4c library version conflicts on macOS.
-eval "$(direnv export bash 2>/dev/null)" || true
+if ! eval "$(direnv export bash 2>&1)"; then
+  echo "ERROR: direnv environment setup failed"
+  echo "Ensure direnv is installed and 'direnv allow' has been run"
+  echo ""
+  echo "To install direnv:"
+  echo "  - macOS: brew install direnv"
+  echo "  - Linux: apt-get install direnv"
+  echo ""
+  echo "Then run: direnv allow"
+  exit 1
+fi
 
 # Color output
 RED='\033[0;31m'
@@ -58,12 +67,14 @@ for server in "${MCP_SERVERS[@]}"; do
   echo -e "Building ${server}..."
 
   # Test 1: npm build (TypeScript compilation)
-  # TODO(#1757): npm build errors completely suppressed in build-mcp-servers.sh
-  if (cd "$server" && npm run build) > /dev/null 2>&1; then
+  BUILD_OUTPUT=$(cd "$server" && npm run build 2>&1)
+  BUILD_EXIT=$?
+
+  if [[ $BUILD_EXIT -eq 0 ]]; then
     echo -e "  ${GREEN}✓ npm build succeeded${NC}"
   else
     echo -e "  ${RED}✗ npm build failed${NC}"
-    echo "    Run 'cd $server && npm run build' to see the error details"
+    echo "$BUILD_OUTPUT"
     BUILD_FAILED=1
     FAILED_SERVERS+=("$server")
     echo ""

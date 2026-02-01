@@ -13,7 +13,7 @@
 # After activation:
 #   1. Launch with: wezterm
 #   2. Config location: ~/.config/wezterm/wezterm.lua
-#   3. Customize via programs.wezterm.extraConfig in this file
+#   3. Customize by editing programs.wezterm.extraConfig below
 #
 # Learn more: https://wezfurlong.org/wezterm/
 
@@ -27,7 +27,8 @@
     # Only enable on Darwin (macOS)
     enable = pkgs.stdenv.isDarwin;
 
-    # Enable shell integration to track command boundaries and enable features like:
+    # Automatically configure shell integration by adding init scripts to shell RC files
+    # This enables WezTerm features like:
     # - Jump between prompts with keyboard shortcuts
     # - Copy command output without the prompt
     # - Semantic zone navigation

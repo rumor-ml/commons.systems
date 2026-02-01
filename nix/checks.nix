@@ -90,8 +90,9 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # === WezTerm Lua Validation ===
-    # Validates Lua syntax in WezTerm configuration to catch errors before runtime
+    # Pre-commit hook that validates Lua syntax in WezTerm configuration
     # Uses luac -p (parse-only mode) to check syntax without executing the code
+    # Catches Lua syntax errors during git commit before they reach runtime
     # Limitations:
     # - Only validates Lua syntax, not WezTerm-specific API semantics
     # - Does not verify fonts or color schemes are available
@@ -109,12 +110,9 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         LUA_FILE=$(mktemp)
         trap "rm -f $LUA_FILE" EXIT
 
-        # Extract Lua code using nix eval - the only reliable way to extract from Nix strings
-        # This approach evaluates the Nix expression to get the exact Lua code.
-        # Alternative approaches like grep/sed/awk would fail with:
-        # - Nix string interpolation: extraConfig = "font_size = ${toString 12}"
-        # - Indented strings with custom indentation handling
-        # - Escaped characters in multiline strings
+        # Extract Lua code using nix eval to handle Nix string semantics correctly
+        # This approach evaluates the Nix expression (including string interpolation,
+        # indentation removal, and escape sequences) to get the exact Lua code
         if ! NIX_OUTPUT=$(${pkgs.nix}/bin/nix eval --raw --impure \
           --expr '(import ./nix/home/wezterm.nix {
             config = {};
@@ -286,10 +284,13 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         set -e
 
         # TODO(#1727): Duplicate direnv comment pattern in checks.nix
-        # TODO(#1732): Silent fallback to wrong Node.js in pre-commit hook when direnv fails
         # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
         # This prevents ICU4c library version conflicts on macOS
-        eval "$(${pkgs.direnv}/bin/direnv export bash 2>/dev/null)" || true
+        if ! eval "$(${pkgs.direnv}/bin/direnv export bash 2>&1)"; then
+          echo "ERROR: direnv environment setup failed"
+          echo "Ensure 'direnv allow' has been run in the repository"
+          exit 1
+        fi
 
         # Verify we're in a git repository
         if ! git rev-parse --git-dir > /dev/null 2>&1; then

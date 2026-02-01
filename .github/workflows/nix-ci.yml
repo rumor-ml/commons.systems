@@ -60,18 +60,22 @@ jobs:
           '
 
       # Cross-compile test: Build Darwin Home Manager configuration on Linux CI
-      # Validates that the complete aarch64-darwin configuration evaluates and builds successfully
-      # Catches Nix evaluation errors, missing packages, and module configuration issues
+      # Validates that the aarch64-darwin configuration evaluates successfully
+      # Catches Nix evaluation errors, undefined packages, and module configuration issues
       #
       # What this validates:
       # - Home Manager configuration evaluates without errors
       # - All Home Manager modules (including WezTerm) have valid Nix syntax
-      # - All packages in the configuration are available for aarch64-darwin
+      # - Package definitions exist in nixpkgs for aarch64-darwin
       # - Cross-compilation to aarch64-darwin works on Linux runners
       #
-      # Note: Uses --no-link so build artifacts are not retained (evaluation check only)
+      # Note: This only validates evaluation. It does not verify packages build successfully
+      # or are available in the binary cache for aarch64-darwin.
+      #
+      # Note: Uses --no-link to avoid creating result symlink (build artifacts are in /nix/store)
       #
       # Manual test: Introduce syntax error in nix/home/wezterm.nix and verify CI fails
+      # TODO(#1760): Add E2E test for actual Home Manager activation on macOS runner
       - name: Verify Home Manager configuration builds
         run: |
           echo "Building Home Manager configuration (aarch64-darwin)..."
