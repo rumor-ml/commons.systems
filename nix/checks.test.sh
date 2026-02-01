@@ -1289,12 +1289,17 @@ test_ci_workflow_home_manager_build() {
   fi
 
   # Execute the command to verify it works
-  if cd "$REPO_ROOT" && eval "$NIX_BUILD_CMD" 2>/dev/null; then
+  BUILD_OUTPUT=$(cd "$REPO_ROOT" && eval "$NIX_BUILD_CMD" 2>&1)
+  BUILD_EXIT=$?
+
+  if [[ $BUILD_EXIT -eq 0 ]]; then
     echo -e "${GREEN}✓ PASS: CI workflow nix build command executes successfully${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
   else
     echo -e "${RED}✗ FAIL: CI workflow nix build command failed${NC}"
     echo -e "${RED}Command: $NIX_BUILD_CMD${NC}"
+    echo -e "${RED}Error output:${NC}"
+    echo "$BUILD_OUTPUT"
     TESTS_FAILED=$((TESTS_FAILED + 1))
     return 1
   fi
@@ -1337,11 +1342,16 @@ test_wezterm_lua_validation() {
     > "$LUA_FILE" 2>/dev/null; then
 
     # Validate Lua syntax using nix-shell to get luac
-    if nix-shell -p lua --run "luac -p $LUA_FILE" 2>/dev/null; then
+    LUAC_OUTPUT=$(nix-shell -p lua --run "luac -p $LUA_FILE" 2>&1)
+    LUAC_EXIT=$?
+
+    if [[ $LUAC_EXIT -eq 0 ]]; then
       echo -e "${GREEN}✓ PASS: WezTerm Lua configuration has valid syntax${NC}"
       TESTS_PASSED=$((TESTS_PASSED + 1))
     else
       echo -e "${RED}✗ FAIL: WezTerm Lua configuration has syntax errors${NC}"
+      echo -e "${RED}luac output:${NC}"
+      echo "$LUAC_OUTPUT"
       TESTS_FAILED=$((TESTS_FAILED + 1))
       return 1
     fi
