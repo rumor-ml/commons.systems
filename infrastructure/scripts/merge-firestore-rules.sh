@@ -10,10 +10,17 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OUTPUT_DIR="$REPO_ROOT/.firebase"
 OUTPUT_FILE="$OUTPUT_DIR/firestore.rules"
 
+# Source rules files (these are the authoritative sources, committed to git)
+# The .rules files (without .source) are generated and gitignored
+FELLSPIRAL_RULES="$REPO_ROOT/fellspiral/firestore.rules.source"
+BUDGET_RULES="$REPO_ROOT/budget/firestore.rules.source"
+
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
 
 echo "Merging Firestore rules..."
+echo "  Source: $(basename "$FELLSPIRAL_RULES") ($(wc -l < "$FELLSPIRAL_RULES") lines)"
+echo "  Source: $(basename "$BUDGET_RULES") ($(wc -l < "$BUDGET_RULES") lines)"
 
 # Start with rules version and shared helper functions
 cat > "$OUTPUT_FILE" << 'EOF'
@@ -133,7 +140,7 @@ awk '
       print lines[i]
     }
   }
-' "$REPO_ROOT/fellspiral/firestore.rules" >> "$OUTPUT_FILE"
+' "$FELLSPIRAL_RULES" >> "$OUTPUT_FILE"
 
 # Add section separator
 cat >> "$OUTPUT_FILE" << 'EOF'
@@ -222,7 +229,7 @@ awk '
       print lines[i]
     }
   }
-' "$REPO_ROOT/budget/firestore.rules" >> "$OUTPUT_FILE"
+' "$BUDGET_RULES" >> "$OUTPUT_FILE"
 
 # Add deny-all rule and close the service block
 cat >> "$OUTPUT_FILE" << 'EOF'
@@ -270,9 +277,20 @@ if command -v firebase &> /dev/null; then
   firebase firestore:rules:release --dry-run 2>&1 | grep -q "Rules syntax OK" && echo "✓ Rules syntax valid" || echo "⚠ Warning: Could not validate rules syntax"
 fi
 
-echo "Merged the following rule files:"
-echo "  - fellspiral/firestore.rules"
-echo "  - budget/firestore.rules"
+echo "Merged the following source files:"
+echo "  - fellspiral/firestore.rules.source"
+echo "  - budget/firestore.rules.source"
+
+# Copy merged rules to app-level locations
+# Firebase emulator may discover firestore.rules files in app directories
+# despite --config flag. Copy merged file to ensure consistency.
+# Since source files are now .rules.source, the .rules files are generated.
+echo ""
+echo "Copying merged rules to app-level locations..."
+cp "$OUTPUT_FILE" "$REPO_ROOT/fellspiral/firestore.rules"
+cp "$OUTPUT_FILE" "$REPO_ROOT/budget/firestore.rules"
+echo "✓ Merged rules copied to fellspiral/firestore.rules"
+echo "✓ Merged rules copied to budget/firestore.rules"
 
 echo ""
 echo "=== MERGE DIAGNOSTIC OUTPUT ==="
