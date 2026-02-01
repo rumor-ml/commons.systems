@@ -20,6 +20,7 @@ import {
   type PRState,
 } from './types.js';
 
+// TODO(#1747): Add negative test cases for runtime discriminated union validation
 describe('isIssueExists type guard', () => {
   it('should return true when state.exists is true and number exists', () => {
     const state: IssueState = createIssueExists(123);

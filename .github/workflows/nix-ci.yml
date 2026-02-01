@@ -65,7 +65,7 @@ jobs:
       #
       # What this validates:
       # - Home Manager configuration evaluates without errors
-      # - WezTerm configuration (including Lua syntax) is valid
+      # - WezTerm module configuration is valid Nix syntax
       # - All packages in the configuration are available for aarch64-darwin
       # - Cross-compilation to aarch64-darwin works on Linux runners
       #

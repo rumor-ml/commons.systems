@@ -92,7 +92,10 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     # === WezTerm Lua Validation ===
     # Validates Lua syntax in WezTerm configuration to catch errors before runtime
     # Uses luac -p (parse-only mode) to check syntax without executing the code
-    # Limitation: Only validates Lua syntax, not WezTerm-specific API semantics
+    # Limitations:
+    # - Only validates Lua syntax, not WezTerm-specific API semantics
+    # - Does not verify fonts or color schemes are available
+    # - Does not test runtime behavior or configuration correctness
     # Integration tests: nix/tests/wezterm-lua-syntax-test.nix (runs via nix flake check)
     wezterm-lua-syntax = {
       enable = true;
@@ -107,8 +110,11 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         trap "rm -f $LUA_FILE" EXIT
 
         # Extract Lua code using nix eval - the only reliable way to extract from Nix strings
-        # This approach evaluates the Nix expression to get the exact Lua code, avoiding
-        # fragile text parsing that would break with formatting changes or Nix string interpolation
+        # This approach evaluates the Nix expression to get the exact Lua code.
+        # Alternative approaches like grep/sed/awk would fail with:
+        # - Nix string interpolation: extraConfig = "font_size = ${toString 12}"
+        # - Indented strings with custom indentation handling
+        # - Escaped characters in multiline strings
         ${pkgs.nix}/bin/nix eval --raw --impure \
           --expr '(import ./nix/home/wezterm.nix {
             config = {};
@@ -159,6 +165,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
         for site in fellspiral videobrowser audiobrowser print; do
           if [ -d "$site/site/src" ]; then
+            # TODO(#1749): Grep errors silently ignored in no-console-log hook
             if grep -r "console\.log" "$site/site/src/" 2>/dev/null; then
               FOUND_LOGS=1
             fi
@@ -434,7 +441,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # Validate Home Manager configuration builds
-    # Catches WezTerm config errors and Home Manager evaluation failures before push
+    # Catches Nix evaluation errors in Home Manager modules (including WezTerm) before push
     # Prevents CI failures from Nix syntax errors, invalid packages, or module option mistakes
     home-manager-build-check = {
       enable = true;
@@ -474,10 +481,6 @@ pre-commit-hooks.lib.${pkgs.system}.run {
             echo ""
             echo "Build output:"
             echo "$BUILD_OUTPUT"
-            echo ""
-            echo "This check validates that the Home Manager configuration can build successfully."
-            echo "It catches Nix syntax errors, invalid packages, and module option mistakes."
-            echo ""
             echo "To fix this issue:"
             echo "  1. Review the Nix error messages above"
             echo "  2. Check nix/home/*.nix files for errors"

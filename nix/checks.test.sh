@@ -1230,11 +1230,27 @@ test_home_manager_build_check_regex_pattern() {
   cd "$REPO_ROOT"
 }
 
+# TODO(#1644): Add test for home-manager-build-check with actual build failures
+# Currently we test detection logic and error handling for missing origin/main,
+# but don't test the case where nix build .#homeConfigurations fails due to:
+# - Syntax errors in Nix files
+# - Invalid package references
+# - Module configuration errors
+# This would require a complex test setup with a valid flake that we intentionally break.
+# Manual test: Introduce syntax error in nix/home/wezterm.nix and verify hook fails.
+
+# TODO(#1644): Add integration test for CI workflow Home Manager build step
+# The .github/workflows/nix-ci.yml workflow includes a step that builds Home Manager
+# configuration. We should verify this step actually fails when configuration is broken.
+# This requires CI environment or GitHub Actions local runner (act).
+# Manual test: Introduce error in nix/home/wezterm.nix and verify CI fails.
+
 # Test 19: WezTerm Lua validation hook with valid config
 test_wezterm_lua_validation() {
   print_test_header "test_wezterm_lua_validation"
 
-  # Test 1: Validate current WezTerm config syntax
+  # Test 1: Validate current WezTerm config has valid Lua syntax
+  # This validates the end-to-end Nix -> Lua extraction works
   TESTS_RUN=$((TESTS_RUN + 1))
   echo -e "${YELLOW}Running: WezTerm Lua syntax validation${NC}"
 
@@ -1266,8 +1282,11 @@ test_wezterm_lua_validation() {
   fi
 
   # Test 2: Validate config values are correctly set
+  # This is an end-to-end validation that the Nix configuration produces
+  # the expected Lua config values. This is NOT what the pre-commit hook does
+  # (the hook only validates syntax with luac -p).
   TESTS_RUN=$((TESTS_RUN + 1))
-  echo -e "${YELLOW}Running: WezTerm Lua config value validation${NC}"
+  echo -e "${YELLOW}Running: WezTerm Lua config value validation (end-to-end)${NC}"
 
   # Create a Lua script that mocks wezterm module and validates config values
   cat > "${LUA_FILE}.test" <<'LUAEOF'

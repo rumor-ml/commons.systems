@@ -37,8 +37,6 @@ let
     LUA_FILE=$(mktemp)
     trap "rm -f $LUA_FILE" EXIT
 
-    # Extract Lua code using nix eval - semantically correct and format-independent
-    # This approach works regardless of indentation, formatting, or whitespace
     ${pkgs.nix}/bin/nix eval --raw --impure \
       --expr '(import ./nix/home/wezterm.nix {
         config = {};
@@ -327,6 +325,69 @@ let
         fi
   '';
 
+  # Test 5: Darwin platform conditional
+  # Evaluates the config with mocked platform values at build time
+  test-darwin-platform-conditional =
+    let
+      # Create mock pkgs with isDarwin = true
+      mockDarwinPkgs = pkgs // {
+        stdenv = pkgs.stdenv // {
+          isDarwin = true;
+        };
+      };
+
+      # Create mock pkgs with isDarwin = false
+      mockLinuxPkgs = pkgs // {
+        stdenv = pkgs.stdenv // {
+          isDarwin = false;
+        };
+      };
+
+      # Evaluate config with Darwin mock
+      darwinConfig = import ../home/wezterm.nix {
+        config = { };
+        pkgs = mockDarwinPkgs;
+        lib = pkgs.lib;
+      };
+
+      # Evaluate config with Linux mock
+      linuxConfig = import ../home/wezterm.nix {
+        config = { };
+        pkgs = mockLinuxPkgs;
+        lib = pkgs.lib;
+      };
+
+      # Get the enable values
+      darwinEnabled = darwinConfig.programs.wezterm.enable;
+      linuxEnabled = linuxConfig.programs.wezterm.enable;
+    in
+    pkgs.runCommand "test-wezterm-darwin-conditional" { } ''
+      set -e
+
+      echo "Testing Darwin platform conditional..."
+
+      # Test 1: Verify enabled with isDarwin = true
+      if [ "${pkgs.lib.boolToString darwinEnabled}" = "true" ]; then
+        echo "✅ WezTerm enabled when isDarwin = true"
+      else
+        echo "❌ WezTerm should be enabled when isDarwin = true"
+        echo "   Got: ${pkgs.lib.boolToString darwinEnabled}"
+        exit 1
+      fi
+
+      # Test 2: Verify disabled with isDarwin = false
+      if [ "${pkgs.lib.boolToString linuxEnabled}" = "false" ]; then
+        echo "✅ WezTerm disabled when isDarwin = false"
+      else
+        echo "❌ WezTerm should be disabled when isDarwin = false"
+        echo "   Got: ${pkgs.lib.boolToString linuxEnabled}"
+        exit 1
+      fi
+
+      echo "✅ Platform conditional test passed"
+      touch $out
+    '';
+
   # Run all tests
   all-tests =
     pkgs.runCommand "wezterm-lua-syntax-all-tests"
@@ -336,6 +397,7 @@ let
           test-invalid-lua
           test-lua-extraction
           test-wrong-field-path
+          test-darwin-platform-conditional
         ];
       }
       ''
@@ -350,6 +412,7 @@ let
         echo "  ✅ Test 2: Invalid Lua syntax rejected"
         echo "  ✅ Test 3: Lua code extraction works"
         echo "  ✅ Test 4: Wrong field path handling"
+        echo "  ✅ Test 5: Darwin platform conditional"
         echo ""
         touch $out
       '';
