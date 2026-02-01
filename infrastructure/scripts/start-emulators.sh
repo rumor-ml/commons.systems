@@ -255,6 +255,17 @@ else
   echo ""
 fi
 
+echo ""
+echo "=== EMULATOR RULES DIAGNOSTIC ==="
+echo "Config file firestore section:"
+grep -A 3 '"firestore"' "${PROJECT_ROOT}/firebase.json" || echo "No firestore section found"
+echo ""
+echo "Waiting 3s for emulator logs..."
+sleep 3
+echo "Emulator log (rules-related lines):"
+grep -i "rules\|firestore" "$BACKEND_LOG_FILE" | head -30 || echo "No rules info in log"
+echo "=== END EMULATOR DIAGNOSTIC ==="
+
 # Lock will be automatically released by trap on exit
 
 # ============================================================================

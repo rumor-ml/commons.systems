@@ -15,10 +15,6 @@ mkdir -p "$OUTPUT_DIR"
 
 echo "Merging Firestore rules..."
 
-# Restore source rules files if they were renamed (from previous merge run)
-[ -f "$REPO_ROOT/fellspiral/firestore.rules.source" ] && mv "$REPO_ROOT/fellspiral/firestore.rules.source" "$REPO_ROOT/fellspiral/firestore.rules"
-[ -f "$REPO_ROOT/budget/firestore.rules.source" ] && mv "$REPO_ROOT/budget/firestore.rules.source" "$REPO_ROOT/budget/firestore.rules"
-
 # Start with rules version and shared helper functions
 cat > "$OUTPUT_FILE" << 'EOF'
 rules_version = '2';
@@ -278,19 +274,16 @@ echo "Merged the following rule files:"
 echo "  - fellspiral/firestore.rules"
 echo "  - budget/firestore.rules"
 
-# CRITICAL FIX: Rename source rules files to prevent emulator from accidentally loading them
-# The emulator should ONLY load from .firebase/firestore.rules (merged file)
-# Background: Firebase CLI may discover and load app-level firestore.rules files
-# even when --config explicitly points to root firebase.json
-mv "$REPO_ROOT/fellspiral/firestore.rules" "$REPO_ROOT/fellspiral/firestore.rules.source" 2>/dev/null || true
-mv "$REPO_ROOT/budget/firestore.rules" "$REPO_ROOT/budget/firestore.rules.source" 2>/dev/null || true
-echo "✓ Renamed source rules files to .source (prevents accidental emulator loading)"
-
-# CRITICAL FIX: Clear Firestore emulator cache to force reload of rules
-# The emulator may cache compiled rules, and the cache key in CI doesn't include rules content
-# This ensures the emulator loads the freshly merged rules instead of stale cached rules
-if [ -d "$HOME/.cache/firebase/emulators" ]; then
-  # Remove any firestore-related cache files but keep emulator binaries
-  find "$HOME/.cache/firebase/emulators" -name "*firestore*" -type f -delete 2>/dev/null || true
-  echo "✓ Cleared Firestore emulator cache"
-fi
+echo ""
+echo "=== MERGE DIAGNOSTIC OUTPUT ==="
+echo "Merged file: $(wc -l < "$OUTPUT_FILE") lines"
+echo "Last 5 lines:"
+tail -5 "$OUTPUT_FILE"
+echo ""
+echo "Source files still exist:"
+ls -la "$REPO_ROOT/fellspiral/firestore.rules" 2>&1
+ls -la "$REPO_ROOT/budget/firestore.rules" 2>&1
+echo ""
+echo "All firestore.rules in repo:"
+find "$REPO_ROOT" -name "firestore.rules" -type f ! -path "*/node_modules/*" 2>/dev/null
+echo "=== END MERGE DIAGNOSTIC ==="
