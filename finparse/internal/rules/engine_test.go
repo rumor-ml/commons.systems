@@ -1064,9 +1064,10 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 	}{
 		// Food delivery via Venmo (check whitespace handling)
 		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
-		// Note: Internal whitespace is NOT normalized (see whitespace normalization tests).
-		// VENMO with 2 spaces falls through to "other" instead of matching the dining rule.
-		{"VENMO  *UBER EATS", domain.CategoryOther, false, false}, // 2 spaces - not matched
+		// BUG: Internal whitespace is NOT normalized (see whitespace normalization tests).
+		// This causes VENMO with 2 spaces to fall through to "other" instead of matching the dining rule.
+		// TODO(#1645): Fix whitespace normalization to handle variable spacing.
+		{"VENMO  *UBER EATS", domain.CategoryOther, false, false}, // 2 spaces - FAILS TO MATCH (bug)
 		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
 
 		// Major retailers
@@ -1091,6 +1092,39 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		// Dining - Chick-fil-A variations
 		{"CHICKFILA #1234", domain.CategoryDining, false, true},
 		{"CHICK-FIL-A #5678", domain.CategoryDining, false, true}, // Hyphenated version
+
+		// Priority ordering - more specific patterns should win
+		{"GOOGLE *YOUTUBE PREMIUM", domain.CategoryEntertainment, false, true}, // Should match YouTube (235) not generic Google (230)
+		{"GOOGLE WM MAX LLC", domain.CategoryShopping, false, true},            // Should match generic Google (230)
+
+		// Entertainment category
+		{"FLICKR PRO", domain.CategoryEntertainment, false, true},
+		{"GOOGLE *YOUTUBE PREMIUM", domain.CategoryEntertainment, false, true},
+		{"DISNEYPLUS", domain.CategoryEntertainment, false, true},
+		{"PATREON MEMBERSHIP", domain.CategoryEntertainment, false, true},
+		{"888 AMF BOWLING CENTER", domain.CategoryEntertainment, false, true},
+
+		// Transportation - Gas stations
+		{"SHELL OIL 12345678", domain.CategoryTransportation, false, true},
+		{"EXXONMOBIL #12345", domain.CategoryTransportation, false, true},
+		{"BP#1234567890", domain.CategoryTransportation, false, true},
+		{"CHEVRON 98765", domain.CategoryTransportation, false, true},
+		{"WAWA #234", domain.CategoryTransportation, false, true},
+		{"ROYALFARMS #567", domain.CategoryTransportation, false, false},
+
+		// Venmo priority ordering - food delivery vs generic Venmo
+		{"VENMO *UBER EATS PAYMENT", domain.CategoryDining, false, true}, // Must be dining, not "other"
+		{"VENMO *DOORDASH ORDER", domain.CategoryDining, false, true},    // Must be dining, not "other"
+		{"VENMO PAYMENT TO JOHN", domain.CategoryOther, false, false},    // Must be other/transfer
+
+		// Travel with vacation flag - Complete coverage
+		{"HILTON GARDEN INN", domain.CategoryTravel, true, true},
+		{"HYATT REGENCY", domain.CategoryTravel, true, true},
+		{"IHG HOLIDAY INN", domain.CategoryTravel, true, true},
+		{"SOUTHWEST AIR 1234", domain.CategoryTravel, true, true},
+		{"AMERICAN AIR TICKET", domain.CategoryTravel, true, true},
+		{"AIRBNB *RESERVATION", domain.CategoryTravel, true, true},
+		{"EXPEDIA BOOKING", domain.CategoryTravel, true, true},
 
 		// Negative cases - should NOT match specific patterns
 		{"REGULAR VENMO PAYMENT", domain.CategoryOther, false, false}, // Not food delivery
@@ -1386,10 +1420,10 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 		t.Fatalf("LoadEmbedded() failed: %v", err)
 	}
 
-	// Verify expected rule count
-	// After adding 137 rules in #1645, we now have ~194 total rules
+	// Verify expected rule count (should increase as coverage improves)
+	// After adding 137 rules in #1645, we have ~194 total rules
 	if len(engine.rules) < 190 {
-		t.Errorf("Expected ~194 rules (56 from carriercommons + 137 from #1645 + 1 AMZN variant), got %d", len(engine.rules))
+		t.Errorf("Expected at least 190 rules (~194: 56 from carriercommons + 137 from #1645 + 1 AMZN variant), got %d", len(engine.rules))
 	}
 
 	// Verify priority distribution matches migration doc
