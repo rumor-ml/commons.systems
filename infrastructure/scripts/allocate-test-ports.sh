@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -eu
 
+# CRITICAL: This script is the SINGLE SOURCE OF TRUTH for port allocation
+# Ports are allocated per-worktree to avoid conflicts between parallel test runs
+# start-emulators.sh MUST use the allocated ports without reallocation
+# If a port conflict occurs at startup time, fail with clear error - don't retry
+
 # Helper function to exit/return appropriately based on how script is invoked
 # When sourced: use return to allow parent script to handle error
 # When executed: use exit to terminate with error code

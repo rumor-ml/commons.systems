@@ -60,7 +60,10 @@
               <h1 class="app-title">Budget Visualization</h1>
               <p class="app-subtitle">Track your income and expenses with interactive charts</p>
             </div>
-            <button id="plan-budget-btn" class="btn btn-primary">Set Budget Targets</button>
+            <div class="flex gap-2">
+              <a href="#/review" class="btn btn-secondary">Review Transactions</a>
+              <button id="plan-budget-btn" class="btn btn-primary">Set Budget Targets</button>
+            </div>
           </div>
         </header>
 
@@ -115,6 +118,24 @@
         <div
           id="planning-page-island"
           data-island-component="BudgetPlanningPage"
+          data-island-props="{}"
+        ></div>
+      </div>
+
+      <!-- Review View (/#/review) -->
+      <div id="review-view" style="display: none">
+        <header class="app-header">
+          <div class="header-row">
+            <div>
+              <h1 class="app-title">Transaction Review</h1>
+              <p class="app-subtitle">Browse, filter, and export your transaction history</p>
+            </div>
+            <button id="back-to-budget-btn" class="btn btn-secondary">Back to Budget</button>
+          </div>
+        </header>
+        <div
+          id="transaction-list-island"
+          data-island-component="TransactionList"
           data-island-props="{}"
         ></div>
       </div>

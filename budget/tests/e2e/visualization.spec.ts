@@ -42,7 +42,8 @@ test.describe('Budget Visualization', () => {
     await page.goto('/');
     await page.waitForSelector('.app-container');
 
-    const header = page.locator('.app-header h1');
+    // Scope selector to main view to avoid matching hidden views
+    const header = page.locator('#main-view .app-header h1');
     await expect(header).toBeVisible();
     await expect(header).toContainText('Budget Visualization');
   });
@@ -163,8 +164,8 @@ test.describe('Budget Visualization', () => {
     await page.goto('/');
     await page.waitForSelector('.app-container');
 
-    // Header should still be visible
-    await expect(page.locator('.app-header')).toBeVisible();
+    // Header should still be visible (scope to main view)
+    await expect(page.locator('#main-view .app-header')).toBeVisible();
 
     // Summary cards should reflow
     await expect(page.locator('.summary-cards')).toBeVisible();
@@ -188,7 +189,8 @@ test.describe('Budget Visualization', () => {
 
     await page.goto('/');
     await page.waitForSelector('.app-container');
-    await page.waitForLoadState('networkidle');
+    // Wait for chart to render (indicates React hydration complete)
+    await page.waitForSelector('#chart-island svg', { timeout: 10000 });
 
     // Filter out expected non-critical warnings
     const criticalErrors = errors.filter((e) => {
@@ -370,7 +372,8 @@ test.describe('Budget Visualization', () => {
 
     await page.goto('/');
     await page.waitForSelector('.app-container');
-    await page.waitForLoadState('networkidle');
+    // Wait for chart to render (indicates React hydration complete)
+    await page.waitForSelector('#chart-island svg', { timeout: 10000 });
 
     // Check for error messages in UI
     const chartError = page.locator('#chart-island >> text=/Error loading/i');

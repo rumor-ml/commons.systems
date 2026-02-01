@@ -53,10 +53,20 @@ is_supervisor_running() {
     local pid
     pid=$(cat "$SUPERVISOR_PID_FILE")
     if kill -0 "$pid" 2>/dev/null; then
-      echo "✓ Supervisor already running (PID: $pid)"
-      return 0
+      # Validate the process is actually the supervisor script (not some random process with reused PID)
+      local cmdline
+      cmdline=$(cat /proc/"$pid"/cmdline 2>/dev/null | tr '\0' ' ' || echo "")
+      if [[ "$cmdline" == *"emulator-supervisor"* ]]; then
+        echo "✓ Supervisor already running (PID: $pid)"
+        return 0
+      else
+        # PID file is stale - process exists but is not the supervisor
+        echo "⚠️  Stale supervisor PID file found (PID: $pid is not supervisor), removing..."
+        rm -f "$SUPERVISOR_PID_FILE"
+      fi
+    else
+      rm -f "$SUPERVISOR_PID_FILE"
     fi
-    rm -f "$SUPERVISOR_PID_FILE"
   fi
   return 1
 }
@@ -245,6 +255,13 @@ case "$APP_TYPE" in
 }
 EOF
 
+    # Verify config consistency
+    WRITTEN_PORT=$(jq -r '.emulators.hostingPort' "$TEST_ENV_CONFIG")
+    if [ "$WRITTEN_PORT" != "$HOSTING_PORT" ]; then
+      echo "ERROR: Config mismatch - HOSTING_PORT=${HOSTING_PORT} but .test-env.json has ${WRITTEN_PORT}" >&2
+      exit 1
+    fi
+
     echo "=== Test Environment Config ==="
     echo "Config exported to: $TEST_ENV_CONFIG"
     cat "$TEST_ENV_CONFIG"
@@ -349,6 +366,15 @@ if [ "$APP_TYPE" = "firebase" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
 
   echo ""
   echo "=== Emulator Health Check ==="
+
+  # CI Debug: Show emulator log for rules loading info
+  if [ "${CI:-false}" = "true" ]; then
+    echo "=== CI Debug: Backend Emulator Log (rules-related) ==="
+    grep -i "rules\|config\|loading\|firestore" ~/.firebase-emulators/firebase-backend-emulators.log 2>/dev/null | head -20 || echo "  (no rules info in log)"
+    echo "======================================="
+    echo ""
+  fi
+
   if ! check_emulator_health "127.0.0.1" "${AUTH_PORT}" "127.0.0.1" "${FIRESTORE_PORT}" "${GCP_PROJECT_ID}"; then
     echo ""
     echo "⚠️  Emulator health check failed. Restarting emulators..."
@@ -404,12 +430,47 @@ if [ "$APP_TYPE" = "firebase" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   echo ""
 fi
 
+# --- Seed emulator (for apps that need demo data) ---
+if [ "$APP_TYPE" = "firebase" ] && [ "$APP_NAME" = "budget" ]; then
+  echo ""
+  echo "=== Seeding Budget Demo Data ==="
+  cd "${APP_PATH_ABS}/site"
+
+  # Run seeding script (uses FIRESTORE_EMULATOR_HOST from environment)
+  if [ -f "scripts/seed-local.sh" ]; then
+    bash scripts/seed-local.sh || {
+      echo "ERROR: Failed to seed demo data" >&2
+      exit 1
+    }
+    echo "✓ Demo data seeded successfully"
+  else
+    echo "WARNING: No seed-local.sh script found, skipping seeding"
+  fi
+  echo "================================"
+  echo ""
+fi
+
 # --- Run tests ---
 cd "${APP_PATH_ABS}"
 
 if [ "$APP_TYPE" = "firebase" ]; then
   # Firebase apps use Playwright
   echo "Running Playwright tests..."
+
+  # Diagnostic: Verify rules files before running tests
+  if [ "${CI:-false}" = "true" ]; then
+    echo ""
+    echo "=== CI Debug: Rules Files Before E2E ==="
+    echo "fellspiral/firestore.rules:"
+    wc -l "${ROOT_DIR}/fellspiral/firestore.rules" 2>/dev/null || echo "  NOT FOUND"
+    echo ".firebase/firestore.rules:"
+    wc -l "${ROOT_DIR}/.firebase/firestore.rules" 2>/dev/null || echo "  NOT FOUND"
+    echo "fellspiral/firestore.rules.source:"
+    wc -l "${ROOT_DIR}/fellspiral/firestore.rules.source" 2>/dev/null || echo "  NOT FOUND"
+    echo "======================================="
+    echo ""
+  fi
+
   cd "${APP_PATH_ABS}/tests"
 
   # Set START_SERVER=true to serve built files (we built above with pnpm build)

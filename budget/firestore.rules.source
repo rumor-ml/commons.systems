@@ -1,0 +1,165 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() { return request.auth != null; }
+    function isOwner(userId) { return request.auth.uid == userId; }
+
+    // Budget Transactions - user can read/write their own transactions
+    match /budget-transactions/{transactionId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Statements - user can read/write their own statements
+    match /budget-statements/{statementId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Accounts - user can read/write their own accounts
+    match /budget-accounts/{accountId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Institutions - user can read/write their own institutions
+    match /budget-institutions/{institutionId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Parse Sessions - user can read/write their own parse sessions
+    match /budget-parse-sessions/{sessionId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Transactions - publicly readable, user-owned writes
+    // NOTE: Firebase Security Rules do NOT support wildcard collection names.
+    // The syntax "match /collection{suffix}" is INVALID and causes compilation errors.
+    // Each collection variant must be listed explicitly.
+    match /budget-demo-transactions/{transactionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Statements - publicly readable, user-owned writes
+    match /budget-demo-statements/{statementId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Accounts - publicly readable, user-owned writes
+    match /budget-demo-accounts/{accountId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Institutions - publicly readable, user-owned writes
+    match /budget-demo-institutions/{institutionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Transactions Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-transactions-worker-0/{transactionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Statements Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-statements-worker-0/{statementId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Accounts Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-accounts-worker-0/{accountId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Institutions Worker-0 - publicly readable, user-owned writes
+    match /budget-demo-institutions-worker-0/{institutionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // LIMITATION: PR and preview collections (budget-demo-transactions_pr_123,
+    // budget-demo-transactions_preview_branch) are NOT covered by these rules.
+    // Firebase does not support collection name patterns. The -worker-0 variants
+    // for local emulator testing are explicitly defined above.
+    // For dynamic PR/preview environments, consider:
+    //   1. Restructuring to use subcollections: /preview/{env}/transactions/{id}
+    //   2. Deploying rules updates programmatically for each preview environment
+    //   3. Handling permissions at the application level
+
+    // Deny all other access
+    match /{document=**} { allow read, write: if false; }
+  }
+}

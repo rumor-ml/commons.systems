@@ -1,8 +1,0 @@
-/**
- * Base Styles
- * Foundation layer: reset, body defaults, and accessibility
- */
-
-@import './reset.css';
-@import './body.css';
-@import './accessibility.css';

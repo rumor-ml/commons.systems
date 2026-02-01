@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "gh-workflow": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["gh-workflow-mcp-server/dist/index.js"]
-    }
-  }
-}

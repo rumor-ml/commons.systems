@@ -1,11 +1,16 @@
 # Makefile for finparse
 
-.PHONY: build install test clean run fmt vet deps
+.PHONY: build build-server install test clean run run-server fmt vet deps
 
 build:
 	@echo "Building finparse..."
 	@mkdir -p bin
 	@go build -o bin/finparse ./cmd/finparse
+
+build-server:
+	@echo "Building finparse-server..."
+	@mkdir -p bin
+	@go build -o bin/finparse-server ./cmd/server
 
 install:
 	@echo "Installing finparse..."
@@ -22,6 +27,9 @@ clean:
 
 run:
 	@go run ./cmd/finparse $(ARGS)
+
+run-server:
+	@go run ./cmd/server
 
 # Development helpers
 fmt:

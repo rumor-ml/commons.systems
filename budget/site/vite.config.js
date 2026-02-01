@@ -5,6 +5,7 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [react()],
   root: 'src',
+  envDir: '../', // Look for .env files one level up from src/ (in budget/site/)
   build: {
     outDir: '../dist',
     emptyOutDir: true,
