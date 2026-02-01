@@ -54,7 +54,7 @@ echo -e "${YELLOW}Branch: ${BRANCH_NAME} → Channel: ${SANITIZED_BRANCH}${NC}"
 
 cd "${SITE}/site"
 # Build with VITE_BRANCH_NAME env var (reuses existing CI logic)
-VITE_BRANCH_NAME="${BRANCH_NAME}" pnpm build
+VITE_BRANCH_NAME="${BRANCH_NAME}" nix develop --command pnpm build
 
 cd ../..
 
@@ -83,6 +83,6 @@ echo -e "${BLUE}🌱 Seeding test data...${NC}"
 
 echo -e "${BLUE}🧪 Running Playwright tests...${NC}"
 cd "${SITE}/tests"
-DEPLOYED_URL="${DEPLOYED_URL}" DEPLOYED=true pnpm test
+DEPLOYED_URL="${DEPLOYED_URL}" DEPLOYED=true nix develop --command pnpm test
 
 echo -e "${GREEN}✅ Tests complete!${NC}"

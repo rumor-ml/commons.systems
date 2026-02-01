@@ -158,7 +158,8 @@ case "$APP_TYPE" in
     # The hosting emulator caches 404 responses for missing files during startup.
     # Building first ensures files exist when emulator initializes, preventing cached 404s.
     echo "Building..."
-    VITE_USE_FIREBASE_EMULATOR=true VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" pnpm --dir "${APP_PATH_ABS}/site" build
+    VITE_USE_FIREBASE_EMULATOR=true VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
+      nix develop --command pnpm --dir "${APP_PATH_ABS}/site" build
 
     if [ "$REUSE_EMULATORS" = "true" ]; then
       echo "✓ Skipping emulator startup - reusing existing emulators"

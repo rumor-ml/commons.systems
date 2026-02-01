@@ -64,7 +64,7 @@ echo ""
 
 # Build the site
 echo "📦 Building ${SITE_NAME}..."
-pnpm --dir "${SITE_NAME}/site" build
+nix develop --command pnpm --dir "${SITE_NAME}/site" build
 
 # Check if build succeeded
 if [ ! -d "${SITE_NAME}/site/dist" ]; then
