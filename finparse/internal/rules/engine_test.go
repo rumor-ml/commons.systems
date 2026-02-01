@@ -1159,22 +1159,22 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		wantRedeemable bool
 	}{
 		// Food delivery via Venmo (check whitespace handling)
-		// TODO(#1785): Consolidate duplicate test assertions - this entry may be redundant with priority ordering tests
+		// TODO: Consolidate duplicate test assertions - this entry may be redundant with priority ordering tests
 		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
 		// Note: Internal whitespace is NOT normalized by design (see TestMatch_InternalWhitespaceNormalization).
 		// Pattern matching is exact for internal spaces to avoid unexpected regex behavior.
-		// BUG: This causes VENMO with 2 spaces to fall through to "other" instead of matching the dining rule.
-		// TODO: Fix whitespace normalization to handle variable spacing (tracked separately from #1645 coverage work).
+		// Known limitation: This causes VENMO with 2 spaces to fall through to "other" instead of matching the dining rule.
+		// TODO: Consider whitespace normalization enhancement to handle variable spacing (tracked separately from #1645 coverage work).
 		// {"VENMO  *UBER EATS", domain.CategoryDining, false, true}, // 2 spaces - skipped until whitespace bug is fixed
 		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
 
 		// Major retailers
 		{"AMAZON MKTPL*XB8MO38V3", domain.CategoryShopping, false, true},
-		{"Amazon.com*MI4KC34I3", domain.CategoryShopping, false, true},   // lowercase variation
-		{"AMZN Mktp US*BF8VM7243", domain.CategoryShopping, false, true}, // AMZN abbreviation
-		{"AMZN Mktp US*R98UJ1YB1", domain.CategoryShopping, false, true}, // AMZN abbreviation
-		{"AMZN MKTPLACE PMTS", domain.CategoryShopping, false, true},     // AMZN marketplace
-		{"TARGET        00028456", domain.CategoryShopping, false, true}, // multiple spaces
+		{"Amazon.com*MI4KC34I3", domain.CategoryShopping, false, true},
+		{"AMZN Mktp US*BF8VM7243", domain.CategoryShopping, false, true},
+		{"AMZN Mktp US*R98UJ1YB1", domain.CategoryShopping, false, true},
+		{"AMZN MKTPLACE PMTS", domain.CategoryShopping, false, true},
+		{"TARGET        00028456", domain.CategoryShopping, false, true},
 		{"WALMART.COM", domain.CategoryShopping, false, true},
 
 		// Groceries
@@ -1189,11 +1189,11 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 
 		// Dining - Chick-fil-A variations
 		{"CHICKFILA #1234", domain.CategoryDining, false, true},
-		{"CHICK-FIL-A #5678", domain.CategoryDining, false, true}, // Hyphenated version
+		{"CHICK-FIL-A #5678", domain.CategoryDining, false, true},
 
 		// Priority ordering - more specific patterns should win
-		{"GOOGLE *YOUTUBE PREMIUM", domain.CategoryEntertainment, false, true}, // Should match YouTube (235) not generic Google (230)
-		{"GOOGLE WM MAX LLC", domain.CategoryShopping, false, true},            // Should match generic Google (230)
+		{"GOOGLE *YOUTUBE PREMIUM", domain.CategoryEntertainment, false, true}, // Should match YouTube rule, not generic Google
+		{"GOOGLE WM MAX LLC", domain.CategoryShopping, false, true},
 
 		// Entertainment category
 		{"FLICKR PRO", domain.CategoryEntertainment, false, true},
@@ -1230,9 +1230,30 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		// Pattern boundary cases - known limitations of substring matching
 		// TODO: Consider more specific patterns to reduce false positives
 		{"GIANT EAGLE AUTO SERVICE", domain.CategoryGroceries, false, true}, // Matches GIANT pattern (false positive - documents current behavior)
-		{"AMAZON WEB SERVICES", domain.CategoryShopping, false, true},       // Correctly matches AMAZON (AWS is an Amazon service)
+		{"AMAZON WEB SERVICES", domain.CategoryShopping, false, true},       // Matches AMAZON pattern (known limitation - AWS is cloud infrastructure, not shopping)
 		{"SHELL CORPORATION", domain.CategoryTransportation, false, true},   // Matches SHELL pattern (false positive - documents current behavior)
+		{"TST SYSTEMS INC", domain.CategoryDining, false, true},             // Matches TST pattern (false positive - documents current behavior)
+		{"GIANT CONSTRUCTION", domain.CategoryGroceries, false, true},       // Matches GIANT pattern (false positive - documents current behavior)
+		{"GAP ANALYSIS", domain.CategoryShopping, false, true},              // Matches GAP pattern (false positive - documents current behavior)
 		// Note: DELTA DENTAL would not match any rule (no healthcare dental rules exist yet)
+
+		// Issue examples from #1645
+		{"POPEYES 13858", domain.CategoryDining, false, true},
+		{"DOPPIO PASTIC", domain.CategoryDining, false, true},
+		{"MAXS TAPHOUSE", domain.CategoryDining, false, true},
+		{"THE CHICKEN LAB", domain.CategoryDining, false, true},
+
+		// Government/Tax payments
+		{"USATAXPYMT IRS", domain.CategoryOther, false, false},
+		{"USATAXPYMT", domain.CategoryOther, false, false},
+		{"IRS PAYMENT", domain.CategoryOther, false, false},
+		{"DMV VA", domain.CategoryOther, false, false},
+		{"BALTIMOREGOVT", domain.CategoryOther, false, false},
+
+		// Format variations
+		{"KROGER  #0789", domain.CategoryGroceries, false, true},
+		{"walmart.com", domain.CategoryShopping, false, true},
+		{"TRADER JOES", domain.CategoryGroceries, false, true},
 	}
 
 	for _, tt := range tests {
@@ -1598,10 +1619,6 @@ func TestEmbeddedRules_CategoryDistribution(t *testing.T) {
 	t.Logf("Category distribution: %+v", categoryCount)
 }
 
-// TODO(#1773): Add performance benchmarks for Match() with 195 rules
-// BenchmarkMatch_195Rules should validate that linear search performance
-// remains acceptable (< 10μs per match) with the increased rule set.
-
 func TestEmbeddedRules_Structure(t *testing.T) {
 	// Verifies the embedded rules.yaml file is valid and matches expected structure.
 	// Catches regressions from manual edits:
@@ -1759,6 +1776,18 @@ func TestEmbeddedRules_PriorityOrdering(t *testing.T) {
 			wantCat:  domain.CategoryEntertainment,
 			wantName: "Google YouTube",
 		},
+		{
+			desc:     "Giant Food should match grocery, not generic Giant",
+			input:    "GIANT FOOD #1234",
+			wantCat:  domain.CategoryGroceries,
+			wantName: "Giant Food",
+		},
+		{
+			desc:     "Shell Oil should match transportation",
+			input:    "SHELL OIL 123",
+			wantCat:  domain.CategoryTransportation,
+			wantName: "Shell Gas",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1788,6 +1817,26 @@ func TestEmbeddedRules_VacationFlagConsistency(t *testing.T) {
 
 	// Verify expected travel rule count
 	require.GreaterOrEqual(t, travelRules, 10, "Expected at least 10 travel rules")
+
+	// Verify specific transactions have correct vacation flags
+	travelTests := []struct {
+		desc         string
+		wantVacation bool
+	}{
+		{"MARRIOTT HOTEL", true},
+		{"DELTA AIR 123", true},
+		{"AIRBNB *123", true},
+		{"WALMART", false},
+		{"CHIPOTLE", false},
+	}
+
+	for _, tt := range travelTests {
+		result, matched, err := engine.Match(tt.desc)
+		if err != nil || !matched {
+			continue // Skip if no match
+		}
+		assert.Equal(t, tt.wantVacation, result.Vacation, "Wrong vacation flag for %s", tt.desc)
+	}
 }
 
 func BenchmarkMatch_FullRuleSet(b *testing.B) {
@@ -1805,14 +1854,44 @@ func BenchmarkMatch_FullRuleSet(b *testing.B) {
 		"SHELL OIL 12345678",        // Transportation pattern
 	}
 
+	errorCount := 0
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, desc := range descriptions {
-			_, _, _ = engine.Match(desc)
+			_, _, err := engine.Match(desc)
+			if err != nil {
+				errorCount++
+			}
 		}
+	}
+	b.StopTimer()
+
+	if errorCount > 0 {
+		b.Errorf("Benchmark encountered %d errors during %d iterations", errorCount, b.N)
 	}
 }
 
-// TODO(#1745): Add tests for priority ordering between new rule categories
-// Priority ordering determines which rule wins when multiple patterns match.
-// Without these tests, we can't verify that more specific rules beat generic ones.
+func TestEmbeddedRules_EdgeCases(t *testing.T) {
+	engine, err := LoadEmbedded()
+	require.NoError(t, err)
+
+	tests := []struct {
+		desc        string
+		input       string
+		expectMatch bool
+	}{
+		{"empty string", "", false},
+		{"whitespace only", "   ", false},
+		{"very long", strings.Repeat("A", 10000), false},
+		{"emoji", "STARBUCKS ☕", true},
+		{"unicode", "CAFÉ AMAZON", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, matched, err := engine.Match(tt.input)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectMatch, matched)
+		})
+	}
+}

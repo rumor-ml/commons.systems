@@ -8,7 +8,7 @@
 #   300-399: Dining
 #   200-299: Shopping and Entertainment (discretionary spending categories)
 #     - Entertainment uses 235-260 (subset of shopping band)
-#     - Shopping uses 145-260 (overlaps with transportation at lower end)
+#     - Shopping uses 200-260
 #   100-199: Healthcare
 #   100-199: Transportation (shares band with healthcare - equal priority for essential services)
 #   0-99: Catch-all
@@ -497,7 +497,7 @@ rules:
   - name: 'Amazon (AMZN)'
     pattern: 'AMZN'
     match_type: 'contains'
-    priority: 251 # Higher priority - more specific pattern matches first
+    priority: 251 # Higher than generic Amazon (250) to match AMZN abbreviation format first
     category: 'shopping'
     flags:
       redeemable: true
@@ -649,9 +649,6 @@ rules:
     redemption_rate: 0.02
 
   - name: 'Gap'
-    # Pattern: Contains "GAP" (3 letters)
-    # Risk assessment: Low false positive risk - potential matches like "GAPLESS" are rare in financial transactions
-    # Gap store transactions consistently contain "GAP" without qualifiers
     pattern: 'GAP'
     match_type: 'contains'
     priority: 201
@@ -1564,7 +1561,7 @@ rules:
   - name: 'Pennsylvania Renaissance Faire'
     pattern: 'RENAISSANCE FAIRE'
     match_type: 'contains'
-    priority: 750 # Travel/vacation band - temporary special event
+    priority: 750 # Travel/vacation band - seasonal annual event
     category: 'entertainment'
     flags:
       redeemable: true
@@ -1915,9 +1912,6 @@ rules:
     redemption_rate: 0.01
 
   - name: 'GOG Digital Games'
-    # Pattern: Contains "GOG" (3 letters)
-    # Risk assessment: Low false positive risk - GOG is distinctive gaming platform identifier
-    # GOG.com transactions consistently contain "GOG" without qualifiers
     pattern: 'GOG'
     match_type: 'contains'
     priority: 190
