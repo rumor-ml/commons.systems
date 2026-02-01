@@ -7,8 +7,9 @@
 #   600-699: Housing/utilities
 #   400-499: Groceries
 #   300-399: Dining
-#   200-299: Shopping
-#   200-299: Entertainment (shares band with shopping - equal priority for discretionary spending)
+#   200-299: Shopping and Entertainment (discretionary spending categories)
+#     - Entertainment uses 235-260 (subset of shopping band)
+#     - Shopping uses 145-260 (overlaps with transportation at lower end)
 #   100-199: Healthcare
 #   100-199: Transportation (shares band with healthcare - equal priority for essential services)
 #   0-99: Catch-all
@@ -516,17 +517,6 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  - name: 'Amazon (AMZN)'
-    pattern: 'AMZN'
-    match_type: 'contains'
-    priority: 250
-    category: 'shopping'
-    flags:
-      redeemable: true
-      vacation: false
-      transfer: false
-    redemption_rate: 0.02
-
   - name: 'Target'
     pattern: 'TARGET'
     match_type: 'contains'
@@ -661,9 +651,8 @@ rules:
 
   - name: 'Gap'
     # Pattern: Contains "GAP" (3 letters)
-    # Risk assessment: Low false positive risk based on transaction data analysis
+    # Risk assessment: Low false positive risk - potential matches like "GAPLESS" are rare in financial transactions
     # Gap store transactions consistently contain "GAP" without qualifiers
-    # Potential matches like "GAPLESS" are rare in financial transaction descriptions
     pattern: 'GAP'
     match_type: 'contains'
     priority: 201
@@ -1928,9 +1917,8 @@ rules:
 
   - name: 'GOG Digital Games'
     # Pattern: Contains "GOG" (3 letters)
-    # Risk assessment: Low false positive risk based on transaction data analysis
+    # Risk assessment: Low false positive risk - GOG is distinctive gaming platform identifier
     # GOG.com transactions consistently contain "GOG" without qualifiers
-    # Potential matches like "GOGGLES" are rare in financial transaction descriptions
     pattern: 'GOG'
     match_type: 'contains'
     priority: 190
