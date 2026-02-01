@@ -69,6 +69,8 @@ jobs:
       # - All packages in the configuration are available for aarch64-darwin
       # - Cross-compilation to aarch64-darwin works on Linux runners
       #
+      # Note: Uses --no-link so build artifacts are not retained (evaluation check only)
+      #
       # Manual test: Introduce syntax error in nix/home/wezterm.nix and verify CI fails
       - name: Verify Home Manager configuration builds
         run: |

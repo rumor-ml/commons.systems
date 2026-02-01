@@ -105,7 +105,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         set -e
 
         # Extract Lua code from nix/home/wezterm.nix
-        # The extraConfig field contains Lua code in a Nix indented string (double-single-quote delimiter)
+        # The extraConfig field contains Lua code in a Nix indented string (delimited by two single quotes)
         LUA_FILE=$(mktemp)
         trap "rm -f $LUA_FILE" EXIT
 
