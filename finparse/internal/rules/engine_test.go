@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"database/sql"
 	_ "embed"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/rumor-ml/commons.systems/finparse/internal/domain"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
 
@@ -818,6 +821,51 @@ rules:
 	}
 }
 
+func TestMatch_CaseInsensitivityUnicode(t *testing.T) {
+	// Document behavior with Unicode characters (accented, non-Latin).
+	// Current implementation uses strings.ToUpper() which handles most Unicode correctly.
+	rulesYAML := `
+rules:
+  - name: "Unicode Test"
+    pattern: "CAFÉ ZÜRICH"
+    match_type: "contains"
+    priority: 100
+    category: "dining"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	tests := []struct {
+		desc        string
+		shouldMatch bool
+		note        string
+	}{
+		{"CAFÉ ZÜRICH", true, "exact match with accents"},
+		{"café zürich", true, "lowercase with accents"},
+		{"Café Zürich", true, "mixed case with accents"},
+		{"CAFE ZURICH", false, "without accents - does not match (expected behavior)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, matched, err := engine.Match(tt.desc)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
+			if matched != tt.shouldMatch {
+				t.Errorf("Match(%q) = %v, want %v (%s)", tt.desc, matched, tt.shouldMatch, tt.note)
+			}
+		})
+	}
+}
+
 func TestMatch_WhitespaceTrimming(t *testing.T) {
 	rulesYAML := `
 rules:
@@ -904,6 +952,54 @@ rules:
 	// This is intentional - whitespace normalization would require regex
 	// and could cause unexpected matches. If this causes rule coverage issues
 	// with real-world transactions, consider adding \s+ regex support.
+}
+
+func TestMatch_WhitespaceEdgeCases(t *testing.T) {
+	// Extended whitespace testing to document behavior with various whitespace types.
+	// Current design: Internal whitespace is NOT normalized (exact match required).
+	rulesYAML := `
+rules:
+  - name: "Whitespace Test"
+    pattern: "TEST PATTERN"
+    match_type: "contains"
+    priority: 100
+    category: "shopping"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	tests := []struct {
+		desc        string
+		shouldMatch bool
+		reason      string
+	}{
+		{"TEST PATTERN", true, "exact match"},
+		{"TEST  PATTERN", false, "double space does not match single space (design: no normalization)"},
+		{"TEST    PATTERN", false, "quad space does not match single space"},
+		{"TEST\tPATTERN", false, "tab does not match space"},
+		{"TEST \t PATTERN", false, "mixed space+tab does not match"},
+		{"  TEST PATTERN  ", true, "leading/trailing whitespace is trimmed"},
+		{"TEST PATTERN EXTRA", true, "contains match includes extra text"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, matched, err := engine.Match(tt.desc)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
+			if matched != tt.shouldMatch {
+				t.Errorf("Match(%q) = %v, want %v (%s)", tt.desc, matched, tt.shouldMatch, tt.reason)
+			}
+		})
+	}
 }
 
 func TestMatch_EqualPriority_StableSort(t *testing.T) {
@@ -1029,7 +1125,7 @@ func TestEmbeddedRules_CoverageRequirement(t *testing.T) {
 	// Report results
 	t.Logf("Coverage: %.2f%% (%d/%d matched)", coveragePercent, matched, len(descriptions))
 
-	// ALWAYS log unmatched transactions for visibility
+	// Log unmatched transactions when coverage is incomplete
 	if len(unmatched) > 0 {
 		t.Logf("Unmatched transactions (%d of %d, %.2f%% uncovered):",
 			len(unmatched), len(descriptions), 100.0-coveragePercent)
@@ -1063,11 +1159,10 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		wantRedeemable bool
 	}{
 		// Food delivery via Venmo (check whitespace handling)
+		// TODO(#1785): Consolidate duplicate test assertions - this entry may be redundant with priority ordering tests
 		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
-		// BUG: Internal whitespace is NOT normalized (see whitespace normalization tests).
-		// This causes VENMO with 2 spaces to fall through to "other" instead of matching the dining rule.
-		// TODO(#1645): Fix whitespace normalization to handle variable spacing.
-		{"VENMO  *UBER EATS", domain.CategoryOther, false, false}, // 2 spaces - FAILS TO MATCH (bug)
+		// Note: Internal whitespace is NOT normalized by design (see TestMatch_InternalWhitespaceNormalization).
+		// Pattern matching is exact for internal spaces to avoid unexpected regex behavior.
 		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
 
 		// Major retailers
@@ -1099,7 +1194,6 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 
 		// Entertainment category
 		{"FLICKR PRO", domain.CategoryEntertainment, false, true},
-		{"GOOGLE *YOUTUBE PREMIUM", domain.CategoryEntertainment, false, true},
 		{"DISNEYPLUS", domain.CategoryEntertainment, false, true},
 		{"PATREON MEMBERSHIP", domain.CategoryEntertainment, false, true},
 		{"888 AMF BOWLING CENTER", domain.CategoryEntertainment, false, true},
@@ -1113,9 +1207,9 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		{"ROYALFARMS #567", domain.CategoryTransportation, false, false},
 
 		// Venmo priority ordering - food delivery vs generic Venmo
-		{"VENMO *UBER EATS PAYMENT", domain.CategoryDining, false, true}, // Must be dining, not "other"
-		{"VENMO *DOORDASH ORDER", domain.CategoryDining, false, true},    // Must be dining, not "other"
-		{"VENMO PAYMENT TO JOHN", domain.CategoryOther, false, false},    // Must be other/transfer
+		{"VENMO *UBER EATS PAYMENT", domain.CategoryDining, false, true}, // Food delivery pattern should override generic Venmo
+		{"VENMO *DOORDASH ORDER", domain.CategoryDining, false, true},    // Food delivery pattern should override generic Venmo
+		{"VENMO PAYMENT TO JOHN", domain.CategoryOther, false, false},    // Generic Venmo payment (transfer)
 
 		// Travel with vacation flag - Complete coverage
 		{"HILTON GARDEN INN", domain.CategoryTravel, true, true},
@@ -1129,6 +1223,13 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		// Negative cases - should NOT match specific patterns
 		{"REGULAR VENMO PAYMENT", domain.CategoryOther, false, false}, // Not food delivery
 		{"VENMO *John Smith", domain.CategoryOther, false, false},     // Personal transfer
+
+		// Pattern boundary cases - known limitations of substring matching
+		// TODO: Consider more specific patterns to reduce false positives
+		{"GIANT EAGLE AUTO SERVICE", domain.CategoryGroceries, false, true}, // Matches GIANT FOOD pattern despite being auto service
+		{"AMAZON WEB SERVICES", domain.CategoryShopping, false, true},       // Correctly matches AMAZON (AWS is an Amazon service)
+		{"SHELL CORPORATION", domain.CategoryTransportation, false, true},   // Matches SHELL gas station pattern despite being unrelated entity
+		// Note: DELTA DENTAL would not match any rule (no healthcare dental rules exist yet)
 	}
 
 	for _, tt := range tests {
@@ -1150,6 +1251,56 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 			if result.Redeemable != tt.wantRedeemable {
 				t.Errorf("Match(%q) redeemable = %v, want %v", tt.desc, result.Redeemable, tt.wantRedeemable)
 			}
+		})
+	}
+}
+
+func TestEmbeddedRules_KnownLimitations(t *testing.T) {
+	// This test documents known false positives from substring pattern matching.
+	// These are tracked as acceptable trade-offs for simplicity vs regex complexity.
+	// If refinement is needed, update patterns to be more specific (e.g., "GIANT FOOD" vs "GIANT").
+	engine, err := LoadEmbedded()
+	if err != nil {
+		t.Fatalf("LoadEmbedded() error = %v", err)
+	}
+
+	tests := []struct {
+		desc         string
+		wantCategory domain.Category
+		limitation   string
+	}{
+		{
+			"GIANT EAGLE AUTO SERVICE",
+			domain.CategoryGroceries,
+			"Matches GIANT FOOD pattern despite being auto service (substring limitation)",
+		},
+		{
+			"SHELL CORPORATION",
+			domain.CategoryTransportation,
+			"Matches SHELL gas station pattern despite being unrelated entity (substring limitation)",
+		},
+		{
+			"AMAZON WEB SERVICES",
+			domain.CategoryShopping,
+			"Matches AMAZON pattern (acceptable - AWS is an Amazon service)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			result, matched, err := engine.Match(tt.desc)
+			if err != nil {
+				t.Fatalf("Match() error = %v", err)
+			}
+			if !matched {
+				t.Errorf("Expected match for %q (limitation: %s)", tt.desc, tt.limitation)
+				return
+			}
+			if result.Category != tt.wantCategory {
+				t.Errorf("Match(%q) category = %s, want %s (limitation: %s)",
+					tt.desc, result.Category, tt.wantCategory, tt.limitation)
+			}
+			t.Logf("Known limitation: %s", tt.limitation)
 		})
 	}
 }
@@ -1407,6 +1558,47 @@ rules:
 	}
 }
 
+func TestEmbeddedRules_CategoryDistribution(t *testing.T) {
+	// Verify rules are distributed across categories per #1645 requirements:
+	// - Shopping/retail expanded
+	// - Groceries (at least 5 major chains)
+	// - Travel with vacation flag
+	// - Food delivery services
+	// - Transportation/gas stations
+	engine, err := LoadEmbedded()
+	if err != nil {
+		t.Fatalf("LoadEmbedded() error = %v", err)
+	}
+
+	categoryCount := make(map[domain.Category]int)
+	for _, rule := range engine.rules {
+		categoryCount[domain.Category(rule.Category)]++
+	}
+
+	// Minimum expected coverage per category (based on #1645 acceptance criteria)
+	requirements := map[domain.Category]int{
+		domain.CategoryShopping:       10, // Amazon, Target, Walmart variations
+		domain.CategoryGroceries:      5,  // At least 5 major chains
+		domain.CategoryTravel:         10, // Hotels + airlines
+		domain.CategoryDining:         15, // Restaurants + food delivery
+		domain.CategoryTransportation: 5,  // Gas stations + ride shares
+	}
+
+	for cat, minCount := range requirements {
+		actual := categoryCount[cat]
+		if actual < minCount {
+			t.Errorf("Category %s has %d rules, expected at least %d (#1645 requirement)",
+				cat, actual, minCount)
+		}
+	}
+
+	t.Logf("Category distribution: %+v", categoryCount)
+}
+
+// TODO(#1773): Add performance benchmarks for Match() with 195 rules
+// BenchmarkMatch_195Rules should validate that linear search performance
+// remains acceptable (< 10μs per match) with the increased rule set.
+
 func TestEmbeddedRules_Structure(t *testing.T) {
 	// Verifies the embedded rules.yaml file is valid and matches expected structure.
 	// Catches regressions from manual edits:
@@ -1420,11 +1612,24 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 		t.Fatalf("LoadEmbedded() failed: %v", err)
 	}
 
-	// Verify expected rule count (should increase as coverage improves)
-	// After adding 137 rules in #1645, we have ~194 total rules
+	// Verify minimum rule count to detect accidental rule deletions
+	// Threshold reflects baseline from #1645 work (56 original + 137 new rules)
 	if len(engine.rules) < 190 {
-		t.Errorf("Expected at least 190 rules (~194: 56 from carriercommons + 137 from #1645 + 1 AMZN variant), got %d", len(engine.rules))
+		t.Errorf("Rule count regression: expected at least 190 rules, got %d", len(engine.rules))
 	}
+
+	// Additional regression protection - log actual count and warn on unexpected changes
+	actualCount := len(engine.rules)
+	expectedMin := 193 // 56 original + 137 from #1645
+	expectedMax := 200 // Allow moderate growth
+
+	if actualCount < expectedMin {
+		t.Errorf("Rule count regression: got %d rules, expected at least %d", actualCount, expectedMin)
+	}
+	if actualCount > expectedMax {
+		t.Logf("Rule count grew to %d (expected max %d). Update test if this growth is intentional.", actualCount, expectedMax)
+	}
+	t.Logf("Current embedded rule count: %d (expected range: %d-%d)", actualCount, expectedMin, expectedMax)
 
 	// Verify priority distribution matches migration doc
 	priorityRanges := map[string]int{
@@ -1507,6 +1712,99 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 	}
 }
 
-// TODO(#1745): Add tests for priority ordering between new rule categories
-// Priority ordering determines which rule wins when multiple patterns match.
-// Without these tests, we can't verify that more specific rules beat generic ones.
+func TestEmbeddedRules_NoDuplicatePatterns(t *testing.T) {
+	engine, err := LoadEmbedded()
+	require.NoError(t, err)
+
+	seen := make(map[string]string) // key: pattern+priority, value: rule name
+	for _, rule := range engine.rules {
+		key := fmt.Sprintf("%s@%d", rule.Pattern, rule.Priority)
+		if existing, found := seen[key]; found {
+			t.Errorf("Duplicate pattern+priority: %q and %q both use pattern %q at priority %d",
+				existing, rule.Name, rule.Pattern, rule.Priority)
+		}
+		seen[key] = rule.Name
+	}
+}
+
+func TestEmbeddedRules_PriorityOrdering(t *testing.T) {
+	engine, err := LoadEmbedded()
+	require.NoError(t, err)
+
+	tests := []struct {
+		desc     string
+		input    string
+		wantCat  domain.Category
+		wantName string // Expected rule name to match
+	}{
+		{
+			desc:     "Venmo Uber Eats should match dining, not generic Venmo",
+			input:    "VENMO *UBER EATS",
+			wantCat:  domain.CategoryDining,
+			wantName: "Venmo Uber Eats",
+		},
+		{
+			desc:     "AMZN abbreviation should match before AMAZON",
+			input:    "AMZN Mktp US*123",
+			wantCat:  domain.CategoryShopping,
+			wantName: "Amazon (AMZN)",
+		},
+		{
+			desc:     "YouTube should match before generic Google",
+			input:    "GOOGLE *YOUTUBE PREMIUM",
+			wantCat:  domain.CategoryEntertainment,
+			wantName: "Google YouTube",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			result, matched, err := engine.Match(tt.input)
+			require.NoError(t, err)
+			require.True(t, matched, "Should match a rule")
+			assert.Equal(t, tt.wantCat, result.Category)
+			assert.Equal(t, tt.wantName, result.RuleName)
+		})
+	}
+}
+
+func TestEmbeddedRules_VacationFlagConsistency(t *testing.T) {
+	engine, err := LoadEmbedded()
+	require.NoError(t, err)
+
+	travelRules := 0
+	for _, rule := range engine.rules {
+		if rule.Category == string(domain.CategoryTravel) {
+			travelRules++
+			if !rule.Flags.Vacation {
+				t.Errorf("Travel rule %q missing vacation flag", rule.Name)
+			}
+		}
+	}
+
+	// Verify expected travel rule count
+	require.GreaterOrEqual(t, travelRules, 10, "Expected at least 10 travel rules")
+}
+
+func BenchmarkMatch_FullRuleSet(b *testing.B) {
+	engine, err := LoadEmbedded()
+	if err != nil {
+		b.Fatalf("LoadEmbedded() error = %v", err)
+	}
+
+	// Test various scenarios: best case (early match), worst case (no match), average case
+	descriptions := []string{
+		"WHOLEFDS MARKET",           // Common pattern, likely early match
+		"AMAZON MKTPL*ABC123",       // Very common, should match quickly
+		"UNKNOWN MERCHANT XYZ12345", // Worst case: no match, scans all rules
+		"VENMO *UBER EATS",          // Mid-priority dining pattern
+		"SHELL OIL 12345678",        // Transportation pattern
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, desc := range descriptions {
+			_, _, _ = engine.Match(desc)
+		}
+	}
+}

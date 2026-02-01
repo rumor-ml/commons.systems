@@ -1,5 +1,4 @@
 # Finparse Category Rules
-# TODO(#1750): Add comment explaining the priority band design philosophy or reference documentation about priority allocation strategy
 # Priority bands:
 #   900-999: Income
 #   800-899: Transfers (payments, Zelle, ATM)
@@ -7,8 +6,9 @@
 #   600-699: Housing/utilities
 #   400-499: Groceries
 #   300-399: Dining
-#   200-299: Shopping
-#   200-299: Entertainment (shares band with shopping - equal priority for discretionary spending)
+#   200-299: Shopping and Entertainment (discretionary spending categories)
+#     - Entertainment uses 235-260 (subset of shopping band)
+#     - Shopping uses 145-260 (overlaps with transportation at lower end)
 #   100-199: Healthcare
 #   100-199: Transportation (shares band with healthcare - equal priority for essential services)
 #   0-99: Catch-all
@@ -493,7 +493,7 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  # Shopping/Retail (200-299)
+  # Shopping/Retail
   - name: 'Amazon (AMZN)'
     pattern: 'AMZN'
     match_type: 'contains'
@@ -507,17 +507,6 @@ rules:
 
   - name: 'Amazon'
     pattern: 'AMAZON'
-    match_type: 'contains'
-    priority: 250
-    category: 'shopping'
-    flags:
-      redeemable: true
-      vacation: false
-      transfer: false
-    redemption_rate: 0.02
-
-  - name: 'Amazon (AMZN)'
-    pattern: 'AMZN'
     match_type: 'contains'
     priority: 250
     category: 'shopping'
@@ -660,10 +649,6 @@ rules:
     redemption_rate: 0.02
 
   - name: 'Gap'
-    # Pattern: Contains "GAP" (3 letters)
-    # Risk assessment: Low false positive risk based on transaction data analysis
-    # Gap store transactions consistently contain "GAP" without qualifiers
-    # Potential matches like "GAPLESS" are rare in financial transaction descriptions
     pattern: 'GAP'
     match_type: 'contains'
     priority: 201
@@ -685,7 +670,7 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  # Dining (300-399)
+  # Dining
   - name: 'Uber Eats'
     pattern: 'UBER'
     match_type: 'contains'
@@ -1118,8 +1103,8 @@ rules:
   - name: 'The Fresh Market'
     pattern: 'THE FRESH MAR'
     match_type: 'contains'
-    priority: 275
-    category: 'dining'
+    priority: 404
+    category: 'groceries'
     flags:
       redeemable: true
       vacation: false
@@ -1270,7 +1255,7 @@ rules:
       transfer: false
     redemption_rate: 0.02
 
-  # Entertainment/Media (235-260) - Lower priority than dining
+  # Entertainment/Media
   - name: 'Flickr'
     pattern: 'FLICKR'
     match_type: 'contains'
@@ -1927,10 +1912,6 @@ rules:
     redemption_rate: 0.01
 
   - name: 'GOG Digital Games'
-    # Pattern: Contains "GOG" (3 letters)
-    # Risk assessment: Low false positive risk based on transaction data analysis
-    # GOG.com transactions consistently contain "GOG" without qualifiers
-    # Potential matches like "GOGGLES" are rare in financial transaction descriptions
     pattern: 'GOG'
     match_type: 'contains'
     priority: 190
