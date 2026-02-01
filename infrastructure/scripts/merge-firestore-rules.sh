@@ -286,4 +286,13 @@ ls -la "$REPO_ROOT/budget/firestore.rules" 2>&1
 echo ""
 echo "All firestore.rules in repo:"
 find "$REPO_ROOT" -name "firestore.rules" -type f ! -path "*/node_modules/*" 2>/dev/null
+
+# CRITICAL FIX: Copy merged rules to app-level locations to ensure emulator loads correct rules
+# The Firebase emulator may discover and load app-level firestore.rules files
+# even when --config explicitly points to root firebase.json
+echo ""
+echo "Copying merged rules to app-level locations..."
+cp "$OUTPUT_FILE" "$REPO_ROOT/fellspiral/firestore.rules"
+cp "$OUTPUT_FILE" "$REPO_ROOT/budget/firestore.rules"
+echo "✓ Copied merged rules to fellspiral/firestore.rules and budget/firestore.rules"
 echo "=== END MERGE DIAGNOSTIC ==="
