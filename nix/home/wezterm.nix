@@ -42,7 +42,8 @@
       local config = wezterm.config_builder()
 
       -- Font Configuration
-      -- Using GeistMono Nerd Font which is already installed via nix-darwin
+      -- Using GeistMono Nerd Font (installed via nix-darwin in this repo's darwin config)
+      -- If using this config elsewhere, ensure the font is installed separately
       config.font = wezterm.font('GeistMono Nerd Font')
       config.font_size = 12.0
 

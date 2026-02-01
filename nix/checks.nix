@@ -283,7 +283,8 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       entry = "${pkgs.writeShellScript "mcp-npm-test" ''
         set -e
 
-        # TODO(#1727): Duplicate direnv comment pattern in checks.nix
+        # TODO(#1765): Duplicate direnv comment pattern in checks.nix
+        # TODO(#1768): Duplicate direnv error handling pattern in checks.nix
         # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
         # This prevents ICU4c library version conflicts on macOS
         if ! eval "$(${pkgs.direnv}/bin/direnv export bash 2>&1)"; then

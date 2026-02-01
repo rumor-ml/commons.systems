@@ -545,6 +545,90 @@ let
             touch $out
       '';
 
+  # Test 7: Linux platform evaluation
+  # Verifies module evaluates cleanly on non-Darwin systems and doesn't install WezTerm
+  test-linux-platform-evaluation =
+    let
+      # Mock Linux environment
+      mockLinuxPkgs = pkgs // {
+        stdenv = pkgs.stdenv // {
+          isDarwin = false;
+          isLinux = true;
+        };
+      };
+
+      # Evaluate config with Linux mock
+      linuxConfig = import ../home/wezterm.nix {
+        config = { };
+        pkgs = mockLinuxPkgs;
+        lib = pkgs.lib;
+      };
+    in
+    pkgs.runCommand "test-wezterm-linux-evaluation" { } ''
+      set -e
+
+      echo "Testing Linux platform evaluation..."
+
+      # Verify module evaluates without errors
+      if [ "${pkgs.lib.boolToString linuxConfig.programs.wezterm.enable}" = "false" ]; then
+        echo "✅ WezTerm disabled on Linux (isDarwin = false)"
+      else
+        echo "❌ WezTerm should be disabled on Linux"
+        exit 1
+      fi
+
+      # Verify extraConfig is still accessible (not breaking evaluation)
+      if [ -n "${linuxConfig.programs.wezterm.extraConfig}" ]; then
+        echo "✅ Configuration accessible on Linux (doesn't cause evaluation errors)"
+      else
+        echo "❌ Configuration should be accessible even when disabled"
+        exit 1
+      fi
+
+      echo "✅ Linux platform evaluation test passed"
+      touch $out
+    '';
+
+  # Test 8: Shell integration flags
+  # Verifies enableBashIntegration and enableZshIntegration are correctly configured
+  test-shell-integration-flags =
+    let
+      # Evaluate config with default settings
+      defaultConfig = import ../home/wezterm.nix {
+        config = { };
+        pkgs = pkgs;
+        lib = pkgs.lib;
+      };
+
+      # Get integration flag values
+      bashEnabled = defaultConfig.programs.wezterm.enableBashIntegration;
+      zshEnabled = defaultConfig.programs.wezterm.enableZshIntegration;
+    in
+    pkgs.runCommand "test-wezterm-shell-integration" { } ''
+      set -e
+
+      echo "Testing shell integration flags..."
+
+      # Verify Bash integration is enabled
+      if [ "${pkgs.lib.boolToString bashEnabled}" = "true" ]; then
+        echo "✅ Bash integration enabled"
+      else
+        echo "❌ Bash integration should be enabled by default"
+        exit 1
+      fi
+
+      # Verify Zsh integration is enabled
+      if [ "${pkgs.lib.boolToString zshEnabled}" = "true" ]; then
+        echo "✅ Zsh integration enabled"
+      else
+        echo "❌ Zsh integration should be enabled by default"
+        exit 1
+      fi
+
+      echo "✅ Shell integration flags test passed"
+      touch $out
+    '';
+
   # Run all tests
   all-tests =
     pkgs.runCommand "wezterm-lua-syntax-all-tests"
@@ -556,6 +640,8 @@ let
           test-wrong-field-path
           test-darwin-platform-conditional
           test-wezterm-runtime
+          test-linux-platform-evaluation
+          test-shell-integration-flags
         ];
       }
       ''
@@ -572,6 +658,8 @@ let
         echo "  ✅ Test 4: Wrong field path handling"
         echo "  ✅ Test 5: Darwin platform conditional"
         echo "  ✅ Test 6: WezTerm runtime behavior"
+        echo "  ✅ Test 7: Linux platform evaluation"
+        echo "  ✅ Test 8: Shell integration flags"
         echo ""
         touch $out
       '';

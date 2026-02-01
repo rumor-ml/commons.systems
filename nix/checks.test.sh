@@ -1333,6 +1333,7 @@ test_wezterm_lua_validation() {
   LUA_FILE=$(mktemp)
   trap "rm -f $LUA_FILE" RETURN
 
+  # TODO(#1768): Capture and display nix eval stderr to avoid silently suppressing errors
   if nix eval --raw --impure \
     --expr '(import ./nix/home/wezterm.nix {
       config = {};
@@ -1528,6 +1529,7 @@ if git diff --cached --name-only | grep -q "nix/home/wezterm.nix"; then
     sed '1d;$d' > "$LUA_FILE"
 
   # Validate Lua syntax using nix-shell to get luac
+  # TODO(#1769): Test hook doesn't capture luac error output for display
   if ! nix-shell -p lua --run "luac -p $LUA_FILE" 2>&1; then
     echo ""
     echo "ERROR: WezTerm Lua configuration has syntax errors"

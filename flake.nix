@@ -270,6 +270,7 @@
           checks = {
             pre-commit-check = pre-commit-check;
             wezterm-lua-syntax-test = import ./nix/tests/wezterm-lua-syntax-test.nix { inherit pkgs; };
+            wezterm-activation-test = import ./nix/tests/wezterm-activation-test.nix { inherit pkgs; };
           };
         }
       );
