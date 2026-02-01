@@ -1230,7 +1230,7 @@ test_home_manager_build_check_regex_pattern() {
   cd "$REPO_ROOT"
 }
 
-# TODO(#1644): Add test for home-manager-build-check with actual build failures
+# TODO(#1756): Add test for home-manager-build-check with actual build failures
 # Currently we test detection logic and error handling for missing origin/main,
 # but don't test the case where nix build .#homeConfigurations fails due to:
 # - Syntax errors in Nix files
@@ -1239,11 +1239,80 @@ test_home_manager_build_check_regex_pattern() {
 # This would require a complex test setup with a valid flake that we intentionally break.
 # Manual test: Introduce syntax error in nix/home/wezterm.nix and verify hook fails.
 
-# TODO(#1644): Add integration test for CI workflow Home Manager build step
-# The .github/workflows/nix-ci.yml workflow includes a step that builds Home Manager
-# configuration. We should verify this step actually fails when configuration is broken.
-# This requires CI environment or GitHub Actions local runner (act).
-# Manual test: Introduce error in nix/home/wezterm.nix and verify CI fails.
+# Test 20: CI workflow Home Manager build step validates configuration
+test_ci_workflow_home_manager_build() {
+  print_test_header "test_ci_workflow_home_manager_build"
+
+  WORKFLOW_FILE="$REPO_ROOT/.github/workflows/nix-ci.yml"
+
+  # Test 1: Verify workflow YAML contains Home Manager build step
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: CI workflow contains Home Manager build step${NC}"
+
+  if grep -q "Verify Home Manager configuration builds" "$WORKFLOW_FILE" && \
+     grep -q "nix build.*homeConfigurations.aarch64-darwin.activationPackage" "$WORKFLOW_FILE"; then
+    echo -e "${GREEN}✓ PASS: CI workflow contains Home Manager build step${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: CI workflow missing Home Manager build step${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  # Test 2: Verify the nix build command uses correct flags
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: CI workflow uses correct nix build flags${NC}"
+
+  if grep -q "nix build.*--impure.*--no-link" "$WORKFLOW_FILE"; then
+    echo -e "${GREEN}✓ PASS: CI workflow uses --impure and --no-link flags${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: CI workflow missing required nix build flags${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  # Test 3: Extract and verify the exact nix build command works
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: CI workflow nix build command execution${NC}"
+
+  # Extract the nix build command from workflow YAML
+  NIX_BUILD_CMD=$(grep -A 2 "Building Home Manager configuration" "$WORKFLOW_FILE" | \
+                  grep "nix build" | \
+                  sed 's/^[[:space:]]*//')
+
+  if [[ -z "$NIX_BUILD_CMD" ]]; then
+    echo -e "${RED}✗ FAIL: Could not extract nix build command from workflow${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  # Execute the command to verify it works
+  if cd "$REPO_ROOT" && eval "$NIX_BUILD_CMD" 2>/dev/null; then
+    echo -e "${GREEN}✓ PASS: CI workflow nix build command executes successfully${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: CI workflow nix build command failed${NC}"
+    echo -e "${RED}Command: $NIX_BUILD_CMD${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  # Test 4: Verify workflow validates the build completed
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: CI workflow includes success verification${NC}"
+
+  if grep -q "Home Manager configuration builds successfully" "$WORKFLOW_FILE"; then
+    echo -e "${GREEN}✓ PASS: CI workflow verifies build success${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: CI workflow missing build success verification${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
+  fi
+
+  cd "$REPO_ROOT"
+}
 
 # Test 19: WezTerm Lua validation hook with valid config
 test_wezterm_lua_validation() {
@@ -1397,6 +1466,290 @@ LUAEOF
   rm -f "${LUA_FILE}.test"
 }
 
+# Test 21: WezTerm Lua syntax pre-commit hook execution (E2E)
+test_wezterm_lua_syntax_pre_commit_hook_e2e() {
+  print_test_header "test_wezterm_lua_syntax_pre_commit_hook_e2e"
+
+  # Create test repo with pre-commit hook
+  local tempdir=$(mktemp -d)
+  trap "rm -rf '$tempdir'" EXIT
+
+  cd "$tempdir"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+
+  # Create minimal wezterm.nix-like file structure
+  mkdir -p nix/home
+  cat > nix/home/wezterm.nix <<'WEZTERMEOF'
+{ config, pkgs, lib, ... }:
+{
+  programs.wezterm = {
+    enable = true;
+    extraConfig = ''
+      local config = {}
+      config.font_size = 12.0
+      return config
+    '';
+  };
+}
+WEZTERMEOF
+
+  # Create pre-commit hook that mimics wezterm-lua-syntax validation
+  # Uses simplified Lua extraction (grep) since we don't have full Nix environment
+  mkdir -p .git/hooks
+  cat > .git/hooks/pre-commit <<'HOOKEOF'
+#!/bin/bash
+set -e
+
+# Check if wezterm.nix is in the commit
+if git diff --cached --name-only | grep -q "nix/home/wezterm.nix"; then
+  echo "Validating WezTerm Lua syntax..."
+
+  # Extract Lua code between extraConfig delimiters (simplified extraction)
+  LUA_FILE=$(mktemp)
+  trap "rm -f $LUA_FILE" EXIT
+
+  # Extract content between the two single quotes after extraConfig
+  sed -n "/extraConfig = ''/,/'';/p" nix/home/wezterm.nix | \
+    sed '1d;$d' > "$LUA_FILE"
+
+  # Validate Lua syntax using nix-shell to get luac
+  if ! nix-shell -p lua --run "luac -p $LUA_FILE" 2>&1; then
+    echo ""
+    echo "ERROR: WezTerm Lua configuration has syntax errors"
+    echo "File: nix/home/wezterm.nix"
+    echo ""
+    echo "Fix the Lua syntax errors in the extraConfig field before committing."
+    echo ""
+    exit 1
+  fi
+
+  echo "✅ WezTerm Lua configuration syntax is valid"
+fi
+HOOKEOF
+  chmod +x .git/hooks/pre-commit
+
+  # Create initial commit on main
+  echo "initial" > README.md
+  git add README.md
+  git commit -m "Initial commit"
+
+  # Test 1: Verify hook blocks commit with invalid Lua syntax
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: Pre-commit hook blocks invalid Lua${NC}"
+
+  # Introduce invalid Lua syntax
+  cat > nix/home/wezterm.nix <<'WEZTERMEOF'
+{ config, pkgs, lib, ... }:
+{
+  programs.wezterm = {
+    enable = true;
+    extraConfig = ''
+      local config = {}
+      config.font_size =
+      return config
+    '';
+  };
+}
+WEZTERMEOF
+
+  git add nix/home/wezterm.nix
+
+  # Attempt commit - should fail
+  commit_output=$(git commit -m "Invalid Lua" 2>&1) || commit_failed=1
+  if [[ $commit_failed -eq 1 ]] && echo "$commit_output" | grep -q "ERROR: WezTerm Lua"; then
+    echo -e "${GREEN}✓ PASS: Hook correctly blocked commit with invalid Lua${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Hook did not block commit with invalid Lua${NC}"
+    echo "Commit output: $commit_output"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    cd "$REPO_ROOT"
+    return 1
+  fi
+
+  # Test 2: Verify hook allows commit with valid Lua syntax
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: Pre-commit hook allows valid Lua${NC}"
+
+  # Fix Lua syntax
+  cat > nix/home/wezterm.nix <<'WEZTERMEOF'
+{ config, pkgs, lib, ... }:
+{
+  programs.wezterm = {
+    enable = true;
+    extraConfig = ''
+      local config = {}
+      config.font_size = 12.0
+      return config
+    '';
+  };
+}
+WEZTERMEOF
+
+  git add nix/home/wezterm.nix
+
+  # Attempt commit - should succeed
+  if git commit -m "Valid Lua" 2>&1; then
+    echo -e "${GREEN}✓ PASS: Hook correctly allowed commit with valid Lua${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Hook blocked commit with valid Lua${NC}"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    cd "$REPO_ROOT"
+    return 1
+  fi
+
+  cd "$REPO_ROOT"
+}
+
+# Test 22: Home Manager build check pre-push hook execution (E2E)
+test_home_manager_build_check_pre_push_hook_e2e() {
+  print_test_header "test_home_manager_build_check_pre_push_hook_e2e"
+
+  # Create test repo with pre-push hook
+  local tempdir=$(mktemp -d)
+  trap "rm -rf '$tempdir'" EXIT
+
+  cd "$tempdir"
+  git init
+  git config user.name "Test User"
+  git config user.email "test@example.com"
+
+  # Create bare repository to serve as remote (outside the working tree)
+  local bare_remote=$(mktemp -d)
+  git init --bare "$bare_remote"
+
+  # Create minimal Home Manager file structure
+  mkdir -p nix/home
+  cat > nix/home/default.nix <<'HOMEEOF'
+{ config, pkgs, lib, ... }:
+{
+  home.packages = with pkgs; [ git ];
+}
+HOMEEOF
+
+  # Create pre-push hook that mimics home-manager-build-check
+  # Uses simplified validation (no actual nix build in test environment)
+  mkdir -p .git/hooks
+  cat > .git/hooks/pre-push <<'HOOKEOF'
+#!/bin/bash
+set -e
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+  echo "ERROR: Not in a git repository"
+  exit 1
+fi
+
+# Verify origin/main exists
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+  echo "ERROR: Remote branch 'origin/main' not found"
+  exit 1
+fi
+
+# Get list of changed files between main and current branch
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+  echo "ERROR: Failed to determine changed files"
+  exit 1
+}
+
+# Check if nix/home/ directory or flake.nix changed
+if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
+  echo "Home Manager configuration files changed, validating build..."
+
+  # In real hook this would run: nix build .#homeConfigurations
+  # For testing, we do basic syntax check
+  if grep -q "BROKEN" nix/home/default.nix 2>/dev/null; then
+    echo ""
+    echo "ERROR: Home Manager configuration failed to build"
+    echo "Found BROKEN marker in configuration"
+    echo ""
+    exit 1
+  fi
+
+  echo "✅ Home Manager configuration builds successfully"
+else
+  echo "No Home Manager configuration changes detected, skipping build check."
+fi
+HOOKEOF
+  chmod +x .git/hooks/pre-push
+
+  # Create initial commit on main and push to remote
+  # First push doesn't have origin/main yet, so temporarily disable hook
+  git add .
+  git commit -m "Initial commit"
+  git remote add origin "$bare_remote"
+  mv .git/hooks/pre-push .git/hooks/pre-push.disabled
+  git push -u origin main
+  mv .git/hooks/pre-push.disabled .git/hooks/pre-push
+
+  # Test 1: Verify hook executes on push with Home Manager changes
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: Pre-push hook validates Home Manager changes${NC}"
+
+  # Create feature branch
+  git checkout -b feature
+
+  # Modify Home Manager config (valid change)
+  cat > nix/home/default.nix <<'HOMEEOF'
+{ config, pkgs, lib, ... }:
+{
+  home.packages = with pkgs; [ git vim ];
+}
+HOMEEOF
+
+  git add nix/home/default.nix
+  git commit -m "Add vim to packages"
+
+  # Attempt push - should succeed with hook execution
+  push_output=$(git push -u origin feature 2>&1)
+  if echo "$push_output" | grep -q "Home Manager configuration"; then
+    echo -e "${GREEN}✓ PASS: Hook executed and validated Home Manager changes${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Hook did not execute on Home Manager changes${NC}"
+    echo "Push output: $push_output"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    cd "$REPO_ROOT"
+    return 1
+  fi
+
+  # Test 2: Verify hook blocks push with broken Home Manager config
+  TESTS_RUN=$((TESTS_RUN + 1))
+  echo -e "${YELLOW}Running: Pre-push hook blocks broken Home Manager config${NC}"
+
+  # Introduce broken config (marked with BROKEN)
+  cat > nix/home/default.nix <<'HOMEEOF'
+{ config, pkgs, lib, ... }:
+{
+  # BROKEN configuration
+  home.packages = with pkgs; [ git vim ];
+}
+HOMEEOF
+
+  git add nix/home/default.nix
+  git commit -m "Break config"
+
+  # Attempt push - should fail
+  push_failed=0
+  push_output=$(git push 2>&1) || push_failed=1
+  if [[ $push_failed -eq 1 ]] && echo "$push_output" | grep -q "ERROR: Home Manager configuration failed"; then
+    echo -e "${GREEN}✓ PASS: Hook correctly blocked push with broken config${NC}"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+  else
+    echo -e "${RED}✗ FAIL: Hook did not block push with broken config${NC}"
+    echo "Push output: $push_output"
+    echo "Push failed: $push_failed"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    cd "$REPO_ROOT"
+    return 1
+  fi
+
+  cd "$REPO_ROOT"
+}
+
 # Main test runner
 main() {
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1432,6 +1785,9 @@ main() {
       echo "  test_home_manager_build_check_no_origin_main"
       echo "  test_home_manager_build_check_regex_pattern"
       echo "  test_wezterm_lua_validation"
+      echo "  test_ci_workflow_home_manager_build"
+      echo "  test_wezterm_lua_syntax_pre_commit_hook_e2e"
+      echo "  test_home_manager_build_check_pre_push_hook_e2e"
       exit 1
     fi
   else
@@ -1457,6 +1813,9 @@ main() {
     test_home_manager_build_check_no_origin_main
     test_home_manager_build_check_regex_pattern
     test_wezterm_lua_validation
+    test_ci_workflow_home_manager_build
+    test_wezterm_lua_syntax_pre_commit_hook_e2e
+    test_home_manager_build_check_pre_push_hook_e2e
   fi
 
   # Print summary

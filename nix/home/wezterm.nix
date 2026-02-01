@@ -34,8 +34,8 @@
     enableBashIntegration = true;
     enableZshIntegration = true;
 
-    # Lua configuration (note: Lua uses -- for comments, not #)
-    # TODO(#1737): Add explanatory comment about mixed comment syntax
+    # Lua configuration in extraConfig
+    # Note: Inside the Lua code below, use -- for comments (Lua syntax), not # (Nix syntax)
     extraConfig = ''
       local wezterm = require('wezterm')
       local config = wezterm.config_builder()

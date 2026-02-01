@@ -105,7 +105,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         set -e
 
         # Extract Lua code from nix/home/wezterm.nix
-        # The extraConfig field contains Lua code in a Nix multiline string
+        # The extraConfig field contains Lua code in a Nix indented string (double-single-quote delimiter)
         LUA_FILE=$(mktemp)
         trap "rm -f $LUA_FILE" EXIT
 
@@ -115,19 +115,32 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         # - Nix string interpolation: extraConfig = "font_size = ${toString 12}"
         # - Indented strings with custom indentation handling
         # - Escaped characters in multiline strings
-        ${pkgs.nix}/bin/nix eval --raw --impure \
+        if ! NIX_OUTPUT=$(${pkgs.nix}/bin/nix eval --raw --impure \
           --expr '(import ./nix/home/wezterm.nix {
             config = {};
             pkgs = import <nixpkgs> {};
             lib = (import <nixpkgs> {}).lib;
           }).programs.wezterm.extraConfig' \
-          > "$LUA_FILE"
+          2>&1); then
+          echo ""
+          echo "ERROR: Failed to extract Lua code from WezTerm Nix configuration"
+          echo "File: nix/home/wezterm.nix"
+          echo ""
+          echo "Nix evaluation error:"
+          echo "$NIX_OUTPUT"
+          echo ""
+          echo "Fix the Nix configuration errors before committing."
+          echo ""
+          exit 1
+        fi
+
+        echo "$NIX_OUTPUT" > "$LUA_FILE"
 
         # Validate Lua syntax and capture output
         LUA_ERRORS=$(${pkgs.lua}/bin/luac -p "$LUA_FILE" 2>&1) || {
           echo ""
           echo "ERROR: WezTerm Lua configuration has syntax errors"
-          echo "File: nix/home/wezterm.nix"
+          echo "File: nix/home/wezterm.nix (extraConfig field)"
           echo ""
           echo "Lua syntax validation failed with:"
           echo "$LUA_ERRORS"
@@ -470,7 +483,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
           exit 1
         }
 
-        # Check if any Home Manager or WezTerm config files changed
+        # Check if nix/home/ directory or flake.nix changed
         if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
           echo "Home Manager configuration files changed, validating build..."
 

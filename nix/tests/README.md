@@ -52,6 +52,6 @@ Without these tests, a refactoring could:
 - Break the Nix evaluation expression (wrong field path)
 - Cause silent failures (missing error handling)
 - Allow invalid Lua to pass (incorrect luac flags)
-- Extract wrong content (incorrect multiline string parsing)
+- Extract wrong content (incorrect indented string parsing)
 
 The tests ensure the hook continues to function correctly across changes to the Nix configuration structure.

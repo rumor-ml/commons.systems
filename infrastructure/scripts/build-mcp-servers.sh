@@ -58,6 +58,7 @@ for server in "${MCP_SERVERS[@]}"; do
   echo -e "Building ${server}..."
 
   # Test 1: npm build (TypeScript compilation)
+  # TODO(#1757): npm build errors completely suppressed in build-mcp-servers.sh
   if (cd "$server" && npm run build) > /dev/null 2>&1; then
     echo -e "  ${GREEN}✓ npm build succeeded${NC}"
   else
