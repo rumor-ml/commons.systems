@@ -15,12 +15,12 @@ CLEANUP_DIRS=()
 CLEANUP_FAILURES=0
 
 # Cleanup function to remove all temp directories
-# TODO(#1680): cleanup returns 0 even when rm fails, hiding cleanup failures
 cleanup() {
   local failed=0
   for dir in "${CLEANUP_DIRS[@]}"; do
     if ! rm -rf "$dir" 2>/dev/null; then
-      echo "WARNING: Failed to cleanup directory: $dir" >&2
+      echo "ERROR: Failed to cleanup directory: $dir" >&2
+      echo "  Run manually: sudo rm -rf \"$dir\"" >&2
       ((CLEANUP_FAILURES++))
       failed=1
     fi
@@ -986,17 +986,24 @@ echo "Passed: $PASSES"
 echo "Failed: $FAILURES"
 echo "================================"
 
+# Run cleanup before final exit to check for failures
+trap - EXIT  # Disable trap to avoid running cleanup twice
+cleanup
+
 if [[ $CLEANUP_FAILURES -gt 0 ]]; then
   echo ""
-  echo "WARNING: $CLEANUP_FAILURES cleanup operations failed"
+  echo "ERROR: $CLEANUP_FAILURES cleanup operations failed"
   echo "Temporary directories may have been left behind"
   echo "Check /tmp for orphaned test directories"
 fi
 
-if [[ $FAILURES -eq 0 ]]; then
+if [[ $FAILURES -eq 0 ]] && [[ $CLEANUP_FAILURES -eq 0 ]]; then
   echo "All tests passed!"
   exit 0
 else
+  if [[ $CLEANUP_FAILURES -gt 0 ]]; then
+    echo "ERROR: Test cleanup failed - temp directories may remain in /tmp"
+  fi
   echo "$FAILURES test(s) failed"
   exit 1
 fi

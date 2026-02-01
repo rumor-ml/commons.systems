@@ -36,12 +36,17 @@
       # Phase 1: Test source in subshell to detect failures without affecting current shell
       # The subshell isolates failures (command errors, exit/return statements) so they don't
       # affect the parent shell. This prevents partial variable exports from a failing script.
+      #
+      # Example problem without two-phase:
+      #   If hm-session-vars.sh exports VAR1 then fails, current shell gets VAR1 but is in
+      #   inconsistent state. User might not notice the failure but will have wrong env vars.
+      #
+      # Two-phase solution: Test in subshell first (isolated), then source for real only if test passes.
       # Note: Subshell test doesn't export variables to parent shell, so we need phase 2.
       if ! (. "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh") 2>"$error_file"; then
         source_error=$(cat "$error_file" 2>&1)
         # Cleanup failure is non-fatal - we warn but continue to display source error diagnostics
         # After displaying all error information, shell init is aborted (return 1) due to source failure
-        # (Later cleanup attempts use _HM_CLEANUP_WARNED flag to avoid repeated warnings)
         if ! rm -f "$error_file" 2>&1; then
           echo "WARNING: Failed to cleanup temp file: $error_file" >&2
           echo "  This may indicate filesystem or permission issues" >&2
@@ -66,6 +71,8 @@
       if ! . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" 2>"$error_file"; then
         main_error=$(cat "$error_file" 2>&1)
         if ! rm -f "$error_file" 2>/dev/null; then
+          # Avoid repeated warnings across multiple cleanup attempts in this function
+          # (Same flag used in line 53 cleanup path and line 92 cleanup path)
           if [ -z "$_HM_CLEANUP_WARNED" ]; then
             echo "WARNING: Failed to cleanup temp file: $error_file" >&2
             echo "  Check /tmp directory health and permissions" >&2
@@ -82,6 +89,8 @@
         return 1
       fi
       if ! rm -f "$error_file" 2>/dev/null; then
+        # Avoid repeated warnings across multiple cleanup attempts in this function
+        # (Same flag used in line 53 cleanup path and line 76 cleanup path)
         if [ -z "$_HM_CLEANUP_WARNED" ]; then
           echo "WARNING: Failed to cleanup temp file: $error_file" >&2
           echo "  Check /tmp directory health and permissions" >&2

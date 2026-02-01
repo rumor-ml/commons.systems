@@ -36,7 +36,7 @@ When running on WSL, the configuration includes:
   config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. "your-username" }
   ```
 
-  (The actual generated config concatenates `/home/` with your username using Lua's `..` operator)
+  (The generated config concatenates `/home/` with your username using Lua's `..` operator. The username is safely escaped using Nix's `lib.strings.toJSON` to prevent Lua syntax errors from special characters like quotes.)
 
 - **Windows Copy**: Activation script copies config to Windows location
   - Source: `~/.config/wezterm/wezterm.lua`

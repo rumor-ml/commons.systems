@@ -52,8 +52,10 @@
     let
       envUser = builtins.getEnv "USER";
       # Fallback: extract username from HOME environment variable
-      # Edge case: if HOME=/ then extractedUser would be "/" (NOT validated - see TODO(#1685))
-      # Note: This fallback is extremely rare - USER is set by login systems in virtually all Unix environments. If this fallback is reached, it likely indicates a severely misconfigured environment.
+      # Edge case: if HOME=/ then extractedUser would be "/" which passes the empty check
+      # but will cause errors in downstream code expecting a valid username.
+      # TODO(#1685) will add validation to reject "/", ".", "..", and paths with "/" prefix
+      # Note: This fallback is extremely rare - USER is set by login systems in virtually all Unix environments.
       homeDir = builtins.getEnv "HOME";
       extractedUser = if homeDir != "" then builtins.baseNameOf homeDir else "";
 

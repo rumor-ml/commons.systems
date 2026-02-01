@@ -52,8 +52,10 @@
       ];
 
       # State constructor functions with validation to enforce invariants
-      # Note: Prefer using these constructors and accessors rather than direct field access
-      # to maintain encapsulation and allow future refactoring.
+      # Note: Use these constructors to create states (enforces validation).
+      # Accessors (getStateType, etc.) are provided for consistency but internal
+      # implementation may use direct field access for performance.
+      # External code should prefer accessors to maintain encapsulation.
       mkInitialState =
         assert lib.assertMsg true "mkInitialState: no parameters required";
         {
@@ -84,11 +86,25 @@
         assert lib.assertMsg (lib.elem state._type validStateTypes) "Invalid state type: ${state._type}";
         state;
 
+      # Validation function to check state invariants at usage boundaries
+      # This provides defense-in-depth against invalid state creation outside constructors
+      validateState =
+        state:
+        let
+          hasValidType = lib.elem (state._type or null) validStateTypes;
+          contentValid =
+            if state._type == "initial" then !(state ? content) else lib.isList (state.content or null);
+        in
+        assert lib.assertMsg hasValidType "Invalid state type: ${state._type or "<missing>"}";
+        assert lib.assertMsg contentValid "State ${state._type} must have list content";
+        state;
+
       # Accessor functions to hide internal structure and improve encapsulation
-      getStateType = state: state._type;
-      getStateContent = state: state.content or [ ];
-      isCollecting = state: state._type == "collecting";
-      isStopped = state: state._type == "stopped";
+      # These validate state invariants before accessing fields
+      getStateType = state: (validateState state)._type;
+      getStateContent = state: (validateState state).content or [ ];
+      isCollecting = state: (validateState state)._type == "collecting";
+      isStopped = state: (validateState state)._type == "stopped";
 
       # Parser states: initial (scanning) → collecting (accumulating) → stopped (done)
       initialState = mkInitialState;
@@ -104,8 +120,10 @@
           mkCollectingState [ ]
 
         # State: collecting - check for closing delimiter or collect line
-        # Stop collecting when we hit closing delimiter ''
-        # (but not '''' which is Nix's way to escape '' inside multiline strings)
+        # Stop collecting when we hit a line containing '' (closing delimiter)
+        # UNLESS the line also contains '''' (escaped quotes within the string)
+        # This handles: lines with only '' (stop), lines with only '''' (continue),
+        # lines with both (continue - not a standalone closing delimiter)
         else if isCollecting state && lib.hasInfix "''" line && !lib.hasInfix "''''" line then
           mkStoppedState stateContent
 

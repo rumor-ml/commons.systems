@@ -5,8 +5,10 @@
 # initialization scripts during shell startup.
 #
 # Manual edits to ~/.bashrc are not possible because it is a symlink to a read-only file in the Nix store.
+# If you delete the symlink and create a regular file, your changes will be lost on the next
+# 'home-manager switch' activation when the symlink is recreated.
 # To add custom configuration, use the 'initExtra' option which gets included in the
-# generated .bashrc content.
+# generated .bashrc content and persists across activations.
 #
 # This ensures that all Home Manager-managed environment variables
 # (like TZ for timezone) are properly loaded in new shell sessions.
@@ -25,7 +27,10 @@ in
     # environment variables are available in new tabs.
     #
     # Note: Login shells won't load this unless they explicitly source .bashrc.
-    # To check if bash is a login shell: Run 'echo $0'. Login shells show '-bash', non-login show 'bash'.
+    # To check if bash is a login shell:
+    #   - Reliable: Run 'shopt -q login_shell && echo "login" || echo "non-login"'
+    #   - Heuristic: Run 'echo $0'. Login shells typically show '-bash', non-login show 'bash'
+    #     (leading dash convention may vary by system)
     #
     # Shared logic defined in lib/shell-helpers.nix
     initExtra = shellHelpers.sessionVarsSourcingScript;

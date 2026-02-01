@@ -41,7 +41,7 @@ Current packages managed:
 
 ### Verifying Package Identifiers
 
-> **⚠️ Build-Time Limitation:** The Nix build tests validate JSON structure and package identifier format, but **cannot verify** that packages are actually installable on Windows. Package availability depends on the winget repository state and your Windows version. Always verify package identifiers on Windows before adding them to the configuration.
+> **⚠️ Build-Time Limitation:** The Nix build tests run on Linux/WSL and validate JSON structure and package identifier format, but **cannot verify** that packages are actually installable on Windows. This is a fundamental cross-platform limitation: the winget package manager and repository are only accessible from Windows, while Nix builds run in a Linux sandbox. Package availability depends on the winget repository state and your Windows version. Always verify package identifiers on Windows before adding them to the configuration.
 
 To manually verify a package identifier before adding it to the configuration:
 

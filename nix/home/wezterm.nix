@@ -44,11 +44,14 @@
 
       ${lib.optionalString pkgs.stdenv.isLinux ''
         -- WSL Integration (Linux/WSL only)
-        -- When running on Linux/WSL, include default_prog to automatically
-        -- launch into WSL when the Windows WezTerm application reads this config.
-        -- Using lib.strings.toJSON to safely escape special characters in username (prevents Lua injection).
-        -- Example: username 'test"user' becomes "test\"user" (JSON string), then concatenated: '/home/' .. "test\"user"
-        -- This prevents broken Lua syntax that would occur with unescaped interpolation
+        -- This section is included when Home Manager runs on Linux/WSL.
+        -- The generated config is copied to Windows (via activation script below)
+        -- where WezTerm reads it and automatically launches into WSL.
+        -- Using lib.strings.toJSON to escape special characters in username
+        -- This prevents Lua syntax errors when username contains quotes or backslashes
+        -- Example: username 'test"user' becomes "test\"user" (valid JSON string)
+        -- Generated Lua: '/home/' .. "test\"user" (valid Lua syntax)
+        -- Note: username comes from build environment (USER/HOME vars), not untrusted input
         config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
       ''}
 
@@ -104,7 +107,11 @@
         # Capture ls output and stderr separately for better error diagnostics
         LS_STDERR=$(mktemp)
         # Cleanup temp file on exit to prevent /tmp accumulation
-        # Cleanup failures only warn (not fail) to avoid blocking activation on transient filesystem issues
+        # Cleanup failures only warn (not fail) to avoid blocking activation on transient issues:
+        #   - /tmp mounted read-only temporarily during system updates
+        #   - Race condition if another process deleted the file
+        #   - Insufficient permissions changed by another process
+        # Note: Repeated warnings may indicate /tmp filesystem health issues worth investigating
         trap 'if ! rm -f "$LS_STDERR" 2>&1; then echo "WARNING: Failed to cleanup stderr temp file: $LS_STDERR" >&2; fi' EXIT
         LS_OUTPUT=$(ls /mnt/c/Users/ 2>"$LS_STDERR")
         LS_EXIT_CODE=$?
@@ -189,7 +196,12 @@
           echo "" >&2
 
           # Attempt to list /mnt/c/Users again for diagnostic output
-          # If this second ls fails, directory passed initial readability check (line 88) but is now inaccessible - indicates race condition or filesystem issue
+          # If this second ls fails, directory passed initial readability check (line 88) but is now inaccessible
+          # Potential causes:
+          #   - WSL filesystem being unmounted during activation (e.g., system shutdown)
+          #   - Windows permissions changed by group policy update
+          #   - Network drive disconnect (if /mnt/c is network-backed in unusual setup)
+          # This is extremely rare but can occur during system state transitions
           if ! ls_output=$(ls -1 /mnt/c/Users/ 2>&1); then
             echo "ERROR: Additionally, cannot list /mnt/c/Users/ for diagnostics" >&2
             echo "  Directory passed initial checks but is now inaccessible" >&2
