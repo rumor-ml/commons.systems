@@ -1840,7 +1840,7 @@ export default function MythicBastionlandRealms() {
   const playIntervalRef = useRef(null);
 
   // Initialize generator
-  const initializeGenerator = useCallback(() => {
+  useEffect(() => {
     try {
       const gen = new RealmGenerator(seed);
       gen.initialize(startAtBorder);
@@ -1852,11 +1852,6 @@ export default function MythicBastionlandRealms() {
       throw error;
     }
   }, [seed, startAtBorder]);
-
-  useEffect(() => {
-    initializeGenerator();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Expose for console testing
   useEffect(() => {
@@ -1911,7 +1906,15 @@ export default function MythicBastionlandRealms() {
 
   const handleReset = () => {
     setIsPlaying(false);
-    initializeGenerator();
+    try {
+      const gen = new RealmGenerator(seed);
+      gen.initialize(startAtBorder);
+      setGenerator(gen);
+      setStep(0);
+      setRenderKey((prev) => prev + 1);
+    } catch (error) {
+      console.error('Failed to initialize generator:', error);
+    }
   };
 
   const handleSeedChange = () => {
@@ -2191,207 +2194,138 @@ function HexMap({ generator, viewBounds, renderKey }) {
   }
 
   // Render hexes
-  for (const [key, hex] of generator.hexes) {
-    if (!hex.revealed) continue;
+  try {
+    for (const [key, hex] of generator.hexes) {
+      if (!hex.revealed) continue;
 
-    const { x, y } = hexToPixel(hex.q, hex.r, size);
-    const corners = getHexCorners(x, y, size);
-    const points = corners.map((c) => `${c.x},${c.y}`).join(' ');
+      const { x, y } = hexToPixel(hex.q, hex.r, size);
+      const corners = getHexCorners(x, y, size);
+      const points = corners.map((c) => `${c.x},${c.y}`).join(' ');
 
-    // Create clipPath for this hex (used to clip images to hex boundary)
-    const clipId = `hex-clip-${key}`;
-    clipPathDefs.push(
-      <clipPath key={clipId} id={clipId}>
-        <polygon points={points} />
-      </clipPath>
-    );
+      // Create clipPath for this hex (used to clip images to hex boundary)
+      const clipId = `hex-clip-${key}`;
+      clipPathDefs.push(
+        <clipPath key={clipId} id={clipId}>
+          <polygon points={points} />
+        </clipPath>
+      );
 
-    // Border hexes: Keep colored fills (sea, cliff, wasteland)
-    // Non-border hexes: White background with terrain icon
-    let fillColor;
-    if (hex.isBorder) {
-      fillColor = TERRAIN_COLORS[hex.borderType];
-    } else {
-      fillColor = '#ffffff'; // White background for non-border hexes
-    }
-
-    hexElements.push(
-      <polygon key={key} points={points} fill={fillColor} stroke="#333" strokeWidth="1" />
-    );
-
-    // Terrain icon for non-border hexes
-    if (!hex.isBorder) {
-      let terrainAsset;
-      if (hex.isLake) {
-        terrainAsset = TERRAIN_ASSETS.lake;
+      // Border hexes: Keep colored fills (sea, cliff, wasteland)
+      // Non-border hexes: White background with terrain icon
+      let fillColor;
+      if (hex.isBorder) {
+        fillColor = TERRAIN_COLORS[hex.borderType];
       } else {
-        terrainAsset = TERRAIN_ASSETS[hex.terrain];
+        fillColor = '#ffffff'; // White background for non-border hexes
       }
 
-      if (terrainAsset) {
-        const iconSize = size * 1.8; // Scale icon larger since it will be clipped
-        featureElements.push(
-          <image
-            key={`terrain-${key}`}
-            href={terrainAsset}
-            x={x - iconSize / 2}
-            y={y - iconSize / 2}
-            width={iconSize}
-            height={iconSize}
-            preserveAspectRatio="xMidYMid meet"
-            clipPath={`url(#hex-clip-${key})`}
-          />
-        );
-      }
-    }
-
-    // Feature icon (holdings, landmarks, myth sites)
-    if (hex.feature) {
-      let featureAsset = null;
-      let fallbackIcon = null;
-
-      if (hex.feature === 'holding' && hex.holdingType) {
-        featureAsset = HOLDING_ASSETS[hex.holdingType];
-        fallbackIcon = FEATURE_ICONS[hex.feature];
-      } else if (hex.feature === 'mythSite') {
-        // No asset for myth site - use emoji
-        fallbackIcon = FEATURE_ICONS[hex.feature];
-      } else if (hex.feature.startsWith('landmark_')) {
-        const landmarkType = hex.feature.replace('landmark_', '');
-        featureAsset = LANDMARK_ASSETS[landmarkType];
-        fallbackIcon = FEATURE_ICONS[hex.feature];
-      }
-
-      if (featureAsset) {
-        const iconSize = size * 1.8; // Scale icon larger since it will be clipped
-        featureElements.push(
-          <image
-            key={`feature-${key}`}
-            href={featureAsset}
-            x={x - iconSize / 2}
-            y={y - iconSize / 2}
-            width={iconSize}
-            height={iconSize}
-            preserveAspectRatio="xMidYMid meet"
-            clipPath={`url(#hex-clip-${key})`}
-          />
-        );
-      } else if (fallbackIcon) {
-        // Fallback to emoji for features without assets
-        featureElements.push(
-          <text key={`feature-${key}`} x={x} y={y + 5} textAnchor="middle" fontSize="16">
-            {fallbackIcon}
-          </text>
-        );
-      }
-    }
-  }
-
-  // Render rivers - show edge if EITHER hex it touches is revealed
-  for (const [edgeKey, river] of generator.riverEdges) {
-    const [hexPart, direction] = edgeKey.split(':');
-    const { q, r } = parseHexKey(hexPart);
-    const hex1 = generator.hexes.get(hexPart);
-
-    // Also check the neighbor hex (the other side of the edge)
-    const neighbor = hexNeighbor(q, r, direction);
-    const neighborKey = hexKey(neighbor.q, neighbor.r);
-    const hex2 = generator.hexes.get(neighborKey);
-
-    // Draw edge if either hex is revealed
-    const isVisible = (hex1 && hex1.revealed) || (hex2 && hex2.revealed);
-
-    if (isVisible) {
-      const { x, y } = hexToPixel(q, r, size);
-      const { p1, p2 } = getEdgeEndpoints(x, y, size, direction);
-
-      riverElements.push(
-        <line
-          key={`river-${edgeKey}`}
-          x1={p1.x}
-          y1={p1.y}
-          x2={p2.x}
-          y2={p2.y}
-          stroke="#4169E1"
-          strokeWidth="4"
-          strokeLinecap="round"
-        />
+      hexElements.push(
+        <polygon key={key} points={points} fill={fillColor} stroke="#333" strokeWidth="1" />
       );
-    }
-  }
 
-  // Render barriers
-  for (const edgeKey of generator.barrierEdges) {
-    const [hexPart, direction] = edgeKey.split(':');
-    const { q, r } = parseHexKey(hexPart);
-    const hex = generator.hexes.get(hexPart);
+      // Terrain icon for non-border hexes
+      if (!hex.isBorder) {
+        let terrainAsset;
+        if (hex.isLake) {
+          terrainAsset = TERRAIN_ASSETS.lake;
+        } else {
+          terrainAsset = TERRAIN_ASSETS[hex.terrain];
+        }
 
-    if (hex && hex.revealed) {
-      const { x, y } = hexToPixel(q, r, size);
-      const { p1, p2 } = getEdgeEndpoints(x, y, size, direction);
-
-      barrierElements.push(
-        <line
-          key={`barrier-${edgeKey}`}
-          x1={p1.x}
-          y1={p1.y}
-          x2={p2.x}
-          y2={p2.y}
-          stroke="#DC143C"
-          strokeWidth="6"
-          strokeLinecap="round"
-        />
-      );
-    }
-  }
-
-  // Explorer path trail (last 10 positions)
-  // Draw through EDGE MIDPOINTS to accurately show which edges were crossed
-  const traversedEdgeKeys = new Set();
-  if (generator.explorerPath && generator.explorerPath.length > 1) {
-    const trail = generator.explorerPath.slice(-10);
-    for (let i = 0; i < trail.length - 1; i++) {
-      const from = trail[i];
-      const to = trail[i + 1];
-
-      // Find the direction between these two hexes to track which edge was crossed
-      for (const dir of DIRECTION_NAMES) {
-        const neighbor = hexNeighbor(from.q, from.r, dir);
-        if (neighbor.q === to.q && neighbor.r === to.r) {
-          // Record both key formats for the traversed edge
-          const key1 = `${from.q},${from.r}:${dir}`;
-          const oppDir = OPPOSITE_DIRECTION[dir];
-          const key2 = `${to.q},${to.r}:${oppDir}`;
-          traversedEdgeKeys.add(key1);
-          traversedEdgeKeys.add(key2);
-          break;
+        if (terrainAsset) {
+          const iconSize = size * 1.8; // Scale icon larger since it will be clipped
+          featureElements.push(
+            <image
+              key={`terrain-${key}`}
+              href={terrainAsset}
+              x={x - iconSize / 2}
+              y={y - iconSize / 2}
+              width={iconSize}
+              height={iconSize}
+              preserveAspectRatio="xMidYMid meet"
+              clipPath={`url(#hex-clip-${key})`}
+            />
+          );
         }
       }
 
-      // Draw from hex center to hex center (crossing through the shared edge)
-      const fromPx = hexToPixel(from.q, from.r, size);
-      const toPx = hexToPixel(to.q, to.r, size);
-      const opacity = 0.3 + (i / trail.length) * 0.5;
+      // Feature icon (holdings, landmarks, myth sites)
+      if (hex.feature) {
+        let featureAsset = null;
+        let fallbackIcon = null;
 
-      explorerElements.push(
-        <line
-          key={`trail-${i}`}
-          x1={fromPx.x}
-          y1={fromPx.y}
-          x2={toPx.x}
-          y2={toPx.y}
-          stroke="#FFD700"
-          strokeWidth="3"
-          strokeOpacity={opacity}
-          strokeLinecap="round"
-        />
-      );
+        if (hex.feature === 'holding' && hex.holdingType) {
+          featureAsset = HOLDING_ASSETS[hex.holdingType];
+          fallbackIcon = FEATURE_ICONS[hex.feature];
+        } else if (hex.feature === 'mythSite') {
+          // No asset for myth site - use emoji
+          fallbackIcon = FEATURE_ICONS[hex.feature];
+        } else if (hex.feature.startsWith('landmark_')) {
+          const landmarkType = hex.feature.replace('landmark_', '');
+          featureAsset = LANDMARK_ASSETS[landmarkType];
+          fallbackIcon = FEATURE_ICONS[hex.feature];
+        }
+
+        if (featureAsset) {
+          const iconSize = size * 1.8; // Scale icon larger since it will be clipped
+          featureElements.push(
+            <image
+              key={`feature-${key}`}
+              href={featureAsset}
+              x={x - iconSize / 2}
+              y={y - iconSize / 2}
+              width={iconSize}
+              height={iconSize}
+              preserveAspectRatio="xMidYMid meet"
+              clipPath={`url(#hex-clip-${key})`}
+            />
+          );
+        } else if (fallbackIcon) {
+          // Fallback to emoji for features without assets
+          featureElements.push(
+            <text key={`feature-${key}`} x={x} y={y + 5} textAnchor="middle" fontSize="16">
+              {fallbackIcon}
+            </text>
+          );
+        }
+      }
     }
-  }
 
-  // Highlight any barrier that exists on a traversed edge (this would be a BUG)
-  for (const edgeKey of generator.barrierEdges) {
-    if (traversedEdgeKeys.has(edgeKey)) {
+    // Render rivers - show edge if EITHER hex it touches is revealed
+    for (const [edgeKey, river] of generator.riverEdges) {
+      const [hexPart, direction] = edgeKey.split(':');
+      const { q, r } = parseHexKey(hexPart);
+      const hex1 = generator.hexes.get(hexPart);
+
+      // Also check the neighbor hex (the other side of the edge)
+      const neighbor = hexNeighbor(q, r, direction);
+      const neighborKey = hexKey(neighbor.q, neighbor.r);
+      const hex2 = generator.hexes.get(neighborKey);
+
+      // Draw edge if either hex is revealed
+      const isVisible = (hex1 && hex1.revealed) || (hex2 && hex2.revealed);
+
+      if (isVisible) {
+        const { x, y } = hexToPixel(q, r, size);
+        const { p1, p2 } = getEdgeEndpoints(x, y, size, direction);
+
+        riverElements.push(
+          <line
+            key={`river-${edgeKey}`}
+            x1={p1.x}
+            y1={p1.y}
+            x2={p2.x}
+            y2={p2.y}
+            stroke="#4169E1"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+        );
+      }
+    }
+
+    // Render barriers
+    for (const edgeKey of generator.barrierEdges) {
       const [hexPart, direction] = edgeKey.split(':');
       const { q, r } = parseHexKey(hexPart);
       const hex = generator.hexes.get(hexPart);
@@ -2400,34 +2334,108 @@ function HexMap({ generator, viewBounds, renderKey }) {
         const { x, y } = hexToPixel(q, r, size);
         const { p1, p2 } = getEdgeEndpoints(x, y, size, direction);
 
-        // Draw a purple highlight to show the crossing
-        explorerElements.push(
+        barrierElements.push(
           <line
-            key={`crossing-${edgeKey}`}
+            key={`barrier-${edgeKey}`}
             x1={p1.x}
             y1={p1.y}
             x2={p2.x}
             y2={p2.y}
-            stroke="#FF00FF"
-            strokeWidth="10"
+            stroke="#DC143C"
+            strokeWidth="6"
             strokeLinecap="round"
-            strokeOpacity="0.8"
           />
         );
       }
     }
-  }
 
-  // Explorer position
-  if (generator.currentExplorerPos) {
-    const { x, y } = hexToPixel(
-      generator.currentExplorerPos.q,
-      generator.currentExplorerPos.r,
-      size
-    );
-    explorerElements.push(
-      <circle key="explorer" cx={x} cy={y} r={8} fill="#FFD700" stroke="#000" strokeWidth="2" />
-    );
+    // Explorer path trail (last 10 positions)
+    // Draw through EDGE MIDPOINTS to accurately show which edges were crossed
+    const traversedEdgeKeys = new Set();
+    if (generator.explorerPath && generator.explorerPath.length > 1) {
+      const trail = generator.explorerPath.slice(-10);
+      for (let i = 0; i < trail.length - 1; i++) {
+        const from = trail[i];
+        const to = trail[i + 1];
+
+        // Find the direction between these two hexes to track which edge was crossed
+        for (const dir of DIRECTION_NAMES) {
+          const neighbor = hexNeighbor(from.q, from.r, dir);
+          if (neighbor.q === to.q && neighbor.r === to.r) {
+            // Record both key formats for the traversed edge
+            const key1 = `${from.q},${from.r}:${dir}`;
+            const oppDir = OPPOSITE_DIRECTION[dir];
+            const key2 = `${to.q},${to.r}:${oppDir}`;
+            traversedEdgeKeys.add(key1);
+            traversedEdgeKeys.add(key2);
+            break;
+          }
+        }
+
+        // Draw from hex center to hex center (crossing through the shared edge)
+        const fromPx = hexToPixel(from.q, from.r, size);
+        const toPx = hexToPixel(to.q, to.r, size);
+        const opacity = 0.3 + (i / trail.length) * 0.5;
+
+        explorerElements.push(
+          <line
+            key={`trail-${i}`}
+            x1={fromPx.x}
+            y1={fromPx.y}
+            x2={toPx.x}
+            y2={toPx.y}
+            stroke="#FFD700"
+            strokeWidth="3"
+            strokeOpacity={opacity}
+            strokeLinecap="round"
+          />
+        );
+      }
+    }
+
+    // Highlight any barrier that exists on a traversed edge (this would be a BUG)
+    for (const edgeKey of generator.barrierEdges) {
+      if (traversedEdgeKeys.has(edgeKey)) {
+        const [hexPart, direction] = edgeKey.split(':');
+        const { q, r } = parseHexKey(hexPart);
+        const hex = generator.hexes.get(hexPart);
+
+        if (hex && hex.revealed) {
+          const { x, y } = hexToPixel(q, r, size);
+          const { p1, p2 } = getEdgeEndpoints(x, y, size, direction);
+
+          // Draw a purple highlight to show the crossing
+          explorerElements.push(
+            <line
+              key={`crossing-${edgeKey}`}
+              x1={p1.x}
+              y1={p1.y}
+              x2={p2.x}
+              y2={p2.y}
+              stroke="#FF00FF"
+              strokeWidth="10"
+              strokeLinecap="round"
+              strokeOpacity="0.8"
+            />
+          );
+        }
+      }
+    }
+
+    // Explorer position
+    if (generator.currentExplorerPos) {
+      const { x, y } = hexToPixel(
+        generator.currentExplorerPos.q,
+        generator.currentExplorerPos.r,
+        size
+      );
+      explorerElements.push(
+        <circle key="explorer" cx={x} cy={y} r={8} fill="#FFD700" stroke="#000" strokeWidth="2" />
+      );
+    }
+  } catch (error) {
+    console.error('[HexMap] Error during hex rendering:', error);
+    throw error;
   }
 
   return (

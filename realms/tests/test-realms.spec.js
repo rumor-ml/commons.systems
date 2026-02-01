@@ -8,10 +8,11 @@ test.describe('Mythic Bastionland Realms', () => {
     await expect(page).toHaveTitle(/Mythic Bastionland Realms/);
   });
 
-  test.skip('map renders without JavaScript errors', async ({ page }) => {
+  test('map renders without JavaScript errors', async ({ page }) => {
     // Collect all console errors
     const consoleErrors = [];
     page.on('console', (msg) => {
+      console.log(`[Browser ${msg.type()}]`, msg.text());
       if (msg.type() === 'error') {
         consoleErrors.push(msg.text());
       }
@@ -25,13 +26,19 @@ test.describe('Mythic Bastionland Realms', () => {
 
     await page.goto(BASE_URL);
 
-    // Wait for the map to actually render hexes (not just SVG element)
-    // This catches initialization failures where React crashes before rendering
-    await page.waitForSelector('svg polygon', { timeout: 10000 });
+    // Wait for React island to mount
+    await page.waitForSelector('#realms-root', { timeout: 5000 });
 
-    // Count hexes - should have at least 50 for a valid map
+    // Wait for SVG to be rendered
+    await page.waitForSelector('svg', { timeout: 5000 });
+
+    // Wait for polygons to exist in DOM (not necessarily visible)
+    await page.waitForSelector('svg polygon', { state: 'attached', timeout: 10000 });
+
+    // Count hexes - at step 0 we should have starting hex + 6 neighbors = 7 revealed
+    // Each hex has 1 polygon for the hex itself
     const hexCount = await page.locator('svg polygon').count();
-    expect(hexCount).toBeGreaterThan(50);
+    expect(hexCount).toBeGreaterThanOrEqual(7);
 
     // Verify no error boundary is shown (React error fallback)
     const errorBoundary = page.locator('text=/error occurred|something went wrong/i');
@@ -51,7 +58,7 @@ test.describe('Mythic Bastionland Realms', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test.skip('map regeneration works without errors', async ({ page }) => {
+  test('map regeneration works without errors', async ({ page }) => {
     // Collect errors during regeneration
     const pageErrors = [];
     page.on('pageerror', (error) => {
@@ -59,18 +66,18 @@ test.describe('Mythic Bastionland Realms', () => {
     });
 
     await page.goto(BASE_URL);
-    await page.waitForSelector('svg polygon', { timeout: 10000 });
+    await page.waitForSelector('svg polygon', { state: 'attached', timeout: 10000 });
 
     // Click generate multiple times to test different seeds
-    const generateButton = page.locator('button:has-text("Generate New Map")');
+    const generateButton = page.locator('button:has-text("Random")');
 
     for (let i = 0; i < 5; i++) {
       await generateButton.click();
       // Wait for new map to render
-      await page.waitForTimeout(300);
-      // Verify hexes still exist
+      await page.waitForTimeout(500);
+      // Verify hexes still exist - after full simulation should have many hexes
       const hexCount = await page.locator('svg polygon').count();
-      expect(hexCount).toBeGreaterThan(50);
+      expect(hexCount).toBeGreaterThan(7); // At minimum, step 0 hexes
     }
 
     // No errors should have occurred during any regeneration
@@ -87,19 +94,19 @@ test.describe('Mythic Bastionland Realms', () => {
     await expect(lead).toBeVisible();
   });
 
-  test.skip('hex map component renders', async ({ page }) => {
+  test('hex map component renders', async ({ page }) => {
     await page.goto(BASE_URL);
 
     // Wait for React island to hydrate
-    const mapContainer = page.locator('#hex-map-root');
+    const mapContainer = page.locator('#realms-root');
     await expect(mapContainer).toBeVisible();
 
     // Check for hex map controls
-    const generateButton = page.locator('button:has-text("Generate New Map")');
-    await expect(generateButton).toBeVisible();
+    const randomButton = page.locator('button:has-text("Random")');
+    await expect(randomButton).toBeVisible();
   });
 
-  test.skip('generates new map on button click', async ({ page }) => {
+  test('generates new map on button click', async ({ page }) => {
     await page.goto(BASE_URL);
 
     // Wait for initial map to load
@@ -109,7 +116,7 @@ test.describe('Mythic Bastionland Realms', () => {
     const initialSvg = await page.locator('svg').innerHTML();
 
     // Click generate button
-    const generateButton = page.locator('button:has-text("Generate New Map")');
+    const generateButton = page.locator('button:has-text("Random")');
     await generateButton.click();
 
     // Wait a bit for re-render
@@ -123,6 +130,8 @@ test.describe('Mythic Bastionland Realms', () => {
   });
 
   test.skip('displays hex details on click', async ({ page }) => {
+    // SKIPPED: Current component doesn't have .hex-details element
+    // The component shows state panel with hex info but uses different structure
     await page.goto(BASE_URL);
 
     // Wait for map to render
@@ -140,6 +149,8 @@ test.describe('Mythic Bastionland Realms', () => {
   });
 
   test.skip('map size slider works', async ({ page }) => {
+    // SKIPPED: Current component doesn't have radius slider control
+    // Realm size is fixed, not user-controllable
     await page.goto(BASE_URL);
 
     // Wait for map to render
@@ -161,6 +172,8 @@ test.describe('Mythic Bastionland Realms', () => {
   });
 
   test.skip('legend displays all terrain types', async ({ page }) => {
+    // SKIPPED: Current component has different legend structure/content
+    // Need to update test to match actual Legend component implementation
     await page.goto(BASE_URL);
 
     const legend = page.locator('.legend');
@@ -177,13 +190,14 @@ test.describe('Mythic Bastionland Realms', () => {
   });
 
   test.skip('export button exists', async ({ page }) => {
+    // SKIPPED: Current component doesn't have export functionality
     await page.goto(BASE_URL);
 
     const exportButton = page.locator('button:has-text("Export Map")');
     await expect(exportButton).toBeVisible();
   });
 
-  test.skip('hexes have visual indicators for POI and encounters', async ({ page }) => {
+  test('hexes have visual indicators for POI and encounters', async ({ page }) => {
     await page.goto(BASE_URL);
 
     // Wait for map to render
@@ -197,7 +211,7 @@ test.describe('Mythic Bastionland Realms', () => {
     expect(circleCount).toBeGreaterThan(0);
   });
 
-  test.skip('responsive design works on mobile', async ({ page }) => {
+  test('responsive design works on mobile', async ({ page }) => {
     // Set mobile viewport
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto(BASE_URL);
@@ -206,7 +220,7 @@ test.describe('Mythic Bastionland Realms', () => {
     const heading = page.locator('h1.site-title');
     await expect(heading).toBeVisible();
 
-    const mapContainer = page.locator('#hex-map-root');
+    const mapContainer = page.locator('#realms-root');
     await expect(mapContainer).toBeVisible();
   });
 
