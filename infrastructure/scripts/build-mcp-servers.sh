@@ -19,6 +19,54 @@
 
 set -euo pipefail
 
+# Load direnv environment to ensure Nix Node.js is used instead of Homebrew Node.js.
+# This prevents ICU4c library version conflicts on macOS.
+DIRENV_OUTPUT=$(direnv export bash 2>/dev/null)
+DIRENV_EXIT=$?
+
+if [ $DIRENV_EXIT -ne 0 ]; then
+  # Capture full output including stderr for diagnostics
+  DIRENV_OUTPUT=$(direnv export bash 2>&1)
+fi
+
+if [ $DIRENV_EXIT -ne 0 ] || [ -z "$DIRENV_OUTPUT" ]; then
+  echo "ERROR: direnv environment setup failed"
+  echo ""
+
+  # Diagnose specific failure mode
+  if ! command -v direnv &> /dev/null; then
+    echo "direnv is not installed."
+    echo ""
+    echo "To install direnv:"
+    echo "  - macOS: brew install direnv"
+    echo "  - Linux: apt-get install direnv"
+    echo ""
+    echo "Then add shell integration to your shell RC file:"
+    echo "  - Bash: eval \"\$(direnv hook bash)\""
+    echo "  - Zsh: eval \"\$(direnv hook zsh)\""
+  elif [ ! -f .envrc ]; then
+    echo ".envrc file not found in repository root"
+    echo "This repository requires a .envrc file for environment configuration"
+  elif ! direnv status &> /dev/null; then
+    echo "direnv is installed but not configured for this shell"
+    echo "Add to your shell RC file:"
+    echo "  - Bash: eval \"\$(direnv hook bash)\""
+    echo "  - Zsh: eval \"\$(direnv hook zsh)\""
+  else
+    echo "direnv is installed but this directory is not allowed"
+    echo "Run: direnv allow"
+    echo ""
+    echo "If 'direnv allow' fails, check .envrc for syntax errors"
+  fi
+
+  echo ""
+  echo "direnv error output:"
+  echo "$DIRENV_OUTPUT"
+  exit 1
+fi
+
+eval "$DIRENV_OUTPUT"
+
 # Color output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -53,11 +101,14 @@ for server in "${MCP_SERVERS[@]}"; do
   echo -e "Building ${server}..."
 
   # Test 1: npm build (TypeScript compilation)
-  if (cd "$server" && npm run build) > /dev/null 2>&1; then
+  BUILD_OUTPUT=$(cd "$server" && npm run build 2>&1)
+  BUILD_EXIT=$?
+
+  if [[ $BUILD_EXIT -eq 0 ]]; then
     echo -e "  ${GREEN}✓ npm build succeeded${NC}"
   else
     echo -e "  ${RED}✗ npm build failed${NC}"
-    echo "    Run 'cd $server && npm run build' to see the error details"
+    echo "$BUILD_OUTPUT"
     BUILD_FAILED=1
     FAILED_SERVERS+=("$server")
     echo ""

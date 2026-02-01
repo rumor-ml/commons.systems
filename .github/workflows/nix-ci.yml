@@ -59,6 +59,46 @@ jobs:
             which gh-workflow-mcp-server && echo "✓ gh-workflow-mcp-server found" || echo "✗ gh-workflow-mcp-server missing"
           '
 
+      # Configuration evaluation test: Validate Darwin Home Manager config on Linux CI
+      # Validates that the aarch64-darwin configuration evaluates successfully
+      # Catches Nix evaluation errors, undefined packages, and module configuration issues
+      #
+      # What this validates:
+      # - Home Manager configuration evaluates without errors
+      # - All Home Manager modules (including WezTerm) have valid Nix syntax
+      # - Package references are valid for aarch64-darwin
+      # - Configuration can be evaluated on Linux runners (cross-platform evaluation)
+      #
+      # Note: This validates on Linux CI that the aarch64-darwin configuration evaluates
+      # and builds successfully. Actual activation on macOS may require building some packages
+      # from source if they're not in the binary cache.
+      #
+      # Note: Uses --no-link to avoid creating result symlink (build artifacts are in /nix/store)
+      #
+      # Manual test: Introduce Nix syntax error (e.g., remove closing brace on line 78)
+      # in nix/home/wezterm.nix and verify CI fails with Nix evaluation error
+      # TODO(#1760): Add E2E test for actual Home Manager activation on macOS runner
+      - name: Verify Home Manager configuration builds
+        run: |
+          echo "Building Home Manager configuration (aarch64-darwin)..."
+          if ! BUILD_OUTPUT=$(nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --no-link 2>&1); then
+            echo "❌ ERROR: Home Manager configuration failed to build"
+            echo ""
+            echo "Build output:"
+            echo "$BUILD_OUTPUT"
+            echo ""
+            echo "Common causes:"
+            echo "  - Nix syntax errors in nix/home/*.nix files"
+            echo "  - Invalid Home Manager options"
+            echo "  - Package not available for aarch64-darwin"
+            echo "  - Module configuration errors"
+            echo ""
+            echo "To debug locally:"
+            echo "  nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --show-trace"
+            exit 1
+          fi
+          echo "✓ Home Manager configuration builds successfully"
+
       - name: Build tmux-tui package
         run: nix build .#tmux-tui
 
