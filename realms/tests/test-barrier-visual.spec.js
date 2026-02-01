@@ -231,6 +231,7 @@ test.describe('Seed 12345 Step 7 Barrier Crossing Analysis', () => {
     context,
   }) => {
     // SKIPPED: Test expects "Barrier Crossings" UI feature that hasn't been implemented yet
+    // Tracking: https://github.com/rumor-ml/commons.systems/issues/1778
     console.log('\n--- Visual Verification with Fresh Browser ---\n');
 
     // Force hard reload by clearing cache

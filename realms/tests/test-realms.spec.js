@@ -132,6 +132,7 @@ test.describe('Mythic Bastionland Realms', () => {
   test.skip('displays hex details on click', async ({ page }) => {
     // SKIPPED: Current component doesn't have .hex-details element
     // The component shows state panel with hex info but uses different structure
+    // Tracking: https://github.com/rumor-ml/commons.systems/issues/1774
     await page.goto(BASE_URL);
 
     // Wait for map to render
@@ -151,6 +152,7 @@ test.describe('Mythic Bastionland Realms', () => {
   test.skip('map size slider works', async ({ page }) => {
     // SKIPPED: Current component doesn't have radius slider control
     // Realm size is fixed, not user-controllable
+    // Tracking: https://github.com/rumor-ml/commons.systems/issues/1775
     await page.goto(BASE_URL);
 
     // Wait for map to render
@@ -174,6 +176,7 @@ test.describe('Mythic Bastionland Realms', () => {
   test.skip('legend displays all terrain types', async ({ page }) => {
     // SKIPPED: Current component has different legend structure/content
     // Need to update test to match actual Legend component implementation
+    // Tracking: https://github.com/rumor-ml/commons.systems/issues/1776
     await page.goto(BASE_URL);
 
     const legend = page.locator('.legend');
@@ -191,6 +194,7 @@ test.describe('Mythic Bastionland Realms', () => {
 
   test.skip('export button exists', async ({ page }) => {
     // SKIPPED: Current component doesn't have export functionality
+    // Tracking: https://github.com/rumor-ml/commons.systems/issues/1777
     await page.goto(BASE_URL);
 
     const exportButton = page.locator('button:has-text("Export Map")');
