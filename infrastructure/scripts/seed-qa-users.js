@@ -7,8 +7,8 @@
  *
  * Requirements:
  * - Firebase emulators must be running
- * - FIREBASE_AUTH_EMULATOR_HOST must be set
- * - Must be run from monorepo root or have access to shared firebase-init
+ * - FIREBASE_AUTH_EMULATOR_HOST and GCP_PROJECT_ID environment variables must be set
+ * - Script must be located at infrastructure/scripts/ (for relative import path to firebase-init.js)
  *
  * QA GitHub User:
  * - Email: qa-github@test.com
@@ -55,8 +55,12 @@ const auth = getAuth();
 
 /**
  * Seed QA GitHub user to Auth emulator using batchCreate REST API
- * This is the only way to create users with OAuth provider data that shows
- * up in the emulator's OAuth popup (e.g., "Sign in with GitHub")
+ *
+ * IMPORTANT: firebase-admin's createUser() cannot create users with OAuth provider
+ * data that appears in the emulator's OAuth popup. The batchCreate REST API is the
+ * ONLY way to create users that show up when testing "Sign in with GitHub" flows.
+ *
+ * This is why we use raw fetch() instead of the admin SDK for this operation.
  */
 async function seedQAGitHubUser() {
   try {
@@ -80,10 +84,13 @@ async function seedQAGitHubUser() {
     // Use GCP_PROJECT_ID from environment (set by allocate-test-ports.sh)
     // Each worktree gets a unique project ID like demo-test-314015698
     const projectId = process.env.GCP_PROJECT_ID || 'demo-test';
+    const apiUrl = `http://${authHost}/identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:batchCreate`;
 
-    const response = await fetch(
-      `http://${authHost}/identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:batchCreate`,
-      {
+    console.log(`   Calling batchCreate API: ${apiUrl}`);
+
+    let response;
+    try {
+      response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -110,13 +117,27 @@ async function seedQAGitHubUser() {
             },
           ],
         }),
-      }
-    );
+      });
+    } catch (fetchError) {
+      console.error(`   ❌ Network error calling batchCreate API`);
+      console.error(`      URL: ${apiUrl}`);
+      console.error(`      Auth Host: ${authHost}`);
+      console.error(`      Project ID: ${projectId}`);
+      console.error(`      Error: ${fetchError.message}`);
+      console.error('');
+      console.error('   Possible causes:');
+      console.error('      - Auth emulator not running (check FIREBASE_AUTH_EMULATOR_HOST)');
+      console.error('      - Network/firewall blocking localhost connections');
+      console.error('      - Invalid host format in FIREBASE_AUTH_EMULATOR_HOST');
+      throw new Error(`Network error: ${fetchError.message}`);
+    }
 
     const result = await response.json();
 
     if (result.error && result.error.length > 0) {
-      // Check if it's a duplicate error (user already exists with same rawId)
+      // Check if it's a duplicate error (OAuth provider rawId already exists)
+      // Firebase enforces uniqueness on providerUserInfo[].rawId (GitHub UID 12345678)
+      // This is separate from the localId check above and catches race conditions
       const isDuplicate = result.error.some(
         (e) => e.message && e.message.includes('raw id exists')
       );
@@ -152,12 +173,35 @@ async function main() {
       process.exit(0);
     } else {
       console.error('⚠️  QA user seeding completed with errors');
-      process.exit(0); // Don't block dev server startup
+      console.error('   E2E tests may fail with authentication errors');
+
+      // Check if we should block (default: block in test environments)
+      const shouldBlock = process.env.QA_SEED_BLOCKING !== 'false';
+
+      if (shouldBlock) {
+        console.error('');
+        console.error('Set QA_SEED_BLOCKING=false to make this non-blocking');
+        process.exit(1); // Fail to prevent tests from running with bad data
+      } else {
+        console.error('   (non-blocking mode: QA_SEED_BLOCKING=false)');
+        process.exit(0);
+      }
     }
   } catch (error) {
     console.error('❌ Fatal error during QA user seeding:');
     console.error('   ', error.message);
-    process.exit(0); // Don't block dev server startup
+    console.error('   E2E tests WILL fail with authentication errors');
+
+    const shouldBlock = process.env.QA_SEED_BLOCKING !== 'false';
+
+    if (shouldBlock) {
+      console.error('');
+      console.error('Set QA_SEED_BLOCKING=false to make this non-blocking');
+      process.exit(1);
+    } else {
+      console.error('   (non-blocking mode: QA_SEED_BLOCKING=false)');
+      process.exit(0);
+    }
   }
 }
 

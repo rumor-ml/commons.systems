@@ -5,6 +5,15 @@ dangerouslyDisableSandbox: true
 description: Run tests for current project or entire monorepo
 ---
 
+<!-- TODO(#1712): Add automated tests for Claude skills
+     Integration tests needed for:
+     - Argument parsing logic (e.g., /test e2e, /test unit)
+     - Emulator auto-detection and startup
+     - Error message clarity
+     - Execution flow correctness
+     Priority: Low (skills are declarative, underlying scripts need tests more urgently)
+-->
+
 # /test - Run Tests
 
 Run tests for the current project or entire monorepo using the unified test interface.
@@ -35,7 +44,6 @@ Run tests for the current project or entire monorepo using the unified test inte
    - If emulators needed:
      - Check if emulators are running: `nc -z 127.0.0.1 9099 2>/dev/null`
      - If not running:
-       - Source port utilities: `source infrastructure/scripts/port-utils.sh`
        - Run: `infrastructure/scripts/start-emulators.sh`
        - Use `dangerouslyDisableSandbox: true`
        - If startup succeeds, continue to next step

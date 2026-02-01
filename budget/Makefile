@@ -1,6 +1,6 @@
 # Makefile for budget
 # Firebase static site
-# Follows commons.systems monorepo build patterns
+# Follows monorepo conventions: standard targets (test/validate/lint/etc), help menu, default goal
 
 .PHONY: help build dev dev-full dev-pool test test-unit test-e2e clean install validate format lint typecheck
 
@@ -16,7 +16,7 @@ help:
 	@echo ""
 	@echo "\033[32mTest targets:\033[0m"
 	@echo "  make test            - Run all tests (E2E with Playwright)"
-	@echo "  make test-unit       - No unit tests for static site"
+	@echo "  make test-unit       - Run unit tests (Vitest)"
 	@echo "  make test-e2e        - Run Playwright E2E tests"
 	@echo ""
 	@echo "\033[32mValidation targets:\033[0m"
@@ -47,10 +47,11 @@ build:
 	@cd site && pnpm build
 
 # Tests
-test: test-e2e
+test: test-unit test-e2e
 
 test-unit:
-	@echo "No unit tests for static site"
+	@echo "Running unit tests..."
+	@cd site && pnpm test:run
 
 test-e2e:
 	@echo "Running Playwright E2E tests..."

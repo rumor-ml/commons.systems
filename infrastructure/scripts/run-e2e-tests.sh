@@ -99,6 +99,7 @@ echo ""
 # ============================================================================
 # SUPERVISOR DETECTION: Check if supervisor is managing emulators
 # ============================================================================
+# TODO(#1714): Add tests for supervisor detection and multi-worktree hosting startup
 SUPERVISOR_PID_FILE="$HOME/.firebase-emulators/supervisor.pid"
 
 # Check if supervisor is already running
@@ -120,6 +121,7 @@ is_supervisor_running() {
 # ============================================================================
 # If .test-env.json exists and emulators are healthy, reuse them instead of
 # starting new ones. This prevents port exhaustion when dev server is running.
+# TODO(#1713): Add tests for emulator reuse logic
 
 TEST_ENV_CONFIG="${ROOT_DIR}/.test-env.json"
 REUSE_EMULATORS=false
@@ -161,15 +163,28 @@ fi
 
 if [ "$REUSE_EMULATORS" = "false" ] && [ "$POOL_INSTANCE_CLAIMED" = "false" ]; then
   # Allocate ports based on worktree (singleton mode)
-  source "$SCRIPT_DIR/allocate-test-ports.sh" || {
+  echo "=== Allocating ports for singleton mode ==="
+
+  # Capture stderr from allocate-test-ports.sh for better diagnostics
+  ALLOC_ERROR=$(mktemp)
+  if ! source "$SCRIPT_DIR/allocate-test-ports.sh" 2>"$ALLOC_ERROR"; then
     echo "FATAL: Port allocation failed" >&2
+    echo "" >&2
+    if [ -s "$ALLOC_ERROR" ]; then
+      echo "Error output from allocate-test-ports.sh:" >&2
+      cat "$ALLOC_ERROR" | sed 's/^/  /' >&2
+      echo "" >&2
+    fi
+    rm -f "$ALLOC_ERROR"
     echo "This could be due to:" >&2
-    echo "  - Missing allocate-test-ports.sh file" >&2
-    echo "  - Port allocation failure (all ports in use)" >&2
-    echo "  - Invalid port configuration" >&2
-    echo "Check allocate-test-ports.sh output above for details" >&2
+    echo "  - All ports in range 5000-5999 are in use" >&2
+    echo "  - allocate-test-ports.sh missing or not executable" >&2
+    echo "  - Insufficient permissions" >&2
+    echo "" >&2
+    echo "Try: infrastructure/scripts/stop-emulators.sh --force-backend" >&2
     exit 1
-  }
+  fi
+  rm -f "$ALLOC_ERROR"
 
   # Validate all critical variables are set by allocate-test-ports.sh
   MISSING_VARS=""
@@ -184,10 +199,11 @@ if [ "$REUSE_EMULATORS" = "false" ] && [ "$POOL_INSTANCE_CLAIMED" = "false" ]; t
     echo "  Missing:$MISSING_VARS" >&2
     echo "" >&2
     echo "This indicates a bug in the port allocation script" >&2
+    echo "Check script output above for errors" >&2
     exit 1
   fi
 elif [ "$POOL_INSTANCE_CLAIMED" = "true" ]; then
-  echo "✓ Using pool instance ports (skipping worktree allocation)"
+  echo "✓ Pool instance ports already configured (skipping allocate-test-ports.sh)"
 else
   # INFRASTRUCTURE STABILITY FIX: Clear Firestore data when reusing emulators
   # This ensures test isolation and prevents stale data from affecting tests
@@ -196,9 +212,25 @@ else
 
   echo ""
   echo "=== Clearing Firestore Data (Reused Emulators) ==="
-  clear_firestore_data "$FIRESTORE_HOST" "$FIRESTORE_PORT" "$GCP_PROJECT_ID" || {
-    echo "⚠️  Data clearing failed, but continuing with tests..." >&2
-  }
+  CLEAR_ERROR=$(mktemp)
+  if ! clear_firestore_data "$FIRESTORE_HOST" "$FIRESTORE_PORT" "$GCP_PROJECT_ID" 2>"$CLEAR_ERROR"; then
+    echo "⚠️  Firestore data clearing failed" >&2
+    echo "" >&2
+    if [ -s "$CLEAR_ERROR" ]; then
+      echo "Error details:" >&2
+      cat "$CLEAR_ERROR" | sed 's/^/  /' >&2
+      echo "" >&2
+    fi
+    rm -f "$CLEAR_ERROR"
+    echo "This may cause test flakiness due to stale data from previous runs" >&2
+    echo "" >&2
+    echo "Recovery options:" >&2
+    echo "  1. Restart emulators: infrastructure/scripts/stop-emulators.sh && infrastructure/scripts/start-emulators.sh" >&2
+    echo "  2. Continue anyway (tests may be flaky): Press Ctrl+C to abort or wait 5s to continue" >&2
+    sleep 5
+  else
+    rm -f "$CLEAR_ERROR"
+  fi
   echo "===================================================="
   echo ""
 fi
@@ -256,9 +288,11 @@ case "$APP_TYPE" in
       else
         echo "ℹ️  Using existing supervised emulators"
 
-        # CRITICAL FIX: Check if THIS worktree's hosting emulator is running
-        # When supervisor is running in another worktree, this worktree's hosting
-        # emulator may not be running. We need to start it independently.
+        # CRITICAL FIX: Ensure hosting emulator is running for this worktree
+        # Problem: When supervisor manages emulators in another worktree, this worktree's
+        # hosting emulator may not be running, causing E2E tests to fail with connection errors.
+        # Solution: Independently start hosting emulator if not detected on expected port.
+        # Related: commit e927b42 "Fix hosting emulator startup when supervisor runs in other worktrees"
         echo "🔍 Verifying hosting emulator for this worktree..."
         echo "   Expected hosting port: ${HOSTING_PORT}"
 
@@ -286,6 +320,20 @@ case "$APP_TYPE" in
 
           SITE_ID=$(get_firebase_site_id "$APP_NAME")
 
+          # Validate firebase.json exists and is valid JSON before processing
+          if [ ! -f "${ROOT_DIR}/firebase.json" ]; then
+            echo "ERROR: firebase.json not found in repository root" >&2
+            echo "Expected at: ${ROOT_DIR}/firebase.json" >&2
+            exit 1
+          fi
+
+          if ! jq empty "${ROOT_DIR}/firebase.json" 2>/dev/null; then
+            echo "ERROR: firebase.json contains invalid JSON syntax" >&2
+            echo "" >&2
+            echo "Check syntax with: jq . ${ROOT_DIR}/firebase.json" >&2
+            exit 1
+          fi
+
           # Extract the one site config and remove site/target fields
           # This avoids port conflicts when firebase.json has multiple hosting targets
           JQ_ERROR=$(mktemp)
@@ -298,20 +346,28 @@ case "$APP_TYPE" in
             echo "ERROR: jq command failed while processing firebase.json" >&2
             echo "jq exit code: $JQ_EXIT" >&2
             if [ -s "$JQ_ERROR" ]; then
+              echo "" >&2
               echo "jq error output:" >&2
-              cat "$JQ_ERROR" >&2
+              cat "$JQ_ERROR" | sed 's/^/  /' >&2
             fi
             rm -f "$JQ_ERROR"
+            echo "" >&2
+            echo "This usually indicates:" >&2
+            echo "  - jq is not installed: Install with 'apt install jq' or 'brew install jq'" >&2
+            echo "  - Unexpected firebase.json structure" >&2
             exit 1
           fi
           rm -f "$JQ_ERROR"
 
           if [ -z "$HOSTING_CONFIG" ] || [ "$HOSTING_CONFIG" = "null" ]; then
             echo "ERROR: No hosting config found for site '$SITE_ID' (app: '$APP_NAME') in firebase.json" >&2
+            echo "" >&2
             AVAILABLE_SITES=$(jq -r '.hosting[].site // empty' "${ROOT_DIR}/firebase.json" 2>/dev/null)
             if [ -n "$AVAILABLE_SITES" ]; then
               echo "Available sites:" >&2
               echo "$AVAILABLE_SITES" | sed 's/^/  - /' >&2
+            else
+              echo "No sites found in firebase.json hosting array" >&2
             fi
             exit 1
           fi
@@ -364,15 +420,36 @@ EOF
 
           # Set up cleanup for independently-started hosting emulator
           cleanup_independent_hosting() {
-            if [ -n "$HOSTING_PID" ]; then
-              echo "Stopping independent hosting emulator (PID: $HOSTING_PID)..."
-              kill -TERM "$HOSTING_PID" 2>/dev/null || true
-              sleep 1
-              kill -KILL "$HOSTING_PID" 2>/dev/null || true
+            echo "Cleaning up independently-started hosting emulator..."
+
+            if [ -n "${HOSTING_PID:-}" ]; then
+              if kill -0 "$HOSTING_PID" 2>/dev/null; then
+                echo "  Stopping hosting emulator (PID: $HOSTING_PID)..."
+                if kill -TERM "$HOSTING_PID" 2>/dev/null; then
+                  sleep 1
+                  # Check if still running
+                  if kill -0 "$HOSTING_PID" 2>/dev/null; then
+                    echo "  Process didn't exit, sending SIGKILL..."
+                    kill -KILL "$HOSTING_PID" 2>/dev/null || echo "  WARNING: Failed to SIGKILL $HOSTING_PID" >&2
+                  fi
+                  echo "  ✓ Hosting emulator stopped"
+                else
+                  echo "  WARNING: Failed to send SIGTERM to $HOSTING_PID (may have already exited)" >&2
+                fi
+              else
+                echo "  ℹ️  Hosting emulator already exited (PID: $HOSTING_PID)"
+              fi
+            else
+              echo "  ℹ️  No HOSTING_PID set, skipping process cleanup"
             fi
+
             # Clean up temp config
-            if [ -n "$TEMP_CONFIG" ]; then
-              rm -f "$TEMP_CONFIG"
+            if [ -n "${TEMP_CONFIG:-}" ] && [ -f "$TEMP_CONFIG" ]; then
+              if rm -f "$TEMP_CONFIG" 2>/dev/null; then
+                echo "  ✓ Removed temp config: $TEMP_CONFIG"
+              else
+                echo "  WARNING: Failed to remove temp config: $TEMP_CONFIG" >&2
+              fi
             fi
           }
           trap cleanup_independent_hosting EXIT

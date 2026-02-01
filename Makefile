@@ -1,6 +1,7 @@
 # Root Makefile for commons.systems monorepo
 # Provides unified test and validation interface across all project types
-# Delegates to infrastructure/scripts/ for test discovery and execution
+# Test targets delegate to infrastructure/scripts/ for discovery and execution
+# Validation targets orchestrate lint/typecheck/test pipeline
 
 .PHONY: help test test-unit test-integration test-e2e validate format lint typecheck clean
 
@@ -93,9 +94,9 @@ lint:
 	@if [ -f "package.json" ]; then \
 		echo "  Running eslint..."; \
 		if command -v pnpm > /dev/null 2>&1; then \
-			pnpm eslint . || true; \
+			pnpm eslint .; \
 		elif command -v npx > /dev/null 2>&1; then \
-			npx eslint . || true; \
+			npx eslint .; \
 		fi; \
 	fi
 	@echo "$(GREEN)✓ Linting complete$(RESET)"
@@ -110,9 +111,9 @@ typecheck:
 	@if [ -f "package.json" ] && [ -f "tsconfig.json" ]; then \
 		echo "  Type checking TypeScript..."; \
 		if command -v pnpm > /dev/null 2>&1; then \
-			pnpm tsc --noEmit || true; \
+			pnpm tsc --noEmit; \
 		elif command -v npx > /dev/null 2>&1; then \
-			npx tsc --noEmit || true; \
+			npx tsc --noEmit; \
 		fi; \
 	fi
 	@echo "$(GREEN)✓ Type checking complete$(RESET)"

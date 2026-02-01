@@ -39,7 +39,9 @@ Monitor the merge queue for the current branch and clean up the worktree upon su
    - First, stop emulators: Run `infrastructure/scripts/stop-emulators.sh`
      - Use `dangerouslyDisableSandbox: true`
      - This unregisters the worktree and releases pool instance if applicable
-     - Captures output to verify cleanup success
+     - Check exit code: 0 = success, proceed to next step
+     - Non-zero exit code: Report error and do NOT proceed to worktree move
+     - Note: Script may show warnings (e.g., backend still used by other worktrees) but still exit 0
    - Then, move worktree directory to `~/worktrees/old/<branch-name>`
      - Create target directory if needed
      - Use `mv` to move the worktree

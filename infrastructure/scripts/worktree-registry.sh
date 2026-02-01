@@ -95,36 +95,36 @@ validate_mode() {
 # Remove stale registrations (where worktree no longer exists)
 cleanup_stale_registrations() {
   local temp_file=$(mktemp)
-  jq '.registrations |= map(select((.worktreeRoot | startswith("/")) and (["test", "-d", .worktreeRoot] | @sh | length > 0) or true))' \
-    "$REGISTRY_FILE" > "$temp_file"
 
-  # Use a more reliable method to filter stale entries
-  jq '.registrations |= map(select(-d "\(.worktreeRoot)" | not))' "$REGISTRY_FILE" 2>/dev/null > "$temp_file" || true
+  # Filter out registrations where worktree directory no longer exists
+  # Build new registrations array by checking each entry
+  local cleaned_registrations=()
+  while IFS= read -r line; do
+    local worktree_root=$(echo "$line" | jq -r '.worktreeRoot')
+    if [ -d "$worktree_root" ]; then
+      cleaned_registrations+=("$line")
+    fi
+  done < <(jq -c '.registrations[]' "$REGISTRY_FILE" 2>/dev/null || echo "")
 
-  # If jq filter doesn't work as expected, do it the old fashioned way
-  if [ ! -s "$temp_file" ] || ! jq empty "$temp_file" 2>/dev/null; then
-    # Fallback: filter using bash
-    local cleaned_registrations=()
-    while IFS= read -r line; do
-      local worktree_root=$(echo "$line" | jq -r '.worktreeRoot')
-      if [ -d "$worktree_root" ]; then
-        cleaned_registrations+=("$line")
+  # Rebuild the JSON
+  {
+    echo '{"registrations": ['
+    for i in "${!cleaned_registrations[@]}"; do
+      echo -n "${cleaned_registrations[$i]}"
+      if [ $i -lt $((${#cleaned_registrations[@]} - 1)) ]; then
+        echo ","
+      else
+        echo ""
       fi
-    done < <(jq -c '.registrations[]' "$REGISTRY_FILE")
+    done
+    echo ']}'
+  } > "$temp_file"
 
-    # Rebuild the JSON
-    {
-      echo '{"registrations": ['
-      for i in "${!cleaned_registrations[@]}"; do
-        echo -n "${cleaned_registrations[$i]}"
-        if [ $i -lt $((${#cleaned_registrations[@]} - 1)) ]; then
-          echo ","
-        else
-          echo ""
-        fi
-      done
-      echo ']}'
-    } > "$temp_file"
+  # Validate the temp file contains valid JSON before using it
+  if ! jq empty "$temp_file" 2>/dev/null; then
+    echo "ERROR: Failed to generate valid JSON during cleanup" >&2
+    rm -f "$temp_file"
+    return 1
   fi
 
   mv "$temp_file" "$REGISTRY_FILE"

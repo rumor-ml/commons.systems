@@ -21,8 +21,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/port-utils.sh"
 
-# Get worktree root for registration (will be set by allocate-test-ports.sh in singleton mode)
-# In pool mode, it's set from environment
+# Get worktree root for registration
+# In pool mode: Set from environment by caller
+# In singleton mode: Determined later via git rev-parse or fallback to PROJECT_ROOT
 WORKTREE_ROOT="${WORKTREE_ROOT:-}"
 
 # Check sandbox requirement BEFORE any emulator operations
@@ -112,16 +113,20 @@ cleanup_orphaned_configs() {
     if [ -f "$hosting_pid_file" ]; then
       # PID file exists - check if process is alive
       local pid pgid
-      if IFS=':' read -r pid pgid < "$hosting_pid_file" 2>/dev/null; then
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-          # Process is alive, config is in use
-          continue
-        fi
+      # CRITICAL: Don't suppress errors - log them
+      if ! IFS=':' read -r pid pgid < "$hosting_pid_file" 2>/dev/null; then
+        echo "WARNING: Failed to read PID file $hosting_pid_file - keeping config $filename" >&2
+        continue  # Safe default: keep the config
+      fi
+
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        # Process is alive, config is in use
+        continue
       fi
     fi
 
     # No active process - safe to remove
-    echo "Cleaning orphaned config: $filename" >&2
+    echo "Cleaning orphaned config: $filename (process not running)" >&2
     rm -f "$config_file"
     cleaned_count=$((cleaned_count + 1))
   done
@@ -246,13 +251,14 @@ else
   # Change to repository root
   cd "${PROJECT_ROOT}"
 
-  # Create temporary firebase config for backend emulators with custom ports
+  # Create firebase config for backend emulators with custom ports
   # Required for pool mode to use instance-specific ports
   # Config must be in PROJECT_ROOT so Firebase CLI resolves relative paths correctly
+  # Cleanup: stop-emulators.sh removes this file on shutdown
   TEMP_BACKEND_CONFIG="${PROJECT_ROOT}/.firebase-backend-${PROJECT_ID}.json"
 
   # Extract storage rules path from main firebase.json if it exists
-  # Keep paths relative since firebase CLI is run from PROJECT_ROOT and resolves paths relative to CWD
+  # Firebase CLI resolves paths relative to the config file location (PROJECT_ROOT in this case)
   STORAGE_RULES=$(jq -r '.storage.rules // "shared/storage.rules"' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "shared/storage.rules")
   FIRESTORE_RULES=$(jq -r '.firestore.rules // empty' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "")
 
@@ -333,27 +339,56 @@ EOF
   # This verifies actual functionality, not just port availability
   echo ""
   if ! deep_health_check "127.0.0.1" "${AUTH_PORT}" "127.0.0.1" "${FIRESTORE_PORT}" "${PROJECT_ID}"; then
-    echo "⚠️  Deep health check failed - emulators may not be fully functional" >&2
-    # Don't fail startup, but warn user
+    echo "ERROR: Deep health check failed - emulators are not fully functional" >&2
+    echo "" >&2
+    echo "This usually indicates:" >&2
+    echo "  - Emulator process crashed after startup" >&2
+    echo "  - Network configuration issues" >&2
+    echo "  - Corrupted emulator state" >&2
+    echo "" >&2
+    echo "Check logs at: $BACKEND_LOG_FILE" >&2
+    echo "" >&2
+
+    # Clean up failed emulators
+    kill $BACKEND_PID 2>/dev/null || true
+    rm -f "$BACKEND_PID_FILE" "$TEMP_BACKEND_CONFIG"
+
+    exit 1
   fi
   echo ""
 
   # Seed QA users after backend emulators are confirmed healthy
-  # Only run once in singleton mode (not for each app worktree)
+  # Runs in singleton mode only (pool mode uses pre-seeded instances)
+  # Safe to run multiple times - seed-qa-users.js handles existing users gracefully
   if [ -z "${POOL_INSTANCE_ID:-}" ]; then
     echo "Seeding QA users..."
-    if command -v node &> /dev/null; then
+    if ! command -v node &> /dev/null; then
+      echo "ERROR: Node.js not found - QA user seeding requires Node.js" >&2
+      echo "Install Node.js or set SKIP_QA_SEEDING=1 to skip" >&2
+      if [ -z "${SKIP_QA_SEEDING:-}" ]; then
+        exit 1
+      fi
+    else
       # Set up environment for seed script
       export FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:${AUTH_PORT}"
       export GCP_PROJECT_ID="${PROJECT_ID}"
 
-      if node "${SCRIPT_DIR}/seed-qa-users.js" 2>/dev/null; then
+      # Capture stderr to show actual error
+      SEED_ERROR=$(node "${SCRIPT_DIR}/seed-qa-users.js" 2>&1)
+      SEED_EXIT=$?
+
+      if [ $SEED_EXIT -eq 0 ]; then
         echo "✓ QA users configured"
       else
-        echo "⚠️  Failed to seed QA users (non-critical)" >&2
+        echo "ERROR: Failed to seed QA users (exit code: $SEED_EXIT)" >&2
+        echo "Error output:" >&2
+        echo "$SEED_ERROR" | sed 's/^/  /' >&2
+        echo "" >&2
+        echo "This will cause E2E test authentication to fail" >&2
+        if [ -z "${SKIP_QA_SEEDING:-}" ]; then
+          exit 1
+        fi
       fi
-    else
-      echo "⚠️  Node.js not found, skipping QA user seeding" >&2
     fi
     echo ""
   fi
@@ -365,9 +400,22 @@ EOF
       WORKTREE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || WORKTREE_ROOT="$PROJECT_ROOT"
     fi
 
-    if ! "${SCRIPT_DIR}/worktree-registry.sh" register "$WORKTREE_ROOT" "$PROJECT_ID" "singleton" 2>/dev/null; then
-      echo "⚠️  Failed to register worktree (non-critical)" >&2
+    echo "Registering worktree in shared emulator registry..."
+    REGISTER_ERROR=$("${SCRIPT_DIR}/worktree-registry.sh" register "$WORKTREE_ROOT" "$PROJECT_ID" "singleton" 2>&1)
+    REGISTER_EXIT=$?
+
+    if [ $REGISTER_EXIT -ne 0 ]; then
+      echo "ERROR: Failed to register worktree (exit code: $REGISTER_EXIT)" >&2
+      echo "Error output:" >&2
+      echo "$REGISTER_ERROR" | sed 's/^/  /' >&2
+      echo "" >&2
+      echo "Registry path: ~/.firebase-emulators/worktree-registrations.json" >&2
+      echo "" >&2
+      echo "This will cause premature emulator shutdown when other worktrees stop" >&2
+      exit 1
     fi
+
+    echo "✓ Worktree registered: $WORKTREE_ROOT"
   fi
 fi
 

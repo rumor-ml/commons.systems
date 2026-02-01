@@ -6,7 +6,7 @@ set -euo pipefail
 # - Per-worktree hosting emulator shutdown
 # - Worktree unregistration from registry
 # - Pool instance release (if using pool mode)
-# - Safe backend shutdown (checks if other worktrees are active)
+# - Safe backend shutdown (refuses shutdown if other worktrees are active, unless --force-backend)
 # - Optional --force-backend flag to override safety check
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +38,7 @@ HOSTING_LOG_FILE="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${PROJECT_
 
 # Temp config files
 TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
-TEMP_BACKEND_CONFIG="${SHARED_EMULATOR_DIR}/firebase-backend-*.json"
+TEMP_BACKEND_CONFIG="${SHARED_EMULATOR_DIR}/firebase-backend-*.json"  # Glob pattern
 
 # Parse command line flags
 FORCE_BACKEND=false
@@ -73,7 +73,29 @@ if [ -f "$HOSTING_PID_FILE" ]; then
     echo "✓ Successfully stopped hosting emulator"
   else
     echo "WARNING: PID file exists but could not be parsed" >&2
-    echo "Skipping PID-based cleanup - will attempt port-based cleanup" >&2
+    echo "PID file path: $HOSTING_PID_FILE" >&2
+    echo "PID file contents:" >&2
+    cat "$HOSTING_PID_FILE" 2>/dev/null | sed 's/^/  /' >&2 || echo "  (unable to read file)" >&2
+    echo "" >&2
+    echo "Expected format: PID:PGID or PID:" >&2
+    echo "" >&2
+    echo "Attempting port-based cleanup..." >&2
+
+    # Try to find and kill process using the hosting port
+    if [ -n "${HOSTING_PORT:-}" ]; then
+      HOSTING_PID=$(lsof -ti :${HOSTING_PORT} 2>/dev/null || true)
+      if [ -n "$HOSTING_PID" ]; then
+        echo "Found process $HOSTING_PID on port $HOSTING_PORT" >&2
+        kill -TERM "$HOSTING_PID" 2>/dev/null || true
+        sleep 1
+        kill -KILL "$HOSTING_PID" 2>/dev/null || true
+        echo "✓ Stopped process via port-based cleanup" >&2
+      else
+        echo "No process found on port $HOSTING_PORT" >&2
+      fi
+    else
+      echo "HOSTING_PORT not set, cannot attempt port-based cleanup" >&2
+    fi
   fi
 
   # Clean up hosting PID file
