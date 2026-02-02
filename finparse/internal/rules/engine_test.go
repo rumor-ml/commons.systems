@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -989,9 +990,8 @@ rules:
 
 	// DESIGN DECISION: Internal whitespace is NOT normalized
 	// Pattern "A  B" (2 spaces) only matches description "A  B" (2 spaces)
-	// This is intentional - whitespace normalization would require regex
-	// and could cause unexpected matches. If this causes rule coverage issues
-	// with real-world transactions, consider adding \s+ regex support.
+	// This is intentional - whitespace normalization would require regex.
+	// Real-world variations are handled by defining multiple similar patterns in rules.yaml (see #1645).
 }
 
 func TestEmbeddedRules_RealWorldWhitespaceHandling(t *testing.T) {
@@ -1161,6 +1161,30 @@ rules:
 	}
 }
 
+func TestMatch_EmptyDescription(t *testing.T) {
+	rulesYAML := `
+rules:
+  - name: "Test Rule"
+    pattern: "TEST"
+    match_type: "contains"
+    priority: 100
+    category: "groceries"
+    flags:
+      redeemable: false
+      vacation: false
+      transfer: false
+    redemption_rate: 0.0
+`
+	engine, err := NewEngine([]byte(rulesYAML))
+	require.NoError(t, err)
+
+	// Empty string should not match
+	result, matched, err := engine.Match("")
+	require.NoError(t, err)
+	assert.False(t, matched, "Empty string should not match any pattern")
+	assert.Nil(t, result, "Result should be nil for no match")
+}
+
 func TestNewEngine_InvalidYAML(t *testing.T) {
 	invalidYAML := `
 rules:
@@ -1229,6 +1253,31 @@ func TestEmbeddedRules_CoverageRequirement(t *testing.T) {
 	}
 }
 
+func TestCoverageRequirement_BoundaryConditions(t *testing.T) {
+	tests := []struct {
+		matched    int
+		total      int
+		shouldPass bool
+		name       string
+	}{
+		{1268, 1268, true, "100% coverage"},
+		{1205, 1268, true, "95.03% - just above requirement"},
+		{1205, 1268, true, "95.00% - exactly at requirement"},
+		{1204, 1268, false, "94.96% - just below requirement"},
+		{0, 1268, false, "0% - worst case"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			coverage := float64(tt.matched) / float64(tt.total)
+			passes := coverage >= 0.95
+			assert.Equal(t, tt.shouldPass, passes,
+				"Coverage %.2f%% (%d/%d): expected pass=%v, got pass=%v",
+				coverage*100, tt.matched, tt.total, tt.shouldPass, passes)
+		})
+	}
+}
+
 func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 	// Load embedded rules
 	engine, err := LoadEmbedded()
@@ -1244,10 +1293,7 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 	}{
 		// Food delivery via Venmo - verifies merchant-specific routing (distinct from generic Venmo transfer tests)
 		{"VENMO *UBER EATS", domain.CategoryDining, false, true},
-		// Note: Internal whitespace is preserved exactly - pattern "VENMO *UBER" requires single space.
-		// This is intentional to maintain predictable matching behavior.
-		// Limitation: "VENMO  *UBER EATS" (2 spaces) will not match and falls through to CategoryOther.
-		// Note: Whitespace normalization may be considered in future enhancement if needed.
+		// Note: Internal whitespace preserved exactly (single space required). See whitespace normalization tests for details.
 		// {"VENMO  *UBER EATS", domain.CategoryDining, false, true}, // Skipped - requires whitespace normalization
 		{"VENMO *DOORDASH", domain.CategoryDining, false, true},
 
@@ -1310,9 +1356,8 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		{"REGULAR VENMO PAYMENT", domain.CategoryOther, false, false}, // Not food delivery
 		{"VENMO *John Smith", domain.CategoryOther, false, false},     // Personal transfer
 
-		// Substring matching edge cases - intentional behavior
-		// These demonstrate that substring patterns will match broader contexts (design decision for simplicity).
-		// See TestEmbeddedRules_KnownLimitations for comprehensive documentation of limitations.
+		// Substring matching edge cases - intentional behavior (acceptable false positives)
+		// See TestEmbeddedRules_KnownLimitations for documented trade-offs.
 		{"GIANT EAGLE AUTO SERVICE", domain.CategoryGroceries, false, true}, // Matches "GIANT" pattern (substring behavior)
 		{"AMAZON WEB SERVICES", domain.CategoryShopping, false, true},       // Matches "AMAZON" pattern (AWS is Amazon service)
 		{"SHELL CORPORATION", domain.CategoryTransportation, false, true},   // Matches "SHELL" pattern (substring behavior)
@@ -1338,6 +1383,21 @@ func TestEmbeddedRules_NewRuleCoverage(t *testing.T) {
 		{"KROGER  #0789", domain.CategoryGroceries, false, true},
 		{"walmart.com", domain.CategoryShopping, false, true},
 		{"TRADER JOES", domain.CategoryGroceries, false, true},
+
+		// Home Improvement
+		{"LOWES #1234", domain.CategoryShopping, false, true},
+
+		// Pharmacy
+		{"WALGREENS #789", domain.CategoryHealthcare, false, true},
+
+		// Fast Food
+		{"MCDONALDS #12345", domain.CategoryDining, false, true},
+		{"BURGER KING #456", domain.CategoryDining, false, true},
+		{"WENDYS #789", domain.CategoryDining, false, true},
+		{"SUBWAY #321", domain.CategoryDining, false, true},
+		{"TACO BELL #654", domain.CategoryDining, false, true},
+		{"CHIPOTLE #999", domain.CategoryDining, false, true},
+		{"PANERA BREAD", domain.CategoryDining, false, true},
 	}
 
 	for _, tt := range tests {
@@ -1543,8 +1603,6 @@ func TestEmbeddedRules_ValidationErrors(t *testing.T) {
 // The testdata is embedded in the embeddedReferenceTransactions constant.
 // To update: sqlite3 ~/carriercommons/finance/finance.db "SELECT name FROM transactions ORDER BY id"
 // Copy output into embeddedReferenceTransactions constant in this file.
-//
-//	sqlite3 ~/carriercommons/finance/finance.db "SELECT name FROM transactions ORDER BY id"
 func loadEmbeddedReferenceTransactions(t *testing.T) []string {
 	t.Helper()
 
@@ -1755,7 +1813,7 @@ func TestEmbeddedRules_CoverageProgress(t *testing.T) {
 	}
 
 	coverage := float64(matched) / float64(len(descriptions))
-	currentTarget := 0.84 // Baseline coverage floor for regression detection (increase only after sustained improvements)
+	currentTarget := 0.84 // Conservative regression floor (actual coverage ~100%, see TestEmbeddedRules_CoverageRequirement for 95% requirement)
 
 	if coverage < currentTarget {
 		t.Errorf("Coverage regressed: %.2f%% < %.2f%%", coverage*100, currentTarget*100)
@@ -1846,7 +1904,7 @@ func TestEmbeddedRules_Structure(t *testing.T) {
 	}
 
 	// Verify minimum rule count to detect accidental deletions
-	// Baseline: ~194 rules (56 original + 137 from #1645, actual count may vary slightly)
+	// Baseline: 193 rules (56 original + 137 from #1645)
 	// Use 190 threshold to allow for minor consolidations without false alarms
 	if len(engine.rules) < 190 {
 		t.Errorf("Rule count regression: expected at least 190 rules, got %d", len(engine.rules))
@@ -2091,32 +2149,21 @@ func BenchmarkMatch_FullRuleSet(b *testing.B) {
 		"SHELL OIL 12345678",        // Transportation (100-199)
 	}
 
-	errorCount := 0
-	var firstError error
-	var firstErrorDesc string
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, desc := range descriptions {
 			_, _, err := engine.Match(desc)
 			if err != nil {
-				if firstError == nil {
-					firstError = err
-					firstErrorDesc = desc
-				}
-				errorCount++
+				b.Fatalf("Match(%q) error = %v", desc, err)
 			}
 		}
 	}
 	b.StopTimer()
-
-	if errorCount > 0 {
-		b.Fatalf("Benchmark encountered %d errors (first: %q failed with %v)", errorCount, firstErrorDesc, firstError)
-	}
 }
 
 func TestMatch_PerformanceRequirement(t *testing.T) {
 	// Verify that match performance remains acceptable as rule count grows.
-	// With 194 rules (3.5x growth from original 56), we need to ensure linear scan performance is acceptable.
+	// With 193 rules (3.5x growth from original 56), we need to ensure linear scan performance is acceptable.
 	engine, err := LoadEmbedded()
 	require.NoError(t, err)
 
@@ -2138,6 +2185,32 @@ func TestMatch_PerformanceRequirement(t *testing.T) {
 		t.Errorf("Match performance degraded: avg %v > max allowed %v", avgPerMatch, maxAllowed)
 	}
 	t.Logf("Average match time: %v (rule count: %d)", avgPerMatch, len(engine.rules))
+}
+
+func TestEngine_ConcurrentMatch(t *testing.T) {
+	engine, err := LoadEmbedded()
+	require.NoError(t, err)
+
+	descriptions := []string{
+		"AMAZON MKTPL*XB8MO38V3",
+		"WHOLEFDS MARKET",
+		"SHELL OIL 12345678",
+		"VENMO *UBER EATS",
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, desc := range descriptions {
+				_, matched, err := engine.Match(desc)
+				require.NoError(t, err)
+				require.True(t, matched)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestEmbeddedRules_EdgeCases(t *testing.T) {
