@@ -7,10 +7,9 @@
 #   400-499: Groceries
 #   300-399: Dining
 #   200-299: Shopping and Entertainment (discretionary spending categories)
-#     - Entertainment uses 235-260 (subset of shopping band)
-#     - Shopping uses 200-260
-#   100-199: Healthcare
-#   100-199: Transportation (shares band with healthcare - equal priority for essential services)
+#     - Entertainment: 235-265 (primary), 750 (seasonal events in travel band)
+#     - Shopping: 135-260
+#   100-199: Healthcare and Transportation (essential services share priority band)
 #   0-99: Catch-all
 
 rules:
@@ -148,7 +147,7 @@ rules:
       transfer: true
     redemption_rate: 0.0
 
-  # Food delivery via Venmo - Specific patterns (processed before general Venmo at 819)
+  # Food delivery via Venmo - Specific patterns (higher priority than generic Venmo at priority 819)
   - name: 'Venmo Uber Eats'
     pattern: 'VENMO *UBER EATS'
     match_type: 'contains'
