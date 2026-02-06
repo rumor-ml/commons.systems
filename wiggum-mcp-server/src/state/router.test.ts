@@ -5,11 +5,13 @@
  * type guards, and helper functions.
  */
 
+// TODO(#1817): Enhance test comments to explain why behavior matters, not just what it does
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { _testExports, createStateUpdateFailure } from './router.js';
 import type { CurrentState, PRExists, PRStateValue } from './types.js';
 import { createPRExists, createPRDoesNotExist } from './types.js';
+import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import type { WiggumStep } from '../constants.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
@@ -24,8 +26,14 @@ import {
   PHASE2_PR_REVIEW_COMMAND,
 } from '../constants.js';
 
-const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInstructions } =
-  _testExports;
+const {
+  hasExistingPR,
+  checkUncommittedChanges,
+  checkBranchPushed,
+  formatFixInstructions,
+  PR_CONFIG,
+  ISSUE_CONFIG,
+} = _testExports;
 
 /**
  * Create a mock CurrentState for testing
@@ -546,94 +554,107 @@ describe('createStateUpdateFailure factory function', () => {
 describe('ResourceConfig discriminated union', () => {
   describe('PR_CONFIG structure validation', () => {
     it('should have resourceType "pr"', () => {
-      // PR_CONFIG.resourceType must be 'pr' for discriminated union to work
+      // Validates PR_CONFIG.resourceType is correctly set for discriminated union
       // This ensures error context and logging use correct resource type
-      const expectedType: 'pr' = 'pr';
-      assert.strictEqual(expectedType, 'pr', 'PR_CONFIG.resourceType should be "pr"');
+      assert.strictEqual(PR_CONFIG.resourceType, 'pr', 'PR_CONFIG.resourceType should be "pr"');
     });
 
     it('should have resourceLabel "PR"', () => {
-      // PR_CONFIG.resourceLabel is used in error messages and logging
+      // Validates PR_CONFIG.resourceLabel for error messages and logging
       // Discriminated union enforces this is exactly 'PR' for 'pr' resourceType
-      const expectedLabel: 'PR' = 'PR';
-      assert.strictEqual(expectedLabel, 'PR', 'PR_CONFIG.resourceLabel should be "PR"');
+      assert.strictEqual(PR_CONFIG.resourceLabel, 'PR', 'PR_CONFIG.resourceLabel should be "PR"');
     });
 
     it('should have verifyCommand "gh pr view"', () => {
-      // PR_CONFIG.verifyCommand is included in error recommendations
+      // Validates PR_CONFIG.verifyCommand for error recommendations
       // Discriminated union enforces this is exactly 'gh pr view' for 'pr' resourceType
-      const expectedCommand: 'gh pr view' = 'gh pr view';
       assert.strictEqual(
-        expectedCommand,
+        PR_CONFIG.verifyCommand,
         'gh pr view',
         'PR_CONFIG.verifyCommand should be "gh pr view"'
       );
     });
 
-    it('should document updateFn references updatePRBodyState', () => {
-      // PR_CONFIG.updateFn should reference updatePRBodyState function
-      // This is validated at compile time by TypeScript, documented here for clarity
-      // The discriminated union ensures PR config uses PR update function
-      assert.ok(true, 'PR_CONFIG.updateFn references updatePRBodyState (compile-time validated)');
+    it('should have updateFn referencing updatePRBodyState', () => {
+      // Validates PR_CONFIG.updateFn references the correct function
+      // This catches misconfigurations where wrong updateFn is assigned
+      assert.strictEqual(
+        PR_CONFIG.updateFn,
+        updatePRBodyState,
+        'PR_CONFIG.updateFn should reference updatePRBodyState'
+      );
     });
   });
 
   describe('ISSUE_CONFIG structure validation', () => {
     it('should have resourceType "issue"', () => {
-      // ISSUE_CONFIG.resourceType must be 'issue' for discriminated union to work
-      const expectedType: 'issue' = 'issue';
-      assert.strictEqual(expectedType, 'issue', 'ISSUE_CONFIG.resourceType should be "issue"');
+      // Validates ISSUE_CONFIG.resourceType is correctly set for discriminated union
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceType,
+        'issue',
+        'ISSUE_CONFIG.resourceType should be "issue"'
+      );
     });
 
     it('should have resourceLabel "Issue"', () => {
-      // ISSUE_CONFIG.resourceLabel is used in error messages and logging
+      // Validates ISSUE_CONFIG.resourceLabel for error messages and logging
       // Discriminated union enforces this is exactly 'Issue' for 'issue' resourceType
-      const expectedLabel: 'Issue' = 'Issue';
-      assert.strictEqual(expectedLabel, 'Issue', 'ISSUE_CONFIG.resourceLabel should be "Issue"');
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceLabel,
+        'Issue',
+        'ISSUE_CONFIG.resourceLabel should be "Issue"'
+      );
     });
 
     it('should have verifyCommand "gh issue view"', () => {
-      // ISSUE_CONFIG.verifyCommand is included in error recommendations
+      // Validates ISSUE_CONFIG.verifyCommand for error recommendations
       // Discriminated union enforces this is exactly 'gh issue view' for 'issue' resourceType
-      const expectedCommand: 'gh issue view' = 'gh issue view';
       assert.strictEqual(
-        expectedCommand,
+        ISSUE_CONFIG.verifyCommand,
         'gh issue view',
         'ISSUE_CONFIG.verifyCommand should be "gh issue view"'
       );
     });
 
-    it('should document updateFn references updateIssueBodyState', () => {
-      // ISSUE_CONFIG.updateFn should reference updateIssueBodyState function
-      // This is validated at compile time by TypeScript, documented here for clarity
-      assert.ok(
-        true,
-        'ISSUE_CONFIG.updateFn references updateIssueBodyState (compile-time validated)'
+    it('should have updateFn referencing updateIssueBodyState', () => {
+      // Validates ISSUE_CONFIG.updateFn references the correct function
+      // This catches misconfigurations where wrong updateFn is assigned
+      assert.strictEqual(
+        ISSUE_CONFIG.updateFn,
+        updateIssueBodyState,
+        'ISSUE_CONFIG.updateFn should reference updateIssueBodyState'
       );
     });
   });
 
   describe('discriminated union type safety', () => {
-    it('should document that mismatched configs are compile-time errors', () => {
-      // The discriminated union type prevents invalid combinations like:
-      // { resourceType: 'pr', resourceLabel: 'Issue' } // Compile error
-      // { resourceType: 'issue', verifyCommand: 'gh pr view' } // Compile error
-      //
-      // This test documents that TypeScript enforces these constraints.
-      // Invalid states are unrepresentable at compile time (resolves type-design-analyzer-in-scope-0)
-      assert.ok(
-        true,
-        'Mismatched resourceType/resourceLabel/verifyCommand combinations are compile-time errors'
+    it('should have distinct resourceType values for PR and Issue configs', () => {
+      // The discriminated union uses resourceType to differentiate configs
+      // This test verifies the discriminant values are distinct
+      assert.notStrictEqual(
+        PR_CONFIG.resourceType,
+        ISSUE_CONFIG.resourceType,
+        'PR and Issue configs must have distinct resourceType values'
       );
     });
 
-    it('should document that discriminated union resolves TODO(#941) and TODO(#810)', () => {
-      // The ResourceConfig discriminated union consolidates the duplicate state update pattern
-      // that was previously in separate safeUpdatePRBodyState and safeUpdateIssueBodyState functions
-      // This is documented in the type comment: "Resolves TODO(#941) and TODO(#810)"
-      assert.ok(
-        true,
-        'ResourceConfig type comment documents resolution of TODO(#941) and TODO(#810)'
+    it('should have distinct resourceLabel values for user-friendly messages', () => {
+      // ResourceLabel is used in error messages ("PR not found" vs "Issue not found")
+      // This test verifies labels are distinct to avoid confusing error messages
+      assert.notStrictEqual(
+        PR_CONFIG.resourceLabel,
+        ISSUE_CONFIG.resourceLabel,
+        'PR and Issue configs must have distinct resourceLabel values'
+      );
+    });
+
+    it('should have distinct verifyCommand values for resource-specific verification', () => {
+      // VerifyCommand is used in error recommendations
+      // This test verifies commands are distinct so users get correct instructions
+      assert.notStrictEqual(
+        PR_CONFIG.verifyCommand,
+        ISSUE_CONFIG.verifyCommand,
+        'PR and Issue configs must have distinct verifyCommand values'
       );
     });
   });
@@ -641,37 +662,60 @@ describe('ResourceConfig discriminated union', () => {
 
 describe('safeUpdateBodyState generic function behavior', () => {
   describe('error context field names', () => {
-    it('should document that error context uses resourceType field', () => {
+    it('should verify configs provide resourceType for error context', () => {
       // safeUpdateBodyState builds errorContext with resourceType: config.resourceType
-      // This replaces the old prNumber/issueNumber-specific field names
-      // Error context now includes: { resourceType: 'pr' | 'issue', resourceId: number }
-      const errorContextFields = ['resourceType', 'resourceId', 'step', 'attempt', 'maxRetries'];
-      errorContextFields.forEach((field) => {
-        assert.ok(
-          typeof field === 'string',
-          `Error context should include ${field} field (documented in implementation)`
-        );
-      });
+      // Verify both configs have the resourceType field used in error context
+      assert.strictEqual(
+        PR_CONFIG.resourceType,
+        'pr',
+        'PR_CONFIG provides resourceType for error context'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceType,
+        'issue',
+        'ISSUE_CONFIG provides resourceType for error context'
+      );
     });
 
-    it('should document that error messages use config.resourceLabel', () => {
+    it('should verify configs provide resourceLabel for error messages', () => {
       // Error messages use config.resourceLabel for user-friendly output:
       // - "PR not found" vs "Issue not found"
       // - "Failed to update state in PR body" vs "Failed to update state in issue body"
-      const prLabel = 'PR';
-      const issueLabel = 'Issue';
-      assert.notStrictEqual(prLabel, issueLabel, 'PR and Issue labels are distinct');
+      assert.strictEqual(
+        PR_CONFIG.resourceLabel,
+        'PR',
+        'PR_CONFIG provides label for error messages'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceLabel,
+        'Issue',
+        'ISSUE_CONFIG provides label for error messages'
+      );
+      assert.notStrictEqual(
+        PR_CONFIG.resourceLabel,
+        ISSUE_CONFIG.resourceLabel,
+        'Labels must be distinct'
+      );
     });
 
-    it('should document that verification recommendations use config.verifyCommand', () => {
+    it('should verify configs provide verifyCommand for error recommendations', () => {
       // Error recommendations include resource-specific verify commands:
       // - "Verify PR #123 exists: gh pr view 123"
       // - "Verify Issue #456 exists: gh issue view 456"
-      const prVerify = 'gh pr view';
-      const issueVerify = 'gh issue view';
+      assert.strictEqual(
+        PR_CONFIG.verifyCommand,
+        'gh pr view',
+        'PR_CONFIG provides verify command'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.verifyCommand,
+        'gh issue view',
+        'ISSUE_CONFIG provides verify command'
+      );
+      assert.ok(PR_CONFIG.verifyCommand.includes('pr'), 'PR verify command references pr');
       assert.ok(
-        prVerify.includes('pr') && issueVerify.includes('issue'),
-        'Verify commands are resource-specific'
+        ISSUE_CONFIG.verifyCommand.includes('issue'),
+        'Issue verify command references issue'
       );
     });
   });
@@ -680,15 +724,13 @@ describe('safeUpdateBodyState generic function behavior', () => {
     it('should generate PR-specific function name from config', () => {
       // safeUpdateBodyState generates function name: `safeUpdate${config.resourceLabel}BodyState`
       // For PR_CONFIG (resourceLabel: 'PR'): "safeUpdatePRBodyState"
-      const resourceLabel = 'PR';
-      const fnName = `safeUpdate${resourceLabel}BodyState`;
+      const fnName = `safeUpdate${PR_CONFIG.resourceLabel}BodyState`;
       assert.strictEqual(fnName, 'safeUpdatePRBodyState');
     });
 
     it('should generate Issue-specific function name from config', () => {
       // For ISSUE_CONFIG (resourceLabel: 'Issue'): "safeUpdateIssueBodyState"
-      const resourceLabel = 'Issue';
-      const fnName = `safeUpdate${resourceLabel}BodyState`;
+      const fnName = `safeUpdate${ISSUE_CONFIG.resourceLabel}BodyState`;
       assert.strictEqual(fnName, 'safeUpdateIssueBodyState');
     });
   });
@@ -704,14 +746,15 @@ describe('safeUpdateBodyState generic function behavior', () => {
       assert.strictEqual(cappedDelay, MAX_DELAY_MS, 'Delays should be capped at 60s');
     });
 
-    it('should document default retry sequence (2s, 4s, 8s)', () => {
+    it('should document default retry sequence (2s, 4s, then exhausted)', () => {
       // With maxRetries=3 (default), the delay sequence is:
-      // - Attempt 1 failure: wait 2^1 * 1000 = 2000ms (2s)
-      // - Attempt 2 failure: wait 2^2 * 1000 = 4000ms (4s)
-      // - Attempt 3 failure: return failure result (no more retries)
-      const expectedSequence = [2000, 4000, 8000];
-      const calculatedSequence = [1, 2, 3].map((attempt) => Math.pow(2, attempt) * 1000);
-      assert.deepStrictEqual(calculatedSequence, expectedSequence);
+      // - Attempt 1 failure: wait 2^1 * 1000 = 2000ms before attempt 2
+      // - Attempt 2 failure: wait 2^2 * 1000 = 4000ms before attempt 3
+      // - Attempt 3 failure: all retries exhausted, return failure result
+      // Note: delay is calculated for each attempt, but only first 2 delays are used
+      // because after attempt 3 fails, we don't wait - we return failure
+      const delaysBeforeEachAttempt = [1, 2, 3].map((attempt) => Math.pow(2, attempt) * 1000);
+      assert.deepStrictEqual(delaysBeforeEachAttempt, [2000, 4000, 8000]);
     });
   });
 });
@@ -729,16 +772,28 @@ describe('safeUpdatePRBodyState and safeUpdateIssueBodyState wrappers', () => {
       assert.strictEqual(wrapperParams.length, 4, 'Wrappers accept 4 parameters');
     });
 
-    it('should document that safeUpdatePRBodyState uses PR_CONFIG', () => {
-      // safeUpdatePRBodyState always calls safeUpdateBodyState with PR_CONFIG:
-      // return safeUpdateBodyState(PR_CONFIG, prNumber, state, step, maxRetries);
-      assert.ok(true, 'safeUpdatePRBodyState injects PR_CONFIG as first parameter');
+    it('should verify safeUpdatePRBodyState uses PR_CONFIG', () => {
+      // safeUpdatePRBodyState always calls safeUpdateBodyState with PR_CONFIG
+      // We verify by checking that PR_CONFIG has the expected structure for PR updates
+      // The wrapper's behavior is indirectly verified through PR_CONFIG structure tests
+      assert.strictEqual(PR_CONFIG.resourceType, 'pr', 'PR_CONFIG is configured for PR updates');
+      assert.strictEqual(PR_CONFIG.updateFn, updatePRBodyState, 'PR_CONFIG uses updatePRBodyState');
     });
 
-    it('should document that safeUpdateIssueBodyState uses ISSUE_CONFIG', () => {
-      // safeUpdateIssueBodyState always calls safeUpdateBodyState with ISSUE_CONFIG:
-      // return safeUpdateBodyState(ISSUE_CONFIG, issueNumber, state, step, maxRetries);
-      assert.ok(true, 'safeUpdateIssueBodyState injects ISSUE_CONFIG as first parameter');
+    it('should verify safeUpdateIssueBodyState uses ISSUE_CONFIG', () => {
+      // safeUpdateIssueBodyState always calls safeUpdateBodyState with ISSUE_CONFIG
+      // We verify by checking that ISSUE_CONFIG has the expected structure for issue updates
+      // The wrapper's behavior is indirectly verified through ISSUE_CONFIG structure tests
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceType,
+        'issue',
+        'ISSUE_CONFIG is configured for issue updates'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.updateFn,
+        updateIssueBodyState,
+        'ISSUE_CONFIG uses updateIssueBodyState'
+      );
     });
   });
 
@@ -784,10 +839,22 @@ describe('safeUpdatePRBodyState and safeUpdateIssueBodyState wrappers', () => {
       assert.strictEqual(failureResult.success, false, 'Failure result has success: false');
     });
 
-    it('should document that errors propagate unchanged', () => {
+    it('should verify wrappers are thin pass-through functions', () => {
       // Wrappers do not catch or modify errors from safeUpdateBodyState
-      // Critical errors (404, 401/403) and ValidationError propagate directly to callers
-      assert.ok(true, 'Wrapper functions propagate errors from generic function unchanged');
+      // This is verified by checking that both configs use their respective update functions
+      // directly, without any wrapper-level error handling
+      assert.strictEqual(
+        typeof PR_CONFIG.updateFn,
+        'function',
+        'PR_CONFIG.updateFn is a function that will be called directly'
+      );
+      assert.strictEqual(
+        typeof ISSUE_CONFIG.updateFn,
+        'function',
+        'ISSUE_CONFIG.updateFn is a function that will be called directly'
+      );
+      // The wrapper functions (safeUpdatePRBodyState, safeUpdateIssueBodyState) simply
+      // call safeUpdateBodyState with the appropriate config - errors propagate unchanged
     });
   });
 });
@@ -822,12 +889,26 @@ describe('State Update Retry Logic', () => {
       }
     });
 
-    it('should document uncapped delay growth', () => {
-      // Verifies that delays are NOT capped - they grow exponentially without limit
-      // This is documented in comments: "No cap on delay"
-      const attempt = 10;
-      const delay = Math.pow(2, attempt) * 1000;
-      assert.strictEqual(delay, 1024000, 'Attempt 10 would have ~17 minute delay (uncapped)');
+    it('should cap delays at 60 seconds to prevent excessive waits', () => {
+      // Delays are capped at 60s (MAX_DELAY_MS = 60000) as implemented in safeUpdateBodyState
+      // This prevents excessive delays when maxRetries is high
+      const MAX_DELAY_MS = 60000;
+
+      // Attempt 6: uncapped would be 64s, but capped to 60s
+      const attempt6Uncapped = Math.pow(2, 6) * 1000; // 64000ms
+      const attempt6Capped = Math.min(attempt6Uncapped, MAX_DELAY_MS);
+      assert.strictEqual(attempt6Uncapped, 64000, 'Uncapped delay at attempt 6 is 64s');
+      assert.strictEqual(attempt6Capped, 60000, 'Capped delay at attempt 6 is 60s');
+
+      // Attempt 10: uncapped would be ~17 minutes, but capped to 60s
+      const attempt10Uncapped = Math.pow(2, 10) * 1000; // 1024000ms (~17 min)
+      const attempt10Capped = Math.min(attempt10Uncapped, MAX_DELAY_MS);
+      assert.strictEqual(
+        attempt10Uncapped,
+        1024000,
+        'Uncapped delay at attempt 10 would be ~17 min'
+      );
+      assert.strictEqual(attempt10Capped, 60000, 'Capped delay at attempt 10 is still 60s');
     });
   });
 

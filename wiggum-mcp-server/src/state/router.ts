@@ -66,8 +66,8 @@ type CurrentStateWithPR = CurrentState & {
  * - Verification commands (using verifyCommand)
  * - State persistence (using updateFn)
  *
- * The discriminated union enforces that resourceType, resourceLabel, and
- * verifyCommand are consistent at compile time, preventing misconfigurations.
+ * Each union variant uses literal types to lock resourceType, resourceLabel, and
+ * verifyCommand together, preventing misconfigurations at compile time.
  *
  * Resolves TODO(#941) and TODO(#810): Consolidates duplicate state update pattern.
  */
@@ -240,9 +240,9 @@ function checkBranchPushed(
  *
  * Retry strategy (issue #799):
  * - Transient errors (429, network): Retry with exponential backoff
- *   - Formula: 2^attempt seconds (attempt 1 = 2s, attempt 2 = 4s, attempt 3 = 8s)
+ *   - Formula: 2^attempt * 1000ms (after attempt 1 fails = 2s, after attempt 2 fails = 4s)
  *   - Maximum delay cap: 60 seconds
- *   - Default: 3 retries with sequence 2s, 4s, 8s
+ *   - Default: 3 retries with delays 2s, 4s between attempts
  * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
@@ -265,7 +265,7 @@ async function safeUpdateBodyState(
 
   // Validate resourceId parameter (must be positive integer for valid resource number)
   // CRITICAL: Invalid resourceId would cause StateApiError.create() to throw ValidationError
-  // during error context building in the catch block below, potentially masking the original error
+  // during error context building in error handlers, potentially masking the original error
   if (!Number.isInteger(resourceId) || resourceId <= 0) {
     throw new ValidationError(
       `${fnName}: resourceId must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
@@ -275,10 +275,11 @@ async function safeUpdateBodyState(
   // Validate maxRetries to ensure retry loop executes correctly (issue #625)
   // CRITICAL: Invalid maxRetries would break retry logic:
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
-  //   - maxRetries > 100: Excessive delays due to uncapped exponential backoff (attempt 10 = ~17 min)
+  //   - maxRetries > 100: Excessive retry attempts (even with 60s cap, 100 retries = 100+ min total)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
   const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
+    // TODO(#1819): Wrap logger calls in try-catch to prevent logging failures from crashing retry loop
     logger.error(`${fnName}: Invalid maxRetries parameter`, {
       resourceType: config.resourceType,
       resourceId,
@@ -351,7 +352,7 @@ async function safeUpdateBodyState(
       // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
       //
       // Known limitations:
-      // TODO(#320): Surface state persistence failures to users instead of silent warning (user-facing)
+      // TODO(#1821): Surface state persistence failures to users instead of silent warning (user-facing)
       // TODO(#415): Add type guards to catch blocks to avoid broad exception catching (type safety)
       // TODO(#468): Broad catch-all hides programming errors - add early type validation (related to #415)
       const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
@@ -361,7 +362,7 @@ async function safeUpdateBodyState(
 
       // Classify error type using shared utility
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
-      const classification = classifyGitHubError(updateError, exitCode);
+      const classification = classifyGitHubError(errorMsg, exitCode);
 
       // Build error context including classification results for debugging
       const errorContext = {
@@ -477,9 +478,8 @@ async function safeUpdateBodyState(
 /**
  * Safely update wiggum state in PR body with error handling and retry logic
  *
- * Thin wrapper around safeUpdateBodyState that provides PR-specific configuration.
- * See safeUpdateBodyState for retry strategy details (exponential backoff: 2s, 4s, 8s,
- * capped at 60s) and error handling documentation.
+ * Thin wrapper that calls safeUpdateBodyState with PR-specific configuration.
+ * See safeUpdateBodyState for retry strategy and error handling documentation.
  *
  * @param prNumber - PR number to update
  * @param state - New wiggum state to save
@@ -500,9 +500,8 @@ export async function safeUpdatePRBodyState(
 /**
  * Safely update wiggum state in issue body with error handling and retry logic
  *
- * Thin wrapper around safeUpdateBodyState that provides issue-specific configuration.
- * See safeUpdateBodyState for retry strategy details (exponential backoff: 2s, 4s, 8s,
- * capped at 60s) and error handling documentation.
+ * Thin wrapper that calls safeUpdateBodyState with issue-specific configuration.
+ * See safeUpdateBodyState for retry strategy and error handling documentation.
  *
  * @param issueNumber - Issue number to update
  * @param state - New wiggum state to save
@@ -1604,4 +1603,7 @@ export const _testExports = {
   checkUncommittedChanges,
   checkBranchPushed,
   formatFixInstructions,
+  PR_CONFIG,
+  ISSUE_CONFIG,
+  safeUpdateBodyState,
 };
