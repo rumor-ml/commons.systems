@@ -36,7 +36,7 @@ Before analyzing findings:
    mcp__gh-issue__gh_get_issue_context({ issue_number: <number>, include_comments: false })
    ```
 
-3. Review the issue body, title, and comments to understand the scope
+3. Review the issue body and title to understand the scope
 
 ---
 
@@ -123,16 +123,7 @@ For each finding from the review agent:
 
 ### 1. Extract Agent Findings
 
-Review the output from the single review agent you're processing:
-
-- pr-review-toolkit:code-reviewer
-- pr-review-toolkit:silent-failure-hunter
-- pr-review-toolkit:code-simplifier
-- pr-review-toolkit:comment-analyzer
-- pr-review-toolkit:pr-test-analyzer
-- pr-review-toolkit:type-design-analyzer
-
-The agent provides findings in structured format with scope/priority suggestions.
+Review the output from the single review agent you're processing (see Agent Name Reference at the end for the list). The agent provides findings in structured format with scope/priority suggestions.
 
 ### 2. Cross-Reference with Issue Context
 
@@ -192,44 +183,13 @@ mcp__wiggum__wiggum_record_review_issue({
 
 ---
 
-## Output Format
-
-Provide a summary of your analysis:
-
-### Summary Statistics
-
-- Total findings received: X
-- In-scope high priority: X
-- In-scope low priority: X
-- Out-of-scope high priority: X
-- Out-of-scope low priority: X
-- Rejected as false positives: X
-
-### Agent Analysis
-
-**[Agent Name]:**
-
-- Received: X findings
-- Recorded: X findings (X in-scope, X out-of-scope)
-- Rejected: X findings (with brief reason)
-
-### Scope Classification Notes
-
-List any findings where scope determination was challenging and explain your reasoning.
-
-### Priority Adjustments
-
-List any findings where you adjusted priority from the agent's suggestion and explain why.
-
----
-
 ## Response Guidelines
 
 **Keep your response concise:**
 
 - Record all validated findings using `wiggum_record_review_issue`
-- Return the summary statistics and breakdown described above
-- Explain reasoning for rejections and adjustments
+- Return a brief summary: findings received, recorded (in-scope/out-of-scope), and rejected
+- Note any scope classification challenges or priority adjustments with brief reasoning
 - Do NOT copy full finding descriptions into your response (they're in manifests)
 
 **Completion:**
