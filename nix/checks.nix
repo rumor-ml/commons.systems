@@ -114,8 +114,9 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     # - Hardcoded to nix/home/wezterm.nix and programs.wezterm.extraConfig field path
     # - Requires Nix evaluation (uses nix eval --impure)
     # Integration tests: nix/tests/wezterm-lua-syntax-test.nix (runs via nix flake check)
+    # Only enabled on Darwin since WezTerm is a Darwin-only package
     wezterm-lua-syntax = {
-      enable = true;
+      enable = pkgs.stdenv.isDarwin;
       name = "wezterm-lua-syntax";
       description = "Validate WezTerm Lua configuration syntax";
       entry = "${pkgs.writeShellScript "wezterm-lua-syntax" ''
