@@ -666,6 +666,9 @@ describe('Security Review Instructions', () => {
         instructions.includes('SlashCommand tool'),
         'Instructions should mention SlashCommand tool'
       );
+      // This assertion tests the core fix for issue #552: ensure instructions
+      // explicitly tell the agent to execute the command even if not visible.
+      // Regression would cause the agent to refuse invoking the command.
       assert.ok(
         instructions.includes("EVEN IF it doesn't appear in your available commands list"),
         'Instructions should include warning about command list'
@@ -715,6 +718,34 @@ describe('Security Review Instructions', () => {
       assert.ok(
         instructions.includes('issue #789'),
         'Instructions should reference the correct issue number'
+      );
+    });
+
+    it('should include explanation of why SlashCommand tool is required', () => {
+      const state = createMockState({
+        git: { isPushed: true, hasUncommittedChanges: false },
+        wiggum: { phase: 'phase1', iteration: 0 },
+      });
+
+      const result = handlePhase1SecurityReview(state, 552);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('Why SlashCommand tool is required'),
+        'Instructions should include explanation header'
+      );
+      assert.ok(
+        instructions.includes('expand to structured prompts') ||
+          instructions.includes('prompt expansion mechanism'),
+        'Instructions should explain why SlashCommand is required'
+      );
+      assert.ok(
+        instructions.includes('Expand the command into its full prompt instructions'),
+        'Instructions should explain prompt expansion'
+      );
+      assert.ok(
+        instructions.includes('Ensure the prompt is executed completely before proceeding'),
+        'Instructions should explain execution ordering'
       );
     });
 
@@ -832,6 +863,7 @@ describe('Security Review Instructions', () => {
       );
     });
 
+    // TODO(#1812): Phase 2 tests don't verify exact parameter names for wiggum_complete_security_review
     it('should reference wiggum_complete_security_review tool', () => {
       const state = createMockState({
         pr: { exists: true, state: 'OPEN', number: 123 },
@@ -893,9 +925,8 @@ describe('Security Review Instructions', () => {
       const result = handlePhase2SecurityReview(state);
       const instructions = result.content[0].text;
 
-      // Note: Phase 2 backward iteration is handled by wiggum_complete_security_review tool
-      // The tool returns instructions to restart from p2-1, not the handler itself
-      // However, we should verify the handler provides context for iteration
+      // We verify the handler references wiggum_complete_security_review tool.
+      // The tool handles backward iteration logic and returns restart instructions.
       assert.ok(
         instructions.includes('wiggum_complete_security_review'),
         'Instructions should reference completion tool that handles iteration'
@@ -915,9 +946,8 @@ describe('Security Review Instructions', () => {
       const result = handlePhase2SecurityReview(state);
       const instructions = result.content[0].text;
 
-      // Note: Phase 2 forward progression is handled by wiggum_complete_security_review tool
-      // The tool returns "proceed to approval" instructions, not the handler itself
-      // We verify the handler references the tool that provides next steps
+      // We verify the handler references wiggum_complete_security_review tool
+      // and indicates that the tool returns next step instructions.
       assert.ok(
         instructions.includes('wiggum_complete_security_review'),
         'Instructions should reference completion tool that provides next step'
@@ -941,9 +971,7 @@ describe('Security Review Instructions', () => {
       const result = handlePhase2SecurityReview(state);
       const instructions = result.content[0].text;
 
-      // Note: Phase 2 uses /security-review which includes fix instructions
-      // The /security-review command will invoke /commit-merge-push after fixes
-      // We verify the handler invokes the security review command that handles commits
+      // We verify the handler invokes the /security-review command.
       assert.ok(
         instructions.includes(SECURITY_REVIEW_COMMAND),
         'Instructions should include security review command that handles commits'
@@ -964,14 +992,27 @@ describe('Security Review Instructions', () => {
       const instructions = result.content[0].text;
 
       assert.ok(
-        instructions.includes('Capture the complete verbatim response'),
-        'Instructions should mention capturing verbatim response'
+        instructions.includes('Aggregate results from all agents'),
+        'Instructions should mention aggregating results from all agents'
       );
       assert.ok(
-        instructions.includes('Count issues by priority'),
-        'Instructions should mention counting by priority'
+        instructions.includes('in_scope_result_files'),
+        'Instructions should reference in_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_result_files'),
+        'Instructions should reference out_of_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('in_scope_issue_count'),
+        'Instructions should reference in_scope_issue_count parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_issue_count'),
+        'Instructions should reference out_of_scope_issue_count parameter'
       );
     });
     // TODO(#1666): No E2E test for actual slash command invocation flow
+    // TODO(#1810): No negative test for incorrect completion tool invocation
   });
 });

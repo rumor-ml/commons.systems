@@ -49,6 +49,7 @@ describe('Rate Limit Retry Logic', () => {
       await sleep(100);
       const duration = Date.now() - start;
 
+      // TODO(#1811): Consider improving comment clarity
       // Single fixed duration test - allow 50ms tolerance for timer precision and event loop scheduling variance
       assert.ok(duration >= 100 && duration < 150, `Expected ~100ms, got ${duration}ms`);
     });
@@ -61,6 +62,8 @@ describe('Rate Limit Retry Logic', () => {
         await sleep(ms);
         const duration = Date.now() - start;
 
+        // TODO(#1807): Consider adding test for systematic timing bias
+        // TODO(#1808): Enhance comment to explain specific CI characteristics requiring higher tolerance
         // Allow 50ms tolerance in fast environments, 100ms in CI
         // This maintains stricter timing validation while accounting for CI variability
         const tolerance = process.env.CI ? 100 : 50;
