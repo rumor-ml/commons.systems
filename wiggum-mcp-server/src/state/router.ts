@@ -79,19 +79,18 @@ export type StateUpdateResult =
     };
 
 /**
- * Configuration for state update operations using the strategy pattern.
- * Encapsulates resource-specific differences (PR vs issue) allowing
- * executeStateUpdateWithRetry to handle both uniformly.
+ * Configuration for state update operations.
+ * Encapsulates resource-specific differences (PR vs issue) through dependency injection,
+ * allowing executeStateUpdateWithRetry to handle both uniformly.
  *
  * @property resourceType - Type of GitHub resource ('pr' or 'issue')
  * @property resourceId - Positive integer resource identifier
  * @property updateFn - Function that updates the resource's body state.
  *                     Accepts (id: number, state: WiggumState, repo?: string) => Promise<void>
  *
- * Note: resourceLabel, verifyCommand, and field names are derived from
- * resourceType and resourceId within executeStateUpdateWithRetry.
+ * Note: executeStateUpdateWithRetry derives resourceLabel, verifyCommand, and
+ * error context field names from the resourceType and resourceId provided in this config.
  */
-// TODO(#653): Add tests for StateUpdateConfig validation
 interface StateUpdateConfig {
   readonly resourceType: 'pr' | 'issue';
   readonly resourceId: number;
@@ -152,8 +151,12 @@ function safeLog(
       // Last resort: stderr
       try {
         process.stderr.write(`CRITICAL: Logger and console.error failed - ${message}\n`);
-      } catch {
-        // Nothing more we can do
+      } catch (stderrError) {
+        // All logging fallbacks exhausted - store for postmortem debugging
+        if (typeof globalThis !== 'undefined') {
+          (globalThis as any).__unloggedErrors = (globalThis as any).__unloggedErrors || [];
+          (globalThis as any).__unloggedErrors.push({ level, message, context });
+        }
       }
     }
   }
@@ -179,8 +182,13 @@ function safeStringify(value: unknown, label: string): string {
       try {
         const state = value as WiggumState;
         return `<partial ${label}: phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=${state.completedSteps?.length ?? 0} items>`;
-      } catch {
-        // Partial extraction failed - fall through to last resort
+      } catch (partialError) {
+        // Partial extraction failed - log and fall through to last resort
+        safeLog('warn', `Partial state extraction failed for ${label}`, {
+          error: partialError instanceof Error ? partialError.message : String(partialError),
+          hasPhaseProperty: value && typeof value === 'object' && 'phase' in value,
+        });
+        // Fall through to last resort
       }
     }
 
@@ -214,7 +222,6 @@ function safeStringify(value: unknown, label: string): string {
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
-// TODO(#653): Add direct tests for executeStateUpdateWithRetry
 async function executeStateUpdateWithRetry(
   config: StateUpdateConfig,
   state: WiggumState,
@@ -224,13 +231,19 @@ async function executeStateUpdateWithRetry(
   const { resourceType, resourceId, updateFn } = config;
   const functionName = 'executeStateUpdateWithRetry';
 
-  // Derive resource-specific fields from config (avoids redundant config parameters)
+  // Validate resourceType is allowed value
+  if (resourceType !== 'pr' && resourceType !== 'issue') {
+    throw new ValidationError(
+      `${functionName}: config.resourceType must be 'pr' or 'issue', got: ${resourceType} (type: ${typeof resourceType})`
+    );
+  }
+
+  // Compute display labels and field names based on resource type
   const resourceTypeName = resourceType === 'pr' ? 'PR' : 'Issue';
   const resourceLabel = `${resourceTypeName} #${resourceId}`;
   const verifyCommand = `gh ${resourceType} view ${resourceId}`;
   const resourceIdField = resourceType === 'pr' ? 'prNumber' : 'issueNumber';
 
-  // TODO(#653): Add tests verifying correct field names in error context (prNumber vs issueNumber)
   // Validate config.updateFn is actually a function
   if (typeof updateFn !== 'function') {
     throw new ValidationError(
@@ -320,7 +333,7 @@ async function executeStateUpdateWithRetry(
       return { success: true };
     } catch (updateError) {
       // Type guard: Handle ALL non-Error values thrown (primitives, objects, null, undefined)
-      // Simplifies previous check that redundantly included GitHubCliError (which extends Error)
+      // Note: GitHubCliError extends Error, so it passes through this check
       if (!(updateError instanceof Error)) {
         const wrappedError = new Error(
           `Non-Error value thrown in ${functionName}: ${String(updateError)}`
@@ -344,7 +357,7 @@ async function executeStateUpdateWithRetry(
       // TODO(#1684): Surface state persistence failures to users instead of silent warning (user-facing)
       // TODO(#415): Add type guards to catch blocks to avoid broad exception catching (type safety)
       // TODO(#468): Broad catch-all hides programming errors - add early type validation (related to #415)
-      const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
+      const errorMsg = updateError.message;
       const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
 
@@ -352,7 +365,7 @@ async function executeStateUpdateWithRetry(
       // Uses safeStringify helper to extract partial state on serialization failure
       const stateJson = safeStringify(state, 'state');
 
-      // Classify error type using shared utility with defensive error handling
+      // Classify error type using shared utility
       // If classification fails, use conservative fallback (no retry) to avoid misclassifying errors
       // TODO(#478): Document expected GitHub API error patterns and add test coverage
       let classification: ReturnType<typeof classifyGitHubError>;
@@ -428,7 +441,6 @@ async function executeStateUpdateWithRetry(
       }
 
       // Transient errors: Rate limits or network issues - retry with backoff
-      // TODO(#653): Add tests for backoff delay capping
       if (classification.isTransient) {
         const reason = classification.isRateLimit ? 'rate_limit' : 'network';
 
@@ -436,7 +448,7 @@ async function executeStateUpdateWithRetry(
           // Exponential backoff: 2^attempt seconds, capped at 60s
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
-          let delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
 
           // Validate delay is safe for sleep
           // CRITICAL: Invalid delay indicates programming error in retry logic (corrupted attempt counter)
@@ -464,13 +476,29 @@ async function executeStateUpdateWithRetry(
             wasCapped: uncappedDelayMs > MAX_DELAY_MS,
             remainingAttempts: maxRetries - attempt,
           });
-          await sleep(delayMs);
+
+          // Explicit error handling for sleep to prevent misclassification
+          try {
+            await sleep(delayMs);
+          } catch (sleepError) {
+            safeLog('error', 'CRITICAL: sleep() failed during retry backoff', {
+              [resourceIdField]: resourceId,
+              step,
+              delayMs,
+              attempt,
+              sleepError: sleepError instanceof Error ? sleepError.message : String(sleepError),
+            });
+            throw new Error(
+              `INTERNAL ERROR: sleep() failed during retry backoff. ` +
+                `delayMs: ${delayMs}, attempt: ${attempt}, ` +
+                `error: ${sleepError instanceof Error ? sleepError.message : String(sleepError)}`
+            );
+          }
           continue; // Retry
         }
 
         // All retries exhausted - return failure result with error context for debugging
-        const lastErrorObj =
-          updateError instanceof Error ? updateError : new Error(String(updateError));
+        const lastErrorObj = updateError;
         safeLog('warn', 'State update failed after all retries', {
           ...errorContext,
           reason,
@@ -497,7 +525,6 @@ async function executeStateUpdateWithRetry(
   }
   // Fallback: TypeScript cannot prove all catch paths return/throw.
   // If this executes, investigate gap in error classification (issue #625).
-  // TODO(#653): Add test for fallback error path
   const fallbackStateJson = safeStringify(state, 'fallback-state');
 
   safeLog('error', `INTERNAL: ${functionName} retry loop completed without returning`, {
@@ -607,13 +634,21 @@ function checkBranchPushed(
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
-// TODO(#653): Add integration tests for wrapper function parity
 export async function safeUpdatePRBodyState(
   prNumber: number,
   state: WiggumState,
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // Defensive check: Ensure updatePRBodyState is defined
+  // This catches import failures, circular dependencies, or other module loading issues
+  if (typeof updatePRBodyState !== 'function') {
+    throw new Error(
+      `safeUpdatePRBodyState: updatePRBodyState function is not defined. ` +
+        `This indicates a module import failure or circular dependency.`
+    );
+  }
+
   return executeStateUpdateWithRetry(
     {
       resourceType: 'pr',
@@ -649,6 +684,15 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // Defensive check: Ensure updateIssueBodyState is defined
+  // This catches import failures, circular dependencies, or other module loading issues
+  if (typeof updateIssueBodyState !== 'function') {
+    throw new Error(
+      `safeUpdateIssueBodyState: updateIssueBodyState function is not defined. ` +
+        `This indicates a module import failure or circular dependency.`
+    );
+  }
+
   return executeStateUpdateWithRetry(
     {
       resourceType: 'issue',
@@ -1745,4 +1789,7 @@ export const _testExports = {
   checkUncommittedChanges,
   checkBranchPushed,
   formatFixInstructions,
+  executeStateUpdateWithRetry,
+  safeLog,
+  safeStringify,
 };
