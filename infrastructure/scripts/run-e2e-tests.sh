@@ -477,11 +477,19 @@ if [ "$APP_TYPE" = "firebase" ]; then
   # Let playwright.config.ts determine browser based on platform
   # No hardcoded --project chromium
   # Explicitly pass environment variables to Playwright subprocess
+
+  # Build Playwright command with optional shard parameter
+  PLAYWRIGHT_CMD="npx playwright test"
+  if [ -n "${PLAYWRIGHT_SHARD:-}" ]; then
+    echo "Running shard: ${PLAYWRIGHT_SHARD}"
+    PLAYWRIGHT_CMD="$PLAYWRIGHT_CMD --shard=${PLAYWRIGHT_SHARD}"
+  fi
+
   START_SERVER=true HOSTING_PORT="${HOSTING_PORT}" PORT="${PORT}" GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
     FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST}" \
     FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST}" \
     STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST}" \
-    npx playwright test
+    $PLAYWRIGHT_CMD
 
 elif [ "$APP_TYPE" = "go-tui" ] || [ "$APP_TYPE" = "go-fullstack" ]; then
   # Go apps use make test-e2e

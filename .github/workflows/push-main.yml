@@ -80,18 +80,47 @@ jobs:
           echo "go-fullstack=$go_fullstack" >> $GITHUB_OUTPUT
           echo "go-package=$go_package" >> $GITHUB_OUTPUT
 
-  # ==================== Firebase App Tests ====================
-  test-firebase-fellspiral:
-    name: Test Firebase - fellspiral
+  # ==================== Check App Changes (Skip Unchanged Apps on PRs) ====================
+  check-app-changes:
+    name: Check App Changes
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'fellspiral')
-    timeout-minutes: 15
+    outputs:
+      changed_all: ${{ steps.check.outputs.changed_all }}
+      changed_apps: ${{ steps.check.outputs.changed_apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Need full history to compare with base branch
+
+      - name: Check which apps changed
+        id: check
+        run: |
+          # Always test everything on main branch
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "On main branch - will test all apps"
+            echo "changed_all=true" >> $GITHUB_OUTPUT
+            echo "changed_apps=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # For PRs, check which apps changed
+          ./infrastructure/scripts/check-app-changes.sh >> $GITHUB_OUTPUT
+
+  # ==================== Firestore Rules Tests (Parallel with App Tests) ====================
+  test-firestore-rules:
+    name: Test Firestore Rules
+    runs-on: ubuntu-latest
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'fellspiral') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'fellspiral'))
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node-pnpm
         with:
-          install-playwright: 'true'
+          install-playwright: 'false'
           install-firebase: 'true'
 
       - name: Test Firestore security rules
@@ -110,14 +139,38 @@ jobs:
 
           exit $TEST_EXIT_CODE
 
+  # ==================== Firebase App Tests ====================
+  test-firebase-fellspiral:
+    name: Test Firebase - fellspiral (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'fellspiral') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'fellspiral'))
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          install-playwright: 'true'
+          install-firebase: 'true'
+
       - name: Run E2E tests
-        run: ./infrastructure/scripts/test-firebase-app.sh fellspiral
+        run: ./infrastructure/scripts/test-firebase-app.sh fellspiral ${{ matrix.shard }}/4
 
   test-firebase-videobrowser:
     name: Test Firebase - videobrowser
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'videobrowser')
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'videobrowser') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'videobrowser'))
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -130,8 +183,11 @@ jobs:
   test-firebase-audiobrowser:
     name: Test Firebase - audiobrowser
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'audiobrowser')
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'audiobrowser') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'audiobrowser'))
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -144,8 +200,11 @@ jobs:
   test-firebase-print:
     name: Test Firebase - print
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'print')
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'print') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'print'))
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -158,8 +217,11 @@ jobs:
   test-firebase-budget:
     name: Test Firebase - budget
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'budget')
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.firebase-apps), 'budget') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'budget'))
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -173,8 +235,11 @@ jobs:
   test-go-tui-tmux-tui:
     name: Test Go TUI - tmux-tui
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.go-tui-apps), 'tmux-tui')
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.go-tui-apps), 'tmux-tui') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'tmux-tui'))
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -188,8 +253,11 @@ jobs:
   test-go-fullstack-printsync:
     name: Test Go Fullstack - printsync
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.go-fullstack-apps), 'printsync')
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.go-fullstack-apps), 'printsync') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'printsync'))
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -241,8 +309,11 @@ jobs:
   test-go-packages-filesync:
     name: Test Go Pkg - filesync
     runs-on: ubuntu-latest
-    needs: discover-apps
-    if: contains(fromJson(needs.discover-apps.outputs.go-packages), 'filesync')
+    needs: [discover-apps, check-app-changes]
+    if: |
+      contains(fromJson(needs.discover-apps.outputs.go-packages), 'filesync') &&
+      (needs.check-app-changes.outputs.changed_all == 'true' ||
+       contains(fromJson(needs.check-app-changes.outputs.changed_apps), 'filesync'))
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -274,8 +345,8 @@ jobs:
   deploy-firestore-rules:
     name: Deploy Firestore Rules
     runs-on: ubuntu-latest
-    needs: [test-firebase-fellspiral, merge-firestore-rules]
-    if: needs.test-firebase-fellspiral.result == 'success'
+    needs: [test-firestore-rules, merge-firestore-rules]
+    if: needs.test-firestore-rules.result == 'success'
     timeout-minutes: 10
 
     steps:
@@ -350,7 +421,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [test-firebase-fellspiral]
-    if: needs.test-firebase-fellspiral.result == 'success'
+    # Matrix jobs complete when all shards complete
+    # This condition checks if at least one shard ran and none failed
+    if: |
+      always() &&
+      (needs.test-firebase-fellspiral.result == 'success' ||
+       needs.test-firebase-fellspiral.result == 'skipped')
     outputs:
       url: ${{ steps.site-url.outputs.url }}
 
@@ -1142,6 +1218,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       [
+        test-firestore-rules,
         test-firebase-fellspiral,
         test-firebase-videobrowser,
         test-firebase-audiobrowser,
@@ -1170,6 +1247,7 @@ jobs:
         with:
           script: |
             const testJobs = [
+              'test-firestore-rules',
               'test-firebase-fellspiral', 'test-firebase-videobrowser',
               'test-firebase-audiobrowser', 'test-firebase-print',
               'test-firebase-budget',
