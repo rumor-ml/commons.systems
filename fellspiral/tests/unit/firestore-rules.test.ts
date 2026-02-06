@@ -24,8 +24,10 @@ import { describe, test, before, after, afterEach, beforeEach } from 'node:test'
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load Firestore rules from the parent directory
-const rulesPath = resolve(__dirname, '../../firestore.rules');
+// Load Firestore rules from the merged rules file (repository root)
+// The source fellspiral/firestore.rules is renamed to .source after merging
+// to prevent emulator confusion, so we read from the merged file instead
+const rulesPath = resolve(__dirname, '../../../.firebase/firestore.rules');
 const rules = readFileSync(rulesPath, 'utf8');
 
 let testEnv: RulesTestEnvironment;
