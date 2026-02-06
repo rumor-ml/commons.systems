@@ -652,6 +652,7 @@ describe('State Update Retry Logic', () => {
 
 describe('Security Review Instructions', () => {
   describe('Phase 1 Security Review', () => {
+    // TODO(#1832): Extract duplicate test setup to beforeEach hook
     it('should include SlashCommand invocation guidance', () => {
       const state = createMockState({
         git: { isPushed: true, hasUncommittedChanges: false },
@@ -667,8 +668,9 @@ describe('Security Review Instructions', () => {
         'Instructions should mention SlashCommand tool'
       );
       // This assertion tests the core fix for issue #552: ensure instructions
-      // explicitly tell the agent to execute the command even if not visible.
-      // Regression would cause the agent to refuse invoking the command.
+      // explicitly tell the agent to execute the command even if not visible in the command list.
+      // The agent needs this explicit instruction because it may not see /security-review
+      // in its available commands, causing it to refuse invocation without this guidance.
       assert.ok(
         instructions.includes("EVEN IF it doesn't appear in your available commands list"),
         'Instructions should include warning about command list'
@@ -706,6 +708,7 @@ describe('Security Review Instructions', () => {
       );
     });
 
+    // TODO(#1835): Add tests for edge cases (large issue numbers, high iteration counts)
     it('should include issue number in instructions', () => {
       const state = createMockState({
         git: { isPushed: true, hasUncommittedChanges: false },
@@ -827,9 +830,65 @@ describe('Security Review Instructions', () => {
         'Instructions should explain summing issue counts'
       );
     });
+
+    describe('Error Handling', () => {
+      it('should handle Phase 1 security review during wrong phase', () => {
+        const state = createMockState({
+          git: { isPushed: true, hasUncommittedChanges: false },
+          wiggum: { phase: 'phase2', iteration: 0 }, // Wrong phase
+        });
+
+        // handlePhase1SecurityReview doesn't currently validate phase
+        // Test that it still produces valid instructions (defensive)
+        const result = handlePhase1SecurityReview(state, 552);
+        const instructions = result.content[0].text;
+
+        // Should still include security review command
+        assert.ok(
+          instructions.includes(SECURITY_REVIEW_COMMAND),
+          'Should include security review command even if called during wrong phase'
+        );
+      });
+
+      it('should handle Phase 2 security review without PR', () => {
+        const state = createMockState({
+          pr: { exists: false },
+          wiggum: { phase: 'phase2', iteration: 0 },
+        });
+
+        // Type system prevents this at compile time, but test runtime behavior
+        // handlePhase2SecurityReview requires CurrentStateWithPR
+        // Calling with wrong type should be caught by TypeScript
+        // This test documents the contract
+
+        assert.strictEqual(
+          hasExistingPR(state),
+          false,
+          'State without PR should not pass type guard'
+        );
+      });
+
+      it('should handle uncommitted changes during security review', () => {
+        const state = createMockState({
+          git: { isPushed: true, hasUncommittedChanges: true },
+          wiggum: { phase: 'phase1', iteration: 0 },
+        });
+
+        // Test that handler still produces instructions
+        // (Pre-commit hooks will catch uncommitted changes)
+        const result = handlePhase1SecurityReview(state, 552);
+        const instructions = result.content[0].text;
+
+        assert.ok(
+          instructions.includes('wiggum_complete_security_review'),
+          'Should include completion tool even with uncommitted changes'
+        );
+      });
+    });
   });
 
   describe('Phase 2 Security Review', () => {
+    // TODO(#1831): Extract duplicate test setup to beforeEach hook
     it('should include SlashCommand invocation guidance', () => {
       const state = createMockState({
         pr: { exists: true, state: 'OPEN', number: 123 },
@@ -863,7 +922,6 @@ describe('Security Review Instructions', () => {
       );
     });
 
-    // TODO(#1812): Phase 2 tests don't verify exact parameter names for wiggum_complete_security_review
     it('should reference wiggum_complete_security_review tool', () => {
       const state = createMockState({
         pr: { exists: true, state: 'OPEN', number: 123 },
@@ -885,6 +943,22 @@ describe('Security Review Instructions', () => {
       assert.ok(
         instructions.includes('command_executed'),
         'Instructions should mention command_executed parameter'
+      );
+      assert.ok(
+        instructions.includes('in_scope_result_files'),
+        'Instructions should mention in_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_result_files'),
+        'Instructions should mention out_of_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('in_scope_issue_count'),
+        'Instructions should mention in_scope_issue_count parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_issue_count'),
+        'Instructions should mention out_of_scope_issue_count parameter'
       );
     });
 
@@ -925,6 +999,7 @@ describe('Security Review Instructions', () => {
       const result = handlePhase2SecurityReview(state);
       const instructions = result.content[0].text;
 
+      // TODO(#1833): Clarify comment - test only checks tool reference, not iteration logic
       // We verify the handler references wiggum_complete_security_review tool.
       // The tool handles backward iteration logic and returns restart instructions.
       assert.ok(
@@ -1012,7 +1087,59 @@ describe('Security Review Instructions', () => {
         'Instructions should reference out_of_scope_issue_count parameter'
       );
     });
-    // TODO(#1666): No E2E test for actual slash command invocation flow
-    // TODO(#1810): No negative test for incorrect completion tool invocation
+  });
+
+  describe('E2E Slash Command Flow', () => {
+    // TODO(#1666): Implement full E2E test for slash command invocation
+    it.skip('should successfully invoke /security-review and complete', async () => {
+      // This test requires:
+      // 1. Mock SlashCommand tool implementation
+      // 2. Mock agent execution that follows instructions
+      // 3. Mock file system for result files
+      // 4. Integration with wiggum_complete_security_review tool
+
+      // Test flow:
+      // - Setup: Create test state with wiggum in security review step
+      // - Execute: Call wiggum_init to get instructions
+      // - Simulate: Agent invokes SlashCommand tool with /security-review
+      // - Verify: Command executes and launches security review agents
+      // - Simulate: Agents complete and write result files
+      // - Execute: Agent calls wiggum_complete_security_review
+      // - Verify: State transitions correctly to next step
+
+      throw new Error('E2E test not implemented - see issue #1666');
+    });
+
+    it.skip('should handle SlashCommand tool invocation failure', async () => {
+      // TODO(#1666): Test error handling when SlashCommand tool fails
+      throw new Error('E2E test not implemented - see issue #1666');
+    });
+  });
+
+  describe('Completion Tool Parameter Validation', () => {
+    // TODO(#1810): These tests document expected validation behavior
+    // Actual validation should be implemented in wiggum_complete_security_review tool
+
+    it.skip('should reject command_executed=false', async () => {
+      // TODO(#1810): Implement in tool handler
+      // Expected: Tool should return error when command not executed
+      throw new Error('Validation test not implemented - see issue #1810');
+    });
+
+    it.skip('should validate result file paths exist', async () => {
+      // TODO(#1810): Implement in tool handler
+      // Expected: Tool should verify result files are readable
+      throw new Error('Validation test not implemented - see issue #1810');
+    });
+
+    it.skip('should detect mismatched counts and files', async () => {
+      // TODO(#1810): Implement in tool handler
+      // Expected: Tool should log warning if counts seem inconsistent
+      throw new Error('Validation test not implemented - see issue #1810');
+    });
+
+    // Note: Testing wrong tool invocation (wiggum_complete_pr_review vs
+    // wiggum_complete_security_review) requires integration test with MCP server
+    // See TODO(#1810) for implementation approach
   });
 });

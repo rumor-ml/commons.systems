@@ -982,7 +982,7 @@ function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): T
   // Get active agents (filter out completed ones)
   // All agents run every iteration
 
-  // TODO(#1531): Consider extracting shared security review instructions to a constant
+  // TODO(#1531): Extract shared security review instructions to a constant
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
     step_number: STEP_PHASE1_SECURITY_REVIEW,
