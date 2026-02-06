@@ -618,7 +618,7 @@ test_worktree_hook_execution() {
   trap "rm -rf '$tempdir'" EXIT
 
   cd "$tempdir"
-  git init
+  git init --initial-branch=main
   git config user.name "Test User"
   git config user.email "test@example.com"
 
@@ -804,7 +804,7 @@ test_worktree_hook_blocks_invalid_changes() {
   trap "rm -rf '$tempdir'" EXIT
 
   cd "$tempdir"
-  git init
+  git init --initial-branch=main
   git config user.name "Test User"
   git config user.email "test@example.com"
 
@@ -1515,7 +1515,7 @@ test_wezterm_lua_syntax_pre_commit_hook_e2e() {
   trap "rm -rf '$tempdir'" EXIT
 
   cd "$tempdir"
-  git init
+  git init --initial-branch=main
   git config user.name "Test User"
   git config user.email "test@example.com"
 
@@ -1667,7 +1667,7 @@ test_home_manager_build_check_pre_push_hook_e2e() {
   trap "rm -rf '$tempdir'" EXIT
 
   cd "$tempdir"
-  git init
+  git init --initial-branch=main
   git config user.name "Test User"
   git config user.email "test@example.com"
 
