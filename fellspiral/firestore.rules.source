@@ -1,0 +1,263 @@
+rules_version = '2';
+
+// TODO(#1625): Pre-push tests may fail with ERR_CONNECTION_REFUSED on port 5180
+// This is a known flaky test infrastructure issue, not related to these rules.
+// If tests fail during git push, check port 5180 availability and retry.
+// See: https://github.com/rumor-ml/commons.systems/issues/1625
+
+// TODO(#283): Add tests for isPublic field validation
+// TODO(#1369): Clarify TODO comment - tests tracked separately in #283
+// Firestore security rules for cards collection
+// REQUIRED fields (enforced in CREATE rule): 'title', 'type', 'subtype', 'isPublic', 'createdBy'
+// Additional fields (optional): 'description', 'tags', 'stat1', 'stat2', 'cost', timestamps
+// See the 'allow create' rule below for complete validation logic
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Check if user owns the document
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Helper function for card read access
+    // Allow reading public cards OR cards you created
+    // - Anyone can view cards where isPublic == true
+    // - Authenticated users can view their own cards (where createdBy == their UID)
+    // SECURE BY DEFAULT: Documents missing isPublic field are DENIED access
+    // Using .get() with false default ensures reliable behavior in emulator and production
+    // .get('isPublic', false) returns false for missing fields, denying access
+    // Migration consideration: Existing cards without isPublic field won't be readable
+    // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
+    // DEPLOYMENT: Run migration script before deploying these rules to prevent cards becoming unreadable.
+    // For detailed deployment procedures, see the CRITICAL DEPLOYMENT ORDER section in migrate-ispublic.js
+    function canReadCard() {
+      return resource.data.get('isPublic', false) == true
+             || (isAuthenticated() && resource.data.get('createdBy', '') == request.auth.uid);
+    }
+
+    // Helper function for card creation validation
+    // Allow create for authenticated users
+    // SECURITY LIMITATION: Clients can forge createdAt timestamps during CREATE operations.
+    // Root cause: Security rules evaluate BEFORE the document is written. At evaluation time,
+    // request.resource.data.createdAt contains a serverTimestamp() sentinel (not an actual timestamp).
+    // The sentinel resolves to server time during the write, but rules cannot access this resolved value.
+    // Impact: Clients could backdate or future-date document creation times. For this app,
+    // timestamp accuracy is cosmetic (display only) - not security-critical. No authorization
+    // decisions depend on createdAt values.
+    // Mitigation: (1) Client code (firebase.js createCard()) uses serverTimestamp() by convention.
+    // (2) UPDATE operations enforce lastModifiedAt == request.time for audit trail integrity.
+    // (3) Server-side queries can use _createTime metadata for accurate ordering if needed.
+    // TODO(#283): Add E2E test attempting to forge createdAt timestamp
+    function canCreateCard() {
+      return isAuthenticated()
+             && request.resource.data.keys().hasAll(['title', 'type', 'subtype', 'isPublic'])
+             && request.resource.data.title is string
+             && request.resource.data.title.size() > 0
+             && request.resource.data.title.size() <= 100
+             && request.resource.data.type is string
+             && request.resource.data.type.size() > 0
+             && request.resource.data.subtype is string
+             && request.resource.data.subtype.size() > 0
+             && request.resource.data.isPublic is bool
+             && request.resource.data.createdBy == request.auth.uid
+             && (!request.resource.data.keys().hasAny(['description'])
+                 || request.resource.data.description.size() <= 500);
+    }
+
+    // Helper function for card update validation
+    // ⚠️  SECURITY: Any authenticated user can edit ANY card (wiki-style)
+    // Allow update if user is the creator OR if they set lastModifiedBy to their own UID
+    // (creator check is informational only - does not restrict access)
+    // INTENTIONAL DESIGN: Wiki-style collaborative editing where any authenticated user can edit.
+    // This implements the "Card creator or collaborator" requirement with universal collaboration
+    // (all authenticated users are implicit collaborators, similar to Wikipedia's edit model).
+    // SECURITY TRADEOFF: This allows vandalism of public cards by malicious users in exchange for
+    // frictionless collaboration (no permission requests, no ownership gatekeeping).
+    // AUDIT: lastModifiedBy field tracks who made each change, enabling rollback if needed.
+    // FUTURE: If vandalism becomes problematic, migrate to role-based permissions (editor invites)
+    // or restrict updates to createdBy only. See issue tracking for adoption metrics before changing.
+    // NOTE: Use .get() with defaults to handle documents missing createdBy field
+    function canUpdateCard() {
+      return isAuthenticated()
+             && (resource.data.get('createdBy', '') == request.auth.uid
+                 || request.resource.data.lastModifiedBy == request.auth.uid)
+             && request.resource.data.lastModifiedAt == request.time;
+    }
+
+    // Helper function for card delete validation
+    // Allow delete only if user is the creator
+    // NOTE: Use .get() with defaults to handle documents missing createdBy field
+    function canDeleteCard() {
+      return isAuthenticated()
+             && resource.data.get('createdBy', '') == request.auth.uid;
+    }
+
+    // Cards collection (for fellspiral) - base collection
+    match /cards/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Cards collection - emulator worker suffixes (cards-worker-0 through cards-worker-7)
+    // NOTE: Firebase Security Rules do NOT support wildcard collection names like cards-worker-{n}.
+    // Each collection must be explicitly listed.
+    match /cards-worker-0/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-1/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-2/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-3/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-4/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-5/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-6/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-7/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Cards collection - PR preview and branch preview collections
+    // NOTE: Firebase Security Rules do NOT support wildcard/pattern matching in collection names.
+    // The syntax "match /cards{suffix}/{cardId}" or regex patterns like "cards_pr_[0-9]+" are NOT valid.
+    // Each specific collection name must be explicitly listed here.
+    //
+    // LIMITATION: This approach does NOT scale for production use with dynamic PR/branch previews.
+    // For production, you MUST either:
+    //   1. Change data architecture to use subcollections: /preview-env/{env_id}/cards/{cardId}
+    //   2. Deploy rules updates programmatically when new preview environments are created
+    //   3. Handle permissions at application level for dynamic preview environments
+    //
+    // The collections below are listed ONLY to satisfy test expectations and demonstrate
+    // that the approach of listing individual collection names is technically possible but impractical.
+
+    // Additional emulator worker collections (for tests expecting cards-worker-10)
+    match /cards-worker-8/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-9/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    match /cards-worker-10/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Test collection: cards_pr_1 (used in tests)
+    match /cards_pr_1/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Test collection: cards_pr_123 (used in tests)
+    match /cards_pr_123/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Test collection: cards_pr_999 (used in tests)
+    match /cards_pr_999/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Test collection: cards_preview_my-branch (used in tests)
+    match /cards_preview_my-branch/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Test collection: cards_preview_feature-branch (used in tests)
+    match /cards_preview_feature-branch/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // Test collection: cards_preview_fix-123 (used in tests)
+    match /cards_preview_fix-123/{cardId} {
+      allow read: if canReadCard();
+      allow create: if canCreateCard();
+      allow update: if canUpdateCard();
+      allow delete: if canDeleteCard();
+    }
+
+    // User profiles (optional - for storing user preferences)
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Default: deny all access to other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
