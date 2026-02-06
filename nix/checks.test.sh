@@ -928,6 +928,7 @@ EOF
 test_bash_session_vars() {
   print_test_header "test_bash_session_vars"
 
+  # TODO(#1852): Enable Home Manager session vars tests in CI environment
   # Skip if Home Manager is not installed (e.g., CI environment)
   SESSION_VARS_FILE="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
   if [ ! -f "$SESSION_VARS_FILE" ]; then
@@ -1001,6 +1002,7 @@ test_bash_session_vars() {
 test_timezone_dst_transitions() {
   print_test_header "test_timezone_dst_transitions"
 
+  # TODO(#1852): Enable Home Manager session vars tests in CI environment
   # Skip if Home Manager is not installed (e.g., CI environment)
   SESSION_VARS_FILE="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
   if [ ! -f "$SESSION_VARS_FILE" ]; then
