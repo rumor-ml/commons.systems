@@ -9,6 +9,14 @@ import { Category, WeekId, BudgetPlan } from '../islands/types';
  * This addresses the missing integration tests identified in TODO(#1365)
  */
 
+// Mock firestore module to prevent Firebase initialization errors during tests
+vi.mock('./firestore', () => ({
+  loadDemoTransactions: vi.fn().mockResolvedValue([]),
+  createDateString: vi.fn((date: string) => date as any),
+  isValidDateString: vi.fn(() => true),
+  createTransaction: vi.fn((data: any) => data),
+}));
+
 describe('main.ts Event Handler Integration Tests', () => {
   beforeEach(() => {
     // Clear localStorage and DOM before each test

@@ -13,6 +13,13 @@ import { monitorPRChecks, MonitorPRChecksInputSchema } from './tools/monitor-pr-
 import { monitorMergeQueue, MonitorMergeQueueInputSchema } from './tools/monitor-merge-queue.js';
 import { getDeploymentUrls, GetDeploymentUrlsInputSchema } from './tools/get-deployment-urls.js';
 import { getFailureDetails, GetFailureDetailsInputSchema } from './tools/get-failure-details.js';
+import { createWorktreeCmd, CreateWorktreeInputSchema } from './tools/create-worktree.js';
+import {
+  removeLabelIfExists,
+  RemoveLabelIfExistsInputSchema,
+} from './tools/remove-label-if-exists.js';
+import { addBlocker, AddBlockerInputSchema } from './tools/add-blocker.js';
+import { checkTodoInMain, CheckTodoInMainInputSchema } from './tools/check-todo-in-main.js';
 import { prioritizeIssues, PrioritizeIssuesInputSchema } from './tools/prioritize-issues.js';
 import {
   checkIssueDependencies,
@@ -202,6 +209,101 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: 'gh_create_worktree',
+        description:
+          'Create a new git worktree with full setup. Validates environment, ' +
+          'creates worktree, configures git hooks, updates issue labels, and optionally ' +
+          'opens tmux window with claude. Accepts issue number or task description. ' +
+          'Requires dangerouslyDisableSandbox: true for git/gh/direnv/tmux operations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            issue_number: {
+              type: 'number',
+              description: 'GitHub issue number (e.g., 1500)',
+            },
+            description: {
+              type: 'string',
+              description: 'Task description (used if no issue number)',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current)',
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'gh_remove_label_if_exists',
+        description:
+          'Remove a label from an issue or PR only if it exists (no error if missing). Idempotent operation that checks for label existence before removal.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue or PR number',
+            },
+            label: {
+              type: 'string',
+              description: 'Label name to remove',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['issue_number', 'label'],
+        },
+      },
+      {
+        name: 'gh_add_blocker',
+        description:
+          'Add a blocker relationship between two issues using GitHub dependencies API. Creates a "blocked by" relationship where one issue blocks another. Handles duplicate relationships gracefully.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            blocked_issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue number that is blocked',
+            },
+            blocker_issue_number: {
+              type: ['string', 'number'],
+              description: 'Issue number that is blocking',
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['blocked_issue_number', 'blocker_issue_number'],
+        },
+      },
+      {
+        name: 'gh_check_todo_in_main',
+        description:
+          'Check if a TODO pattern exists in a file on the origin/main branch using GitHub API (no git checkout required). Returns whether the pattern was found.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'File path to check in the repository',
+            },
+            todo_pattern: {
+              type: 'string',
+              description: "TODO pattern to search for (e.g., 'TODO(#123)')",
+            },
+            repo: {
+              type: 'string',
+              description: 'Repository in format "owner/repo" (defaults to current repository)',
+            },
+          },
+          required: ['file_path', 'todo_pattern'],
+        },
+      },
+      {
         name: 'gh_prioritize_issues',
         description:
           'Prioritize GitHub issues using four-tier system with priority scoring. Categorizes issues into Tier 1 (Bug), Tier 2 (Code Reviewer), Tier 3 (Code Simplifier), and Tier 4 (Other). Within each tier, sorts by priority score calculated from comment count and "Found while working on" references.',
@@ -284,6 +386,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case 'gh_get_failure_details': {
         const validated = GetFailureDetailsInputSchema.parse(args);
         return await getFailureDetails(validated);
+      }
+
+      case 'gh_create_worktree': {
+        const validated = CreateWorktreeInputSchema.parse(args);
+        return await createWorktreeCmd(validated);
+      }
+
+      case 'gh_remove_label_if_exists': {
+        const input = RemoveLabelIfExistsInputSchema.parse(args);
+        return await removeLabelIfExists(input);
+      }
+
+      case 'gh_add_blocker': {
+        const input = AddBlockerInputSchema.parse(args);
+        return await addBlocker(input);
+      }
+
+      case 'gh_check_todo_in_main': {
+        const input = CheckTodoInMainInputSchema.parse(args);
+        return await checkTodoInMain(input);
       }
 
       case 'gh_prioritize_issues': {

@@ -7,6 +7,19 @@ import { Legend } from './Legend';
 import { BudgetPlanEditor } from './BudgetPlanEditor';
 import { BudgetPlanningPage } from './BudgetPlanningPage';
 import { DateRangeSelector } from './DateRangeSelector';
+import { TransactionList } from './TransactionList';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { logger } from '../utils/logger';
+
+/**
+ * Extract error message and stack from unknown error type
+ */
+function extractErrorInfo(error: unknown): { message: string; stack?: string } {
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  };
+}
 
 const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetChart,
@@ -14,27 +27,46 @@ const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetPlanEditor,
   BudgetPlanningPage,
   DateRangeSelector,
+  TransactionList,
 };
 
 // Store React roots for re-rendering
 const roots = new Map<HTMLElement, ReturnType<typeof createRoot>>();
 
 function showErrorInContainer(element: HTMLElement, title: string, message: string): void {
-  const errorContainer = document.createElement('div');
-  errorContainer.className = 'p-4 bg-error text-white rounded';
+  try {
+    const errorContainer = document.createElement('div');
+    errorContainer.className = 'p-4 bg-error text-white rounded';
 
-  const errorTitle = document.createElement('p');
-  errorTitle.className = 'font-semibold';
-  errorTitle.textContent = title;
+    const errorTitle = document.createElement('p');
+    errorTitle.className = 'font-semibold';
+    errorTitle.textContent = title;
 
-  const errorMessage = document.createElement('p');
-  errorMessage.className = 'text-sm';
-  errorMessage.textContent = message;
+    const errorMessage = document.createElement('p');
+    errorMessage.className = 'text-sm';
+    errorMessage.textContent = message;
 
-  errorContainer.appendChild(errorTitle);
-  errorContainer.appendChild(errorMessage);
-  element.innerHTML = '';
-  element.appendChild(errorContainer);
+    errorContainer.appendChild(errorTitle);
+    errorContainer.appendChild(errorMessage);
+    element.innerHTML = '';
+    element.appendChild(errorContainer);
+  } catch (domError) {
+    logger.error('Failed to show error in container (DOM manipulation failed)', {
+      error: domError,
+      title,
+      message,
+      elementId: element.id,
+      elementTag: element.tagName,
+    });
+    console.error(`[CRITICAL] Cannot display error UI: ${title} - ${message}`, domError);
+
+    // Single text-only fallback
+    try {
+      element.textContent = `ERROR: ${title} - ${message}`;
+    } catch (textError) {
+      logger.error('All error display mechanisms failed', { domError, textError, title, message });
+    }
+  }
 }
 
 export function hydrateIsland(element: HTMLElement, componentName: string) {
@@ -43,11 +75,19 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
 
   try {
     props = JSON.parse(element.dataset.islandProps || '{}');
+    // Debug logging for chart island
+    if (componentName === 'BudgetChart' && 'transactions' in props) {
+      console.log(
+        `[Islands] Hydrating ${componentName} with ${(props as any).transactions?.length || 0} transactions`
+      );
+    }
   } catch (error) {
-    console.error(`Failed to parse island props for "${componentName}":`, error);
-    console.error('Invalid JSON:', element.dataset.islandProps);
+    logger.error(`Failed to parse island props for "${componentName}"`, {
+      error,
+      invalidJSON: element.dataset.islandProps,
+    });
 
-    // Show user-facing error in the island container
+    // Show error banner in place of failed component
     showErrorInContainer(
       element,
       `Failed to load ${componentName}`,
@@ -59,11 +99,12 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
   const Component = COMPONENTS[componentName];
 
   if (!Component) {
-    console.error(`Island component "${componentName}" not found in registry`);
-    console.error('Available components:', Object.keys(COMPONENTS));
-    console.error('Element:', element);
+    logger.error(`Island component "${componentName}" not found in registry`, {
+      availableComponents: Object.keys(COMPONENTS),
+      element: element.outerHTML.substring(0, 200),
+    });
 
-    // Show user-facing error in the island container
+    // Show error banner in place of failed component
     showErrorInContainer(
       element,
       `Component "${componentName}" not found`,
@@ -76,20 +117,63 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
     // Get or create root
     let root = roots.get(element);
     if (!root) {
-      root = createRoot(element);
-      roots.set(element, root);
+      try {
+        root = createRoot(element);
+        roots.set(element, root);
+      } catch (rootError) {
+        const { message: errorMessage, stack: errorStack } = extractErrorInfo(rootError);
+        logger.error(`Failed to create React root for "${componentName}"`, {
+          error: errorMessage,
+          stack: errorStack,
+          elementId: element.id,
+          elementClasses: element.className,
+        });
+        throw new Error(`Failed to create React root: ${errorMessage}`);
+      }
     }
 
+    // Wrap component in ErrorBoundary to catch React render/lifecycle errors after initial hydration.
+    // Initial hydration errors (props parsing, component lookup, root creation, first render) are caught by the surrounding try-catch.
+    const wrappedComponent = React.createElement(
+      ErrorBoundary,
+      { componentName },
+      React.createElement(Component, props)
+    );
+
     // Render (or re-render) with new props
-    root.render(React.createElement(Component, props));
-    element.dataset.islandHydrated = 'true';
+    try {
+      root.render(wrappedComponent);
+      element.dataset.islandHydrated = 'true';
+      // Debug logging for chart island
+      if (componentName === 'BudgetChart' && 'transactions' in props) {
+        console.log(
+          `[Islands] Rendered ${componentName} with ${(props as any).transactions?.length || 0} transactions`
+        );
+      }
+    } catch (renderError) {
+      const { message: errorMessage, stack: errorStack } = extractErrorInfo(renderError);
+      logger.error(`Failed to render component "${componentName}"`, {
+        error: errorMessage,
+        stack: errorStack,
+        elementId: element.id,
+        elementClasses: element.className,
+      });
+      throw new Error(`Failed to render component: ${errorMessage}`);
+    }
   } catch (error) {
-    console.error(`Failed to render island "${componentName}":`, error);
+    const { message, stack } = extractErrorInfo(error);
+
+    logger.error(`Failed to hydrate island "${componentName}"`, {
+      error: message,
+      stack,
+      elementId: element.id,
+      elementClasses: element.className,
+    });
 
     showErrorInContainer(
       element,
-      `Failed to render ${componentName}`,
-      'There was an error rendering this component. Try refreshing the page.'
+      `Failed to load ${componentName}`,
+      'There was an error loading this component. Try refreshing the page.'
     );
   }
 }
