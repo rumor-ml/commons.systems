@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { Logger, LogLevel } from './logger';
+import { Logger, LogLevel, logError } from './logger';
+import { errorIds } from '../constants/errorIds';
 
 describe('Logger', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -435,5 +436,68 @@ describe('Logger', () => {
 
       expect(logger.getLevel()).toBe(LogLevel.WARN);
     });
+  });
+});
+
+describe('logError', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should log error with error ID', () => {
+    const error = new Error('Test error');
+    logError('Test message', {
+      errorId: errorIds.AUTH_SIGNIN_FAILED,
+      error,
+    });
+
+    expect(console.error).toHaveBeenCalledWith(
+      '[AUTH_SIGNIN_FAILED] Test message',
+      expect.objectContaining({
+        errorId: 'AUTH_SIGNIN_FAILED',
+        message: 'Test message',
+        error: expect.objectContaining({
+          name: 'Error',
+          message: 'Test error',
+        }),
+      })
+    );
+  });
+
+  it('should include optional context', () => {
+    const error = new Error('Test error');
+    const context = { userId: '123', action: 'signin' };
+
+    logError('Test message', {
+      errorId: errorIds.AUTH_SIGNIN_FAILED,
+      error,
+      context,
+    });
+
+    expect(console.error).toHaveBeenCalledWith(
+      '[AUTH_SIGNIN_FAILED] Test message',
+      expect.objectContaining({
+        context,
+      })
+    );
+  });
+
+  it('should include timestamp', () => {
+    const error = new Error('Test error');
+    logError('Test message', {
+      errorId: errorIds.AUTH_SIGNIN_FAILED,
+      error,
+    });
+
+    expect(console.error).toHaveBeenCalledWith(
+      '[AUTH_SIGNIN_FAILED] Test message',
+      expect.objectContaining({
+        timestamp: expect.any(String),
+      })
+    );
   });
 });
