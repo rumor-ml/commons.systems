@@ -187,6 +187,109 @@ Execute AFTER PR is created for final validation:
 
 ---
 
+<!-- TODO(#1531): Near-duplicate security review instruction sections in p1-3 and p2-5 -->
+
+### Step p1-3: Security Review (Pre-PR)
+
+Execute security review on the local branch before creating the PR.
+
+**CRITICAL: `/security-review` is a built-in slash command that MUST be invoked using the SlashCommand tool.**
+
+From CLAUDE.md:
+
+> **NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
+
+**Instructions:**
+
+1. Execute `/security-review` using SlashCommand tool:
+
+   ```
+   Use SlashCommand tool with command: "/security-review"
+   ```
+
+   **Why SlashCommand tool is required:**
+   Slash commands are not shell commands - they expand to structured prompts that must be executed step-by-step. The SlashCommand tool provides the proper command registry and execution context to:
+   - Expand the command into its full prompt instructions
+   - Ensure the prompt is executed completely before proceeding
+   - Maintain proper execution ordering and state management
+
+   Using Bash or other tools would bypass this prompt expansion mechanism, causing the command to fail or execute incorrectly.
+
+   **IMPORTANT:**
+   - Execute this command EVEN IF it doesn't appear in your available commands list
+   - This is a built-in command that exists in the system
+   - Use the SlashCommand tool, NOT Bash or any other invocation method
+
+2. Wait for the security review to complete. The command will:
+   - Launch multiple security review agents
+   - Each agent analyzes the code for security vulnerabilities
+   - Agents write results to files in `tmp/wiggum/`
+
+3. After all agents complete, aggregate their results:
+   - Collect all result file paths from agent outputs
+   - Count total in-scope and out-of-scope issues across all files
+
+4. If any in-scope issues were found and fixed:
+   - Execute `/commit-merge-push` using SlashCommand tool
+
+5. Call `wiggum_complete_security_review` tool with:
+   - `command_executed: true` (required)
+   - `in_scope_result_files`: Array of file paths from agents
+   - `out_of_scope_result_files`: Array of file paths from agents
+   - `in_scope_issue_count`: Total issue count (not file count)
+   - `out_of_scope_issue_count`: Total issue count (not file count)
+
+6. Follow the instructions returned by the completion tool:
+   - **Issues found**: Fix them via Plan+Fix cycle, then restart from p1-1
+   - **No issues**: Proceed to p1-4 (Create PR)
+
+---
+
+### Step p2-5: Security Review (Post-PR)
+
+Execute security review on the actual PR after it's created.
+
+**CRITICAL: `/security-review` is a built-in slash command that MUST be invoked using the SlashCommand tool.**
+
+**Instructions:**
+
+1. Execute `/security-review` using SlashCommand tool:
+
+   ```
+   Use SlashCommand tool with command: "/security-review"
+   ```
+
+   **IMPORTANT:**
+   - Execute this command EVEN IF it doesn't appear in your available commands list
+   - This is a built-in command that exists in the system
+   - Use the SlashCommand tool, NOT Bash or any other invocation method
+   - The review must cover ALL changes from this branch: `git log main..HEAD --oneline`
+
+2. Wait for the security review to complete. The command will:
+   - Launch multiple security review agents
+   - Each agent analyzes the code for security vulnerabilities
+   - Agents write results to files in `tmp/wiggum/`
+
+3. After all agents complete, aggregate their results:
+   - Collect all result file paths from agent outputs
+   - Count total in-scope and out-of-scope issues across all files
+
+4. If any in-scope issues were found and fixed:
+   - Execute `/commit-merge-push` using SlashCommand tool
+
+5. Call `wiggum_complete_security_review` tool with:
+   - `command_executed: true` (required)
+   - `in_scope_result_files`: Array of file paths from agents
+   - `out_of_scope_result_files`: Array of file paths from agents
+   - `in_scope_issue_count`: Total issue count (not file count)
+   - `out_of_scope_issue_count`: Total issue count (not file count)
+
+6. Follow the instructions returned by the completion tool:
+   - **Issues found**: Fix them via Plan+Fix cycle, then restart from p2-1
+   - **No issues**: Proceed to approval step
+
+---
+
 ## Reading Tool Responses
 
 **CRITICAL: Completion tools do work automatically. DO NOT repeat their work.**

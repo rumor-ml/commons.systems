@@ -5,8 +5,8 @@
 # ensures reproducibility across different machines.
 #
 # This configuration includes:
-# - Bash shell integration (bash.nix)
-# - Zsh shell integration (zsh.nix)
+# - Bash shell configuration (bash.nix)
+# - Zsh shell configuration (zsh.nix)
 # - Git configuration (git.nix)
 # - Tmux configuration (tmux.nix)
 # - Development tools: direnv, neovim (tools.nix)

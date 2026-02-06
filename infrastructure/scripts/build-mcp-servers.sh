@@ -19,6 +19,11 @@
 
 set -euo pipefail
 
+# Load direnv environment to ensure Nix Node.js is used instead of Homebrew
+# This prevents ICU4c library version conflicts on macOS
+# TODO(#1751): direnv errors silently suppressed with || true in build script
+eval "$(direnv export bash 2>/dev/null)" || true
+
 # Color output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# TODO(#1581): No tests for sandbox feature reliability and error handling
+
 # PreToolUse Hook: Remind about dangerouslyDisableSandbox for excluded commands
 # Dynamically reads excluded commands from settings.json
 
