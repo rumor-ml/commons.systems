@@ -2,6 +2,7 @@
  * Add Card E2E Tests
  * Tests the complete Add Card workflow including UI, validation, and persistence
  *
+ * OPTIMIZATION(#1805): Firebase init waits optimized from fixed 2-3s timeouts to condition-based waits (50-200ms typical)
  * TODO(#1356): Replace fixed timeouts with condition-based waiting for better test reliability
  * TODO(#480): Add 5 critical missing tests from all-hands review:
  *   1. Double-submit prevention via rapid Enter key presses
@@ -43,7 +44,11 @@ test.describe('Add Card - Happy Path Tests', () => {
   test.skip('should create card with all fields populated', async ({ page, authEmulator }) => {
     // TODO(#1325): Firestore emulator timeout during card creation
     await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(2000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -74,8 +79,11 @@ test.describe('Add Card - Happy Path Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -105,8 +113,11 @@ test.describe('Add Card - Happy Path Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -131,9 +142,13 @@ test.describe('Add Card - Happy Path Tests', () => {
   }) => {
     // TODO(#1325): Firestore emulator timeout during card creation
     await page.goto('/cards.html');
-    // Wait for page to load and allow time for Firebase initialization
     await page.waitForLoadState('load');
-    await page.waitForTimeout(1000);
+
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     const uid = await authEmulator.createTestUser(email);
@@ -161,8 +176,11 @@ test.describe('Add Card - Happy Path Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -193,8 +211,11 @@ test.describe('Add Card - Happy Path Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(2000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     // Sign in with seeded QA user
     const email = 'qa@test.com';
@@ -210,8 +231,11 @@ test.describe('Add Card - Happy Path Tests', () => {
     // Re-sign in after page reload (page reload clears window.__testAuth)
     await authEmulator.signInTestUser(email);
 
-    // Wait for Firebase to restore auth state
-    await page.waitForTimeout(2000);
+    // Wait for Firebase auth to restore state (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     // Button should STILL be visible after refresh (this tests Bug 2 fix)
     await expect(page.locator('#addCardBtn')).toBeVisible({ timeout: 5000 });
@@ -229,8 +253,11 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -262,8 +289,11 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -292,8 +322,11 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -324,8 +357,11 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -360,8 +396,11 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -399,8 +438,11 @@ test.describe('Add Card - Form Validation Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -494,8 +536,11 @@ test.describe('Add Card - Modal Behavior Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -515,8 +560,11 @@ test.describe('Add Card - Modal Behavior Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -537,8 +585,11 @@ test.describe('Add Card - Modal Behavior Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -563,8 +614,11 @@ test.describe('Add Card - Modal Behavior Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -585,8 +639,11 @@ test.describe('Add Card - Modal Behavior Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -619,8 +676,11 @@ test.describe('Add Card - Modal Behavior Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -647,8 +707,11 @@ test.describe('Add Card - Modal Behavior Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -673,8 +736,11 @@ test.describe('Add Card - Edge Cases', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -699,8 +765,11 @@ test.describe('Add Card - Edge Cases', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -743,8 +812,11 @@ test.describe('Add Card - Edge Cases', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -783,8 +855,11 @@ test.describe('Add Card - Edge Cases', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -818,8 +893,11 @@ test.describe('Add Card - Integration Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -851,8 +929,11 @@ test.describe('Add Card - Integration Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -885,8 +966,11 @@ test.describe('Add Card - Integration Tests', () => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
 
-    // Wait for Firebase to initialize (triggered by DOMContentLoaded)
-    await page.waitForTimeout(3000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
@@ -929,7 +1013,11 @@ test.describe('Combobox Keyboard Navigation', () => {
 
   test('should open dropdown with ArrowDown when closed', async ({ page, authEmulator }) => {
     await page.goto('/cards.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(2000);
+    // Wait for Firebase auth to initialize (typically 50-200ms, max 5s)
+    await page.waitForFunction(
+      () => window.auth != null && window.__testAuth?.currentUser != null,
+      { timeout: 5000 }
+    );
 
     const email = `test-${Date.now()}@example.com`;
     await authEmulator.createTestUser(email);
