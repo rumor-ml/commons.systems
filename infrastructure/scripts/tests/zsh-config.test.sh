@@ -373,6 +373,26 @@ echo "========================================"
 echo "Zsh Configuration Tests"
 echo "========================================"
 
+# TODO(#1852): Enable Home Manager session vars tests in CI environment
+# Skip if Home Manager is not activated (e.g., before home-manager switch)
+SESSION_VARS_FILE="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+if [ ! -f "$SESSION_VARS_FILE" ]; then
+  echo ""
+  echo "⚠ SKIP: Home Manager not activated - skipping all zsh configuration tests"
+  echo "  File not found: $SESSION_VARS_FILE"
+  echo "  Run 'home-manager switch --flake .#default --impure' to activate and enable these tests"
+  echo ""
+  echo "========================================"
+  echo "Test Results"
+  echo "========================================"
+  echo "Total:  0"
+  echo "Passed: 0 (skipped)"
+  echo "Failed: 0"
+  echo "========================================"
+  echo "✓ Tests skipped (Home Manager not activated)"
+  exit 0
+fi
+
 run_test test_zsh_is_available
 run_test test_zshenv_exists
 run_test test_zshenv_sources_session_vars

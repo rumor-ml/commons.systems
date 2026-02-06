@@ -372,6 +372,26 @@ main() {
   echo -e "${BLUE}Timezone Configuration Integration Tests${NC}"
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
+  # TODO(#1852): Enable Home Manager session vars tests in CI environment
+  # Skip if Home Manager is not installed (e.g., before home-manager switch)
+  SESSION_VARS_FILE="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+  if [ ! -f "$SESSION_VARS_FILE" ]; then
+    echo ""
+    echo -e "${YELLOW}⚠ SKIP: Home Manager not activated - skipping all integration tests${NC}"
+    echo -e "${YELLOW}  File not found: $SESSION_VARS_FILE${NC}"
+    echo -e "${YELLOW}  Run 'home-manager switch --flake .#default --impure' to activate and enable these tests${NC}"
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Test Summary${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo "Tests run:    0"
+    echo -e "Tests passed: ${GREEN}0${NC} (skipped)"
+    echo "Tests failed: 0"
+    echo ""
+    echo -e "${GREEN}TESTS SKIPPED (Home Manager not activated)${NC}"
+    exit 0
+  fi
+
   # If specific test requested, run only that test
   if [[ $# -gt 0 ]]; then
     test_name="$1"
