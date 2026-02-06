@@ -7,6 +7,12 @@
 # 4. Succeeds for valid Lua syntax
 # 5. Validates WezTerm can load and use the configuration at runtime
 #
+# NOTE: WezTerm runtime validation tests (test-wezterm-runtime and
+# test-wezterm-invalid-color-scheme) were removed due to cross-compilation
+# limitations on Linux CI. These tests required building the wezterm package
+# which has Darwin-only dependencies. See issue #1856 for tracking the test
+# gap and potential solutions (Darwin CI runner, conditional tests, etc.).
+#
 # Usage:
 #   nix-build nix/tests/wezterm-lua-syntax-test.nix
 #
