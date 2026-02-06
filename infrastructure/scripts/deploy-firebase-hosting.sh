@@ -64,6 +64,12 @@ echo ""
 
 # Build the site
 echo "📦 Building ${SITE_NAME}..."
+
+# Set environment variables for collection namespacing (PR previews and feature branches)
+# These are used by the frontend to query the correct Firestore collections
+export VITE_PR_NUMBER="${PR_NUMBER:-}"
+export VITE_BRANCH_NAME="${BRANCH_NAME}"
+
 pnpm --dir "${SITE_NAME}/site" build
 
 # Check if build succeeded
