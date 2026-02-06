@@ -5,7 +5,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
+        "command -v direnv >/dev/null && eval \"$(direnv export bash)\" || echo 'WARN: direnv not available, using system Node.js - may cause ICU4c errors' >&2; exec node \"$@\"",
         "--",
         "gh-workflow-mcp-server/dist/index.js"
       ]
@@ -15,7 +15,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
+        "command -v direnv >/dev/null && eval \"$(direnv export bash)\" || echo 'WARN: direnv not available, using system Node.js - may cause ICU4c errors' >&2; exec node \"$@\"",
         "--",
         "gh-issue-mcp-server/dist/index.js"
       ]
@@ -25,7 +25,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "eval \"$(direnv export bash 2>/dev/null)\" && exec node \"$@\"",
+        "command -v direnv >/dev/null && eval \"$(direnv export bash)\" || echo 'WARN: direnv not available, using system Node.js - may cause ICU4c errors' >&2; exec node \"$@\"",
         "--",
         "wiggum-mcp-server/dist/index.js"
       ]
