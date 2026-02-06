@@ -1,5 +1,0 @@
-{
-  "projects": {
-    "default": "{{APP_NAME}}-project"
-  }
-}
