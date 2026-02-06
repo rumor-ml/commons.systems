@@ -118,35 +118,39 @@ Execute AFTER PR is created for final validation:
 
 ### Step p1-2: Code Review (Pre-PR)
 
-**Phase 1: Prepare Context**
+**Phase 1: Launch Review Agents**
 
-1. Invoke all-hands agent:
+1. Launch 6 review agents in PARALLEL:
+   - pr-review-toolkit:code-reviewer
+   - pr-review-toolkit:silent-failure-hunter
+   - pr-review-toolkit:code-simplifier
+   - pr-review-toolkit:comment-analyzer
+   - pr-review-toolkit:pr-test-analyzer
+   - pr-review-toolkit:type-design-analyzer
 
-   ```
-   Task tool with subagent_type="all-hands"
-   ```
-
-   - Agent validates git state
-   - Creates issue summary document at `$(pwd)/tmp/wiggum/issue-summary.md`
-   - Returns instructions listing 6 review agents to launch
-
-**Phase 2: Launch Review Agents**
-
-2. Follow the all-hands agent's instructions to launch 6 review agents in PARALLEL:
-   - code-reviewer
-   - silent-failure-hunter
-   - code-simplifier
-   - comment-analyzer
-   - pr-test-analyzer
-   - type-design-analyzer
-
-   Each agent will read `$(pwd)/tmp/wiggum/issue-summary.md` for context.
+   Each agent reviews changes from `origin/main...HEAD`.
 
 **CRITICAL:** Launch ALL 6 agents in parallel (single response with 6 Task calls).
 
+**Phase 2: Prioritization Review**
+
+2. After ALL review agents complete, invoke 6 review-prioritizer agents in PARALLEL:
+
+   ```
+   Task tool with subagent_type="review-prioritizer" (6 instances in parallel)
+   ```
+
+   - Launch one review-prioritizer per review agent result
+   - Pass each review agent's output to its corresponding prioritizer
+   - Each prioritizer reviews findings against strict scope/priority criteria
+   - Each prioritizer creates manifest entries using wiggum_record_review_issue
+   - Each prioritizer returns summary of issues created
+
+**CRITICAL:** Launch ALL 6 prioritizers in parallel (single response with 6 Task calls).
+
 **Phase 3: List & Organize**
 
-3. After ALL review agents complete, call `wiggum_list_issues({ scope: 'all' })`
+3. After review-prioritizer completes, call `wiggum_list_issues({ scope: 'all' })`
 4. Create TODO list from the response:
    - One item per IN-SCOPE BATCH: `[batch-{N}] {file_count} files, {issue_count} issues`
    - One item per OUT-OF-SCOPE ISSUE: `[out-of-scope] {issue_id}: {title}`
