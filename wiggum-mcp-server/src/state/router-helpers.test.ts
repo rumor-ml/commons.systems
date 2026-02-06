@@ -85,13 +85,9 @@ describe('safeLog', () => {
 
   describe('Fallback behavior documentation', () => {
     it('should document fallback path to console.error', () => {
-      // When logger fails, safeLog falls back to console.error
-      // This ensures critical errors are always visible
-      // Fallback includes:
-      // - level: original log level
-      // - message: original message
-      // - context: original context
-      // - loggingError: error from logger failure
+      // When logger fails, safeLog falls back to console.error with 'CRITICAL: Logger failed'
+      // message and object containing: level, message, context, loggingError
+      // This ensures critical errors are always visible even when the primary logger fails
       assert.ok(true, 'Falls back to console.error when logger fails');
     });
 

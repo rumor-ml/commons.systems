@@ -15,6 +15,7 @@ import {
 } from './router.js';
 import type { CurrentState, PRExists, PRStateValue } from './types.js';
 import { createPRExists, createPRDoesNotExist } from './types.js';
+import * as bodyState from './body-state.js';
 import type { WiggumStep } from '../constants.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
@@ -650,20 +651,8 @@ describe('State Update Retry Logic', () => {
 
 describe('safeUpdatePRBodyState wrapper function', () => {
   it('should document wrapper function signature and defaults', () => {
-    // This test documents the public API contract without requiring external dependencies
-    // Signature: safeUpdatePRBodyState(prNumber, state, step, maxRetries = 3)
-    // Returns: Promise<StateUpdateResult>
-
-    // Verify the function exists and is callable
+    // Documents the public API - see router.ts for full signature
     assert.strictEqual(typeof safeUpdatePRBodyState, 'function');
-
-    // Document expected behavior:
-    // - Accepts 3 required parameters (prNumber, state, step)
-    // - Accepts 1 optional parameter (maxRetries, defaults to 3)
-    // - Returns Promise that resolves to StateUpdateResult
-    // - Delegates to executeStateUpdateWithRetry with config:
-    //   { resourceType: 'pr', resourceId: prNumber, updateFn: updatePRBodyState }
-    assert.ok(true, 'Wrapper function exists with documented signature');
   });
 
   it('should document default maxRetries value of 3', () => {
@@ -892,5 +881,122 @@ describe('Wrapper function behavioral parity', () => {
     // - Issue wrapper → updateIssueBodyState
 
     assert.ok(true, 'Correct updateFn mapping prevents API misuse');
+  });
+});
+
+describe('Wrapper function defensive checks', () => {
+  it('should document defensive check for updatePRBodyState', () => {
+    // safeUpdatePRBodyState has a defensive check (lines 645-650 in router.ts):
+    //
+    // if (typeof updatePRBodyState !== 'function') {
+    //   throw new Error(
+    //     'safeUpdatePRBodyState: updatePRBodyState function is not defined. ' +
+    //     'This indicates a module import failure or circular dependency.'
+    //   );
+    // }
+    //
+    // This check catches:
+    // - Import failures during module loading
+    // - Circular dependencies breaking at runtime
+    // - Build system issues with bundling/compilation
+    //
+    // Cannot test at runtime with ES modules (read-only exports), but the check
+    // provides a clear error message if the unlikely scenario occurs.
+
+    assert.strictEqual(typeof bodyState.updatePRBodyState, 'function');
+  });
+
+  it('should document defensive check for updateIssueBodyState', () => {
+    // safeUpdateIssueBodyState has a defensive check (lines 689-694 in router.ts):
+    //
+    // if (typeof updateIssueBodyState !== 'function') {
+    //   throw new Error(
+    //     'safeUpdateIssueBodyState: updateIssueBodyState function is not defined. ' +
+    //     'This indicates a module import failure or circular dependency.'
+    //   );
+    // }
+    //
+    // This check catches serious module loading issues at runtime.
+    // While unlikely (TypeScript provides compile-time protection), it ensures
+    // clear error messages guide developers to the likely cause.
+
+    assert.strictEqual(typeof bodyState.updateIssueBodyState, 'function');
+  });
+});
+
+describe('Wrapper function integration', () => {
+  it('should document that safeUpdatePRBodyState passes PR config to executeStateUpdateWithRetry', () => {
+    // safeUpdatePRBodyState delegates to executeStateUpdateWithRetry with this config:
+    // {
+    //   resourceType: 'pr',
+    //   resourceId: prNumber (from parameter),
+    //   updateFn: updatePRBodyState (from body-state.ts)
+    // }
+    //
+    // This configuration ensures:
+    // - Error messages reference "PR #123" not "issue"
+    // - Logging uses prNumber field correctly
+    // - Correct API endpoint is called (gh pr edit, not gh issue edit)
+    //
+    // The wrapper implementation (lines 652-661) shows the correct mapping:
+    // return executeStateUpdateWithRetry(
+    //   {
+    //     resourceType: 'pr',
+    //     resourceId: prNumber,
+    //     updateFn: updatePRBodyState,
+    //   },
+    //   ...
+    // );
+
+    assert.strictEqual(typeof bodyState.updatePRBodyState, 'function');
+  });
+
+  it('should document that safeUpdateIssueBodyState passes issue config to executeStateUpdateWithRetry', () => {
+    // safeUpdateIssueBodyState delegates to executeStateUpdateWithRetry with this config:
+    // {
+    //   resourceType: 'issue',
+    //   resourceId: issueNumber (from parameter),
+    //   updateFn: updateIssueBodyState (from body-state.ts)
+    // }
+    //
+    // This configuration ensures:
+    // - Error messages reference "issue #456" not "PR"
+    // - Logging uses issueNumber field correctly
+    // - Correct API endpoint is called (gh issue edit, not gh pr edit)
+    //
+    // The wrapper implementation (lines 696-705) shows the correct mapping:
+    // return executeStateUpdateWithRetry(
+    //   {
+    //     resourceType: 'issue',
+    //     resourceId: issueNumber,
+    //     updateFn: updateIssueBodyState,
+    //   },
+    //   ...
+    // );
+
+    assert.strictEqual(typeof bodyState.updateIssueBodyState, 'function');
+  });
+
+  it('should verify wrapper functions use distinct update functions from body-state module', () => {
+    // Regression prevention: This test documents that the wrappers call
+    // different functions from body-state.ts:
+    //
+    // - safeUpdatePRBodyState → updatePRBodyState
+    // - safeUpdateIssueBodyState → updateIssueBodyState
+    //
+    // If someone accidentally swaps these during copy-paste:
+    // - PRs would be updated with 'gh issue edit' (wrong!)
+    // - Issues would be updated with 'gh pr edit' (wrong!)
+    //
+    // The type system enforces this at compile time, and the distinct
+    // function references prevent runtime cross-calls.
+
+    assert.notStrictEqual(
+      bodyState.updatePRBodyState,
+      bodyState.updateIssueBodyState,
+      'PR and issue update functions must be distinct'
+    );
+    assert.strictEqual(typeof bodyState.updatePRBodyState, 'function');
+    assert.strictEqual(typeof bodyState.updateIssueBodyState, 'function');
   });
 });

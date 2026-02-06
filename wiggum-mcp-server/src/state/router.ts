@@ -52,6 +52,7 @@ import { sanitizeErrorMessage } from '../utils/security.js';
  * Helper type for state where PR is guaranteed to exist
  * Used in handlers after Step 0
  */
+// TODO(#1847): hasExistingPR type guard checks pr.state unnecessarily, narrower than type definition
 type CurrentStateWithPR = CurrentState & {
   pr: PRExists;
 };
@@ -79,6 +80,11 @@ export type StateUpdateResult =
     };
 
 /**
+ * Type alias for state update function signature
+ */
+type StateUpdateFn = (id: number, state: WiggumState, repo?: string) => Promise<void>;
+
+/**
  * Configuration for state update operations.
  * Encapsulates resource-specific differences (PR vs issue) through dependency injection,
  * allowing executeStateUpdateWithRetry to handle both uniformly.
@@ -86,7 +92,9 @@ export type StateUpdateResult =
  * @property resourceType - Type of GitHub resource ('pr' or 'issue')
  * @property resourceId - Positive integer resource identifier
  * @property updateFn - Function that updates the resource's body state.
- *                     Accepts (id: number, state: WiggumState, repo?: string) => Promise<void>
+ *                     Called with (id: number, state: WiggumState).
+ *                     Note: The underlying functions support an optional repo parameter,
+ *                     but executeStateUpdateWithRetry always uses the default repo.
  *
  * Note: executeStateUpdateWithRetry derives resourceLabel, verifyCommand, and
  * error context field names from the resourceType and resourceId provided in this config.
@@ -94,7 +102,7 @@ export type StateUpdateResult =
 interface StateUpdateConfig {
   readonly resourceType: 'pr' | 'issue';
   readonly resourceId: number;
-  readonly updateFn: (id: number, state: WiggumState, repo?: string) => Promise<void>;
+  readonly updateFn: StateUpdateFn;
 }
 
 /**
@@ -153,6 +161,7 @@ function safeLog(
         process.stderr.write(`CRITICAL: Logger and console.error failed - ${message}\n`);
       } catch (stderrError) {
         // All logging fallbacks exhausted - store for postmortem debugging
+        // TODO(#1848): Silent failure in safeLog when all logging mechanisms fail
         if (typeof globalThis !== 'undefined') {
           (globalThis as any).__unloggedErrors = (globalThis as any).__unloggedErrors || [];
           (globalThis as any).__unloggedErrors.push({ level, message, context });
@@ -165,13 +174,14 @@ function safeLog(
 /**
  * Safely serialize value to JSON with fallback on error
  *
- * On serialization failure, attempts to extract partial state information
- * for debugging instead of just returning placeholder. This provides better
- * error context in logs when full serialization fails.
+ * On serialization failure, attempts to extract partial WiggumState properties
+ * (phase, step, iteration, completedSteps count) for debugging. For non-WiggumState
+ * objects, falls back to generic error message.
  *
  * @param value - Value to serialize (typically WiggumState)
  * @param label - Label for the value in error messages (e.g., "state", "fallback-state")
  * @returns JSON string or partial state representation on failure
+// TODO(#1850): Extract individual state properties separately to preserve as much info as possible when partial extraction fails
  */
 function safeStringify(value: unknown, label: string): string {
   try {
@@ -192,7 +202,6 @@ function safeStringify(value: unknown, label: string): string {
       }
     }
 
-    // Last resort: type info
     const errorMsg = error instanceof Error ? error.message : String(error);
     safeLog('warn', `Failed to serialize ${label}`, {
       error: errorMsg,
@@ -251,7 +260,6 @@ async function executeStateUpdateWithRetry(
     );
   }
 
-  // TODO(#1678): State validation error (WiggumStateSchema.parse) provides detailed error but loses original Zod error stack trace
   // Validate resourceId parameter (must be positive integer)
   // This validation happens upfront to fail fast with clear error message.
   // Prevents invalid resourceId from causing StateApiError.create() failures in error handling paths.
@@ -367,7 +375,7 @@ async function executeStateUpdateWithRetry(
 
       // Classify error type using shared utility
       // If classification fails, use conservative fallback (no retry) to avoid misclassifying errors
-      // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      // TODO(#940): Document expected GitHub API error patterns and add test coverage
       let classification: ReturnType<typeof classifyGitHubError>;
       try {
         classification = classifyGitHubError(updateError, exitCode);
@@ -445,7 +453,7 @@ async function executeStateUpdateWithRetry(
         const reason = classification.isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2^attempt seconds, capped at 60s
+          // Exponential backoff: 2^attempt seconds, capped at 60s to balance recovery time vs user experience
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
           const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
@@ -467,7 +475,7 @@ async function executeStateUpdateWithRetry(
                 `This indicates a bug in the retry loop counter. uncappedDelayMs: ${uncappedDelayMs}`
             );
           }
-          // Note: delayMs > MAX_DELAY_MS is expected and handled by Math.min above, not an error
+          // Note: delayMs is guaranteed ≤ MAX_DELAY_MS due to Math.min() above. Only validate for invalid values (negative/NaN).
 
           safeLog('info', 'Transient error updating state - retrying with backoff', {
             ...errorContext,
@@ -477,6 +485,7 @@ async function executeStateUpdateWithRetry(
             remainingAttempts: maxRetries - attempt,
           });
 
+          // TODO(#1846): Distinguish between expected sleep interruptions and unexpected failures
           // Explicit error handling for sleep to prevent misclassification
           try {
             await sleep(delayMs);
@@ -523,8 +532,8 @@ async function executeStateUpdateWithRetry(
       throw updateError;
     }
   }
-  // Fallback: TypeScript cannot prove all catch paths return/throw.
-  // If this executes, investigate gap in error classification (issue #625).
+  // Defensive fallback: All error paths should return/throw above. If this executes,
+  // it indicates a logic gap in the retry loop or error classification.
   const fallbackStateJson = safeStringify(state, 'fallback-state');
 
   safeLog('error', `INTERNAL: ${functionName} retry loop completed without returning`, {
@@ -1776,6 +1785,7 @@ Final actions:
  * Type guard to check if state has an existing PR
  * Narrows CurrentState to CurrentStateWithPR
  */
+// TODO(#1847): hasExistingPR type guard checks pr.state unnecessarily, narrower than type definition
 function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
   return state.pr.exists && state.pr.state === 'OPEN';
 }
