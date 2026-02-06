@@ -1866,9 +1866,14 @@ main() {
     test_home_manager_build_check_detects_flake_changes
     test_home_manager_build_check_no_origin_main
     test_home_manager_build_check_regex_pattern
-    test_wezterm_lua_validation
+    # WezTerm tests only run on Darwin since WezTerm is Darwin-only
+    if [[ "$(uname)" == "Darwin" ]]; then
+      test_wezterm_lua_validation
+      test_wezterm_lua_syntax_pre_commit_hook_e2e
+    else
+      echo -e "${YELLOW}Skipping WezTerm tests on non-Darwin platform${NC}"
+    fi
     test_ci_workflow_home_manager_build
-    test_wezterm_lua_syntax_pre_commit_hook_e2e
     test_home_manager_build_check_pre_push_hook_e2e
   fi
 
