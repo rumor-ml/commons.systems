@@ -132,6 +132,7 @@ if [ -f "$TEST_ENV_CONFIG" ]; then
   EXISTING_FIRESTORE_HOST=$(jq -r '.emulators.firestoreHost // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
   EXISTING_HOSTING_PORT=$(jq -r '.emulators.hostingPort // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
   EXISTING_PROJECT_ID=$(jq -r '.emulators.projectId // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
+  EXISTING_APP_NAME=$(jq -r '.emulators.appName // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
 
   if [ -n "$EXISTING_AUTH_HOST" ] && [ -n "$EXISTING_HOSTING_PORT" ]; then
     # Extract port numbers from host strings
@@ -141,22 +142,35 @@ if [ -f "$TEST_ENV_CONFIG" ]; then
     # Check if both Auth emulator and Hosting emulator are running
     if nc -z 127.0.0.1 "$AUTH_PORT_CHECK" 2>/dev/null && \
        nc -z 127.0.0.1 "$HOSTING_PORT_CHECK" 2>/dev/null; then
-      echo "✓ Detected running emulators - reusing existing configuration"
-      echo "  Auth: $EXISTING_AUTH_HOST"
-      echo "  Hosting: localhost:$EXISTING_HOSTING_PORT"
-      echo "  Project: $EXISTING_PROJECT_ID"
-      echo ""
 
-      # Set environment variables from existing config
-      export FIREBASE_AUTH_EMULATOR_HOST="$EXISTING_AUTH_HOST"
-      export FIRESTORE_EMULATOR_HOST="$EXISTING_FIRESTORE_HOST"
-      export STORAGE_EMULATOR_HOST=$(jq -r '.emulators.storageHost // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
-      export GCP_PROJECT_ID="$EXISTING_PROJECT_ID"
-      export HOSTING_PORT="$EXISTING_HOSTING_PORT"
-      export TEST_PORT="$HOSTING_PORT"
-      export PORT="$HOSTING_PORT"
+      # CRITICAL FIX: Verify that the hosting emulator is serving the correct app
+      # Problem: When audiobrowser tests run first, fellspiral tests reuse the
+      # audiobrowser hosting emulator, causing test failures
+      # Solution: Check if stored appName matches current APP_NAME
+      if [ -n "$EXISTING_APP_NAME" ] && [ "$EXISTING_APP_NAME" != "$APP_NAME" ]; then
+        echo "⚠️  Hosting emulator is serving different app: $EXISTING_APP_NAME (need: $APP_NAME)"
+        echo "   Skipping reuse - will restart hosting emulator for correct app"
+        echo ""
+        REUSE_EMULATORS=false
+      else
+        echo "✓ Detected running emulators - reusing existing configuration"
+        echo "  Auth: $EXISTING_AUTH_HOST"
+        echo "  Hosting: localhost:$EXISTING_HOSTING_PORT"
+        echo "  Project: $EXISTING_PROJECT_ID"
+        echo "  App: $EXISTING_APP_NAME"
+        echo ""
 
-      REUSE_EMULATORS=true
+        # Set environment variables from existing config
+        export FIREBASE_AUTH_EMULATOR_HOST="$EXISTING_AUTH_HOST"
+        export FIRESTORE_EMULATOR_HOST="$EXISTING_FIRESTORE_HOST"
+        export STORAGE_EMULATOR_HOST=$(jq -r '.emulators.storageHost // empty' "$TEST_ENV_CONFIG" 2>/dev/null)
+        export GCP_PROJECT_ID="$EXISTING_PROJECT_ID"
+        export HOSTING_PORT="$EXISTING_HOSTING_PORT"
+        export TEST_PORT="$HOSTING_PORT"
+        export PORT="$HOSTING_PORT"
+
+        REUSE_EMULATORS=true
+      fi
     fi
   fi
 fi
@@ -519,7 +533,8 @@ EOF
     "firestoreHost": "${FIRESTORE_EMULATOR_HOST}",
     "authHost": "${FIREBASE_AUTH_EMULATOR_HOST}",
     "storageHost": "${STORAGE_EMULATOR_HOST}",
-    "hostingPort": ${HOSTING_PORT}
+    "hostingPort": ${HOSTING_PORT},
+    "appName": "${APP_NAME}"
   },
   "timeouts": {
     "test": $((60 * TIMEOUT_MULTIPLIER)),
