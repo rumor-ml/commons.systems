@@ -1007,7 +1007,7 @@ describe('handleStateUpdateFailure integration', () => {
 
   describe('Real callsite integration', () => {
     it('should handle state update failure in actual router.ts callsite', async () => {
-      // TODO(#808): Add integration test that executes actual router.ts code paths
+      // TODO(#1844): Add integration test that executes actual router.ts code paths
       // Current tests verify parameter shapes but don't test actual callsite behavior.
       //
       // Blocked by: router.ts architecture doesn't support dependency injection

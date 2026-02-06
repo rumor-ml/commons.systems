@@ -4,7 +4,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { handleStateUpdateFailure } from './state-update-error-handler.js';
+import { handleStateUpdateFailure, toPositiveInteger } from './state-update-error-handler.js';
 import type { StateUpdateResult } from './router.js';
 import type { WiggumState } from './types.js';
 import {
@@ -46,7 +46,9 @@ describe('handleStateUpdateFailure', () => {
   describe('validation', () => {
     it('should throw error when called with stateResult.success = true', () => {
       // This test catches a critical integration bug where handleStateUpdateFailure
-      // is called at one of the 5 callsites in router.ts with success: true
+      // is called at one of the 5 callsites in router.ts with success: true.
+      // Impact: Would attempt to format an error message for a successful operation,
+      // leading to confusing user-facing messages and incorrect workflow state.
       const invalidResult = {
         success: true as const,
         newState: {},
@@ -59,7 +61,7 @@ describe('handleStateUpdateFailure', () => {
             newState: createMockState(),
             step: STEP_PHASE1_MONITOR_WORKFLOW,
             targetType: 'issue',
-            targetNumber: 123,
+            targetNumber: toPositiveInteger(123),
           });
         },
         {
@@ -71,16 +73,10 @@ describe('handleStateUpdateFailure', () => {
     it('should throw error for targetNumber = 0', () => {
       assert.throws(
         () => {
-          handleStateUpdateFailure({
-            stateResult: createMockFailure(),
-            newState: createMockState(),
-            step: STEP_PHASE1_MONITOR_WORKFLOW,
-            targetType: 'issue',
-            targetNumber: 0,
-          });
+          toPositiveInteger(0);
         },
         {
-          message: /targetNumber must be positive integer, got: 0/,
+          message: /Must be positive integer, got: 0/,
         }
       );
     });
@@ -88,16 +84,10 @@ describe('handleStateUpdateFailure', () => {
     it('should throw error for negative targetNumber', () => {
       assert.throws(
         () => {
-          handleStateUpdateFailure({
-            stateResult: createMockFailure(),
-            newState: createMockState(),
-            step: STEP_PHASE1_MONITOR_WORKFLOW,
-            targetType: 'issue',
-            targetNumber: -5,
-          });
+          toPositiveInteger(-5);
         },
         {
-          message: /targetNumber must be positive integer, got: -5/,
+          message: /Must be positive integer, got: -5/,
         }
       );
     });
@@ -105,16 +95,10 @@ describe('handleStateUpdateFailure', () => {
     it('should throw error for NaN targetNumber', () => {
       assert.throws(
         () => {
-          handleStateUpdateFailure({
-            stateResult: createMockFailure(),
-            newState: createMockState(),
-            step: STEP_PHASE1_MONITOR_WORKFLOW,
-            targetType: 'issue',
-            targetNumber: NaN,
-          });
+          toPositiveInteger(NaN);
         },
         {
-          message: /targetNumber must be positive integer, got: NaN/,
+          message: /Must be positive integer, got: NaN/,
         }
       );
     });
@@ -122,16 +106,10 @@ describe('handleStateUpdateFailure', () => {
     it('should throw error for decimal targetNumber', () => {
       assert.throws(
         () => {
-          handleStateUpdateFailure({
-            stateResult: createMockFailure(),
-            newState: createMockState(),
-            step: STEP_PHASE1_MONITOR_WORKFLOW,
-            targetType: 'issue',
-            targetNumber: 123.5,
-          });
+          toPositiveInteger(123.5);
         },
         {
-          message: /targetNumber must be positive integer, got: 123.5/,
+          message: /Must be positive integer, got: 123.5/,
         }
       );
     });
@@ -142,7 +120,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       assert.strictEqual(result.isError, true);
@@ -156,7 +134,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase1' }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       // Phase1 should result in empty context object
@@ -171,7 +149,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         targetType: 'pr',
-        targetNumber: 456,
+        targetNumber: toPositiveInteger(456),
       });
 
       // Phase2 should result in context with pr_number
@@ -186,7 +164,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_APPROVAL,
         targetType: 'pr',
-        targetNumber: 789,
+        targetNumber: toPositiveInteger(789),
       });
 
       // Approval step should be treated as phase2
@@ -203,7 +181,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase1' }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -217,7 +195,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         targetType: 'pr',
-        targetNumber: 456,
+        targetNumber: toPositiveInteger(456),
       });
 
       const responseText = result.content[0].text;
@@ -234,7 +212,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -245,8 +223,9 @@ describe('handleStateUpdateFailure', () => {
       // Explicitly test that undefined lastError doesn't append "Actual error:"
       // This verifies the conditional logic for errorDetails construction
 
-      // Manually construct failure with undefined lastError using type assertion
-      // Note: TypeScript requires lastError: Error, but we test the edge case of undefined to ensure robust error message formatting
+      // Defensive test: StateUpdateResult.lastError is required (non-optional) in the type,
+      // but we test undefined handling in case of future type changes or runtime edge cases.
+      // The implementation's conditional check (line 86) gracefully handles this scenario.
       const failureWithoutError = {
         success: false as const,
         reason: 'network' as const,
@@ -259,7 +238,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -272,7 +251,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -285,7 +264,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -298,7 +277,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -313,7 +292,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       assert.strictEqual(result.isError, true);
@@ -325,7 +304,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       assert.strictEqual(result.content.length, 1);
@@ -340,7 +319,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ iteration: 3 }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -360,7 +339,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase1' }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       // For phase1, context is empty, so no pr_number should appear in structured data
@@ -374,7 +353,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         targetType: 'pr',
-        targetNumber: 456,
+        targetNumber: toPositiveInteger(456),
       });
 
       // For phase2, context should have pr_number
@@ -398,7 +377,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -411,7 +390,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: 123,
+        targetNumber: toPositiveInteger(123),
       });
 
       const responseText = result.content[0].text;
@@ -420,6 +399,7 @@ describe('handleStateUpdateFailure', () => {
   });
 
   describe('formatting error fallback', () => {
+    // TODO(#1853): Condense this verbose comment block
     // NOTE: These tests verify the fallback error path behavior documented in the implementation.
     // Testing this path requires triggering FormattingError from formatWiggumResponse, which is
     // difficult in practice because:
@@ -432,7 +412,7 @@ describe('handleStateUpdateFailure', () => {
     // formatWiggumResponse.
 
     it.skip('should return fallback message when formatWiggumResponse throws FormattingError', () => {
-      // TODO(#1510): Implement test using dependency injection or test doubles
+      // TODO(#1845): Implement test using dependency injection or test doubles
       // Manual verification: Modify formatWiggumResponse to throw FormattingError and verify:
       // - Fallback message includes "ERROR: State update failed"
       // - Fallback message includes target reference (issue #123 or PR #456)
@@ -442,7 +422,7 @@ describe('handleStateUpdateFailure', () => {
     });
 
     it.skip('should include all required recovery info in fallback message', () => {
-      // TODO(#1510): Implement test using dependency injection or test doubles
+      // TODO(#1845): Implement test using dependency injection or test doubles
       // Manual verification: Modify formatWiggumResponse to throw and verify fallback includes:
       // - Target reference (PR #456)
       // - Failure reason (rate_limit)
@@ -452,7 +432,7 @@ describe('handleStateUpdateFailure', () => {
     });
 
     it.skip('should re-throw non-FormattingError errors', () => {
-      // TODO(#1510): Implement test using dependency injection or test doubles
+      // TODO(#1845): Implement test using dependency injection or test doubles
       // Manual verification: Modify formatWiggumResponse to throw TypeError and verify:
       // - TypeError is re-thrown (not caught)
       // - logger.error is called with 'CRITICAL: Unexpected error'
@@ -478,7 +458,7 @@ describe('handleStateUpdateFailure', () => {
           newState: createMockState({ phase: 'phase1', iteration: 2 }),
           step: STEP_PHASE1_MONITOR_WORKFLOW,
           targetType: 'issue',
-          targetNumber: 789,
+          targetNumber: toPositiveInteger(789),
         });
 
         // Verify logger.error was called
@@ -516,7 +496,7 @@ describe('handleStateUpdateFailure', () => {
           newState: createMockState({ phase: 'phase2' }),
           step: STEP_PHASE2_MONITOR_WORKFLOW,
           targetType: 'pr',
-          targetNumber: 999,
+          targetNumber: toPositiveInteger(999),
         });
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
