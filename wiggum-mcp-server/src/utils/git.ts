@@ -33,7 +33,22 @@ export async function getGitRoot(): Promise<string> {
       reject: false,
     });
 
-    // TODO(#1675): Make stdout validation explicit with clear error message for empty output
+    // Explicit validation for empty stdout with exit code 0 (unusual but possible)
+    if (result.exitCode === 0 && !result.stdout) {
+      logger.warn('getGitRoot: git command succeeded but stdout is empty', {
+        exitCode: result.exitCode,
+        stderr: result.stderr || 'none',
+        errorId: ErrorIds.GIT_COMMAND_FAILED,
+      });
+      throw GitError.create(
+        'git rev-parse --show-toplevel succeeded but returned empty output. ' +
+          'This is unusual - ensure git is functioning correctly and the repository is valid.',
+        result.exitCode,
+        result.stderr || undefined,
+        ErrorIds.GIT_COMMAND_FAILED
+      );
+    }
+
     if (result.exitCode === 0 && result.stdout) {
       return result.stdout.trim();
     }
@@ -59,6 +74,13 @@ export async function getGitRoot(): Promise<string> {
       throw error;
     }
 
+    // Log before wrapping unexpected errors for better production visibility
+    logger.error('getGitRoot: unexpected error executing git command', {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      errorId: ErrorIds.GIT_COMMAND_FAILED,
+    });
+
     // Wrap unexpected errors
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorType = error instanceof Error ? error.constructor.name : typeof error;
@@ -66,7 +88,10 @@ export async function getGitRoot(): Promise<string> {
       `Failed to execute git rev-parse --show-toplevel: ${errorMsg}. ` +
         `Error type: ${errorType}. ` +
         `This tool requires running from within a git repository. ` +
-        `Ensure git is installed and the current directory is inside a git repository.`
+        `Ensure git is installed and the current directory is inside a git repository.`,
+      undefined,
+      undefined,
+      ErrorIds.GIT_COMMAND_FAILED
     );
   }
 }
@@ -111,6 +136,7 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
       );
     }
 
+    // TODO(#1824): Silent fallback to empty string when stdout is falsy (null/undefined)
     return result.stdout || '';
   } catch (error) {
     // TODO(#487): Broad catch-all hides programming errors - add explicit checks for system/programming errors
@@ -123,17 +149,32 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
     if (error instanceof GitError) {
       throw error;
     }
+
+    // Log before wrapping unexpected errors for better observability
+    logger.error('git: unexpected error executing git command', {
+      command: `git ${args.join(' ')}`,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      errorId: ErrorIds.GIT_COMMAND_FAILED,
+    });
+
     if (error instanceof Error) {
       const errorType = error.constructor.name;
       throw GitError.create(
         `Failed to execute git command (${errorType}): ${error.message}. ` +
-          `Command: git ${args.join(' ')}`
+          `Command: git ${args.join(' ')}`,
+        undefined,
+        undefined,
+        ErrorIds.GIT_COMMAND_FAILED
       );
     }
     const errorType = typeof error;
     throw GitError.create(
       `Failed to execute git command (unexpected error type: ${errorType}): ${String(error)}. ` +
-        `Command: git ${args.join(' ')}`
+        `Command: git ${args.join(' ')}`,
+      undefined,
+      undefined,
+      ErrorIds.GIT_COMMAND_FAILED
     );
   }
 }
@@ -206,13 +247,15 @@ export async function hasRemoteTracking(branch?: string, options?: GitOptions): 
       return false;
     }
 
-    // Unexpected error - log and RE-THROW (don't hide it)
+    // Unexpected error - log with actionable context and RE-THROW (don't hide it)
     const errorMsg = error instanceof Error ? error.message : String(error);
     const exitCode = error instanceof GitError ? error.exitCode : undefined;
-    logger.error('hasRemoteTracking: unexpected error checking remote tracking', {
+    logger.error('hasRemoteTracking: unexpected error checking remote tracking branch', {
       branch: branch || 'current branch',
       errorMessage: errorMsg,
       exitCode,
+      suggestion:
+        'Check network connectivity, remote configuration (git remote -v), and git permissions',
       errorId: ErrorIds.GIT_COMMAND_FAILED,
     });
 
@@ -271,6 +314,13 @@ export async function isBranchPushed(branch?: string, options?: GitOptions): Pro
  * ```
  */
 export async function getMainBranch(options?: GitOptions): Promise<string> {
+  // Helper to extract error message
+  const getErrorMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+  // Helper to extract exit code
+  const getExitCode = (err: unknown): number | undefined =>
+    err instanceof GitError ? err.exitCode : undefined;
+
   try {
     // Check if main exists
     await git(['rev-parse', '--verify', 'main'], options);
@@ -280,8 +330,8 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
     // Re-throw all other errors (network, permissions, validation, etc.)
     if (!(error instanceof GitError && error.exitCode === 128)) {
       logger.error('getMainBranch: unexpected error checking main branch', {
-        errorMessage: error instanceof Error ? error.message : String(error),
-        exitCode: error instanceof GitError ? error.exitCode : undefined,
+        errorMessage: getErrorMsg(error),
+        exitCode: getExitCode(error),
         errorId: ErrorIds.GIT_COMMAND_FAILED,
       });
       throw error; // Re-throw unexpected errors
@@ -298,20 +348,21 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
       // Only accept "branch not found" error here too
       if (!(masterError instanceof GitError && masterError.exitCode === 128)) {
         logger.error('getMainBranch: unexpected error checking master branch', {
-          errorMessage: masterError instanceof Error ? masterError.message : String(masterError),
-          exitCode: masterError instanceof GitError ? masterError.exitCode : undefined,
+          errorMessage: getErrorMsg(masterError),
+          exitCode: getExitCode(masterError),
           errorId: ErrorIds.GIT_COMMAND_FAILED,
         });
         throw masterError; // Re-throw unexpected errors
       }
 
-      // Both branches don't exist
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      const masterErrorMsg =
-        masterError instanceof Error ? masterError.message : String(masterError);
+      // Both branches don't exist - preserve full error context
+      const errorMsg = getErrorMsg(error);
+      const masterErrorMsg = getErrorMsg(masterError);
       logger.error('getMainBranch: neither main nor master branch found', {
         mainError: errorMsg,
         masterError: masterErrorMsg,
+        mainExitCode: getExitCode(error),
+        masterExitCode: getExitCode(masterError),
         errorId: ErrorIds.GIT_NO_MAIN_BRANCH,
       });
       throw GitError.create(

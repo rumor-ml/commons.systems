@@ -20,6 +20,9 @@
  *   - StateDetectionError: State detection failed (recursion limit, rapid changes)
  *   - StateApiError: GitHub API failures during state operations
  *
+ * Error ID Constants:
+ * - ErrorIds: Standardized error IDs for Sentry tracking and error categorization
+ *
  * @module errors
  */
 
@@ -77,6 +80,7 @@ export class GitError extends McpError {
   }
 
   // TODO(#1674): Consider testing GitError with null exitCode/stderr (TypeScript allows undefined | null union)
+  // TODO(#1826): Add validation that errorId parameter matches ErrorIds constants
   /**
    * Factory function to create GitError with validation
    *
@@ -85,10 +89,10 @@ export class GitError extends McpError {
    *
    * @param message - Human-readable error description
    * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
-   * @param stderr - Optional stderr output (use undefined for no stderr, empty strings throw)
+   * @param stderr - Optional stderr output (must contain non-whitespace content if provided; use undefined for no stderr)
    * @param errorId - Optional error ID for Sentry tracking (from ErrorIds constant)
    * @returns GitError instance
-   * @throws {ValidationError} If message is empty/whitespace, exitCode is not in 0-255 range, or stderr is empty/whitespace
+   * @throws {ValidationError} If message is empty/whitespace, exitCode is not in 0-255 range, or stderr is empty/whitespace-only
    */
   static create(message: string, exitCode?: number, stderr?: string, errorId?: string): GitError {
     if (!message || message.trim() === '') {
@@ -109,19 +113,21 @@ export class GitError extends McpError {
       );
     }
 
-    // Log debug warning if stderr provided without exitCode (unusual but valid)
+    // Log warning if stderr provided without exitCode (unusual but valid - may indicate programming error)
     if (stderr !== undefined && exitCode === undefined) {
-      logger.debug('GitError.create: stderr provided without exitCode (unusual pattern)', {
+      logger.warn('GitError.create: stderr provided without exitCode (unusual pattern)', {
         message,
         stderrLength: stderr.length,
+        errorId,
       });
     }
 
-    // Log debug warning if non-zero exitCode provided without stderr (unusual but valid)
+    // Log warning if non-zero exitCode provided without stderr (unusual but valid - may indicate data loss)
     if (exitCode !== undefined && exitCode !== 0 && stderr === undefined) {
-      logger.debug('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
+      logger.warn('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
         message,
         exitCode,
+        errorId,
       });
     }
 

@@ -2,7 +2,7 @@
  * Tests for error handling utilities
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import {
   McpError,
@@ -18,6 +18,7 @@ import {
   formatError,
   isTerminalError,
 } from './errors.js';
+import { logger } from './logger.js';
 
 describe('Error Classes', () => {
   it('should create McpError with message and code', () => {
@@ -476,7 +477,6 @@ describe('GitError.create() factory function', () => {
     );
   });
 
-  // TODO(#1658): Consider testing stderr with special characters (unicode, null bytes, ANSI codes)
   it('should throw ValidationError for empty string stderr', () => {
     assert.throws(
       () => GitError.create('Git failed', 1, ''),
@@ -505,13 +505,11 @@ describe('GitError.create() factory function', () => {
     );
   });
 
-  // TODO(#1671): Update test comment to clarify compile-time vs runtime enforcement
   it('should enforce factory pattern via private constructor', () => {
     // This test documents that direct instantiation is not allowed.
     // If someone attempts: new GitError('msg', 128, 'error')
     // TypeScript will fail compilation with: "Constructor of class 'GitError' is private"
-    // This prevents the dual-pattern problem described in issue #852.
-    // TODO(#1659): Update or clarify issue reference in comment
+    // This is compile-time enforcement - the factory pattern ensures validation always runs.
 
     // Must use factory method instead
     const error = GitError.create('msg', 128, 'fatal error');
@@ -549,57 +547,28 @@ describe('GitError.create() validation edge cases', () => {
     );
   });
 
-  it('should throw ValidationError for whitespace-only stderr (spaces)', () => {
-    assert.throws(
-      () => GitError.create('Git failed', 1, '   '),
-      (error: unknown) => {
-        return (
-          error instanceof ValidationError &&
-          error.message.includes('stderr cannot be empty or whitespace-only')
-        );
-      },
-      'Should throw ValidationError for whitespace-only stderr'
-    );
-  });
+  // Consolidated whitespace-only stderr validation tests
+  const whitespaceInputs = [
+    { input: '   ', name: 'spaces' },
+    { input: '\t', name: 'tabs' },
+    { input: '\n', name: 'newlines' },
+    { input: '  \n\t  ', name: 'mixed' },
+  ];
 
-  it('should throw ValidationError for whitespace-only stderr (tabs)', () => {
-    assert.throws(
-      () => GitError.create('Git failed', 1, '\t'),
-      (error: unknown) => {
-        return (
-          error instanceof ValidationError &&
-          error.message.includes('stderr cannot be empty or whitespace-only')
-        );
-      },
-      'Should throw ValidationError for tab-only stderr'
-    );
-  });
-
-  it('should throw ValidationError for whitespace-only stderr (newlines)', () => {
-    assert.throws(
-      () => GitError.create('Git failed', 1, '\n'),
-      (error: unknown) => {
-        return (
-          error instanceof ValidationError &&
-          error.message.includes('stderr cannot be empty or whitespace-only')
-        );
-      },
-      'Should throw ValidationError for newline-only stderr'
-    );
-  });
-
-  it('should throw ValidationError for whitespace-only stderr (mixed)', () => {
-    assert.throws(
-      () => GitError.create('Git failed', 1, '  \n\t  '),
-      (error: unknown) => {
-        return (
-          error instanceof ValidationError &&
-          error.message.includes('stderr cannot be empty or whitespace-only')
-        );
-      },
-      'Should throw ValidationError for mixed whitespace stderr'
-    );
-  });
+  for (const { input, name } of whitespaceInputs) {
+    it(`should throw ValidationError for whitespace-only stderr (${name})`, () => {
+      assert.throws(
+        () => GitError.create('Git failed', 1, input),
+        (error: unknown) => {
+          return (
+            error instanceof ValidationError &&
+            error.message.includes('stderr cannot be empty or whitespace-only')
+          );
+        },
+        `Should throw ValidationError for ${name} stderr`
+      );
+    });
+  }
 
   it('should throw ValidationError for Infinity exitCode', () => {
     assert.throws(
@@ -645,38 +614,130 @@ describe('GitError.create() validation edge cases', () => {
     assert.strictEqual(result.stderr.length, longStderr.length);
   });
 
-  it('should accept stderr with leading/trailing whitespace if content exists', () => {
-    const result = GitError.create('Git failed', 1, '  fatal error\n');
-    assert.strictEqual(result.stderr, '  fatal error\n');
+  // Consolidated leading/trailing whitespace preservation tests
+  const whitespacePreservationCases = [
+    { input: '  fatal error\n', name: 'leading and trailing whitespace' },
+    { input: '  fatal: repository not found', name: 'leading whitespace' },
+    { input: 'fatal: not a git repository  ', name: 'trailing whitespace' },
+  ];
+
+  for (const { input, name } of whitespacePreservationCases) {
+    it(`should accept stderr with ${name} if content exists`, () => {
+      const result = GitError.create('Git failed', 1, input);
+      assert.strictEqual(result.stderr, input);
+    });
+  }
+
+  // Consolidated special character stderr tests
+  const specialCharCases = [
+    { input: 'error\0truncated', name: 'null bytes' },
+    { input: '\x1b[31merror\x1b[0m', name: 'ANSI escape codes' },
+    { input: 'Error: 文件不存在 (file not found)', name: 'Unicode characters' },
+    { input: 'error\rwith\bcontrol\tchars', name: 'control characters' },
+  ];
+
+  for (const { input, name } of specialCharCases) {
+    it(`should handle stderr with ${name}`, () => {
+      const result = GitError.create('Git failed', 1, input);
+      assert.ok(result.stderr);
+      if (name === 'ANSI escape codes') {
+        assert.ok(result.stderr.includes('\x1b[31m'));
+      } else {
+        assert.strictEqual(result.stderr, input);
+      }
+    });
+  }
+});
+
+describe('GitError.create() errorId parameter', () => {
+  it('should accept and store errorId', () => {
+    const result = GitError.create('Git failed', 1, 'error', 'GIT_COMMAND_FAILED');
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.errorId, 'GIT_COMMAND_FAILED');
   });
 
-  it('should accept stderr with leading whitespace only', () => {
-    const result = GitError.create('Git failed', 1, '  fatal: repository not found');
-    assert.strictEqual(result.stderr, '  fatal: repository not found');
+  it('should accept undefined errorId', () => {
+    const result = GitError.create('Git failed', 1, 'error', undefined);
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.errorId, undefined);
   });
 
-  it('should accept stderr with trailing whitespace only', () => {
-    const result = GitError.create('Git failed', 1, 'fatal: not a git repository  ');
-    assert.strictEqual(result.stderr, 'fatal: not a git repository  ');
+  it('should store errorId without exitCode or stderr', () => {
+    const result = GitError.create('Git failed', undefined, undefined, 'GIT_NOT_A_REPOSITORY');
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.errorId, 'GIT_NOT_A_REPOSITORY');
+    assert.strictEqual(result.exitCode, undefined);
+    assert.strictEqual(result.stderr, undefined);
   });
 
-  it('should handle stderr with null bytes', () => {
-    const result = GitError.create('Git failed', 1, 'error\0truncated');
-    assert.strictEqual(result.stderr, 'error\0truncated');
+  it('should preserve message with leading/trailing whitespace if content exists', () => {
+    const result = GitError.create('  Git failed\n', 1, 'error');
+    assert.strictEqual(result.message, '  Git failed\n');
+  });
+});
+
+describe('GitError.create() logging behavior', () => {
+  let loggerWarnMock: ReturnType<typeof mock.method>;
+
+  beforeEach(() => {
+    // Mock logger.warn to track calls
+    loggerWarnMock = mock.method(logger, 'warn', () => {});
   });
 
-  it('should handle stderr with ANSI escape codes', () => {
-    const result = GitError.create('Git failed', 1, '\x1b[31merror\x1b[0m');
-    assert.ok(result.stderr?.includes('\x1b[31m'));
+  afterEach(() => {
+    // Restore logger.warn
+    loggerWarnMock.mock.restore();
   });
 
-  it('should handle stderr with Unicode characters', () => {
-    const result = GitError.create('Git failed', 1, 'Error: 文件不存在 (file not found)');
-    assert.strictEqual(result.stderr, 'Error: 文件不存在 (file not found)');
+  it('should log warning when stderr provided without exitCode', () => {
+    GitError.create('Git failed', undefined, 'fatal error', 'TEST_ERROR');
+
+    assert.strictEqual(loggerWarnMock.mock.callCount(), 1);
+    const call = loggerWarnMock.mock.calls[0];
+    assert.strictEqual(
+      call.arguments[0],
+      'GitError.create: stderr provided without exitCode (unusual pattern)'
+    );
+    assert.ok(call.arguments[1]);
+    assert.strictEqual((call.arguments[1] as any).stderrLength, 11);
   });
 
-  it('should handle stderr with control characters', () => {
-    const result = GitError.create('Git failed', 1, 'error\rwith\bcontrol\tchars');
-    assert.strictEqual(result.stderr, 'error\rwith\bcontrol\tchars');
+  it('should log warning when non-zero exitCode provided without stderr', () => {
+    GitError.create('Git failed', 1, undefined, 'TEST_ERROR');
+
+    assert.strictEqual(loggerWarnMock.mock.callCount(), 1);
+    const call = loggerWarnMock.mock.calls[0];
+    assert.strictEqual(
+      call.arguments[0],
+      'GitError.create: Non-zero exit code without stderr (unusual pattern)'
+    );
+    assert.ok(call.arguments[1]);
+    assert.strictEqual((call.arguments[1] as any).exitCode, 1);
+  });
+
+  it('should not log warning when exitCode 0 without stderr', () => {
+    GitError.create('Git succeeded', 0, undefined);
+
+    assert.strictEqual(loggerWarnMock.mock.callCount(), 0);
+  });
+
+  it('should not log warning when both exitCode and stderr provided', () => {
+    GitError.create('Git failed', 1, 'error output');
+
+    assert.strictEqual(loggerWarnMock.mock.callCount(), 0);
+  });
+
+  it('should not log warning when neither exitCode nor stderr provided', () => {
+    GitError.create('Git failed', undefined, undefined);
+
+    assert.strictEqual(loggerWarnMock.mock.callCount(), 0);
+  });
+
+  it('should include errorId in logging context when provided', () => {
+    GitError.create('Git failed', 1, undefined, 'GIT_COMMAND_FAILED');
+
+    assert.strictEqual(loggerWarnMock.mock.callCount(), 1);
+    const call = loggerWarnMock.mock.calls[0];
+    assert.strictEqual((call.arguments[1] as any).errorId, 'GIT_COMMAND_FAILED');
   });
 });

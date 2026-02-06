@@ -11,10 +11,10 @@
  * Error ID constants for different error scenarios
  */
 export const ErrorIds = {
-  /** General git command failures (non-zero exit codes) */
+  /** General git command failures (non-zero exit codes). Use as fallback when specific error IDs don't apply. */
   GIT_COMMAND_FAILED: 'GIT_COMMAND_FAILED',
 
-  /** Not in a git repository (exit code 128) */
+  /** Not in a git repository (exit code 128). Use instead of GIT_COMMAND_FAILED for this specific case. */
   GIT_NOT_A_REPOSITORY: 'GIT_NOT_A_REPOSITORY',
 
   /** Invalid GitError parameters (validation failures) */
