@@ -5,6 +5,8 @@
 # ensures reproducibility across different machines.
 #
 # This configuration includes:
+# - Bash shell configuration (bash.nix)
+# - Zsh shell configuration (zsh.nix)
 # - Git configuration (git.nix)
 # - Tmux configuration (tmux.nix)
 # - Development tools: direnv, neovim (tools.nix)
@@ -37,6 +39,8 @@
 
 {
   imports = [
+    ./bash.nix
+    ./zsh.nix
     ./git.nix
     ./tmux.nix
     ./tools.nix
