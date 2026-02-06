@@ -667,10 +667,10 @@ describe('Security Review Instructions', () => {
         instructions.includes('SlashCommand tool'),
         'Instructions should mention SlashCommand tool'
       );
-      // This assertion tests the core fix for issue #552: ensure instructions
-      // explicitly tell the agent to execute the command even if not visible in the command list.
-      // The agent needs this explicit instruction because it may not see /security-review
-      // in its available commands, causing it to refuse invocation without this guidance.
+      // Critical requirement for issue #552: The agent may not see /security-review
+      // in its available commands list due to command registry timing or context issues.
+      // Without explicit instruction to proceed anyway, the agent refuses invocation.
+      // These instructions must override the agent's hesitation when a command appears missing.
       assert.ok(
         instructions.includes("EVEN IF it doesn't appear in your available commands list"),
         'Instructions should include warning about command list'
@@ -838,6 +838,7 @@ describe('Security Review Instructions', () => {
           wiggum: { phase: 'phase2', iteration: 0 }, // Wrong phase
         });
 
+        // TODO(#1841): Comment clarifies defensive test behavior but could be more concise
         // handlePhase1SecurityReview doesn't currently validate phase
         // Test that it still produces valid instructions (defensive)
         const result = handlePhase1SecurityReview(state, 552);
@@ -856,6 +857,7 @@ describe('Security Review Instructions', () => {
           wiggum: { phase: 'phase2', iteration: 0 },
         });
 
+        // TODO(#1842): Comment provides useful context about type system contract but slightly verbose
         // Type system prevents this at compile time, but test runtime behavior
         // handlePhase2SecurityReview requires CurrentStateWithPR
         // Calling with wrong type should be caught by TypeScript
@@ -874,6 +876,7 @@ describe('Security Review Instructions', () => {
           wiggum: { phase: 'phase1', iteration: 0 },
         });
 
+        // TODO(#1843): Comment explains test expectation but parenthetical note is unclear
         // Test that handler still produces instructions
         // (Pre-commit hooks will catch uncommitted changes)
         const result = handlePhase1SecurityReview(state, 552);
@@ -1000,8 +1003,6 @@ describe('Security Review Instructions', () => {
       const instructions = result.content[0].text;
 
       // TODO(#1833): Clarify comment - test only checks tool reference, not iteration logic
-      // We verify the handler references wiggum_complete_security_review tool.
-      // The tool handles backward iteration logic and returns restart instructions.
       assert.ok(
         instructions.includes('wiggum_complete_security_review'),
         'Instructions should reference completion tool that handles iteration'
@@ -1021,8 +1022,6 @@ describe('Security Review Instructions', () => {
       const result = handlePhase2SecurityReview(state);
       const instructions = result.content[0].text;
 
-      // We verify the handler references wiggum_complete_security_review tool
-      // and indicates that the tool returns next step instructions.
       assert.ok(
         instructions.includes('wiggum_complete_security_review'),
         'Instructions should reference completion tool that provides next step'
@@ -1046,7 +1045,6 @@ describe('Security Review Instructions', () => {
       const result = handlePhase2SecurityReview(state);
       const instructions = result.content[0].text;
 
-      // We verify the handler invokes the /security-review command.
       assert.ok(
         instructions.includes(SECURITY_REVIEW_COMMAND),
         'Instructions should include security review command that handles commits'
