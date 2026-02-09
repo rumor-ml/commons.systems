@@ -44,6 +44,7 @@
     ./ssh.nix
     ./ssh-keygen.nix
     ./ssh-authorized-keys.nix
+    ./shell.nix
   ];
 
   # User identity - detect from environment or HOME directory
