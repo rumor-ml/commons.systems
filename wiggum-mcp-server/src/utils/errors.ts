@@ -22,6 +22,9 @@
  *
  * Error ID Constants:
  * - ErrorIds: Standardized error IDs for Sentry tracking and error categorization
+ *   - Used as optional errorId parameter in GitError.create()
+ *   - Enables Sentry to group related errors across different error messages
+ *   - Provides better monitoring dashboards and alerting in production
  *
  * @module errors
  */
@@ -41,7 +44,7 @@ import { logger } from './logger.js';
 import { createErrorResult as baseCreateErrorResult } from '@commons/mcp-common/result-builders';
 import type { ToolError } from '@commons/mcp-common/types';
 import { createToolError } from '@commons/mcp-common/types';
-import { ErrorIds } from '../constants/errorIds.js';
+import { ErrorIds, type ErrorId } from '../constants/errorIds.js';
 
 export {
   McpError,
@@ -53,6 +56,7 @@ export {
   FormattingError,
   formatError,
   ErrorIds,
+  type ErrorId,
 };
 
 /**
@@ -73,28 +77,28 @@ export class GitError extends McpError {
     message: string,
     public readonly exitCode?: number,
     public readonly stderr?: string,
-    public readonly errorId?: string
+    public readonly errorId?: ErrorId
   ) {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
   }
 
   // TODO(#1674): Consider testing GitError with null exitCode/stderr (TypeScript allows undefined | null union)
-  // TODO(#1826): Add validation that errorId parameter matches ErrorIds constants
   /**
    * Factory function to create GitError with validation
    *
-   * Validates message, exitCode and stderr parameters and throws ValidationError if invalid.
+   * Validates message, exitCode, and stderr parameters and throws ValidationError if any are invalid.
+   * Message must be non-empty and contain non-whitespace characters.
    * This is the only way to construct a GitError instance.
    *
-   * @param message - Human-readable error description
+   * @param message - Human-readable error description (must be non-empty and not whitespace-only)
    * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
    * @param stderr - Optional stderr output (must contain non-whitespace content if provided; use undefined for no stderr)
-   * @param errorId - Optional error ID for Sentry tracking (from ErrorIds constant)
+   * @param errorId - Optional error ID for Sentry tracking (from ErrorIds constant, compile-time enforced)
    * @returns GitError instance
    * @throws {ValidationError} If message is empty/whitespace, exitCode is not in 0-255 range, or stderr is empty/whitespace-only
    */
-  static create(message: string, exitCode?: number, stderr?: string, errorId?: string): GitError {
+  static create(message: string, exitCode?: number, stderr?: string, errorId?: ErrorId): GitError {
     if (!message || message.trim() === '') {
       throw new ValidationError('GitError: message cannot be empty or whitespace-only');
     }
@@ -123,6 +127,7 @@ export class GitError extends McpError {
     }
 
     // Log warning if non-zero exitCode provided without stderr (unusual but valid - may indicate data loss)
+    // Note: exitCode 0 without stderr is normal (success with no error output), so we don't warn
     if (exitCode !== undefined && exitCode !== 0 && stderr === undefined) {
       logger.warn('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
         message,
