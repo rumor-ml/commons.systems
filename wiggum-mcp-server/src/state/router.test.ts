@@ -38,9 +38,6 @@ const {
   checkUncommittedChanges,
   checkBranchPushed,
   formatFixInstructions,
-  executeStateUpdateWithRetry,
-  safeLog,
-  safeStringify,
   handlePhase1SecurityReview,
   handlePhase2SecurityReview,
 } = _testExports;

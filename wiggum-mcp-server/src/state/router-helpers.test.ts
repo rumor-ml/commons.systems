@@ -84,7 +84,7 @@ describe('safeLog', () => {
   });
 
   describe('Fallback behavior verification', () => {
-    it('should fall back to console.error when logger throws', async () => {
+    it('should fall back to console.error when logger.error throws', async () => {
       // Import logger to mock it
       const loggerModule = await import('../utils/logger.js');
       const { logger } = loggerModule;
@@ -117,6 +117,78 @@ describe('safeLog', () => {
         assert.ok(consoleErrorArgs[1].loggingError, 'Should include loggingError');
       } finally {
         logger.error = originalLoggerError;
+        console.error = originalConsoleError;
+      }
+    });
+
+    it('should fall back to console.error when logger.info throws', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerInfo = logger.info;
+      const originalConsoleError = console.error;
+
+      try {
+        let consoleErrorCalled = false;
+        let consoleErrorArgs: any[] = [];
+
+        // Make logger.info throw
+        logger.info = () => {
+          throw new Error('logger failed');
+        };
+
+        // Capture console.error call
+        console.error = (...args: any[]) => {
+          consoleErrorCalled = true;
+          consoleErrorArgs = args;
+        };
+
+        // Call safeLog with 'info' level - should fall back to console.error
+        safeLog('info', 'test message', { key: 'value' });
+
+        // Verify console.error was called with correct parameters
+        assert.ok(consoleErrorCalled, 'Should fall back to console.error');
+        assert.strictEqual(consoleErrorArgs[0], 'CRITICAL: Logger failed');
+        assert.ok(consoleErrorArgs[1].level === 'info', 'Should include level as info');
+        assert.ok(consoleErrorArgs[1].message === 'test message', 'Should include message');
+        assert.ok(consoleErrorArgs[1].loggingError, 'Should include loggingError');
+      } finally {
+        logger.info = originalLoggerInfo;
+        console.error = originalConsoleError;
+      }
+    });
+
+    it('should fall back to console.error when logger.warn throws', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerWarn = logger.warn;
+      const originalConsoleError = console.error;
+
+      try {
+        let consoleErrorCalled = false;
+        let consoleErrorArgs: any[] = [];
+
+        // Make logger.warn throw
+        logger.warn = () => {
+          throw new Error('logger failed');
+        };
+
+        // Capture console.error call
+        console.error = (...args: any[]) => {
+          consoleErrorCalled = true;
+          consoleErrorArgs = args;
+        };
+
+        // Call safeLog with 'warn' level - should fall back to console.error
+        safeLog('warn', 'test message', { key: 'value' });
+
+        // Verify console.error was called with correct parameters
+        assert.ok(consoleErrorCalled, 'Should fall back to console.error');
+        assert.strictEqual(consoleErrorArgs[0], 'CRITICAL: Logger failed');
+        assert.ok(consoleErrorArgs[1].level === 'warn', 'Should include level as warn');
+        assert.ok(consoleErrorArgs[1].message === 'test message', 'Should include message');
+        assert.ok(consoleErrorArgs[1].loggingError, 'Should include loggingError');
+      } finally {
+        logger.warn = originalLoggerWarn;
         console.error = originalConsoleError;
       }
     });

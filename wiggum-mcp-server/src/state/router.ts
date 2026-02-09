@@ -113,8 +113,6 @@ type StateUpdateFn = (id: number, state: WiggumState, repo?: string) => Promise<
  * error context field names from the resourceType and resourceId provided in this config.
  *
  * Implementation note: All fields use readonly modifiers to prevent field reassignment.
- * The updateFn reference is readonly, preventing reassignment of the function reference itself,
- * though it does not prevent deep mutation of the function (TypeScript limitation).
  */
 interface StateUpdateConfig {
   readonly resourceType: 'pr' | 'issue';
@@ -179,7 +177,7 @@ function safeLog(
         process.stderr.write(`CRITICAL: Logger and console.error failed - ${message}\n`);
       } catch (stderrError) {
         // All logging fallbacks exhausted - store for postmortem debugging
-        // TODO(#1848): Silent failure in safeLog when all logging mechanisms fail
+        // TODO(#653): Silent failure in safeLog when all logging mechanisms fail
         if (typeof globalThis !== 'undefined') {
           (globalThis as any).__unloggedErrors = (globalThis as any).__unloggedErrors || [];
           (globalThis as any).__unloggedErrors.push({ level, message, context });
@@ -199,7 +197,8 @@ function safeLog(
  * @param value - Value to serialize (typically WiggumState)
  * @param label - Label for the value in error messages (e.g., "state", "fallback-state")
  * @returns JSON string, or on failure, a formatted string with partial state info or error details
-// TODO(#1850): Extract individual state properties separately to preserve as much info as possible when partial extraction fails
+ *
+ * TODO(#1850): Extract individual state properties separately to preserve as much info as possible when partial extraction fails
  */
 function safeStringify(value: unknown, label: string): string {
   try {
@@ -418,7 +417,7 @@ async function executeStateUpdateWithRetry(
 
         // Fallback classification: treat as unexpected (no retry)
         // Conservative approach - don't retry if we can't classify the error
-        // TODO(#653): Consider treating classification failures as potentially transient for conservative retry
+        // TODO: Consider treating classification failures as potentially transient for conservative retry
         classification = {
           is404: false,
           isAuth: false,
@@ -534,7 +533,7 @@ async function executeStateUpdateWithRetry(
         }
 
         // All retries exhausted - return failure result with error context for debugging
-        // TODO(#653): Consider throwing on retry exhaustion instead of returning failure for fail-fast behavior
+        // TODO: Consider throwing on retry exhaustion instead of returning failure for fail-fast behavior
         const lastErrorObj = updateError;
         safeLog('warn', 'State update failed after all retries', {
           ...errorContext,
@@ -678,16 +677,6 @@ export async function safeUpdatePRBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  // TODO(#1868): Redundant defensive check - executeStateUpdateWithRetry already validates function type
-  // Defensive check: Ensure updatePRBodyState is defined
-  // This catches import failures, circular dependencies, or other module loading issues
-  if (typeof updatePRBodyState !== 'function') {
-    throw new Error(
-      `safeUpdatePRBodyState: updatePRBodyState function is not defined. ` +
-        `This indicates a module import failure or circular dependency.`
-    );
-  }
-
   return executeStateUpdateWithRetry(
     {
       resourceType: 'pr',
@@ -724,16 +713,6 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  // TODO(#1868): Redundant defensive check - executeStateUpdateWithRetry already validates function type
-  // Defensive check: Ensure updateIssueBodyState is defined
-  // This catches import failures, circular dependencies, or other module loading issues
-  if (typeof updateIssueBodyState !== 'function') {
-    throw new Error(
-      `safeUpdateIssueBodyState: updateIssueBodyState function is not defined. ` +
-        `This indicates a module import failure or circular dependency.`
-    );
-  }
-
   return executeStateUpdateWithRetry(
     {
       resourceType: 'issue',
@@ -1027,7 +1006,6 @@ async function handlePhase1MonitorWorkflow(
         content: [
           {
             type: 'text',
-            // TODO(#1012): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
