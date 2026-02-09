@@ -13,7 +13,7 @@ import { ValidationError } from '../utils/errors.js';
 import { DEFAULT_MAX_ITERATIONS } from '../constants.js';
 import type { WiggumStep, WiggumPhase } from '../constants.js';
 import type { WiggumState, CurrentState } from './types.js';
-import { createWiggumState } from './types.js';
+import { createWiggumState, isIssueExists } from './types.js';
 
 /**
  * Add a step to completedSteps with deduplication
@@ -184,7 +184,7 @@ export function formatLocation(phase: WiggumPhase, targetNumber: number): string
  */
 export function getTargetNumber(state: CurrentState, phase: WiggumPhase, toolName: string): number {
   if (phase === 'phase1') {
-    if (!state.issue.exists || !state.issue.number) {
+    if (!isIssueExists(state.issue)) {
       logger.error(`${toolName} validation failed: no issue exists in Phase 1`, {
         phase,
         issueExists: state.issue.exists,

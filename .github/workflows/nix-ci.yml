@@ -47,6 +47,15 @@ jobs:
       - name: Run pre-push hooks integration tests
         run: ./nix/checks.test.sh
 
+      - name: Run claude-code.nix Home Manager tests
+        run: ./nix/home/claude-code.test.sh
+
+      - name: Run sandbox dependencies tests
+        run: nix develop --command bash -c './nix/sandbox-dependencies.test.sh'
+
+      - name: Run check-env.nix tests
+        run: nix develop --command bash -c './nix/apps/check-env.test.sh'
+
       - name: Verify development shell loads
         run: |
           nix develop --command bash -c 'echo "✓ Development shell loads successfully"'
@@ -58,6 +67,45 @@ jobs:
             which tmux-tui && echo "✓ tmux-tui found" || echo "✗ tmux-tui missing"
             which gh-workflow-mcp-server && echo "✓ gh-workflow-mcp-server found" || echo "✗ gh-workflow-mcp-server missing"
           '
+
+      # Configuration evaluation test: Validate Darwin Home Manager config on Linux CI
+      # Validates that the aarch64-darwin configuration evaluates successfully
+      # Catches Nix evaluation errors, undefined packages, and module configuration issues
+      #
+      # What this validates:
+      # - Home Manager configuration evaluates without errors
+      # - All Home Manager modules (including WezTerm) have valid Nix syntax
+      # - Package references are valid for aarch64-darwin
+      # - Configuration can be evaluated on Linux runners (cross-platform evaluation)
+      #
+      # Note: This uses 'nix eval' (not 'nix build') because the activation package
+      # contains Darwin-specific system components that cannot be built on Linux CI.
+      # Evaluation validates syntax and configuration without requiring actual builds.
+      #
+      # Manual test: Introduce Nix syntax error (e.g., remove closing brace on line 78)
+      # in nix/home/wezterm.nix and verify CI fails with Nix evaluation error
+      # TODO(#1760): Add E2E test for actual Home Manager activation on macOS runner
+      - name: Verify Home Manager configuration evaluates
+        run: |
+          echo "Evaluating Home Manager configuration (aarch64-darwin)..."
+          if ! EVAL_OUTPUT=$(nix eval .#homeConfigurations.aarch64-darwin.activationPackage.outPath --impure --raw 2>&1); then
+            echo "❌ ERROR: Home Manager configuration failed to evaluate"
+            echo ""
+            echo "Evaluation output:"
+            echo "$EVAL_OUTPUT"
+            echo ""
+            echo "Common causes:"
+            echo "  - Nix syntax errors in nix/home/*.nix files"
+            echo "  - Invalid Home Manager options"
+            echo "  - Package not available for aarch64-darwin"
+            echo "  - Module configuration errors"
+            echo ""
+            echo "To debug locally:"
+            echo "  nix eval .#homeConfigurations.aarch64-darwin.activationPackage.outPath --impure --show-trace"
+            exit 1
+          fi
+          echo "✓ Home Manager configuration evaluates successfully"
+          echo "  Activation package output path: $EVAL_OUTPUT"
 
       - name: Build tmux-tui package
         run: nix build .#tmux-tui
