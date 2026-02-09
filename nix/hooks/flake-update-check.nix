@@ -49,6 +49,15 @@
       fi
     fi
 
+    # Check claude-code-nix
+    CLAUDE_LOCKED=$(echo "$FLAKE_META" | jq -r '.locks.nodes."claude-code-nix".locked.rev // empty' 2>/dev/null)
+    if [ -n "$CLAUDE_LOCKED" ]; then
+      CLAUDE_LATEST=$(nix flake metadata github:sadjow/claude-code-nix --json 2>/dev/null | jq -r '.revision // empty' 2>/dev/null)
+      if [ -n "$CLAUDE_LATEST" ] && [ "$CLAUDE_LOCKED" != "$CLAUDE_LATEST" ]; then
+        UPDATES+=("claude-code-nix")
+      fi
+    fi
+
     # Update cache timestamp
     date +%s > "$CACHE_FILE" 2>/dev/null || true
 

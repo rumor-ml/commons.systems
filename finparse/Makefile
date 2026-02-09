@@ -1,14 +1,16 @@
 # Makefile for finparse
 
-.PHONY: help build install test test-unit clean run validate format lint typecheck deps
+.PHONY: help build build-server install test test-unit clean run run-server validate format lint typecheck deps
 
 help:
 	@echo "\033[36mfinparse - Financial data parser CLI\033[0m"
 	@echo ""
 	@echo "\033[32mBuild targets:\033[0m"
 	@echo "  make build           - Build finparse binary to bin/"
+	@echo "  make build-server    - Build finparse-server binary to bin/"
 	@echo "  make install         - Install finparse to \$$GOPATH/bin"
 	@echo "  make run ARGS='...'  - Run finparse with arguments"
+	@echo "  make run-server      - Run finparse server"
 	@echo ""
 	@echo "\033[32mTest targets:\033[0m"
 	@echo "  make test            - Run all tests"
@@ -29,6 +31,11 @@ build:
 	@mkdir -p bin
 	@go build -o bin/finparse ./cmd/finparse
 
+build-server:
+	@echo "Building finparse-server..."
+	@mkdir -p bin
+	@go build -o bin/finparse-server ./cmd/server
+
 install:
 	@echo "Installing finparse..."
 	@go install ./cmd/finparse
@@ -46,6 +53,9 @@ clean:
 
 run:
 	@go run ./cmd/finparse $(ARGS)
+
+run-server:
+	@go run ./cmd/server
 
 # Validation pipeline
 validate: lint typecheck test

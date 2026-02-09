@@ -7,6 +7,7 @@ import { Legend } from './Legend';
 import { BudgetPlanEditor } from './BudgetPlanEditor';
 import { BudgetPlanningPage } from './BudgetPlanningPage';
 import { DateRangeSelector } from './DateRangeSelector';
+import { TransactionList } from './TransactionList';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { logger } from '../utils/logger';
 
@@ -26,6 +27,7 @@ const COMPONENTS: Record<string, React.ComponentType<any>> = {
   BudgetPlanEditor,
   BudgetPlanningPage,
   DateRangeSelector,
+  TransactionList,
 };
 
 // Store React roots for re-rendering
@@ -73,6 +75,12 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
 
   try {
     props = JSON.parse(element.dataset.islandProps || '{}');
+    // Debug logging for chart island
+    if (componentName === 'BudgetChart' && 'transactions' in props) {
+      console.log(
+        `[Islands] Hydrating ${componentName} with ${(props as any).transactions?.length || 0} transactions`
+      );
+    }
   } catch (error) {
     logger.error(`Failed to parse island props for "${componentName}"`, {
       error,
@@ -136,6 +144,12 @@ export function hydrateIsland(element: HTMLElement, componentName: string) {
     try {
       root.render(wrappedComponent);
       element.dataset.islandHydrated = 'true';
+      // Debug logging for chart island
+      if (componentName === 'BudgetChart' && 'transactions' in props) {
+        console.log(
+          `[Islands] Rendered ${componentName} with ${(props as any).transactions?.length || 0} transactions`
+        );
+      }
     } catch (renderError) {
       const { message: errorMessage, stack: errorStack } = extractErrorInfo(renderError);
       logger.error(`Failed to render component "${componentName}"`, {

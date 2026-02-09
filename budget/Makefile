@@ -2,7 +2,7 @@
 # Firebase static site
 # Follows monorepo conventions: standard targets (test/validate/lint/etc), help menu, default goal
 
-.PHONY: help build dev dev-full dev-pool test test-unit test-e2e clean install validate format lint typecheck
+.PHONY: help build dev dev-full dev-pool test test-unit test-e2e test-qa-env clean install validate format lint typecheck dev-qa stop-qa qa-status
 
 help:
 	@echo "\033[36mbudget - Budget tracking app\033[0m"
@@ -11,13 +11,17 @@ help:
 	@echo "  make dev             - Start development server only (emulators separate)"
 	@echo "  make dev-full        - Start emulators + dev server (singleton mode)"
 	@echo "  make dev-pool        - Start emulators + dev server (pool mode)"
+	@echo "  make dev-qa          - Start automated QA server"
+	@echo "  make stop-qa         - Stop automated QA server"
+	@echo "  make qa-status       - Show QA server status"
 	@echo "  make build           - Build production bundle"
 	@echo "  make install         - Install dependencies"
 	@echo ""
 	@echo "\033[32mTest targets:\033[0m"
-	@echo "  make test            - Run all tests (E2E with Playwright)"
+	@echo "  make test            - Run all tests (unit + E2E + QA env)"
 	@echo "  make test-unit       - Run unit tests (Vitest)"
 	@echo "  make test-e2e        - Run Playwright E2E tests"
+	@echo "  make test-qa-env     - Run QA environment integration tests"
 	@echo ""
 	@echo "\033[32mValidation targets:\033[0m"
 	@echo "  make validate        - Run full validation pipeline (lint + typecheck + test)"
@@ -47,7 +51,7 @@ build:
 	@cd site && pnpm build
 
 # Tests
-test: test-unit test-e2e
+test: test-unit test-e2e test-qa-env
 
 test-unit:
 	@echo "Running unit tests..."
@@ -56,6 +60,10 @@ test-unit:
 test-e2e:
 	@echo "Running Playwright E2E tests..."
 	@../infrastructure/scripts/run-e2e-tests.sh firebase budget
+
+test-qa-env:
+	@echo "Running QA environment integration tests..."
+	@bash scripts/tests/generate-qa-env.test.sh
 
 # Validation
 validate: lint typecheck test
@@ -73,6 +81,18 @@ lint:
 typecheck:
 	@echo "Type checking..."
 	@cd tests && pnpm tsc --noEmit || true
+
+# QA automation targets
+dev-qa:
+	@echo "Starting automated QA server..."
+	@bash scripts/dev-qa.sh
+
+stop-qa:
+	@echo "Stopping automated QA server..."
+	@bash scripts/stop-qa.sh
+
+qa-status:
+	@bash scripts/qa-status.sh
 
 # Cleanup
 clean:

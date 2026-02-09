@@ -114,29 +114,12 @@ jobs:
             echo "should-continue=true" >> $GITHUB_OUTPUT
           fi
 
-  # ==================== Step 0.1: Initialize Emulator Pool ====================
-  init-emulator-pool:
-    name: Initialize Emulator Pool
-    runs-on: ubuntu-latest
-    needs: check-pr-exists
-    if: needs.check-pr-exists.outputs.should-continue == 'true'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Initialize emulator pool
-        run: |
-          # Initialize pool with 3 instances for parallel test execution
-          # This allows multiple test jobs to run concurrently without port conflicts
-          ./infrastructure/scripts/emulator-pool.sh init 3
-
-          echo "✓ Emulator pool initialized with 3 instances"
-          ./infrastructure/scripts/emulator-pool.sh status
-
-  # ==================== Step 0.2: Change Detection ====================
+  # ==================== Step 0: Change Detection ====================
   detect-changes:
     name: Detect Changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [check-pr-exists, init-emulator-pool]
+    needs: check-pr-exists
     if: needs.check-pr-exists.outputs.should-continue == 'true'
     outputs:
       fellspiral-changed: ${{ steps.check-changes.outputs.fellspiral-changed }}
@@ -245,8 +228,7 @@ jobs:
         run: pnpm install
 
       - name: Test ${{ matrix.site }}
-        working-directory: ${{ matrix.site }}
-        run: make validate
+        run: ./infrastructure/scripts/run-local-tests.sh ${{ matrix.site }}
 
   # ==================== Step 2: Build Verification (parallel per site) ====================
   build-verify:

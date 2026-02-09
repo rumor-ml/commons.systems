@@ -149,13 +149,11 @@ pre-commit-hooks.lib.${pkgs.system}.run {
     };
 
     # Run tests before allowing push
-    # Uses unified make validate target with CHANGED_ONLY flag
-    # This ensures consistency between git hooks, CI, and manual validation
     pre-push-tests = {
       enable = true;
       name = "pre-push-tests";
-      description = "Run validation on changed apps before push";
-      entry = "${pkgs.gnumake}/bin/make validate CHANGED_ONLY=true";
+      description = "Run tests on changed apps before push";
+      entry = "${pkgs.bash}/bin/bash ./infrastructure/scripts/run-all-local-tests.sh --changed-only";
       language = "system";
       stages = [ "pre-push" ];
       pass_filenames = false;
@@ -217,6 +215,11 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       description = "Run tests for changed MCP servers";
       entry = "${pkgs.writeShellScript "mcp-npm-test" ''
         set -e
+
+        # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
+        # This prevents ICU4c library version conflicts on macOS
+        # TODO(#1753): direnv errors silently suppressed - consider failing fast or warning on errors
+        eval "$(${pkgs.direnv}/bin/direnv export bash 2>/dev/null)" || true
 
         # Verify we're in a git repository
         if ! git rev-parse --git-dir > /dev/null 2>&1; then

@@ -86,3 +86,8 @@ firebase.emulator.json
 firebase.json.backup
 .firebase-*.json
 .test-env.json
+
+# Generated Firestore rules (source files are *.rules.source)
+.firebase/
+fellspiral/firestore.rules
+budget/firestore.rules

@@ -316,6 +316,7 @@ export async function ghCliWithRetry(
             }
           }
         } catch (extractionError) {
+          // TODO(#1836): Consider narrowing exception handling to only expected error types
           // Programming error in status extraction - this should never happen
           // Log and continue with undefined exitCode (falls back to message pattern matching)
           console.error(

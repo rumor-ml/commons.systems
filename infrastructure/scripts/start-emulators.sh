@@ -241,6 +241,14 @@ cleanup_backend_lock() {
 # Register cleanup on exit (trap fires even on early exits/errors)
 trap cleanup_backend_lock EXIT
 
+# Merge Firestore rules from all apps
+echo "Merging Firestore rules from all apps..."
+bash "$SCRIPT_DIR/merge-firestore-rules.sh"
+
+# Small delay after merge for filesystem buffers to flush
+# The merge script uses atomic writes (mv), so this is just extra safety
+sleep 1
+
 # Lock acquired - check if backend is already running
 if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"
@@ -418,6 +426,17 @@ EOF
     echo "✓ Worktree registered: $WORKTREE_ROOT"
   fi
 fi
+
+echo ""
+echo "=== EMULATOR RULES DIAGNOSTIC ==="
+echo "Config file firestore section:"
+grep -A 3 '"firestore"' "${PROJECT_ROOT}/firebase.json" || echo "No firestore section found"
+echo ""
+echo "Waiting 3s for emulator logs..."
+sleep 3
+echo "Emulator log (rules-related lines):"
+grep -i "rules\|firestore" "$BACKEND_LOG_FILE" | head -30 || echo "No rules info in log"
+echo "=== END EMULATOR DIAGNOSTIC ==="
 
 # Lock will be automatically released by trap on exit
 

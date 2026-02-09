@@ -99,36 +99,45 @@
           # NOTE: tmux and neovim are also configured in nix/home/ for Home Manager users.
           # They are kept here for backwards compatibility with users who don't use Home Manager
           # and for CI environments. This duplication is intentional during the migration period.
-          commonPackages = with pkgs; [
-            # Core tools
-            bash
-            coreutils
-            git
-            gh
-            jq
-            curl
-            # Cloud tools
-            google-cloud-sdk
-            terraform
-            # Node.js ecosystem
-            # Note: firebase-tools removed - causes segfault in Nix evaluator
-            # Install via pnpm instead: pnpm add -g firebase-tools
-            nodejs
-            pnpm
-            # Firebase emulators require Java runtime
-            jdk
-            # Playwright for E2E tests (NixOS-patched browsers)
-            playwright-test
-            # Go toolchain
-            go
-            gopls
-            gotools
-            air
-            templ
-            # Dev utilities
-            tmux # Also in nix/home/tmux.nix
-            neovim # Also in nix/home/tools.nix
-          ];
+          commonPackages =
+            with pkgs;
+            [
+              # Core tools
+              bash
+              coreutils
+              git
+              gh
+              jq
+              curl
+              # Sandbox dependencies for Claude Code
+              # TODO(#1584): No documentation on how to activate new packages after flake changes
+              socat # Socket relay for sandbox communication
+              # Cloud tools
+              google-cloud-sdk
+              terraform
+              # Node.js ecosystem
+              # Note: firebase-tools removed - causes segfault in Nix evaluator
+              # Install via pnpm instead: pnpm add -g firebase-tools
+              nodejs
+              pnpm
+              # Firebase emulators require Java runtime
+              jdk
+              # Playwright for E2E tests (NixOS-patched browsers)
+              playwright-test
+              # Go toolchain
+              go
+              gopls
+              gotools
+              air
+              templ
+              # Dev utilities
+              tmux # Also in nix/home/tmux.nix
+              neovim # Also in nix/home/tools.nix
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+              # Linux-only sandbox tools
+              bubblewrap # Unprivileged sandboxing via Linux kernel namespaces (Linux/WSL2 only - requires user namespace support)
+            ];
 
           # CI shell with inlined packages (avoiding callPackage issues)
           ciShell = pkgs.mkShell {
