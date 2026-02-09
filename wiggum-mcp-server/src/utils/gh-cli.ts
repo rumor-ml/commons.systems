@@ -125,6 +125,7 @@ export async function ghCliJson<T>(args: string[], options: GhCliOptions = {}): 
   try {
     return JSON.parse(output) as T;
   } catch (error) {
+    // TODO(#1838): Include command args and raw output preview in error message
     throw new GitHubCliError(
       `Failed to parse JSON response from gh CLI: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -152,6 +153,7 @@ export async function getCurrentRepo(): Promise<string> {
     const result = await ghCli(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
     return result.trim();
   } catch (error) {
+    // TODO(#1839): Consider preserving original error type instead of always wrapping
     const originalMessage = error instanceof Error ? error.message : String(error);
     throw new GitHubCliError(
       `Failed to get current repository. Make sure you're in a git repository or provide the --repo flag. Original error: ${originalMessage}`,
@@ -398,6 +400,7 @@ export async function getPRReviewComments(
       comments.push(JSON.parse(line));
     } catch (error) {
       skippedCount++;
+      // TODO(#1837): Consider distinguishing between expected SyntaxError and unexpected error types
       // WARN level - individual parse failures are expected edge cases, not errors
       // Include stack trace for debugging JSON parsing failures (may indicate API format changes)
       // TODO(#982): Add DEBUG-level log with full raw line content for post-mortem analysis

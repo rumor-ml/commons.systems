@@ -61,7 +61,7 @@ import type { ToolResult } from '../types.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import { logger } from '../utils/logger.js';
 import type { CurrentState, WiggumState } from '../state/types.js';
-import { createWiggumState } from '../state/types.js';
+import { createWiggumState, isIssueExists, isPRExists } from '../state/types.js';
 import { readFile, stat } from 'fs/promises';
 import { REVIEW_AGENT_NAMES, isReviewAgentName } from './manifest-utils.js';
 
@@ -1043,14 +1043,14 @@ function getReviewStep(phase: WiggumPhase, config: ReviewConfig): WiggumStep {
  * Validate phase requirements (issue for phase1, PR for phase2)
  */
 function validatePhaseRequirements(state: CurrentState, config: ReviewConfig): void {
-  if (state.wiggum.phase === 'phase1' && (!state.issue.exists || !state.issue.number)) {
+  if (state.wiggum.phase === 'phase1' && !isIssueExists(state.issue)) {
     // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `No issue found. Phase 1 ${config.reviewTypeLabel.toLowerCase()} review requires an issue number in the branch name.`
     );
   }
 
-  if (state.wiggum.phase === 'phase2' && (!state.pr.exists || !state.pr.number)) {
+  if (state.wiggum.phase === 'phase2' && !isPRExists(state.pr)) {
     // TODO(#312): Add Sentry error ID for tracking
     throw new ValidationError(
       `No PR found. Cannot complete ${config.reviewTypeLabel.toLowerCase()} review.`
@@ -1524,7 +1524,7 @@ async function updateBodyState(
   }
 ): Promise<StateUpdateResult> {
   if (state.wiggum.phase === 'phase1') {
-    if (!state.issue.exists || !state.issue.number) {
+    if (!isIssueExists(state.issue)) {
       // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         'Internal error: Phase 1 requires issue number, but validation passed with no issue'
@@ -1532,7 +1532,7 @@ async function updateBodyState(
     }
     return await safeUpdateIssueBodyState(state.issue.number, newState, newState.step);
   } else {
-    if (!state.pr.exists || !state.pr.number) {
+    if (!isPRExists(state.pr)) {
       // TODO(#312): Add Sentry error ID for tracking
       throw new ValidationError(
         'Internal error: Phase 2 requires PR number, but validation passed with no PR'
