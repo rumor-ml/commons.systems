@@ -19,7 +19,7 @@ import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
-import { WiggumStateSchema, createWiggumState } from './types.js';
+import { WiggumStateSchema, createWiggumState, isIssueExists } from './types.js';
 import { applyWiggumState } from './state-utils.js';
 import { advanceToNextStep } from './transitions.js';
 import {
@@ -642,7 +642,7 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
  */
 async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
   // Validate issue exists
-  if (!state.issue.exists || !state.issue.number) {
+  if (!isIssueExists(state.issue)) {
     return {
       content: [
         {
@@ -880,6 +880,7 @@ function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): T
   // Get active agents (filter out completed ones)
   // All agents run every iteration
 
+  // TODO(#1531): Extract shared security review instructions to a constant
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
     step_number: STEP_PHASE1_SECURITY_REVIEW,
@@ -890,10 +891,17 @@ Execute security review on the current branch before creating the pull request.
 
 **Instructions:**
 
-1. Execute the security review command:
-   \`\`\`
-   ${SECURITY_REVIEW_COMMAND}
-   \`\`\`
+1. Execute \`${SECURITY_REVIEW_COMMAND}\` using SlashCommand tool:
+   - **CRITICAL:** This is a built-in slash command - invoke it using the SlashCommand tool
+   - **IMPORTANT:** Execute this command EVEN IF it doesn't appear in your available commands list
+   - The SlashCommand tool will handle the invocation properly
+   - Do NOT attempt to run this as a bash command or any other tool
+
+   **Why SlashCommand tool is required:**
+   Slash commands are not shell commands - they expand to structured prompts that must be executed step-by-step. The SlashCommand tool provides the proper command registry and execution context to:
+   - Expand the command into its full prompt instructions
+   - Ensure the prompt is executed completely before proceeding
+   - Maintain proper execution ordering and state management
 
 2. After the review completes, aggregate results from all agents:
    - Collect result file paths from each agent's JSON response
@@ -1543,18 +1551,26 @@ function handlePhase2SecurityReview(state: CurrentStateWithPR): ToolResult {
     instructions: `IMPORTANT: The review must cover ALL changes from this branch, not just recent commits.
 Review all commits: git log main..HEAD --oneline
 
-Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool (no arguments).
+Execute ${SECURITY_REVIEW_COMMAND} using SlashCommand tool:
+- **CRITICAL:** This is a built-in slash command - invoke it using the SlashCommand tool
+- **IMPORTANT:** Execute this command EVEN IF it doesn't appear in your available commands list
+- The SlashCommand tool will handle the invocation properly
+- Do NOT attempt to run this as a bash command or any other tool
 
 After security review completes:
 
-1. Capture the complete verbatim response
-2. Count issues by priority (high, medium, low)
-3. Call **wiggum_complete_security_review** with:
+1. Aggregate results from all agents:
+   - Collect result file paths from each agent's JSON response
+   - Sum issue counts across all agents
+
+2. Call **wiggum_complete_security_review** with:
    - command_executed: true
-   - verbatim_response: (full output)
-   - high_priority_issues: (count)
-   - medium_priority_issues: (count)
-   - low_priority_issues: (count)
+   - in_scope_result_files: [array of result file paths from all agents]
+   - out_of_scope_result_files: [array of result file paths from all agents]
+   - in_scope_issue_count: (total count of in-scope security issues across all result files)
+   - out_of_scope_issue_count: (total count of out-of-scope security issues across all result files)
+
+   **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
 
 **IMPORTANT:** Call wiggum_complete_**security**_review (NOT pr_review).
 This tool posts results and returns next step instructions.`,

@@ -1188,6 +1188,34 @@ nix-store -q --references ./result
 
 ### Integration Testing
 
+#### Pre-commit Hooks Tests
+
+Test the pre-commit and pre-push hooks:
+
+```bash
+# Run all pre-commit hook tests
+./nix/checks.test.sh
+
+# Run specific test
+./nix/checks.test.sh test_mcp_build_no_origin_main
+```
+
+#### Sandbox Dependencies Tests
+
+Test that Claude Code sandbox dependencies (socat and bubblewrap) are available. These packages are required for Claude Code's sandbox feature to function correctly.
+
+```bash
+# Run all sandbox dependency tests
+./nix/sandbox-dependencies.test.sh
+
+# Run specific test
+./nix/sandbox-dependencies.test.sh test_socat_available
+```
+
+For manual testing of the sandbox feature, see [nix/SANDBOX_TESTING.md](./SANDBOX_TESTING.md).
+
+#### Full Integration Test
+
 Create a test script to verify everything works together:
 
 **File**: `nix/test.sh`

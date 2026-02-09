@@ -23,6 +23,7 @@ import {
   STEP_PHASE2_APPROVAL,
   PHASE1_PR_REVIEW_COMMAND,
   PHASE2_PR_REVIEW_COMMAND,
+  SECURITY_REVIEW_COMMAND,
 } from '../constants.js';
 
 const {
