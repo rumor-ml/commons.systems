@@ -6,6 +6,7 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
+// TODO(#1859): Add context to TODO comments - future developers need brief explanations of what each TODO tracks
 // TODO(#942): Extract verbose error handling pattern in router.ts state update failures
 // TODO(#932): Add retry history tracking to StateUpdateResult for better diagnostics
 // TODO(#858): Improve state update retry loop error context capture
@@ -66,8 +67,9 @@ type CurrentStateWithPR = CurrentState & {
  * - Verification commands (using verifyCommand)
  * - State persistence (using updateFn)
  *
- * Each union variant uses literal types to lock resourceType, resourceLabel, and
- * verifyCommand together, preventing misconfigurations at compile time.
+ * Each union variant uses literal string types (e.g., 'pr', 'PR', 'gh pr view') to
+ * enforce consistency between resourceType, resourceLabel, and verifyCommand at compile
+ * time. TypeScript prevents mismatched combinations like { resourceType: 'pr', resourceLabel: 'Issue' }.
  *
  * Resolves TODO(#941) and TODO(#810): Consolidates duplicate state update pattern.
  */
@@ -242,7 +244,7 @@ function checkBranchPushed(
  * - Transient errors (429, network): Retry with exponential backoff
  *   - Formula: 2^attempt * 1000ms (after attempt 1 fails = 2s, after attempt 2 fails = 4s)
  *   - Maximum delay cap: 60 seconds
- *   - Default: 3 retries with delays 2s, 4s between attempts
+ *   - Default: 3 attempts total with 2 delays (2s before attempt 2, 4s before attempt 3, then fail)
  * - Critical errors (404, 401/403): Throw immediately - no retry
  * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
@@ -265,7 +267,8 @@ async function safeUpdateBodyState(
 
   // Validate resourceId parameter (must be positive integer for valid resource number)
   // CRITICAL: Invalid resourceId would cause StateApiError.create() to throw ValidationError
-  // during error context building in error handlers, potentially masking the original error
+  // from within catch blocks below (e.g., line 324), replacing the original error and making
+  // the root cause impossible to diagnose
   if (!Number.isInteger(resourceId) || resourceId <= 0) {
     throw new ValidationError(
       `${fnName}: resourceId must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
@@ -320,6 +323,7 @@ async function safeUpdateBodyState(
       impact: 'Invalid state cannot be persisted to GitHub',
     });
     // Include state summary in error message for debugging without log access (issue #625)
+    // TODO(#1863): Safe array access - state.completedSteps.join() could throw if not an array
     const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
     throw StateApiError.create(
       `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
@@ -358,10 +362,11 @@ async function safeUpdateBodyState(
       const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
       const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
       const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
+      // TODO(#1861): JSON.stringify could throw on circular references, hiding the original error
       const stateJson = JSON.stringify(state);
 
       // Classify error type using shared utility
-      // TODO(#478): Document expected GitHub API error patterns and add test coverage
+      // TODO(#940): Document expected GitHub API error patterns and add test coverage
       const classification = classifyGitHubError(errorMsg, exitCode);
 
       // Build error context including classification results for debugging
@@ -382,8 +387,8 @@ async function safeUpdateBodyState(
         classification,
       };
 
-      // TODO(#1663): Clarify that 404 detection uses classifyGitHubError() not direct status checking
       // Critical errors: Resource not found or authentication failures - throw immediately (no retry)
+      // Note: 404 detection uses classifyGitHubError() via classification.is404, not direct status checking
       if (classification.is404) {
         logger.error(`Critical: ${config.resourceLabel} not found - cannot update state in body`, {
           ...errorContext,
@@ -411,7 +416,7 @@ async function safeUpdateBodyState(
         const reason = classification.isRateLimit ? 'rate_limit' : 'network';
 
         if (attempt < maxRetries) {
-          // Exponential backoff: 2^attempt seconds, capped at 60s
+          // Exponential backoff: 2^attempt * 1000ms (attempt 1 = 2s, attempt 2 = 4s), capped at 60s
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
           const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
@@ -422,6 +427,7 @@ async function safeUpdateBodyState(
             wasCapped: uncappedDelayMs > MAX_DELAY_MS,
             remainingAttempts: maxRetries - attempt,
           });
+          // TODO(#1858): Wrap sleep() in try-catch to prevent hiding original error
           await sleep(delayMs);
           continue; // Retry
         }
@@ -457,7 +463,8 @@ async function safeUpdateBodyState(
     }
   }
   // Fallback: TypeScript cannot prove all catch paths return/throw.
-  // If this executes, investigate gap in error classification (issue #625).
+  // If this executes, the retry loop completed without returning success/failure or throwing.
+  // This indicates a programming error in the error handling logic above (issue #625).
   logger.error(`INTERNAL: ${fnName} retry loop completed without returning`, {
     resourceType: config.resourceType,
     resourceId,
@@ -479,6 +486,8 @@ async function safeUpdateBodyState(
  * Safely update wiggum state in PR body with error handling and retry logic
  *
  * Thin wrapper that calls safeUpdateBodyState with PR-specific configuration.
+ * This function injects PR_CONFIG as the first parameter and forwards all other
+ * parameters (prNumber, state, step, maxRetries) to the generic function.
  * See safeUpdateBodyState for retry strategy and error handling documentation.
  *
  * @param prNumber - PR number to update
@@ -501,6 +510,8 @@ export async function safeUpdatePRBodyState(
  * Safely update wiggum state in issue body with error handling and retry logic
  *
  * Thin wrapper that calls safeUpdateBodyState with issue-specific configuration.
+ * This function injects ISSUE_CONFIG as the first parameter and forwards all other
+ * parameters (issueNumber, state, step, maxRetries) to the generic function.
  * See safeUpdateBodyState for retry strategy and error handling documentation.
  *
  * @param issueNumber - Issue number to update
@@ -551,6 +562,7 @@ function formatFixInstructions(
   if (failureDetails) {
     const originalLength = failureDetails.length;
     const hadMultipleLines = failureDetails.includes('\n');
+    // TODO(#1862): Consider logging full unsanitized error for debugging while showing sanitized version to users
     sanitizedDetails = sanitizeErrorMessage(failureDetails, 1000);
 
     // Detect sanitization and log for debugging

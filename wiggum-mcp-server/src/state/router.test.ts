@@ -5,7 +5,6 @@
  * type guards, and helper functions.
  */
 
-// TODO(#1817): Enhance test comments to explain why behavior matters, not just what it does
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { _testExports, createStateUpdateFailure } from './router.js';
@@ -552,6 +551,7 @@ describe('createStateUpdateFailure factory function', () => {
 });
 
 describe('ResourceConfig discriminated union', () => {
+  // TODO(#1860): Test file has redundant assertions across multiple describe blocks
   describe('PR_CONFIG structure validation', () => {
     it('should have resourceType "pr"', () => {
       // Validates PR_CONFIG.resourceType is correctly set for discriminated union
@@ -747,12 +747,13 @@ describe('safeUpdateBodyState generic function behavior', () => {
     });
 
     it('should document default retry sequence (2s, 4s, then exhausted)', () => {
-      // With maxRetries=3 (default), the delay sequence is:
-      // - Attempt 1 failure: wait 2^1 * 1000 = 2000ms before attempt 2
-      // - Attempt 2 failure: wait 2^2 * 1000 = 4000ms before attempt 3
-      // - Attempt 3 failure: all retries exhausted, return failure result
-      // Note: delay is calculated for each attempt, but only first 2 delays are used
-      // because after attempt 3 fails, we don't wait - we return failure
+      // With maxRetries=3 (default), only 2 delays actually occur:
+      // - After attempt 1 fails: wait 2^1 * 1000 = 2000ms before attempt 2
+      // - After attempt 2 fails: wait 2^2 * 1000 = 4000ms before attempt 3
+      // - After attempt 3 fails: no delay, return failure immediately
+      //
+      // This test documents the delay formula for all 3 attempts, but the third
+      // delay (8000ms) is never used in practice since we return failure instead.
       const delaysBeforeEachAttempt = [1, 2, 3].map((attempt) => Math.pow(2, attempt) * 1000);
       assert.deepStrictEqual(delaysBeforeEachAttempt, [2000, 4000, 8000]);
     });
@@ -772,18 +773,18 @@ describe('safeUpdatePRBodyState and safeUpdateIssueBodyState wrappers', () => {
       assert.strictEqual(wrapperParams.length, 4, 'Wrappers accept 4 parameters');
     });
 
-    it('should verify safeUpdatePRBodyState uses PR_CONFIG', () => {
-      // safeUpdatePRBodyState always calls safeUpdateBodyState with PR_CONFIG
-      // We verify by checking that PR_CONFIG has the expected structure for PR updates
-      // The wrapper's behavior is indirectly verified through PR_CONFIG structure tests
+    it('should validate PR_CONFIG structure for safeUpdatePRBodyState', () => {
+      // This test validates PR_CONFIG structure, not wrapper behavior.
+      // The wrapper function simply passes PR_CONFIG to safeUpdateBodyState.
+      // Wrapper parameter forwarding is not tested here - we only verify config values.
       assert.strictEqual(PR_CONFIG.resourceType, 'pr', 'PR_CONFIG is configured for PR updates');
       assert.strictEqual(PR_CONFIG.updateFn, updatePRBodyState, 'PR_CONFIG uses updatePRBodyState');
     });
 
-    it('should verify safeUpdateIssueBodyState uses ISSUE_CONFIG', () => {
-      // safeUpdateIssueBodyState always calls safeUpdateBodyState with ISSUE_CONFIG
-      // We verify by checking that ISSUE_CONFIG has the expected structure for issue updates
-      // The wrapper's behavior is indirectly verified through ISSUE_CONFIG structure tests
+    it('should validate ISSUE_CONFIG structure for safeUpdateIssueBodyState', () => {
+      // This test validates ISSUE_CONFIG structure, not wrapper behavior.
+      // The wrapper function simply passes ISSUE_CONFIG to safeUpdateBodyState.
+      // Wrapper parameter forwarding is not tested here - we only verify config values.
       assert.strictEqual(
         ISSUE_CONFIG.resourceType,
         'issue',
@@ -970,5 +971,262 @@ describe('State Update Retry Logic', () => {
       const exitCode = undefined;
       assert.strictEqual(exitCode, undefined, 'Undefined exitCode should trigger fallback');
     });
+  });
+});
+
+describe('safeUpdateBodyState validation', () => {
+  const { safeUpdateBodyState, PR_CONFIG, ISSUE_CONFIG } = _testExports;
+
+  // Valid state for tests
+  const validState = {
+    iteration: 0,
+    step: 'p1-1' as const,
+    completedSteps: [] as const,
+    phase: 'phase1' as const,
+  };
+
+  describe('resourceId validation', () => {
+    it('should reject resourceId of 0', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 0, validState, 'test-step'),
+        /resourceId must be a positive integer.*got: 0/,
+        'resourceId=0 should be rejected'
+      );
+    });
+
+    it('should reject negative resourceId', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, -1, validState, 'test-step'),
+        /resourceId must be a positive integer.*got: -1/,
+        'resourceId=-1 should be rejected'
+      );
+    });
+
+    it('should reject non-integer resourceId (float)', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 1.5, validState, 'test-step'),
+        /resourceId must be a positive integer.*got: 1\.5/,
+        'resourceId=1.5 should be rejected'
+      );
+    });
+
+    it('should include type information in error for non-number resourceId', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          'not-a-number' as unknown as number,
+          validState,
+          'test-step'
+        ),
+        /type: string/,
+        'Error should include type information'
+      );
+    });
+
+    it('should accept resourceId of 1 (minimum valid)', async () => {
+      // This will proceed past validation to the actual update
+      // Since we can't easily mock updateFn here, we just verify it doesn't throw validation error
+      // The actual call will fail at the GitHub API level, but that's expected
+      try {
+        await safeUpdateBodyState(PR_CONFIG, 1, validState, 'test-step');
+      } catch (error) {
+        // Should NOT be a ValidationError about resourceId
+        assert.ok(
+          !(
+            error instanceof Error &&
+            error.message.includes('resourceId must be a positive integer')
+          ),
+          'Valid resourceId=1 should pass validation'
+        );
+      }
+    });
+  });
+
+  describe('maxRetries validation', () => {
+    it('should reject maxRetries of 0', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 0),
+        /maxRetries must be a positive integer between 1 and 100.*got: 0/,
+        'maxRetries=0 should be rejected'
+      );
+    });
+
+    it('should reject negative maxRetries', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', -5),
+        /maxRetries must be a positive integer between 1 and 100.*got: -5/,
+        'maxRetries=-5 should be rejected'
+      );
+    });
+
+    it('should reject maxRetries exceeding limit (101)', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 101),
+        /maxRetries must be a positive integer between 1 and 100.*got: 101/,
+        'maxRetries=101 should be rejected'
+      );
+    });
+
+    it('should reject non-integer maxRetries (float)', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 2.5),
+        /maxRetries must be a positive integer/,
+        'maxRetries=2.5 should be rejected'
+      );
+    });
+
+    it('should reject NaN maxRetries', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', NaN),
+        /maxRetries must be a positive integer/,
+        'maxRetries=NaN should be rejected'
+      );
+    });
+
+    it('should include guidance on common values in error message', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 0),
+        /Common values: 3 \(default\)/,
+        'Error should include guidance on common values'
+      );
+    });
+  });
+
+  describe('state validation', () => {
+    it('should reject state with missing required field (phase)', async () => {
+      const invalidState = {
+        iteration: 0,
+        step: 'p1-1',
+        completedSteps: [],
+        // missing phase
+      };
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          123,
+          invalidState as unknown as typeof validState,
+          'test-step'
+        ),
+        /Invalid state|validation failed/i,
+        'State missing phase should be rejected'
+      );
+    });
+
+    it('should reject state with invalid iteration type', async () => {
+      const invalidState = {
+        iteration: 'not-a-number',
+        step: 'p1-1',
+        completedSteps: [],
+        phase: 'phase1',
+      };
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          123,
+          invalidState as unknown as typeof validState,
+          'test-step'
+        ),
+        /Invalid state|validation failed/i,
+        'State with string iteration should be rejected'
+      );
+    });
+
+    it('should reject state with invalid step value', async () => {
+      const invalidState = {
+        iteration: 0,
+        step: 'invalid-step',
+        completedSteps: [],
+        phase: 'phase1',
+      };
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          123,
+          invalidState as unknown as typeof validState,
+          'test-step'
+        ),
+        /Invalid state|validation failed/i,
+        'State with invalid step should be rejected'
+      );
+    });
+  });
+
+  describe('config usage verification', () => {
+    it('should use PR_CONFIG resourceLabel in error messages', async () => {
+      // When resourceId validation fails, error message should include PR-specific function name
+      try {
+        await safeUpdateBodyState(PR_CONFIG, 0, validState, 'test-step');
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(
+          error instanceof Error && error.message.includes('safeUpdatePRBodyState'),
+          'Error should reference PR-specific function name'
+        );
+      }
+    });
+
+    it('should use ISSUE_CONFIG resourceLabel in error messages', async () => {
+      // When resourceId validation fails, error message should include Issue-specific function name
+      try {
+        await safeUpdateBodyState(ISSUE_CONFIG, 0, validState, 'test-step');
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(
+          error instanceof Error && error.message.includes('safeUpdateIssueBodyState'),
+          'Error should reference Issue-specific function name'
+        );
+      }
+    });
+  });
+});
+
+describe('createStateUpdateFailure integration', () => {
+  it('should create valid failure result with minimum attemptCount', () => {
+    const error = new Error('Network timeout');
+    const result = createStateUpdateFailure('network', error, 1);
+
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.reason, 'network');
+      assert.strictEqual(result.attemptCount, 1);
+      assert.strictEqual(result.lastError.message, 'Network timeout');
+    }
+  });
+
+  it('should create valid failure result with high attemptCount', () => {
+    const error = new Error('Rate limit exceeded');
+    const result = createStateUpdateFailure('rate_limit', error, 10);
+
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.reason, 'rate_limit');
+      assert.strictEqual(result.attemptCount, 10);
+    }
+  });
+
+  it('should preserve error object reference', () => {
+    const originalError = new Error('Original error message');
+    const result = createStateUpdateFailure('network', originalError, 3);
+
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(
+        result.lastError,
+        originalError,
+        'Should preserve original error reference'
+      );
+    }
+  });
+
+  it('should validate error includes attemptCount in message', () => {
+    try {
+      createStateUpdateFailure('rate_limit', new Error('test'), 0);
+      assert.fail('Should have thrown');
+    } catch (error) {
+      assert.ok(
+        error instanceof Error && error.message.includes('0'),
+        'Error message should include the invalid attemptCount value'
+      );
+    }
   });
 });
