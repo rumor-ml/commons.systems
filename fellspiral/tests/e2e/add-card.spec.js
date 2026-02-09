@@ -58,11 +58,7 @@ test.describe('Add Card - Happy Path Tests', () => {
     const cardTitle = page.locator('.card-item-title').filter({ hasText: cardData.title });
     await expect(cardTitle).toBeVisible({ timeout: 10000 });
 
-    // Wait for Firestore write to propagate (emulator can have delays, especially in Firefox)
-    // TODO(#462, #474): Document empirical browser latency findings
-    await page.waitForTimeout(2000);
-
-    // Verify in Firestore (increased timeout to 15s for slow CI and emulator propagation)
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
     const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.title).toBe(cardData.title);
@@ -118,11 +114,8 @@ test.describe('Add Card - Happy Path Tests', () => {
     const cardData = generateTestCardData('persist-test');
     await createCardViaUI(page, cardData);
 
-    // Wait a moment for Firestore write
-    await page.waitForTimeout(3000);
-
-    // Query Firestore directly
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 3s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.title).toBe(cardData.title);
   });
@@ -146,11 +139,8 @@ test.describe('Add Card - Happy Path Tests', () => {
     const cardData = generateTestCardData('metadata-test');
     await createCardViaUI(page, cardData);
 
-    // Wait for Firestore write
-    await page.waitForTimeout(3000);
-
-    // Verify Firestore document structure
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 3s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.createdBy).toBe(uid);
     expect(firestoreCard.lastModifiedBy).toBe(uid);
@@ -2020,11 +2010,8 @@ test.describe('Add Card - Firestore Security Rules', () => {
     // Record time after creation
     const afterCreate = Date.now();
 
-    // Wait for Firestore write to propagate
-    await page.waitForTimeout(2000);
-
-    // Get card from Firestore and verify timestamp
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.createdAt).toBeDefined();
 
@@ -2140,9 +2127,8 @@ test.describe('Add Card - Concurrent Save Handling', () => {
       timeout: 10000,
     });
 
-    // Get the card from Firestore to get its ID
-    await page.waitForTimeout(2000);
-    const originalCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const originalCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(originalCard).toBeTruthy();
 
     // User 1 opens card for editing
@@ -2521,9 +2507,8 @@ test.describe('Add Card - Type/Subtype Mismatch Validation', () => {
       timeout: 10000,
     });
 
-    // Verify in Firestore
-    await page.waitForTimeout(2000);
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.type).toBe('Equipment');
     expect(firestoreCard.subtype).toBe('MagicSpell');
@@ -4486,10 +4471,8 @@ test.describe('Add Card - Security Tests', () => {
     const cardData = generateTestCardData('timestamp-forgery');
     await createCardViaUI(page, cardData);
 
-    await page.waitForTimeout(2000);
-
-    // Get the card from Firestore
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
 
     // Attempt to update with forged lastModifiedAt timestamp
@@ -4659,8 +4642,8 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     const cardData = generateTestCardData('owner-only-delete');
     await createCardViaUI(page, cardData);
 
-    await page.waitForTimeout(2000);
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
 
     // Sign out user1, sign in user2
@@ -4713,8 +4696,8 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     const cardData = generateTestCardData('collab-edit');
     await createCardViaUI(page, cardData);
 
-    await page.waitForTimeout(2000);
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.createdBy).toBe(user1.uid);
 
@@ -4771,8 +4754,8 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     const cardData = generateTestCardData('forged-modifier');
     await createCardViaUI(page, cardData);
 
-    await page.waitForTimeout(2000);
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
 
     // Sign out user1, sign in user2
@@ -4824,10 +4807,8 @@ test.describe('Add Card - Security Rules Extended Tests', () => {
     const cardData = generateTestCardData('ispublic-default');
     await createCardViaUI(page, cardData);
 
-    await page.waitForTimeout(2000);
-
-    // Verify isPublic is true in Firestore
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 2s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.isPublic).toBe(true);
 
@@ -5119,11 +5100,8 @@ test.describe('Add Card - Security & Edge Cases (batch-3)', () => {
 
     await createCardViaUI(page, cardData);
 
-    // Wait for card creation
-    await page.waitForTimeout(3000);
-
-    // Verify in Firestore
-    const firestoreCard = await waitForCardInFirestore(cardData.title);
+    // OPTIMIZATION(#1805): Use real-time snapshot listener instead of fixed 3s wait (typically 50-500ms)
+    const firestoreCard = await waitForCardInFirestore(cardData.title, 15000);
     expect(firestoreCard).toBeTruthy();
     expect(firestoreCard.tags).toEqual(['tag1', 'tag2', 'tag3']); // Empty strings filtered out
   });
