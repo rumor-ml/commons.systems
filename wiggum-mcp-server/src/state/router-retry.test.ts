@@ -4,7 +4,7 @@
  * These tests verify the core retry mechanism that consolidates ~300 lines of duplicated
  * error handling logic from router.ts. The function handles:
  * - Basic success/retry paths
- * - Error classification and retry decisions (expects classifyGitHubError to classify errors correctly)
+ * - Error classification and retry decisions (relies on classifyGitHubError classifying errors correctly)
  * - Exponential backoff with capping
  * - Config validation
  * - Defensive fallback error paths
@@ -76,7 +76,7 @@ describe('executeStateUpdateWithRetry - Retry Logic', () => {
     const mockUpdate = mock.fn(async () => {
       attempts++;
       if (attempts < 3) {
-        // GitHubCliError with 429 - expects classifyGitHubError to classify as transient
+        // Throw 429 rate limit error (relies on classifyGitHubError classifying as transient)
         throw new GitHubCliError('API rate limit exceeded', 429, 'rate limit exceeded');
       }
     });
@@ -99,7 +99,7 @@ describe('executeStateUpdateWithRetry - Retry Logic', () => {
     const mockUpdate = mock.fn(async () => {
       attempts++;
       if (attempts < 2) {
-        // Network error - expects classifyGitHubError to classify as transient
+        // Throw network error (relies on classifyGitHubError classifying as transient)
         const error = new Error('HTTP fetch failed: ECONNRESET');
         throw error;
       }
@@ -655,7 +655,7 @@ describe('executeStateUpdateWithRetry - Invalid Delay Detection', () => {
             3
           ),
         (error: Error) => {
-          assert.ok(error.message.includes('INTERNAL ERROR: Invalid delay calculated'));
+          assert.ok(error.message.includes('INTERNAL ERROR: Invalid uncapped delay calculated'));
           assert.ok(error.message.includes('NaN') || error.message.includes('retry loop counter'));
           return true;
         }
@@ -689,7 +689,7 @@ describe('executeStateUpdateWithRetry - Invalid Delay Detection', () => {
             3
           ),
         (error: Error) => {
-          assert.ok(error.message.includes('INTERNAL ERROR: Invalid delay calculated'));
+          assert.ok(error.message.includes('INTERNAL ERROR: Invalid uncapped delay calculated'));
           assert.ok(error.message.includes('-1000'));
           return true;
         }
@@ -727,7 +727,7 @@ describe('executeStateUpdateWithRetry - Invalid Delay Detection', () => {
             3
           ),
         (error: Error) => {
-          assert.ok(error.message.includes('INTERNAL ERROR: Invalid delay calculated'));
+          assert.ok(error.message.includes('INTERNAL ERROR: Invalid uncapped delay calculated'));
           return true;
         }
       );

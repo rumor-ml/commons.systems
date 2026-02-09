@@ -80,7 +80,20 @@ export type StateUpdateResult =
     };
 
 /**
- * Type alias for state update function signature
+ * Type alias for state update function signature.
+ *
+ * State update functions are side-effecting operations that persist WiggumState
+ * to GitHub resource bodies (PR or issue). They should validate parameters and
+ * throw GitHubCliError on API failures.
+ *
+ * @param id - Positive integer resource identifier (PR or issue number)
+ * @param state - Valid WiggumState to persist to resource body
+ * @param repo - Optional repository in "owner/repo" format (defaults to current repo)
+ * @returns Promise that resolves when state is successfully persisted
+ * @throws GitHubCliError on GitHub API failures
+ * @throws ValidationError if parameters are invalid
+ *
+ * Note: This is a side-effecting function that mutates external GitHub state.
  */
 type StateUpdateFn = (id: number, state: WiggumState, repo?: string) => Promise<void>;
 
@@ -93,11 +106,15 @@ type StateUpdateFn = (id: number, state: WiggumState, repo?: string) => Promise<
  * @property resourceId - Positive integer resource identifier
  * @property updateFn - Function that updates the resource's body state.
  *                     Called with (id: number, state: WiggumState).
- *                     Note: The underlying functions support an optional repo parameter,
- *                     but executeStateUpdateWithRetry always uses the default repo.
+ *                     The public wrappers (safeUpdatePRBodyState/safeUpdateIssueBodyState)
+ *                     provide updateFn implementations that use the default repo.
  *
  * Note: executeStateUpdateWithRetry derives resourceLabel, verifyCommand, and
  * error context field names from the resourceType and resourceId provided in this config.
+ *
+ * Implementation note: All fields use readonly modifiers to prevent field reassignment.
+ * The updateFn reference is readonly, preventing reassignment of the function reference itself,
+ * though it does not prevent deep mutation of the function (TypeScript limitation).
  */
 interface StateUpdateConfig {
   readonly resourceType: 'pr' | 'issue';
@@ -140,6 +157,7 @@ export function createStateUpdateFailure(
  * On logger failure, falls back to console.error, then process.stderr.write
  * to ensure critical errors are always visible.
  */
+// TODO(#1874): Overly nested fallback in safeLog could be simplified with early returns
 function safeLog(
   level: 'info' | 'warn' | 'error',
   message: string,
@@ -180,7 +198,7 @@ function safeLog(
  *
  * @param value - Value to serialize (typically WiggumState)
  * @param label - Label for the value in error messages (e.g., "state", "fallback-state")
- * @returns JSON string or partial state representation on failure
+ * @returns JSON string, or on failure, a formatted string with partial state info or error details
 // TODO(#1850): Extract individual state properties separately to preserve as much info as possible when partial extraction fails
  */
 function safeStringify(value: unknown, label: string): string {
@@ -193,12 +211,15 @@ function safeStringify(value: unknown, label: string): string {
         const state = value as WiggumState;
         return `<partial ${label}: phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=${state.completedSteps?.length ?? 0} items>`;
       } catch (partialError) {
-        // Partial extraction failed - log and fall through to last resort
+        // Partial extraction failed - return explicit failure message
+        const partialErrorMsg =
+          partialError instanceof Error ? partialError.message : String(partialError);
         safeLog('warn', `Partial state extraction failed for ${label}`, {
-          error: partialError instanceof Error ? partialError.message : String(partialError),
+          error: partialErrorMsg,
           hasPhaseProperty: value && typeof value === 'object' && 'phase' in value,
         });
-        // Fall through to last resort
+        // Return explicit message about partial extraction failure
+        return `<partial extraction failed: ${partialErrorMsg}>`;
       }
     }
 
@@ -263,6 +284,7 @@ async function executeStateUpdateWithRetry(
   // Validate resourceId parameter (must be positive integer)
   // This validation happens upfront to fail fast with clear error message.
   // Prevents invalid resourceId from causing StateApiError.create() failures in error handling paths.
+  // Invalid resourceId would cause StateApiError.create() to throw, making error handling fail
   if (!Number.isInteger(resourceId) || resourceId <= 0) {
     throw new ValidationError(
       `${functionName} (${resourceTypeName}): ${resourceIdField} must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
@@ -328,6 +350,7 @@ async function executeStateUpdateWithRetry(
       await updateFn(resourceId, state);
 
       // Log recovery on retry success
+      // TODO(#1871): Consider escalating log level based on retry count for better operational visibility
       if (attempt > 1) {
         logger.info('State update succeeded after retry', {
           [resourceIdField]: resourceId,
@@ -384,14 +407,18 @@ async function executeStateUpdateWithRetry(
           [resourceIdField]: resourceId,
           step,
           originalError: errorMsg,
+          originalErrorStack: updateError.stack,
           classificationError:
             classificationError instanceof Error
               ? classificationError.message
               : String(classificationError),
+          classificationErrorStack:
+            classificationError instanceof Error ? classificationError.stack : undefined,
         });
 
         // Fallback classification: treat as unexpected (no retry)
         // Conservative approach - don't retry if we can't classify the error
+        // TODO(#653): Consider treating classification failures as potentially transient for conservative retry
         classification = {
           is404: false,
           isAuth: false,
@@ -456,26 +483,26 @@ async function executeStateUpdateWithRetry(
           // Exponential backoff: 2^attempt seconds, capped at 60s to balance recovery time vs user experience
           const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
-          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
 
-          // Validate delay is safe for sleep
-          // CRITICAL: Invalid delay indicates programming error in retry logic (corrupted attempt counter)
-          // Throw instead of falling back to surface the bug immediately
-          if (!Number.isFinite(delayMs) || delayMs < 0) {
-            safeLog('error', 'CRITICAL: Invalid delay calculated - retry logic corrupted', {
+          // Validate uncapped delay to catch corrupted attempt counter early
+          // Invalid uncappedDelayMs indicates programming error in retry logic
+          if (!Number.isFinite(uncappedDelayMs) || uncappedDelayMs < 0) {
+            safeLog('error', 'CRITICAL: Invalid uncapped delay calculated - retry logic corrupted', {
               [resourceIdField]: resourceId,
               step,
-              delayMs,
               uncappedDelayMs,
               attempt,
               maxRetries,
+              attemptType: typeof attempt,
             });
             throw new Error(
-              `INTERNAL ERROR: Invalid delay calculated (${delayMs}ms) from attempt ${attempt}. ` +
-                `This indicates a bug in the retry loop counter. uncappedDelayMs: ${uncappedDelayMs}`
+              `INTERNAL ERROR: Invalid uncapped delay calculated (${uncappedDelayMs}ms) from attempt ${attempt}. ` +
+                `This indicates a bug in the retry loop counter. Expected: positive finite number.`
             );
           }
-          // Note: delayMs is guaranteed ≤ MAX_DELAY_MS due to Math.min() above. Only validate for invalid values (negative/NaN).
+
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+          // Note: delayMs is guaranteed ≤ MAX_DELAY_MS and finite due to Math.min() with validated uncappedDelayMs
 
           safeLog('info', 'Transient error updating state - retrying with backoff', {
             ...errorContext,
@@ -507,6 +534,7 @@ async function executeStateUpdateWithRetry(
         }
 
         // All retries exhausted - return failure result with error context for debugging
+        // TODO(#653): Consider throwing on retry exhaustion instead of returning failure for fail-fast behavior
         const lastErrorObj = updateError;
         safeLog('warn', 'State update failed after all retries', {
           ...errorContext,
@@ -630,9 +658,10 @@ function checkBranchPushed(
  * Safely update wiggum state in PR body with error handling and retry logic
  *
  * Public API wrapper for executeStateUpdateWithRetry configured for PR updates.
- * This is a thin wrapper that delegates all logic to executeStateUpdateWithRetry.
- * Prefer using this wrapper over calling executeStateUpdateWithRetry directly to
- * maintain stable API surface.
+ * Provides parameter adaptation (prNumber → config object) and defensive validation
+ * of the updatePRBodyState function. Prefer using this wrapper over calling
+ * executeStateUpdateWithRetry directly to maintain stable API surface and benefit
+ * from validation checks.
  *
  * See executeStateUpdateWithRetry for detailed retry strategy and error handling.
  *
@@ -649,6 +678,7 @@ export async function safeUpdatePRBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // TODO(#1868): Redundant defensive check - executeStateUpdateWithRetry already validates function type
   // Defensive check: Ensure updatePRBodyState is defined
   // This catches import failures, circular dependencies, or other module loading issues
   if (typeof updatePRBodyState !== 'function') {
@@ -674,9 +704,10 @@ export async function safeUpdatePRBodyState(
  * Safely update wiggum state in issue body with error handling and retry logic
  *
  * Public API wrapper for executeStateUpdateWithRetry configured for issue updates.
- * This is a thin wrapper that delegates all logic to executeStateUpdateWithRetry.
- * Prefer using this wrapper over calling executeStateUpdateWithRetry directly to
- * maintain stable API surface.
+ * Provides parameter adaptation (issueNumber → config object) and defensive validation
+ * of the updateIssueBodyState function. Prefer using this wrapper over calling
+ * executeStateUpdateWithRetry directly to maintain stable API surface and benefit
+ * from validation checks.
  *
  * See executeStateUpdateWithRetry for detailed retry strategy and error handling.
  *
@@ -693,6 +724,7 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
+  // TODO(#1868): Redundant defensive check - executeStateUpdateWithRetry already validates function type
   // Defensive check: Ensure updateIssueBodyState is defined
   // This catches import failures, circular dependencies, or other module loading issues
   if (typeof updateIssueBodyState !== 'function') {

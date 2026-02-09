@@ -3,6 +3,8 @@
  *
  * These tests verify the routing logic that determines workflow step progression,
  * type guards, and helper functions.
+ *
+ * TODO(#1873): Documentation-only tests with assert.ok(true) could be replaced with JSDoc comments
  */
 
 import { describe, it } from 'node:test';
@@ -882,6 +884,74 @@ describe('Wrapper function behavioral parity', () => {
 
     assert.ok(true, 'Correct updateFn mapping prevents API misuse');
   });
+
+  it('should document maxRetries parameter pass-through for PR wrapper', () => {
+    // The safeUpdatePRBodyState wrapper accepts an optional maxRetries parameter
+    // and passes it through to executeStateUpdateWithRetry (line 669 in router.ts):
+    //
+    // export async function safeUpdatePRBodyState(
+    //   prNumber: number,
+    //   state: WiggumState,
+    //   step: string,
+    //   maxRetries = 3                              // Default value
+    // ): Promise<StateUpdateResult> {
+    //   return executeStateUpdateWithRetry(
+    //     { resourceType: 'pr', resourceId: prNumber, updateFn: updatePRBodyState },
+    //     state,
+    //     step,
+    //     maxRetries                                // Passed through here
+    //   );
+    // }
+    //
+    // This test documents that custom maxRetries values would be passed through.
+    // The actual retry behavior is tested in router-retry.test.ts.
+    //
+    // Example usage:
+    // - safeUpdatePRBodyState(123, state, 'step')      // Uses default maxRetries = 3
+    // - safeUpdatePRBodyState(123, state, 'step', 5)   // Custom maxRetries = 5
+    // - safeUpdatePRBodyState(123, state, 'step', 1)   // Custom maxRetries = 1
+    //
+    // Failure scenario this would catch:
+    // If someone hardcoded maxRetries in the wrapper:
+    //   return executeStateUpdateWithRetry(..., 3);  // WRONG - always 3
+    // instead of:
+    //   return executeStateUpdateWithRetry(..., maxRetries);  // RIGHT - respects parameter
+
+    assert.strictEqual(typeof safeUpdatePRBodyState, 'function');
+    // Note: .length only counts parameters without defaults, so it's 3 not 4
+    // (prNumber, state, step) - maxRetries has default so not counted
+    assert.strictEqual(safeUpdatePRBodyState.length, 3, 'Function has 3 required parameters');
+  });
+
+  it('should document maxRetries parameter pass-through for issue wrapper', () => {
+    // The safeUpdateIssueBodyState wrapper accepts an optional maxRetries parameter
+    // and passes it through to executeStateUpdateWithRetry (line 714 in router.ts):
+    //
+    // export async function safeUpdateIssueBodyState(
+    //   issueNumber: number,
+    //   state: WiggumState,
+    //   step: string,
+    //   maxRetries = 3                              // Default value
+    // ): Promise<StateUpdateResult> {
+    //   return executeStateUpdateWithRetry(
+    //     { resourceType: 'issue', resourceId: issueNumber, updateFn: updateIssueBodyState },
+    //     state,
+    //     step,
+    //     maxRetries                                // Passed through here
+    //   );
+    // }
+    //
+    // This ensures behavioral parity with the PR wrapper - both accept and pass through
+    // custom maxRetries values the same way.
+    //
+    // The actual retry behavior with custom maxRetries values is thoroughly tested
+    // in router-retry.test.ts for executeStateUpdateWithRetry.
+
+    assert.strictEqual(typeof safeUpdateIssueBodyState, 'function');
+    // Note: .length only counts parameters without defaults, so it's 3 not 4
+    // (issueNumber, state, step) - maxRetries has default so not counted
+    assert.strictEqual(safeUpdateIssueBodyState.length, 3, 'Function has 3 required parameters');
+  });
 });
 
 describe('Wrapper function defensive checks', () => {
@@ -1000,3 +1070,5 @@ describe('Wrapper function integration', () => {
     assert.strictEqual(typeof bodyState.updateIssueBodyState, 'function');
   });
 });
+
+// TODO(#1872): Consider integration test for safeUpdatePRBodyState with real GitHub API

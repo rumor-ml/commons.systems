@@ -83,26 +83,255 @@ describe('safeLog', () => {
     });
   });
 
-  describe('Fallback behavior documentation', () => {
-    it('should document fallback path to console.error', () => {
-      // When logger fails, safeLog falls back to console.error with 'CRITICAL: Logger failed'
-      // message and object containing: level, message, context, loggingError
-      // This ensures critical errors are always visible even when the primary logger fails
-      assert.ok(true, 'Falls back to console.error when logger fails');
+  describe('Fallback behavior verification', () => {
+    it('should fall back to console.error when logger throws', async () => {
+      // Import logger to mock it
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerError = logger.error;
+      const originalConsoleError = console.error;
+
+      try {
+        let consoleErrorCalled = false;
+        let consoleErrorArgs: any[] = [];
+
+        // Make logger.error throw
+        logger.error = () => {
+          throw new Error('logger failed');
+        };
+
+        // Capture console.error call
+        console.error = (...args: any[]) => {
+          consoleErrorCalled = true;
+          consoleErrorArgs = args;
+        };
+
+        // Call safeLog - should fall back to console.error
+        safeLog('error', 'test message', { key: 'value' });
+
+        // Verify console.error was called
+        assert.ok(consoleErrorCalled, 'Should fall back to console.error');
+        assert.strictEqual(consoleErrorArgs[0], 'CRITICAL: Logger failed');
+        assert.ok(consoleErrorArgs[1].level === 'error', 'Should include level');
+        assert.ok(consoleErrorArgs[1].message === 'test message', 'Should include message');
+        assert.ok(consoleErrorArgs[1].loggingError, 'Should include loggingError');
+      } finally {
+        logger.error = originalLoggerError;
+        console.error = originalConsoleError;
+      }
     });
 
-    it('should document fallback path to process.stderr.write', () => {
-      // When both logger and console.error fail, safeLog falls back to stderr
-      // This is the last resort to ensure critical messages are visible
-      // Writes simple message: "CRITICAL: Logger and console.error failed - {message}"
-      assert.ok(true, 'Falls back to process.stderr.write as last resort');
+    it('should fall back to process.stderr.write when both logger and console.error fail', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerError = logger.error;
+      const originalConsoleError = console.error;
+      const originalStderrWrite = process.stderr.write;
+
+      try {
+        let stderrWriteCalled = false;
+        let stderrWriteArgs: any[] = [];
+
+        // Make logger.error throw
+        logger.error = () => {
+          throw new Error('logger failed');
+        };
+
+        // Make console.error throw
+        console.error = () => {
+          throw new Error('console failed');
+        };
+
+        // Capture process.stderr.write call
+        process.stderr.write = ((...args: any[]) => {
+          stderrWriteCalled = true;
+          stderrWriteArgs = args;
+          return true;
+        }) as any;
+
+        // Call safeLog - should fall back to stderr
+        safeLog('error', 'test message', { key: 'value' });
+
+        // Verify stderr.write was called
+        assert.ok(stderrWriteCalled, 'Should fall back to process.stderr.write');
+        assert.ok(
+          stderrWriteArgs[0].includes('CRITICAL: Logger and console.error failed'),
+          'Should include critical message'
+        );
+        assert.ok(stderrWriteArgs[0].includes('test message'), 'Should include original message');
+      } finally {
+        logger.error = originalLoggerError;
+        console.error = originalConsoleError;
+        process.stderr.write = originalStderrWrite;
+      }
     });
 
-    it('should document globalThis storage when all logging fails', () => {
-      // When all logging mechanisms fail, safeLog stores unlogged errors in globalThis
-      // This allows postmortem debugging if the process crashes
-      // Stored in: (globalThis as any).__unloggedErrors
-      assert.ok(true, 'Stores unlogged errors in globalThis for postmortem debugging');
+    it('should store in globalThis.__unloggedErrors when all logging fails', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerError = logger.error;
+      const originalConsoleError = console.error;
+      const originalStderrWrite = process.stderr.write;
+
+      // Clear any existing unlogged errors
+      const originalUnloggedErrors = (globalThis as any).__unloggedErrors;
+      (globalThis as any).__unloggedErrors = [];
+
+      try {
+        // Make logger.error throw
+        logger.error = () => {
+          throw new Error('logger failed');
+        };
+
+        // Make console.error throw
+        console.error = () => {
+          throw new Error('console failed');
+        };
+
+        // Make process.stderr.write throw
+        process.stderr.write = (() => {
+          throw new Error('stderr failed');
+        }) as any;
+
+        // Call safeLog - should store in globalThis
+        safeLog('error', 'test message', { key: 'value' });
+
+        // Verify storage in globalThis
+        const unloggedErrors = (globalThis as any).__unloggedErrors;
+        assert.ok(Array.isArray(unloggedErrors), 'Should create __unloggedErrors array');
+        assert.strictEqual(unloggedErrors.length, 1, 'Should store one error');
+        assert.strictEqual(unloggedErrors[0].level, 'error', 'Should store level');
+        assert.strictEqual(unloggedErrors[0].message, 'test message', 'Should store message');
+        assert.deepStrictEqual(unloggedErrors[0].context, { key: 'value' }, 'Should store context');
+      } finally {
+        logger.error = originalLoggerError;
+        console.error = originalConsoleError;
+        process.stderr.write = originalStderrWrite;
+        (globalThis as any).__unloggedErrors = originalUnloggedErrors;
+      }
+    });
+
+    it('should append to existing globalThis.__unloggedErrors array', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerError = logger.error;
+      const originalConsoleError = console.error;
+      const originalStderrWrite = process.stderr.write;
+
+      // Pre-populate with existing errors
+      const originalUnloggedErrors = (globalThis as any).__unloggedErrors;
+      (globalThis as any).__unloggedErrors = [
+        { level: 'warn', message: 'existing error', context: {} },
+      ];
+
+      try {
+        // Make all logging mechanisms fail
+        logger.error = () => {
+          throw new Error('logger failed');
+        };
+        console.error = () => {
+          throw new Error('console failed');
+        };
+        process.stderr.write = (() => {
+          throw new Error('stderr failed');
+        }) as any;
+
+        // Call safeLog - should append to existing array
+        safeLog('error', 'new error', { new: 'context' });
+
+        // Verify appended to existing array
+        const unloggedErrors = (globalThis as any).__unloggedErrors;
+        assert.strictEqual(unloggedErrors.length, 2, 'Should append to existing array');
+        assert.strictEqual(unloggedErrors[0].message, 'existing error', 'Should preserve existing');
+        assert.strictEqual(unloggedErrors[1].message, 'new error', 'Should append new error');
+      } finally {
+        logger.error = originalLoggerError;
+        console.error = originalConsoleError;
+        process.stderr.write = originalStderrWrite;
+        (globalThis as any).__unloggedErrors = originalUnloggedErrors;
+      }
+    });
+
+    it('should handle all log levels in fallback paths', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerInfo = logger.info;
+      const originalLoggerWarn = logger.warn;
+      const originalLoggerError = logger.error;
+      const originalConsoleError = console.error;
+
+      try {
+        const consoleErrorCalls: any[] = [];
+
+        // Make all logger methods throw
+        logger.info = () => {
+          throw new Error('logger failed');
+        };
+        logger.warn = () => {
+          throw new Error('logger failed');
+        };
+        logger.error = () => {
+          throw new Error('logger failed');
+        };
+
+        // Capture console.error calls
+        console.error = (...args: any[]) => {
+          consoleErrorCalls.push(args);
+        };
+
+        // Test all levels
+        safeLog('info', 'info message', {});
+        safeLog('warn', 'warn message', {});
+        safeLog('error', 'error message', {});
+
+        // Verify all fell back to console.error
+        assert.strictEqual(consoleErrorCalls.length, 3, 'Should call console.error 3 times');
+        assert.strictEqual(consoleErrorCalls[0][1].level, 'info');
+        assert.strictEqual(consoleErrorCalls[1][1].level, 'warn');
+        assert.strictEqual(consoleErrorCalls[2][1].level, 'error');
+      } finally {
+        logger.info = originalLoggerInfo;
+        logger.warn = originalLoggerWarn;
+        logger.error = originalLoggerError;
+        console.error = originalConsoleError;
+      }
+    });
+
+    it('should preserve complex context objects in fallback', async () => {
+      const loggerModule = await import('../utils/logger.js');
+      const { logger } = loggerModule;
+      const originalLoggerError = logger.error;
+      const originalConsoleError = console.error;
+
+      try {
+        let capturedContext: any;
+
+        logger.error = () => {
+          throw new Error('logger failed');
+        };
+
+        console.error = (_msg: string, obj: any) => {
+          capturedContext = obj;
+        };
+
+        const complexContext = {
+          nested: { deeply: { structured: 'data' } },
+          array: [1, 2, 3],
+          nullValue: null,
+        };
+
+        safeLog('error', 'test', complexContext);
+
+        // Verify context was preserved in fallback
+        assert.deepStrictEqual(
+          capturedContext.context,
+          complexContext,
+          'Should preserve complex context'
+        );
+      } finally {
+        logger.error = originalLoggerError;
+        console.error = originalConsoleError;
+      }
     });
   });
 
@@ -341,8 +570,8 @@ describe('safeStringify', () => {
 
       const result = safeStringify(problematicState, 'problematic');
 
-      // Should fall back to type info when partial extraction fails
-      assert.ok(result.includes('serialization failed'));
+      // Should fall back to explicit failure message when partial extraction fails
+      assert.ok(result.includes('partial extraction failed'));
     });
 
     it('should handle object with phase but missing other properties', () => {
