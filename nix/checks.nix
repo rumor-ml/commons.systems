@@ -492,6 +492,141 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       always_run = true;
     };
 
+    # Validate zsh configuration when zsh.nix changes
+    # Tests that zsh shell loads session variables correctly and prompt configuration works
+    # Catches issues with envExtra/initExtra that would only appear after home-manager switch
+    zsh-config-test = {
+      enable = true;
+      name = "zsh-config-test";
+      description = "Test zsh configuration when zsh.nix changes";
+      entry = "${pkgs.writeShellScript "zsh-config-test" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
+
+        # Check if zsh.nix was modified
+        if echo "$CHANGED_FILES" | grep -qE "nix/home/zsh\.nix"; then
+          echo "zsh.nix changed, running configuration tests..."
+
+          # Check if zsh is available
+          if ! command -v zsh &> /dev/null; then
+            echo ""
+            echo "WARNING: zsh not found in PATH"
+            echo "Skipping zsh configuration tests (zsh must be installed for tests to run)"
+            echo ""
+            exit 0
+          fi
+
+          # Run the zsh configuration tests
+          if ! bash ./infrastructure/scripts/tests/zsh-config.test.sh; then
+            echo ""
+            echo "ERROR: Zsh configuration tests failed"
+            echo ""
+            echo "This check validates that the zsh configuration in nix/home/zsh.nix"
+            echo "correctly loads session variables and preserves user configuration."
+            echo ""
+            echo "To fix this issue:"
+            echo "  1. Run: bash ./infrastructure/scripts/tests/zsh-config.test.sh"
+            echo "  2. Review the test failures"
+            echo "  3. Fix the issues in nix/home/zsh.nix"
+            echo "  4. Test locally: home-manager switch --flake .#default --impure"
+            echo "  5. Retry your push"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ Zsh configuration tests passed"
+        else
+          echo "No zsh.nix changes detected, skipping configuration tests."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
+    # Run timezone integration tests when timezone.nix changes
+    # Validates that TZ environment variable configuration works correctly
+    # Tests verify TZ is set, date command respects it, and DST transitions work
+    timezone-integration-test = {
+      enable = true;
+      name = "timezone-integration-test";
+      description = "Run timezone integration tests when timezone.nix changes";
+      entry = "${pkgs.writeShellScript "timezone-integration-test" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
+
+        # Check if timezone.nix was modified
+        if echo "$CHANGED_FILES" | grep -qE "nix/home/timezone\.nix"; then
+          echo "timezone.nix changed, running integration tests..."
+
+          # Run the timezone integration tests
+          if ! bash ./nix/home/timezone.test.sh; then
+            echo ""
+            echo "ERROR: Timezone integration tests failed"
+            echo ""
+            echo "This check validates that the timezone configuration in nix/home/timezone.nix"
+            echo "correctly sets the TZ environment variable and affects time-aware commands."
+            echo ""
+            echo "To fix this issue:"
+            echo "  1. Run: bash ./nix/home/timezone.test.sh"
+            echo "  2. Review the test failures"
+            echo "  3. Fix the issues in nix/home/timezone.nix"
+            echo "  4. Test locally: home-manager switch --flake .#default --impure"
+            echo "  5. Retry your push"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ Timezone integration tests passed"
+        else
+          echo "No timezone.nix changes detected, skipping tests."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
     # Pre-push hook: Validate Home Manager configuration builds
     # Catches Nix evaluation errors in Home Manager modules (including WezTerm)
     # Prevents CI failures from Nix syntax errors, invalid packages, or module option mistakes
