@@ -88,10 +88,9 @@ Execute BEFORE creating the PR to ensure code quality:
 
 1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
 2. **p1-2: Code Review (Pre-PR)** - Invoke all-hands agent (creates summary), then launch 6 review agents
-3. **p1-3: Security Review (Pre-PR)** - Run `/security-review` on local branch
-4. **p1-4: Create PR** - Only after all pre-PR checks pass
+3. **p1-3: Create PR** - Only after all pre-PR checks pass
 
-**Key Point:** Steps p1-2 and p1-3 review LOCAL CODE before PR exists. If issues found, fix them and restart from p1-1.
+**Key Point:** Step p1-2 reviews LOCAL CODE before PR exists. If issues found, fix them and restart from p1-1.
 
 ### Phase 2: Post-PR Validation (State tracked in PR Comments)
 
@@ -108,9 +107,10 @@ Execute AFTER PR is created for final validation:
 
 ### Why Two Phases?
 
-- **Phase 1** catches issues early (before PR creation noise)
-- **Phase 2** validates the PR in its final state (after all CI/CD)
+- **Phase 1** catches code quality issues early (before PR creation noise)
+- **Phase 2** validates the PR in its final state (after all CI/CD) including security review
 - This structure prevents creating PRs with known issues
+- Security review is performed in Phase 2 only to avoid duplicate reviews and reduce iteration overhead
 
 ---
 
@@ -395,10 +395,9 @@ IMPORTANT:
 
 Call after executing `/security-review`.
 
-**Used in TWO contexts:**
+**Used in Phase 2 (p2-5) only:** Post-PR security review on actual PR
 
-- **Phase 1 (p1-3):** Pre-PR security review on local branch
-- **Phase 2 (p2-5):** Post-PR security review on actual PR
+**Note:** Phase 1 security review has been removed from the workflow to streamline the process and avoid duplicate reviews.
 
 **Returns next step instructions.**
 

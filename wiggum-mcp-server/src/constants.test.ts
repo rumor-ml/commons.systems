@@ -11,7 +11,6 @@ import assert from 'node:assert';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
-  STEP_PHASE1_SECURITY_REVIEW,
   STEP_PHASE1_CREATE_PR,
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
@@ -34,8 +33,7 @@ describe('Step Constants', () => {
   it('should define all Phase 1 step constants with correct values', () => {
     assert.strictEqual(STEP_PHASE1_MONITOR_WORKFLOW, 'p1-1');
     assert.strictEqual(STEP_PHASE1_PR_REVIEW, 'p1-2');
-    assert.strictEqual(STEP_PHASE1_SECURITY_REVIEW, 'p1-3');
-    assert.strictEqual(STEP_PHASE1_CREATE_PR, 'p1-4');
+    assert.strictEqual(STEP_PHASE1_CREATE_PR, 'p1-3');
   });
 
   it('should define all Phase 2 step constants with correct values', () => {
@@ -50,10 +48,6 @@ describe('Step Constants', () => {
   it('should have all steps defined in STEP_NAMES', () => {
     assert.strictEqual(STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW], 'Phase 1: Monitor Workflow');
     assert.strictEqual(STEP_NAMES[STEP_PHASE1_PR_REVIEW], 'Phase 1: Code Review (Pre-PR)');
-    assert.strictEqual(
-      STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
-      'Phase 1: Security Review (Pre-PR)'
-    );
     assert.strictEqual(STEP_NAMES[STEP_PHASE1_CREATE_PR], 'Phase 1: Create PR');
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW], 'Phase 2: Monitor Workflow');
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS], 'Phase 2: Monitor PR Checks');
@@ -69,9 +63,9 @@ describe('Step Constants', () => {
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_APPROVAL], 'Approval');
   });
 
-  it('should have exactly 10 steps defined', () => {
+  it('should have exactly 9 steps defined', () => {
     const steps = Object.keys(STEP_NAMES);
-    assert.strictEqual(steps.length, 10);
+    assert.strictEqual(steps.length, 9);
   });
 });
 
@@ -79,7 +73,6 @@ describe('Step Validation (isValidStep)', () => {
   it('should validate all valid step identifiers', () => {
     assert.strictEqual(isValidStep(STEP_PHASE1_MONITOR_WORKFLOW), true);
     assert.strictEqual(isValidStep(STEP_PHASE1_PR_REVIEW), true);
-    assert.strictEqual(isValidStep(STEP_PHASE1_SECURITY_REVIEW), true);
     assert.strictEqual(isValidStep(STEP_PHASE1_CREATE_PR), true);
     assert.strictEqual(isValidStep(STEP_PHASE2_MONITOR_WORKFLOW), true);
     assert.strictEqual(isValidStep(STEP_PHASE2_MONITOR_CHECKS), true);
@@ -93,7 +86,6 @@ describe('Step Validation (isValidStep)', () => {
     assert.strictEqual(isValidStep('p1-1'), true);
     assert.strictEqual(isValidStep('p1-2'), true);
     assert.strictEqual(isValidStep('p1-3'), true);
-    assert.strictEqual(isValidStep('p1-4'), true);
     assert.strictEqual(isValidStep('p2-1'), true);
     assert.strictEqual(isValidStep('p2-2'), true);
     assert.strictEqual(isValidStep('p2-3'), true);
@@ -135,7 +127,6 @@ describe('Step Order and Progression', () => {
     const phase1Order = [
       STEP_PHASE1_MONITOR_WORKFLOW,
       STEP_PHASE1_PR_REVIEW,
-      STEP_PHASE1_SECURITY_REVIEW,
       STEP_PHASE1_CREATE_PR,
     ];
 
@@ -149,7 +140,7 @@ describe('Step Order and Progression', () => {
     ];
 
     // Verify the order matches expected progression
-    assert.deepEqual(phase1Order, ['p1-1', 'p1-2', 'p1-3', 'p1-4']);
+    assert.deepEqual(phase1Order, ['p1-1', 'p1-2', 'p1-3']);
     assert.deepEqual(phase2Order, ['p2-1', 'p2-2', 'p2-3', 'p2-4', 'p2-5', 'approval']);
   });
 
@@ -157,7 +148,6 @@ describe('Step Order and Progression', () => {
     const steps = [
       STEP_PHASE1_MONITOR_WORKFLOW,
       STEP_PHASE1_PR_REVIEW,
-      STEP_PHASE1_SECURITY_REVIEW,
       STEP_PHASE1_CREATE_PR,
       STEP_PHASE2_MONITOR_WORKFLOW,
       STEP_PHASE2_MONITOR_CHECKS,
