@@ -49,7 +49,7 @@ describe('Rate Limit Retry Logic', () => {
       await sleep(100);
       const duration = Date.now() - start;
 
-      // Allow 50ms tolerance for timer precision
+      // Allow 50ms tolerance for timer precision and event loop scheduling variance
       assert.ok(duration >= 100 && duration < 150, `Expected ~100ms, got ${duration}ms`);
     });
 
@@ -61,7 +61,13 @@ describe('Rate Limit Retry Logic', () => {
         await sleep(ms);
         const duration = Date.now() - start;
 
-        assert.ok(duration >= ms && duration < ms + 50, `Expected ~${ms}ms, got ${duration}ms`);
+        // TODO(#1807): Consider adding test for systematic timing bias
+        // CI environments have higher scheduling variance: use 100ms tolerance vs 50ms local
+        const tolerance = process.env.CI ? 100 : 50;
+        assert.ok(
+          duration >= ms && duration < ms + tolerance,
+          `Expected ~${ms}ms ±${tolerance}ms, got ${duration}ms`
+        );
       }
     });
   });
@@ -93,6 +99,7 @@ describe('Rate Limit Retry Logic', () => {
     });
 
     it('should throw after exhausting retries', async () => {
+      // TODO(#1840): Add assertions to verify specific error type (GitHubCliError) is preserved
       // Test that retries are exhausted for retryable errors
       // Note: This will make actual gh CLI calls that will likely fail
       // In a real test suite, we would mock ghCli

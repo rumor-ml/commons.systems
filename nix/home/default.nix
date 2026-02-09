@@ -15,6 +15,7 @@
 # - SSH client and agent configuration (ssh.nix)
 # - SSH key auto-generation (ssh-keygen.nix)
 # - SSH authorized keys management (ssh-authorized-keys.nix)
+# - WezTerm terminal emulator (wezterm.nix, Darwin only)
 #
 # To activate this configuration for your system:
 #   First time (requires experimental features flags):
@@ -48,6 +49,7 @@
     ./ssh.nix
     ./ssh-keygen.nix
     ./ssh-authorized-keys.nix
+    ./wezterm.nix
   ];
 
   # User identity - detect from environment or HOME directory
