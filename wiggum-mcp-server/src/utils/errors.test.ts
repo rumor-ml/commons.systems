@@ -530,6 +530,7 @@ describe('GitError.create() factory function', () => {
   });
 
   it('should enforce factory pattern via private constructor', () => {
+    // TODO(#1909): Test doesn't verify that private constructor actually prevents instantiation
     // This test documents that direct instantiation is not allowed.
     // If someone attempts: new GitError('msg', 128, 'error')
     // TypeScript will fail compilation with: "Constructor of class 'GitError' is private"
@@ -543,15 +544,34 @@ describe('GitError.create() factory function', () => {
     assert.strictEqual(error.stderr, 'fatal error');
   });
 
-  // TODO(#1674): Consider testing GitError with null exitCode/stderr
-  // TypeScript allows undefined | null union types, but validation only checks for undefined.
-  // Current behavior for null is untested and may throw unexpected errors.
-  it('should document expected behavior for null parameters', () => {
-    // This test documents that null is NOT validated the same as undefined
-    // If null is passed, it bypasses the !== undefined checks in validation
-    // Future work: Add explicit null validation or document null as unsupported
+  it('should throw ValidationError for null exitCode', () => {
+    assert.throws(
+      // @ts-expect-error - Testing runtime behavior with null
+      () => GitError.create('Git failed', null, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255')
+        );
+      },
+      'Should throw ValidationError for null exitCode'
+    );
+  });
 
-    // For now, document that undefined is the only supported "no value" marker
+  it('should throw TypeError for null stderr', () => {
+    // null bypasses the !== undefined check but fails on .trim()
+    assert.throws(
+      // @ts-expect-error - Testing runtime behavior with null
+      () => GitError.create('Git failed', 1, null),
+      (error: unknown) => {
+        return error instanceof TypeError;
+      },
+      'Should throw TypeError for null stderr attempting to call .trim()'
+    );
+  });
+
+  it('should document expected behavior for undefined parameters', () => {
+    // undefined is the supported "no value" marker
     const error = GitError.create('Git failed', undefined, undefined);
     assert.strictEqual(error.exitCode, undefined);
     assert.strictEqual(error.stderr, undefined);
@@ -713,11 +733,32 @@ describe('GitError.create() errorId parameter', () => {
     assert.strictEqual(result.message, '  Git failed\n');
   });
 
-  // TODO(#1826): Add tests for errorId validation when implemented
-  // - Should accept ErrorIds.GIT_COMMAND_FAILED
-  // - Should accept ErrorIds.GIT_NOT_A_REPOSITORY
-  // - Should reject arbitrary string 'INVALID_ERROR_ID'
-  // - Should accept undefined errorId
+  it('should accept valid ErrorIds constants for errorId parameter', () => {
+    // Documents that only ErrorIds constants are valid
+    const error1 = GitError.create('Test', 1, 'error', ErrorIds.GIT_COMMAND_FAILED);
+    assert.strictEqual(error1.errorId, ErrorIds.GIT_COMMAND_FAILED);
+
+    const error2 = GitError.create('Test', 1, 'error', ErrorIds.GIT_NOT_A_REPOSITORY);
+    assert.strictEqual(error2.errorId, ErrorIds.GIT_NOT_A_REPOSITORY);
+  });
+
+  it('should reject arbitrary string errorId at compile time', () => {
+    // These lines should fail TypeScript compilation
+    // @ts-expect-error - Should reject arbitrary strings not in ErrorIds
+    const _error1 = GitError.create('Test', 1, 'error', 'INVALID_ERROR_ID');
+
+    // @ts-expect-error - Should reject custom strings
+    const _error2 = GitError.create('Test', 1, 'error', 'CUSTOM_ERROR');
+
+    // Valid: accepts ErrorIds constants
+    const error3 = GitError.create('Test', 1, 'error', ErrorIds.GIT_COMMAND_FAILED);
+    assert.ok(error3 instanceof GitError, 'Type validation enforced at compile time');
+  });
+
+  it('should accept undefined errorId', () => {
+    const error = GitError.create('Test', 1, 'error', undefined);
+    assert.strictEqual(error.errorId, undefined);
+  });
 
   it('should preserve errorId through throw/catch cycle', () => {
     try {
@@ -737,23 +778,23 @@ describe('GitError.create() errorId parameter', () => {
 });
 
 describe('GitError.create() logging behavior', () => {
-  let loggerWarnMock: ReturnType<typeof mock.method>;
+  let loggerDebugMock: ReturnType<typeof mock.method>;
 
   beforeEach(() => {
-    // Mock logger.warn to verify GitError.create() logs warnings for unusual patterns
-    loggerWarnMock = mock.method(logger, 'warn', (_message: string, _data?: unknown) => {});
+    // Mock logger.debug to verify GitError.create() logs at debug level for unusual patterns
+    loggerDebugMock = mock.method(logger, 'debug', (_message: string, _data?: unknown) => {});
   });
 
   afterEach(() => {
-    // Restore logger.warn to prevent test pollution
-    loggerWarnMock.mock.restore();
+    // Restore logger.debug to prevent test pollution
+    loggerDebugMock.mock.restore();
   });
 
-  it('should log warning when stderr provided without exitCode', () => {
+  it('should log at debug level when stderr provided without exitCode', () => {
     GitError.create('Git failed', undefined, 'fatal error', ErrorIds.GIT_COMMAND_FAILED);
 
-    assert.strictEqual(loggerWarnMock.mock.callCount(), 1);
-    const call = loggerWarnMock.mock.calls[0];
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 1);
+    const call = loggerDebugMock.mock.calls[0];
     assert.strictEqual(
       call.arguments[0],
       'GitError.create: stderr provided without exitCode (unusual pattern)'
@@ -762,11 +803,11 @@ describe('GitError.create() logging behavior', () => {
     assert.strictEqual((call.arguments[1] as any).stderrLength, 11);
   });
 
-  it('should log warning when non-zero exitCode provided without stderr', () => {
+  it('should log at debug level when non-zero exitCode provided without stderr', () => {
     GitError.create('Git failed', 1, undefined, ErrorIds.GIT_COMMAND_FAILED);
 
-    assert.strictEqual(loggerWarnMock.mock.callCount(), 1);
-    const call = loggerWarnMock.mock.calls[0];
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 1);
+    const call = loggerDebugMock.mock.calls[0];
     assert.strictEqual(
       call.arguments[0],
       'GitError.create: Non-zero exit code without stderr (unusual pattern)'
@@ -775,29 +816,58 @@ describe('GitError.create() logging behavior', () => {
     assert.strictEqual((call.arguments[1] as any).exitCode, 1);
   });
 
-  it('should not log warning when exitCode 0 without stderr', () => {
+  it('should not log at debug level when exitCode 0 without stderr', () => {
     GitError.create('Git succeeded', 0, undefined);
 
-    assert.strictEqual(loggerWarnMock.mock.callCount(), 0);
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 0);
   });
 
-  it('should not log warning when both exitCode and stderr provided', () => {
+  it('should not log at debug level when both exitCode and stderr provided', () => {
     GitError.create('Git failed', 1, 'error output');
 
-    assert.strictEqual(loggerWarnMock.mock.callCount(), 0);
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 0);
   });
 
-  it('should not log warning when neither exitCode nor stderr provided', () => {
+  it('should not log at debug level when neither exitCode nor stderr provided', () => {
     GitError.create('Git failed', undefined, undefined);
 
-    assert.strictEqual(loggerWarnMock.mock.callCount(), 0);
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 0);
   });
 
   it('should include errorId in logging context when provided', () => {
     GitError.create('Git failed', 1, undefined, 'GIT_COMMAND_FAILED');
 
-    assert.strictEqual(loggerWarnMock.mock.callCount(), 1);
-    const call = loggerWarnMock.mock.calls[0];
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 1);
+    const call = loggerDebugMock.mock.calls[0];
     assert.strictEqual((call.arguments[1] as any).errorId, 'GIT_COMMAND_FAILED');
+  });
+
+  it('should handle concurrent GitError.create calls with logging', async () => {
+    // Reset mock to start fresh for this test
+    loggerDebugMock.mock.resetCalls();
+
+    // Simulate concurrent git command failures
+    const errors = await Promise.all([
+      Promise.resolve(GitError.create('Error 1', 1, undefined)),
+      Promise.resolve(GitError.create('Error 2', undefined, 'stderr')),
+      Promise.resolve(GitError.create('Error 3', 2, undefined)),
+    ]);
+
+    // Each call should log independently
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 3);
+
+    // Verify all errors were created successfully
+    assert.strictEqual(errors.length, 3);
+    errors.forEach((error) => assert.ok(error instanceof GitError));
+
+    // Verify each error has the expected properties
+    assert.strictEqual(errors[0].exitCode, 1);
+    assert.strictEqual(errors[0].stderr, undefined);
+
+    assert.strictEqual(errors[1].exitCode, undefined);
+    assert.strictEqual(errors[1].stderr, 'stderr');
+
+    assert.strictEqual(errors[2].exitCode, 2);
+    assert.strictEqual(errors[2].stderr, undefined);
   });
 });

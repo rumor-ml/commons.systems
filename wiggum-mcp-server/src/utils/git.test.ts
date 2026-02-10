@@ -25,7 +25,7 @@ import {
   isBranchPushed,
   getMainBranch,
 } from './git.js';
-import { GitError } from './errors.js';
+import { GitError, ValidationError } from './errors.js';
 
 describe('Git Utilities - Exports', () => {
   it('should export getGitRoot function', () => {
@@ -459,6 +459,252 @@ describe('Git Functions - GitError.create() Integration', () => {
 
       // This test documents that the function correctly handles expected error cases.
       assert.ok(true, 'exitCode 128 handling documented');
+    });
+  });
+});
+
+describe('Git Functions - Error Handling with GitError.create() Validation', () => {
+  describe('GitError.create() validation behavior', () => {
+    it('should throw ValidationError for empty message', () => {
+      assert.throws(
+        () => GitError.create('', 1, 'stderr'),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('message cannot be empty or whitespace-only')
+          );
+        },
+        'Expected ValidationError for empty message'
+      );
+    });
+
+    it('should throw ValidationError for whitespace-only message', () => {
+      assert.throws(
+        () => GitError.create('   ', 1, 'stderr'),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('message cannot be empty or whitespace-only')
+          );
+        },
+        'Expected ValidationError for whitespace-only message'
+      );
+    });
+
+    it('should throw ValidationError for exitCode > 255', () => {
+      assert.throws(
+        () => GitError.create('Command failed', 300, 'stderr'),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('exitCode must be an integer in range 0-255') &&
+            error.message.includes('300')
+          );
+        },
+        'Expected ValidationError for exitCode > 255'
+      );
+    });
+
+    it('should throw ValidationError for negative exitCode', () => {
+      assert.throws(
+        () => GitError.create('Command failed', -1, 'stderr'),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('exitCode must be an integer in range 0-255') &&
+            error.message.includes('-1')
+          );
+        },
+        'Expected ValidationError for negative exitCode'
+      );
+    });
+
+    it('should throw ValidationError for non-integer exitCode', () => {
+      assert.throws(
+        () => GitError.create('Command failed', 1.5, 'stderr'),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('exitCode must be an integer in range 0-255') &&
+            error.message.includes('1.5')
+          );
+        },
+        'Expected ValidationError for non-integer exitCode'
+      );
+    });
+
+    it('should throw ValidationError for empty stderr string', () => {
+      assert.throws(
+        () => GitError.create('Command failed', 1, ''),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('stderr cannot be empty or whitespace-only')
+          );
+        },
+        'Expected ValidationError for empty stderr'
+      );
+    });
+
+    it('should throw ValidationError for whitespace-only stderr', () => {
+      assert.throws(
+        () => GitError.create('Command failed', 1, '   '),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('stderr cannot be empty or whitespace-only')
+          );
+        },
+        'Expected ValidationError for whitespace-only stderr'
+      );
+    });
+
+    it('should accept valid parameters without throwing', () => {
+      const error = GitError.create('Command failed', 128, 'fatal: not a git repository');
+      assert.strictEqual(error.message, 'Command failed');
+      assert.strictEqual(error.exitCode, 128);
+      assert.strictEqual(error.stderr, 'fatal: not a git repository');
+    });
+
+    it('should accept exitCode 128 (commonly used for git errors)', () => {
+      const error = GitError.create('Not a git repository', 128, 'fatal: not a git repository');
+      assert.strictEqual(error.exitCode, 128);
+      assert.ok(error instanceof GitError);
+    });
+
+    it('should accept undefined stderr to avoid empty string validation', () => {
+      const error = GitError.create('Command failed', 1, undefined);
+      assert.strictEqual(error.exitCode, 1);
+      assert.strictEqual(error.stderr, undefined);
+    });
+
+    it('should accept undefined exitCode and stderr', () => {
+      const error = GitError.create('Command failed', undefined, undefined);
+      assert.strictEqual(error.exitCode, undefined);
+      assert.strictEqual(error.stderr, undefined);
+    });
+  });
+
+  describe('Defensive stderr pattern (result.stderr || undefined)', () => {
+    it('should verify that empty string converts to undefined', () => {
+      // This test verifies the defensive pattern: result.stderr || undefined
+      const emptyStderr = '';
+      const convertedStderr = emptyStderr || undefined;
+
+      assert.strictEqual(convertedStderr, undefined, 'Empty string should convert to undefined');
+
+      // Verify that GitError.create() accepts the converted value
+      const error = GitError.create('Command failed', 1, convertedStderr);
+      assert.strictEqual(error.stderr, undefined);
+      assert.ok(error instanceof GitError);
+    });
+
+    it('should verify that whitespace-only string does NOT convert to undefined', () => {
+      // This test shows why the pattern is defensive but not complete
+      const whitespaceStderr = '   ';
+      const convertedStderr = whitespaceStderr || undefined;
+
+      // Whitespace-only string is truthy, so it does NOT convert to undefined
+      assert.strictEqual(convertedStderr, '   ', 'Whitespace string should not convert');
+
+      // GitError.create() will throw ValidationError for whitespace-only
+      assert.throws(
+        () => GitError.create('Command failed', 1, convertedStderr),
+        (error: Error) => {
+          return (
+            error.name === 'ValidationError' &&
+            error.message.includes('stderr cannot be empty or whitespace-only')
+          );
+        }
+      );
+    });
+
+    it('should verify that non-empty stderr preserves value', () => {
+      const validStderr = 'fatal: not a git repository';
+      const convertedStderr = validStderr || undefined;
+
+      assert.strictEqual(convertedStderr, validStderr, 'Non-empty string should preserve value');
+
+      // Verify that GitError.create() accepts the value
+      const error = GitError.create('Command failed', 1, convertedStderr);
+      assert.strictEqual(error.stderr, validStderr);
+    });
+  });
+
+  describe('ValidationError re-throw pattern verification', () => {
+    it('should verify that ValidationError is distinct from GitError', () => {
+      // Create a ValidationError
+      const validationError = new ValidationError('Invalid parameter');
+
+      // Verify type relationships
+      assert.ok(validationError instanceof ValidationError);
+      assert.ok(!(validationError instanceof GitError), 'ValidationError should not be GitError');
+      assert.strictEqual(validationError.name, 'ValidationError');
+    });
+
+    it('should demonstrate why ValidationError must be re-thrown as-is', () => {
+      // This test shows the pattern that git() and getGitRoot() implement
+      function exampleGitFunction() {
+        try {
+          // Simulate GitError.create() throwing ValidationError for invalid parameters
+          throw new ValidationError('exitCode must be an integer in range 0-255, got: 300');
+        } catch (error) {
+          // Pattern from git.ts lines 166-168:
+          if (error instanceof ValidationError) {
+            throw error; // Re-throw as-is (programming error)
+          }
+
+          // Other errors would be wrapped in GitError here
+          throw GitError.create('Wrapped error', undefined, undefined);
+        }
+      }
+
+      // Verify that ValidationError propagates without wrapping
+      assert.throws(
+        () => exampleGitFunction(),
+        (error: Error) => {
+          return (
+            error instanceof ValidationError &&
+            error.message.includes('exitCode must be an integer in range 0-255')
+          );
+        },
+        'ValidationError should propagate as-is, not wrapped in GitError'
+      );
+    });
+  });
+
+  describe('exitCode 128 handling pattern', () => {
+    it('should verify that exitCode 128 creates valid GitError', () => {
+      // exitCode 128 is commonly used by git for "not found" errors
+      const error = GitError.create('Branch not found', 128, 'fatal: Needed a single revision');
+
+      assert.strictEqual(error.exitCode, 128);
+      assert.ok(error instanceof GitError);
+      assert.strictEqual(error.name, 'GitError');
+    });
+
+    it('should demonstrate exitCode 128 check pattern', () => {
+      // This shows the pattern used in hasRemoteTracking()
+      const gitError = GitError.create('Branch not found', 128, 'fatal: Needed a single revision');
+
+      // Pattern from git.ts line 247:
+      if (gitError instanceof GitError && gitError.exitCode === 128) {
+        // Expected error - branch doesn't exist
+        assert.ok(true, 'exitCode 128 correctly detected');
+      } else {
+        assert.fail('Should have detected exitCode 128');
+      }
+    });
+
+    it('should demonstrate non-128 exitCode does not match pattern', () => {
+      const gitError = GitError.create('Permission denied', 1, 'fatal: could not read');
+
+      // Pattern should NOT match for non-128 exitCode
+      if (gitError instanceof GitError && gitError.exitCode === 128) {
+        assert.fail('Should not match exitCode 128');
+      } else {
+        assert.ok(true, 'Non-128 exitCode correctly excluded');
+      }
     });
   });
 });

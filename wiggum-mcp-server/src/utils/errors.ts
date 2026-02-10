@@ -99,6 +99,7 @@ export class GitError extends McpError {
    * @throws {ValidationError} If message is empty/whitespace, exitCode is not in 0-255 range, or stderr is empty/whitespace-only
    */
   static create(message: string, exitCode?: number, stderr?: string, errorId?: ErrorId): GitError {
+    // TODO(#1910): Consider trimming message to ensure consistent error formatting
     if (!message || message.trim() === '') {
       throw new ValidationError('GitError: message cannot be empty or whitespace-only');
     }
@@ -117,19 +118,19 @@ export class GitError extends McpError {
       );
     }
 
-    // Log warning if stderr provided without exitCode (unusual but valid - may indicate programming error)
+    // Log at debug level if stderr provided without exitCode (unusual but valid - may indicate programming error)
     if (stderr !== undefined && exitCode === undefined) {
-      logger.warn('GitError.create: stderr provided without exitCode (unusual pattern)', {
+      logger.debug('GitError.create: stderr provided without exitCode (unusual pattern)', {
         message,
         stderrLength: stderr.length,
         errorId,
       });
     }
 
-    // Log warning if non-zero exitCode provided without stderr (unusual but valid - may indicate data loss)
-    // Note: exitCode 0 without stderr is normal (success with no error output), so we don't warn
+    // Log at debug level if non-zero exitCode provided without stderr (unusual but valid - may indicate data loss)
+    // Note: exitCode 0 without stderr is normal (success with no error output), so we don't log
     if (exitCode !== undefined && exitCode !== 0 && stderr === undefined) {
-      logger.warn('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
+      logger.debug('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
         message,
         exitCode,
         errorId,

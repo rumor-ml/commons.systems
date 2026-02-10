@@ -39,14 +39,20 @@ export async function getGitRoot(): Promise<string> {
     // 2. Fails with exit code 128 (not in a repo)
     // Empty stdout with exit 0 could indicate git corruption or unusual git version behavior
     if (result.exitCode === 0 && !result.stdout) {
-      logger.warn('getGitRoot: git command succeeded but stdout is empty', {
+      logger.error('getGitRoot: git command succeeded but stdout is empty', {
         exitCode: result.exitCode,
         stderr: result.stderr || 'none',
         errorId: ErrorIds.GIT_COMMAND_FAILED,
       });
       throw GitError.create(
         'git rev-parse --show-toplevel succeeded but returned empty output. ' +
-          'This is unusual - ensure git is functioning correctly and the repository is valid.',
+          'This indicates git corruption or unusual git version behavior. ' +
+          'Debugging steps: ' +
+          '1. Run `git --version` to check git version (expected: 2.x+). ' +
+          '2. Run `git status` to verify repository integrity. ' +
+          '3. Check `.git/` directory exists and is readable. ' +
+          '4. Verify no GIT_DIR or GIT_WORK_TREE environment variables are set. ' +
+          '5. Try `git fsck` to check for repository corruption.',
         result.exitCode,
         result.stderr || undefined,
         ErrorIds.GIT_COMMAND_FAILED
@@ -147,16 +153,24 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
     // Empty stdout is valid for some commands (e.g., 'git status --porcelain' on clean repo)
     // but null/undefined stdout may indicate execa buffer issues or stream errors
     if (!result.stdout) {
-      logger.warn('git: Command succeeded but stdout is falsy (null/undefined)', {
+      logger.error('git: Command succeeded but stdout is falsy - this indicates execa failure', {
         command: `git ${args.join(' ')}`,
         exitCode: result.exitCode,
         stderr: result.stderr || 'none',
         stdoutType: typeof result.stdout,
         errorId: ErrorIds.GIT_COMMAND_FAILED,
       });
+      throw GitError.create(
+        `Git command succeeded but produced no output (stdout is ${typeof result.stdout}). ` +
+          `This may indicate a buffer overflow, stream error, or execa failure. ` +
+          `Command: git ${args.join(' ')}`,
+        result.exitCode,
+        result.stderr || undefined,
+        ErrorIds.GIT_COMMAND_FAILED
+      );
     }
 
-    return result.stdout || '';
+    return result.stdout;
   } catch (error) {
     // TODO(#487): Broad catch-all hides programming errors - add explicit checks for system/programming errors
 
