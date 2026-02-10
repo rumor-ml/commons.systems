@@ -49,6 +49,21 @@
       fi
     fi
 
+    # Check claude-code-nix (use gh API to avoid rate limiting)
+    CLAUDE_LOCKED=$(echo "$FLAKE_META" | jq -r '.locks.nodes."claude-code-nix".locked.rev // empty' 2>/dev/null)
+    if [ -n "$CLAUDE_LOCKED" ]; then
+      # Use gh api which has authentication configured
+      if command -v gh &>/dev/null; then
+        CLAUDE_LATEST=$(gh api repos/sadjow/claude-code-nix/commits/main --jq '.sha' 2>/dev/null || echo "")
+      else
+        # Fallback to nix flake metadata if gh is not available
+        CLAUDE_LATEST=$(nix flake metadata github:sadjow/claude-code-nix --json 2>/dev/null | jq -r '.revision // empty' 2>/dev/null)
+      fi
+      if [ -n "$CLAUDE_LATEST" ] && [ "$CLAUDE_LOCKED" != "$CLAUDE_LATEST" ]; then
+        UPDATES+=("claude-code-nix")
+      fi
+    fi
+
     # Update cache timestamp
     date +%s > "$CACHE_FILE" 2>/dev/null || true
 

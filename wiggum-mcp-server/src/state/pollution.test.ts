@@ -514,7 +514,7 @@ describe('createWiggumState', () => {
       const state = createWiggumState({
         iteration: 1,
         step: STEP_PHASE2_MONITOR_WORKFLOW,
-        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE1_PR_REVIEW, 'p1-3', 'p1-4'],
+        completedSteps: [STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE1_PR_REVIEW, 'p1-3'],
         phase: 'phase2',
       });
 

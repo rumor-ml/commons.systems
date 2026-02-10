@@ -85,6 +85,7 @@ index.lock
 firebase.emulator.json
 firebase.json.backup
 .firebase-*.json
+.test-env.json
 
 # Generated Firestore rules (source files are *.rules.source)
 .firebase/

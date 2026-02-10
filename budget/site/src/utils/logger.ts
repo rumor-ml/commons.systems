@@ -12,6 +12,7 @@
 
 import type { ErrorId } from '../constants/errorIds';
 
+// TODO(#1876): Consider using const enum for zero runtime cost (requires refactoring reverse mapping usage)
 export enum LogLevel {
   ERROR = 0,
   WARN = 1,

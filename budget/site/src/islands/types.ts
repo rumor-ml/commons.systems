@@ -1,5 +1,9 @@
 import { CATEGORIES } from './constants';
 
+// Re-export Transaction, Statement, DateString and helpers from firestore.ts (single source of truth)
+export type { Transaction, Statement, DateString } from '../scripts/firestore';
+export { createDateString, isValidDateString } from '../scripts/firestore';
+
 export type Category =
   | 'income'
   | 'housing'
@@ -13,30 +17,6 @@ export type Category =
   | 'travel'
   | 'investment'
   | 'other';
-
-// TODO(#1460): Add readonly modifiers, branded types for IDs, validation, constrain redemptionRate to [0,1]
-export interface Transaction {
-  id: string;
-  date: string; // ISO date
-  description: string;
-  amount: number; // Positive = income, Negative = expense
-  category: Category;
-  redeemable: boolean;
-  vacation: boolean;
-  transfer: boolean;
-  redemptionRate: number; // Default 0.5
-  linkedTransactionId?: string; // For transfer pairs
-  statementIds: string[]; // Belongs to multiple statements
-}
-
-// TODO(#1463): Add readonly modifiers, validate date range, make transactionIds immutable
-export interface Statement {
-  id: string;
-  accountId: string;
-  startDate: string;
-  endDate: string;
-  transactionIds: string[];
-}
 
 export interface Account {
   id: string;
@@ -123,6 +103,7 @@ export type TimeGranularity = 'week' | 'month';
 // Branded type for compile-time distinction
 // IMPORTANT: Always construct via parseWeekId() or weekId() to ensure valid format.
 // Manual string casting bypasses validation and can introduce invalid identifiers.
+// TODO(#1882): Consider applying this pattern to DateString and other branded types (see commendation)
 export type WeekId = string & { readonly __brand: 'WeekId' };
 
 /**

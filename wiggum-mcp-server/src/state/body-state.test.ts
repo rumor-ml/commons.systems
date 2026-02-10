@@ -560,7 +560,7 @@ describe('injectStateIntoBody', () => {
       const state: WiggumState = {
         iteration: 5,
         step: 'p2-5',
-        completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4', 'p2-1', 'p2-2', 'p2-3', 'p2-4'],
+        completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p2-1', 'p2-2', 'p2-3', 'p2-4'],
         phase: 'phase2',
         maxIterations: 15,
       };
@@ -685,7 +685,7 @@ describe('roundtrip: inject then extract', () => {
     const originalState: WiggumState = {
       iteration: 7,
       step: 'p2-5',
-      completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4', 'p2-1', 'p2-2', 'p2-3', 'p2-4'],
+      completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p2-1', 'p2-2', 'p2-3', 'p2-4'],
       phase: 'phase2',
       maxIterations: 20,
     };

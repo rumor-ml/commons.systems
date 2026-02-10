@@ -24,11 +24,25 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
   hooks = {
     # === Go Hooks ===
-    gofmt = {
-      enable = true;
-      name = "gofmt";
-      description = "Format Go code";
-    };
+    # Disabled: gofmt hook fails to build in CI due to Go toolchain incompatibility
+    # in the pre-commit-hooks.nix library. The hook derivation cannot build because
+    # the Go package provided by nixpkgs is incompatible with the hook's build process.
+    #
+    # This is the same underlying issue that affects govet and templ hooks:
+    # - The pre-commit-hooks.nix library has dependency constraints on Go toolchain
+    # - Nix sandbox prevents runtime access to Go toolchain for hook execution
+    # - Building the hook derivation fails during CI checks
+    #
+    # Current approach: Go formatting is validated manually via `go fmt ./...`
+    # or automatically in CI through other mechanisms.
+    #
+    # See also: govet hook (lines 33-48), templ hook (lines 58-65)
+    # Related issue: https://github.com/n8henrie/commons.systems/issues/1800
+    # gofmt = {
+    #   enable = true;
+    #   name = "gofmt";
+    #   description = "Format Go code";
+    # };
 
     # Disabled: govet requires access to Go module dependencies at runtime.
     # Nix pre-commit hooks run in a pure sandbox without access to downloaded dependencies.
@@ -89,6 +103,75 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       description = "Validate JSON syntax";
     };
 
+    # === WezTerm Lua Validation ===
+    # Pre-commit hook that validates Lua syntax in WezTerm configuration
+    # Uses luac -p (parse-only mode) to check syntax without executing the code
+    # Catches Lua syntax errors during git commit before they reach runtime
+    # Limitations:
+    # - Only validates Lua syntax, not WezTerm-specific API semantics
+    # - Does not verify fonts or color schemes are available
+    # - Does not test runtime behavior or configuration correctness
+    # - Hardcoded to nix/home/wezterm.nix and programs.wezterm.extraConfig field path
+    # - Requires Nix evaluation (uses nix eval --impure)
+    # Integration tests: nix/tests/wezterm-lua-syntax-test.nix (runs via nix flake check)
+    # Only enabled on Darwin since WezTerm is a Darwin-only package
+    wezterm-lua-syntax = {
+      enable = pkgs.stdenv.isDarwin;
+      name = "wezterm-lua-syntax";
+      description = "Validate WezTerm Lua configuration syntax";
+      entry = "${pkgs.writeShellScript "wezterm-lua-syntax" ''
+        set -e
+
+        # Extract Lua code from nix/home/wezterm.nix
+        # The extraConfig field contains Lua code in a Nix indented string (delimited by two single quotes)
+        LUA_FILE=$(mktemp)
+        trap "rm -f $LUA_FILE" EXIT
+
+        # Extract Lua code using nix eval to handle Nix string semantics correctly
+        # This approach evaluates the Nix expression (including string interpolation,
+        # indentation removal, and escape sequences) to get the exact Lua code
+        if ! NIX_OUTPUT=$(${pkgs.nix}/bin/nix eval --raw --impure \
+          --expr '(import ./nix/home/wezterm.nix {
+            config = {};
+            pkgs = import <nixpkgs> {};
+            lib = (import <nixpkgs> {}).lib;
+          }).programs.wezterm.extraConfig' \
+          2>&1); then
+          echo ""
+          echo "ERROR: Failed to extract Lua code from WezTerm Nix configuration"
+          echo "File: nix/home/wezterm.nix"
+          echo ""
+          echo "Nix evaluation error:"
+          echo "$NIX_OUTPUT"
+          echo ""
+          echo "Fix the Nix configuration errors before committing."
+          echo ""
+          exit 1
+        fi
+
+        echo "$NIX_OUTPUT" > "$LUA_FILE"
+
+        # Validate Lua syntax and capture output
+        LUA_ERRORS=$(${pkgs.lua}/bin/luac -p "$LUA_FILE" 2>&1) || {
+          echo ""
+          echo "ERROR: WezTerm Lua configuration has syntax errors"
+          echo "File: nix/home/wezterm.nix (extraConfig field)"
+          echo ""
+          echo "Lua syntax validation failed with:"
+          echo "$LUA_ERRORS"
+          echo ""
+          echo "Fix the Lua syntax errors in the extraConfig field before committing."
+          echo ""
+          exit 1
+        }
+
+        echo "✅ WezTerm Lua configuration syntax is valid"
+      ''}";
+      language = "system";
+      files = "nix/home/wezterm\\.nix$";
+      pass_filenames = false;
+    };
+
     # === Nix Hooks ===
     nixfmt-rfc-style = {
       enable = true;
@@ -110,7 +193,28 @@ pre-commit-hooks.lib.${pkgs.system}.run {
 
         for site in fellspiral videobrowser audiobrowser print; do
           if [ -d "$site/site/src" ]; then
-            if grep -r "console\.log" "$site/site/src/" 2>/dev/null; then
+            # Capture grep output and errors separately
+            GREP_OUTPUT=$(grep -r "console\.log" "$site/site/src/" 2>&1) || GREP_EXIT=$?
+
+            # Exit 0 or 1 from grep are normal (no match or match found)
+            # Any other exit code indicates an error
+            if [ -n "$GREP_EXIT" ] && [ "$GREP_EXIT" -ne 0 ] && [ "$GREP_EXIT" -ne 1 ]; then
+              echo ""
+              echo "ERROR: Failed to search for console.log statements in $site/site/src/"
+              echo "grep exited with code: $GREP_EXIT"
+              echo "Error output: $GREP_OUTPUT"
+              echo ""
+              echo "This may indicate:"
+              echo "  - Permission denied accessing files"
+              echo "  - Filesystem corruption or I/O errors"
+              echo "  - Broken symlinks in source directory"
+              echo ""
+              exit 1
+            fi
+
+            # If grep found matches (exit 1), record them
+            if [ -n "$GREP_OUTPUT" ]; then
+              echo "$GREP_OUTPUT"
               FOUND_LOGS=1
             fi
           fi
@@ -215,6 +319,16 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       description = "Run tests for changed MCP servers";
       entry = "${pkgs.writeShellScript "mcp-npm-test" ''
         set -e
+
+        # TODO(#1765): Duplicate direnv comment pattern in checks.nix
+        # TODO(#1768): Duplicate direnv error handling pattern in checks.nix
+        # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
+        # This prevents ICU4c library version conflicts on macOS
+        if ! eval "$(${pkgs.direnv}/bin/direnv export bash 2>&1)"; then
+          echo "ERROR: direnv environment setup failed"
+          echo "Ensure 'direnv allow' has been run in the repository"
+          exit 1
+        fi
 
         # Verify we're in a git repository
         if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -371,6 +485,202 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         fi
 
         echo "✅ Nix development shell evaluation successful"
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
+    # Validate zsh configuration when zsh.nix changes
+    # Tests that zsh shell loads session variables correctly and prompt configuration works
+    # Catches issues with envExtra/initExtra that would only appear after home-manager switch
+    zsh-config-test = {
+      enable = true;
+      name = "zsh-config-test";
+      description = "Test zsh configuration when zsh.nix changes";
+      entry = "${pkgs.writeShellScript "zsh-config-test" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
+
+        # Check if zsh.nix was modified
+        if echo "$CHANGED_FILES" | grep -qE "nix/home/zsh\.nix"; then
+          echo "zsh.nix changed, running configuration tests..."
+
+          # Check if zsh is available
+          if ! command -v zsh &> /dev/null; then
+            echo ""
+            echo "WARNING: zsh not found in PATH"
+            echo "Skipping zsh configuration tests (zsh must be installed for tests to run)"
+            echo ""
+            exit 0
+          fi
+
+          # Run the zsh configuration tests
+          if ! bash ./infrastructure/scripts/tests/zsh-config.test.sh; then
+            echo ""
+            echo "ERROR: Zsh configuration tests failed"
+            echo ""
+            echo "This check validates that the zsh configuration in nix/home/zsh.nix"
+            echo "correctly loads session variables and preserves user configuration."
+            echo ""
+            echo "To fix this issue:"
+            echo "  1. Run: bash ./infrastructure/scripts/tests/zsh-config.test.sh"
+            echo "  2. Review the test failures"
+            echo "  3. Fix the issues in nix/home/zsh.nix"
+            echo "  4. Test locally: home-manager switch --flake .#default --impure"
+            echo "  5. Retry your push"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ Zsh configuration tests passed"
+        else
+          echo "No zsh.nix changes detected, skipping configuration tests."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
+    # Run timezone integration tests when timezone.nix changes
+    # Validates that TZ environment variable configuration works correctly
+    # Tests verify TZ is set, date command respects it, and DST transitions work
+    timezone-integration-test = {
+      enable = true;
+      name = "timezone-integration-test";
+      description = "Run timezone integration tests when timezone.nix changes";
+      entry = "${pkgs.writeShellScript "timezone-integration-test" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
+
+        # Check if timezone.nix was modified
+        if echo "$CHANGED_FILES" | grep -qE "nix/home/timezone\.nix"; then
+          echo "timezone.nix changed, running integration tests..."
+
+          # Run the timezone integration tests
+          if ! bash ./nix/home/timezone.test.sh; then
+            echo ""
+            echo "ERROR: Timezone integration tests failed"
+            echo ""
+            echo "This check validates that the timezone configuration in nix/home/timezone.nix"
+            echo "correctly sets the TZ environment variable and affects time-aware commands."
+            echo ""
+            echo "To fix this issue:"
+            echo "  1. Run: bash ./nix/home/timezone.test.sh"
+            echo "  2. Review the test failures"
+            echo "  3. Fix the issues in nix/home/timezone.nix"
+            echo "  4. Test locally: home-manager switch --flake .#default --impure"
+            echo "  5. Retry your push"
+            echo ""
+            exit 1
+          fi
+
+          echo "✅ Timezone integration tests passed"
+        else
+          echo "No timezone.nix changes detected, skipping tests."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = true;
+    };
+
+    # Pre-push hook: Validate Home Manager configuration builds
+    # Catches Nix evaluation errors in Home Manager modules (including WezTerm)
+    # Prevents CI failures from Nix syntax errors, invalid packages, or module option mistakes
+    home-manager-build-check = {
+      enable = true;
+      name = "home-manager-build-check";
+      description = "Validate Home Manager configuration builds";
+      entry = "${pkgs.writeShellScript "home-manager-build-check" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Get list of changed files between main and current branch
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD) || {
+          echo "ERROR: Failed to determine changed files"
+          echo "This may indicate repository corruption or detached HEAD state"
+          exit 1
+        }
+
+        # Check if nix/home/ directory or flake.nix changed
+        if echo "$CHANGED_FILES" | grep -qE "(nix/home/|flake\.nix)"; then
+          echo "Home Manager configuration files changed, validating build..."
+
+          # Validate Home Manager configuration builds
+          BUILD_OUTPUT=$(${pkgs.nix}/bin/nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --no-link 2>&1) || {
+            echo ""
+            echo "ERROR: Home Manager configuration failed to build"
+            echo ""
+            echo "Build output:"
+            echo "$BUILD_OUTPUT"
+            echo "To fix this issue:"
+            echo "  1. Review the Nix error messages above"
+            echo "  2. Check nix/home/*.nix files for errors"
+            echo "  3. Verify all packages exist and options are valid"
+            echo "  4. Retry your push"
+            echo ""
+            exit 1
+          }
+
+          echo "✅ Home Manager configuration builds successfully"
+        else
+          echo "No Home Manager configuration changes detected, skipping build check."
+        fi
       ''}";
       language = "system";
       stages = [ "pre-push" ];

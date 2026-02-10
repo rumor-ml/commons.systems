@@ -181,7 +181,7 @@ describe('body-state GitHub API integration', () => {
       const state: WiggumState = {
         iteration: 1,
         step: 'p2-3',
-        completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4', 'p2-1', 'p2-2'],
+        completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p2-1', 'p2-2'],
         phase: 'phase2',
       };
 
@@ -422,7 +422,7 @@ describe('body-state contract verification', () => {
       const state: WiggumState = {
         iteration: 5,
         step: 'p2-5',
-        completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p1-4', 'p2-1', 'p2-2', 'p2-3', 'p2-4'],
+        completedSteps: ['p1-1', 'p1-2', 'p1-3', 'p2-1', 'p2-2', 'p2-3', 'p2-4'],
         phase: 'phase2',
         maxIterations: 15,
       };

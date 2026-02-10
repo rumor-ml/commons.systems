@@ -22,10 +22,16 @@ import {
   STEP_PHASE2_APPROVAL,
   PHASE1_PR_REVIEW_COMMAND,
   PHASE2_PR_REVIEW_COMMAND,
+  SECURITY_REVIEW_COMMAND,
 } from '../constants.js';
 
-const { hasExistingPR, checkUncommittedChanges, checkBranchPushed, formatFixInstructions } =
-  _testExports;
+const {
+  hasExistingPR,
+  checkUncommittedChanges,
+  checkBranchPushed,
+  formatFixInstructions,
+  handlePhase2SecurityReview,
+} = _testExports;
 
 /**
  * Create a mock CurrentState for testing
@@ -640,5 +646,258 @@ describe('State Update Retry Logic', () => {
       const exitCode = undefined;
       assert.strictEqual(exitCode, undefined, 'Undefined exitCode should trigger fallback');
     });
+  });
+});
+
+describe('Security Review Instructions', () => {
+  describe('Phase 2 Security Review', () => {
+    // TODO(#1831): Extract duplicate test setup to beforeEach hook
+    it('should include SlashCommand invocation guidance', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      // Type guard ensures state has PR
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      // Verify critical SlashCommand guidance is present
+      assert.ok(
+        instructions.includes('SlashCommand tool'),
+        'Instructions should mention SlashCommand tool'
+      );
+      assert.ok(
+        instructions.includes("EVEN IF it doesn't appear in your available commands list"),
+        'Instructions should include warning about command list'
+      );
+      assert.ok(
+        instructions.includes('Do NOT attempt to run this as a bash command'),
+        'Instructions should warn against bash execution'
+      );
+      assert.ok(
+        instructions.includes(SECURITY_REVIEW_COMMAND),
+        'Instructions should include the security review command'
+      );
+    });
+
+    it('should reference wiggum_complete_security_review tool', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      // Type guard ensures state has PR
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('wiggum_complete_security_review'),
+        'Instructions should reference wiggum_complete_security_review (not wiggum_complete_pr_review)'
+      );
+      assert.ok(
+        instructions.includes('command_executed'),
+        'Instructions should mention command_executed parameter'
+      );
+      assert.ok(
+        instructions.includes('in_scope_result_files'),
+        'Instructions should mention in_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_result_files'),
+        'Instructions should mention out_of_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('in_scope_issue_count'),
+        'Instructions should mention in_scope_issue_count parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_issue_count'),
+        'Instructions should mention out_of_scope_issue_count parameter'
+      );
+    });
+
+    it('should warn about reviewing all commits', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      // Type guard ensures state has PR
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('ALL changes from this branch'),
+        'Instructions should emphasize reviewing all changes'
+      );
+      assert.ok(
+        instructions.includes('git log main..HEAD'),
+        'Instructions should include git log command'
+      );
+    });
+
+    it('should include backward iteration instruction for issues found', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      // TODO(#1833): Clarify comment - test only checks tool reference, not iteration logic
+      assert.ok(
+        instructions.includes('wiggum_complete_security_review'),
+        'Instructions should reference completion tool that handles iteration'
+      );
+    });
+
+    it('should include forward progression instruction when no issues found', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('wiggum_complete_security_review'),
+        'Instructions should reference completion tool that provides next step'
+      );
+      assert.ok(
+        instructions.includes('returns next step instructions'),
+        'Instructions should indicate tool returns next steps'
+      );
+    });
+
+    it('should include commit-merge-push instruction for fixes', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes(SECURITY_REVIEW_COMMAND),
+        'Instructions should include security review command that handles commits'
+      );
+    });
+
+    it('should include result aggregation instructions', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const instructions = result.content[0].text;
+
+      assert.ok(
+        instructions.includes('Aggregate results from all agents'),
+        'Instructions should mention aggregating results from all agents'
+      );
+      assert.ok(
+        instructions.includes('in_scope_result_files'),
+        'Instructions should reference in_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_result_files'),
+        'Instructions should reference out_of_scope_result_files parameter'
+      );
+      assert.ok(
+        instructions.includes('in_scope_issue_count'),
+        'Instructions should reference in_scope_issue_count parameter'
+      );
+      assert.ok(
+        instructions.includes('out_of_scope_issue_count'),
+        'Instructions should reference out_of_scope_issue_count parameter'
+      );
+    });
+  });
+
+  describe('E2E Slash Command Flow', () => {
+    // TODO(#1666): Implement full E2E test for slash command invocation
+    it.skip('should successfully invoke /security-review and complete', async () => {
+      // This test requires:
+      // 1. Mock SlashCommand tool implementation
+      // 2. Mock agent execution that follows instructions
+      // 3. Mock file system for result files
+      // 4. Integration with wiggum_complete_security_review tool
+
+      // Test flow:
+      // - Setup: Create test state with wiggum in security review step
+      // - Execute: Call wiggum_init to get instructions
+      // - Simulate: Agent invokes SlashCommand tool with /security-review
+      // - Verify: Command executes and launches security review agents
+      // - Simulate: Agents complete and write result files
+      // - Execute: Agent calls wiggum_complete_security_review
+      // - Verify: State transitions correctly to next step
+
+      throw new Error('E2E test not implemented - see issue #1666');
+    });
+
+    it.skip('should handle SlashCommand tool invocation failure', async () => {
+      // TODO(#1666): Test error handling when SlashCommand tool fails
+      throw new Error('E2E test not implemented - see issue #1666');
+    });
+  });
+
+  describe('Completion Tool Parameter Validation', () => {
+    // TODO(#1810): These tests document expected validation behavior
+    // Actual validation should be implemented in wiggum_complete_security_review tool
+
+    it.skip('should reject command_executed=false', async () => {
+      // TODO(#1810): Implement in tool handler
+      // Expected: Tool should return error when command not executed
+      throw new Error('Validation test not implemented - see issue #1810');
+    });
+
+    it.skip('should validate result file paths exist', async () => {
+      // TODO(#1810): Implement in tool handler
+      // Expected: Tool should verify result files are readable
+      throw new Error('Validation test not implemented - see issue #1810');
+    });
+
+    it.skip('should detect mismatched counts and files', async () => {
+      // TODO(#1810): Implement in tool handler
+      // Expected: Tool should log warning if counts seem inconsistent
+      throw new Error('Validation test not implemented - see issue #1810');
+    });
+
+    // Note: Testing wrong tool invocation (wiggum_complete_pr_review vs
+    // wiggum_complete_security_review) requires integration test with MCP server
+    // See TODO(#1810) for implementation approach
   });
 });
