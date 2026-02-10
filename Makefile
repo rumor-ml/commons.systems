@@ -3,7 +3,7 @@
 # Test targets: delegate to infrastructure/scripts/run-tests.sh for app discovery
 # Validation targets: inline project-type detection with per-type commands
 
-.PHONY: help test test-unit test-integration test-e2e validate format lint typecheck clean
+.PHONY: help test test-unit test-integration test-e2e validate validate-nix format lint typecheck clean
 
 # Default target shows help
 .DEFAULT_GOAL := help
@@ -23,7 +23,8 @@ help:
 	@echo "  make test-e2e          - Run end-to-end tests only"
 	@echo ""
 	@echo "$(GREEN)Validation targets:$(RESET)"
-	@echo "  make validate          - Run full validation pipeline (lint + typecheck + test)"
+	@echo "  make validate          - Run full validation pipeline (nix + lint + typecheck + test)"
+	@echo "  make validate-nix      - Run Nix flake checks and Nix-specific tests"
 	@echo "  make lint              - Run linters based on project type"
 	@echo "  make format            - Auto-format code based on project type"
 	@echo "  make typecheck         - Run type checkers based on project type"
@@ -52,6 +53,18 @@ test-e2e:
 	@echo "$(CYAN)Running E2E tests...$(RESET)"
 	@./infrastructure/scripts/run-tests.sh --type e2e
 
+# Validate Nix configuration and run Nix-specific tests
+validate-nix:
+	@echo "$(CYAN)Running Nix validation...$(RESET)"
+	@echo "  Checking flake syntax..."
+	@nix flake check
+	@echo "  Running Nix test suites..."
+	@./nix/checks.test.sh
+	@./nix/home/claude-code.test.sh
+	@nix develop --command bash -c './nix/sandbox-dependencies.test.sh'
+	@nix develop --command bash -c './nix/apps/check-env.test.sh'
+	@echo "$(GREEN)✓ Nix validation complete$(RESET)"
+
 # Validation pipeline
 # Supports CHANGED_ONLY flag for git hooks (pre-push)
 # Usage: make validate CHANGED_ONLY=true
@@ -62,6 +75,7 @@ ifeq ($(CHANGED_ONLY),true)
 	@echo "$(GREEN)✓ Validation complete (changed apps)$(RESET)"
 else
 	@echo "$(CYAN)Running full validation pipeline...$(RESET)"
+	@$(MAKE) validate-nix
 	@$(MAKE) lint
 	@$(MAKE) typecheck
 	@$(MAKE) test

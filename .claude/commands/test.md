@@ -52,9 +52,9 @@ Run tests for the current project or entire monorepo using the unified test inte
          - Display the error output showing why startup failed
          - Show the last 20 lines of emulator logs if available
          - Provide recovery steps:
-           * Check if ports are already in use: `lsof -i :9099`
-           * Kill stale emulators: `infrastructure/scripts/stop-emulators.sh --force-backend`
-           * Check disk space: `df -h`
+           - Check if ports are already in use: `lsof -i :9099`
+           - Kill stale emulators: `infrastructure/scripts/stop-emulators.sh --force-backend`
+           - Check disk space: `df -h`
          - Exit with error status
 
 3. Execute the appropriate make command:

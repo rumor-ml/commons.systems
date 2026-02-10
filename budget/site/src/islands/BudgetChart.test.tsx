@@ -127,7 +127,9 @@ describe('BudgetChart', () => {
 
   describe('Monthly View', () => {
     it('should render monthly stacked bar chart', async () => {
-      const transactions = [createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 })];
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+      ];
 
       const { container } = render(
         <BudgetChart
@@ -174,7 +176,12 @@ describe('BudgetChart', () => {
     it('should render net income and trailing average lines', async () => {
       const transactions = [
         createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
-        createTransaction({ id: 'txn-2', date: createDateString('2025-01-06'), amount: 2000, category: 'income' }),
+        createTransaction({
+          id: 'txn-2',
+          date: createDateString('2025-01-06'),
+          amount: 2000,
+          category: 'income',
+        }),
       ];
 
       const { container } = render(
@@ -225,7 +232,9 @@ describe('BudgetChart', () => {
     });
 
     it('should show loading state initially', async () => {
-      const transactions = [createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 })];
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+      ];
 
       const { container } = render(
         <BudgetChart transactions={transactions} hiddenCategories={[]} showVacation={true} />
@@ -241,7 +250,9 @@ describe('BudgetChart', () => {
 
   describe('Default Props', () => {
     it('should use default granularity of month', async () => {
-      const transactions = [createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 })];
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+      ];
 
       const { container } = render(
         <BudgetChart transactions={transactions} hiddenCategories={[]} showVacation={true} />
@@ -283,7 +294,9 @@ describe('BudgetChart', () => {
     });
 
     it('should handle null budgetPlan', async () => {
-      const transactions = [createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 })];
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+      ];
 
       const { container } = render(
         <BudgetChart
@@ -318,7 +331,12 @@ describe('BudgetChart', () => {
       const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
 
       const transactions = [
-        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100, category: 'groceries' }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-06'),
+          amount: -100,
+          category: 'groceries',
+        }),
       ];
 
       render(
@@ -347,7 +365,12 @@ describe('BudgetChart', () => {
       const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
 
       const transactions = [
-        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100, category: 'groceries' }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-06'),
+          amount: -100,
+          category: 'groceries',
+        }),
       ];
 
       const { unmount } = render(
@@ -373,7 +396,12 @@ describe('BudgetChart', () => {
       const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
 
       const transactions = [
-        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100, category: 'groceries' }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-06'),
+          amount: -100,
+          category: 'groceries',
+        }),
       ];
 
       const { unmount } = render(
@@ -405,7 +433,12 @@ describe('BudgetChart', () => {
       const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
 
       const transactions = [
-        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100, category: 'groceries' }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-06'),
+          amount: -100,
+          category: 'groceries',
+        }),
       ];
 
       const { rerender } = render(
@@ -442,8 +475,18 @@ describe('BudgetChart', () => {
       const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
 
       const transactions = [
-        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100, category: 'groceries' }),
-        createTransaction({ id: 'txn-2', date: createDateString('2025-01-06'), amount: -50, category: 'dining' }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-06'),
+          amount: -100,
+          category: 'groceries',
+        }),
+        createTransaction({
+          id: 'txn-2',
+          date: createDateString('2025-01-06'),
+          amount: -50,
+          category: 'dining',
+        }),
       ];
 
       const { rerender } = render(
@@ -479,7 +522,12 @@ describe('BudgetChart', () => {
       const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
 
       const transactions = [
-        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100, vacation: true }),
+        createTransaction({
+          id: 'txn-1',
+          date: createDateString('2025-01-06'),
+          amount: -100,
+          vacation: true,
+        }),
       ];
 
       const { rerender } = render(

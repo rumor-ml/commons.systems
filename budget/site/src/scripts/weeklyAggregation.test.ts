@@ -11,7 +11,15 @@ import {
   getNextWeek,
   getPreviousWeek,
 } from './weeklyAggregation';
-import { Transaction, WeeklyData, WeekId, Category, BudgetPlan, weekId, createDateString } from '../islands/types';
+import {
+  Transaction,
+  WeeklyData,
+  WeekId,
+  Category,
+  BudgetPlan,
+  weekId,
+  createDateString,
+} from '../islands/types';
 import { StateManager } from './state';
 import * as types from '../islands/types';
 
@@ -260,7 +268,9 @@ describe('weeklyAggregation', () => {
     });
 
     it('should include week boundaries in output', () => {
-      const transactions = [createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 })];
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+      ];
       const result = aggregateTransactionsByWeek(transactions, {
         hiddenCategories: new Set(),
         showVacation: true,

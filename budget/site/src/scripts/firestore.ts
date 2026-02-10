@@ -252,12 +252,14 @@ export function validateTransaction(data: any): Transaction {
   // Validate required fields
   // Note: userId is optional for demo transactions (shared data without ownership)
   if (!data.id || !data.date || !data.description) {
-    throw new Error(`Transaction missing required fields: ${JSON.stringify({
-      hasId: !!data.id,
-      hasUserId: !!data.userId,
-      hasDate: !!data.date,
-      hasDescription: !!data.description,
-    })}`);
+    throw new Error(
+      `Transaction missing required fields: ${JSON.stringify({
+        hasId: !!data.id,
+        hasUserId: !!data.userId,
+        hasDate: !!data.date,
+        hasDescription: !!data.description,
+      })}`
+    );
   }
 
   // Validate date format using type guard
@@ -355,7 +357,10 @@ export async function loadUserTransactions(
       const transaction = validateTransaction(data);
       transactions.push(transaction);
     } catch (error) {
-      console.warn('Skipping invalid transaction:', error instanceof Error ? error.message : String(error));
+      console.warn(
+        'Skipping invalid transaction:',
+        error instanceof Error ? error.message : String(error)
+      );
     }
   });
 
@@ -401,7 +406,10 @@ export async function loadDemoTransactions(options?: {
       const transaction = validateTransaction(data);
       transactions.push(transaction);
     } catch (error) {
-      console.warn('Skipping invalid transaction:', error instanceof Error ? error.message : String(error));
+      console.warn(
+        'Skipping invalid transaction:',
+        error instanceof Error ? error.message : String(error)
+      );
     }
   });
 

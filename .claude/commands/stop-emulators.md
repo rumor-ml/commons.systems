@@ -49,9 +49,9 @@ Stop Firebase emulators and clean up resources. Unregisters worktree and release
    - For complete success: Report all resources stopped cleanly
    - For partial success (backend left running): Report hosting stopped, explain N worktrees still using backend, offer `--force-backend` option
    - For failures: List failed resources with specific error messages, provide recovery commands based on failure type:
-     * PID file issues: Suggest `/debug` or manual inspection
-     * Worktree unregister failure: Show `worktree-registry.sh list` command
-     * Pool release failure: Show `emulator-pool.sh release <instance-id>` command
+     - PID file issues: Suggest `/debug` or manual inspection
+     - Worktree unregister failure: Show `worktree-registry.sh list` command
+     - Pool release failure: Show `emulator-pool.sh release <instance-id>` command
    - Always suggest `/emulator-status` to verify final state
 
 ## Examples
