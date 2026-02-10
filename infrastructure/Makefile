@@ -1,4 +1,4 @@
-.PHONY: build install clean test test-port-utils test-emulator-startup test-firebase-ports-e2e test-scripts help
+.PHONY: build install clean test test-port-utils test-emulator-startup test-firebase-ports-e2e test-start-dev-environment test-scripts help
 
 # Build the iac binary
 build:
@@ -39,8 +39,13 @@ test-firebase-ports-e2e:
 	@echo "Running firebase-ports E2E tests..."
 	@./scripts/tests/firebase-ports-e2e.test.sh
 
+# Run start-dev-environment tests
+test-start-dev-environment:
+	@echo "Running start-dev-environment tests..."
+	@./scripts/tests/start-dev-environment.test.sh
+
 # Run all script tests
-test-scripts: test-port-utils test-emulator-startup test-firebase-ports-e2e
+test-scripts: test-port-utils test-emulator-startup test-firebase-ports-e2e test-start-dev-environment
 	@echo "All script tests passed!"
 
 # Format code
@@ -56,13 +61,14 @@ tidy:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build                - Build the iac binary to bin/iac"
+	@echo "  build                - Build iac binary"
 	@echo "  install              - Install iac globally"
-	@echo "  clean                - Remove build artifacts"
+	@echo "  clean                - Clean build artifacts"
 	@echo "  test                 - Run Go tests"
 	@echo "  test-port-utils      - Run port-utils.sh tests"
 	@echo "  test-emulator-startup - Run emulator-startup.sh tests"
 	@echo "  test-firebase-ports-e2e - Run firebase-ports E2E integration tests"
+	@echo "  test-start-dev-environment - Run start-dev-environment.sh tests"
 	@echo "  test-scripts         - Run all script tests"
 	@echo "  fmt                  - Format code"
 	@echo "  tidy                 - Run go mod tidy"
