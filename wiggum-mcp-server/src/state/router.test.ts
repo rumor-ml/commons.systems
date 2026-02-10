@@ -33,6 +33,7 @@ const {
   formatFixInstructions,
   PR_CONFIG,
   ISSUE_CONFIG,
+  handlePhase2SecurityReview,
 } = _testExports;
 
 /**
@@ -1177,6 +1178,36 @@ describe('safeUpdateBodyState validation', () => {
           'Error should reference Issue-specific function name'
         );
       }
+    });
+  });
+});
+
+describe('Security Review Instructions', () => {
+  describe('Phase 2 Security Review', () => {
+    // TODO(#1831): Extract duplicate test setup to beforeEach hook
+    it('should include SlashCommand invocation guidance', () => {
+      const state = createMockState({
+        pr: { exists: true, state: 'OPEN', number: 123 },
+        wiggum: { phase: 'phase2', iteration: 0 },
+      });
+
+      // Type guard ensures state has PR
+      if (!hasExistingPR(state)) {
+        throw new Error('Test setup failed: PR should exist');
+      }
+
+      const result = handlePhase2SecurityReview(state);
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
+
+      // Verify SlashCommand invocation is mentioned
+      assert.ok(
+        text.includes('SlashCommand tool'),
+        'Should mention SlashCommand tool for invocation'
+      );
+      assert.ok(
+        text.includes(SECURITY_REVIEW_COMMAND),
+        'Should reference the security review command'
+      );
     });
   });
 });

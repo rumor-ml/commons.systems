@@ -25,7 +25,6 @@ import { advanceToNextStep } from './transitions.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
-  STEP_PHASE1_SECURITY_REVIEW,
   STEP_PHASE1_CREATE_PR,
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
@@ -666,12 +665,7 @@ async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
     return handlePhase1PRReview(state, issueNumber);
   }
 
-  // Step p1-3: Security Review
-  if (!state.wiggum.completedSteps.includes(STEP_PHASE1_SECURITY_REVIEW)) {
-    return handlePhase1SecurityReview(state, issueNumber);
-  }
-
-  // Step p1-4: Create PR (all Phase 1 reviews passed!)
+  // Step p1-3: Create PR (all Phase 1 reviews passed!)
   return handlePhase1CreatePR(state, issueNumber);
 }
 
@@ -874,77 +868,14 @@ function handlePhase1PRReview(state: CurrentState, _issueNumber: number): ToolRe
 }
 
 /**
- * Phase 1 Step 3: Security Review
- */
-function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): ToolResult {
-  // Get active agents (filter out completed ones)
-  // All agents run every iteration
-
-  // TODO(#1531): Extract shared security review instructions to a constant
-  const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
-    step_number: STEP_PHASE1_SECURITY_REVIEW,
-    iteration_count: state.wiggum.iteration,
-    instructions: `## Step 3: Security Review (Before PR Creation)
-
-Execute security review on the current branch before creating the pull request.
-
-**Instructions:**
-
-1. Execute \`${SECURITY_REVIEW_COMMAND}\` using SlashCommand tool:
-   - **CRITICAL:** This is a built-in slash command - invoke it using the SlashCommand tool
-   - **IMPORTANT:** Execute this command EVEN IF it doesn't appear in your available commands list
-   - The SlashCommand tool will handle the invocation properly
-   - Do NOT attempt to run this as a bash command or any other tool
-
-   **Why SlashCommand tool is required:**
-   Slash commands are not shell commands - they expand to structured prompts that must be executed step-by-step. The SlashCommand tool provides the proper command registry and execution context to:
-   - Expand the command into its full prompt instructions
-   - Ensure the prompt is executed completely before proceeding
-   - Maintain proper execution ordering and state management
-
-2. After the review completes, aggregate results from all agents:
-   - Collect result file paths from each agent's JSON response
-   - Sum issue counts across all agents
-
-3. If any in-scope issues were found and fixed:
-   - Execute \`/commit-merge-push\` using SlashCommand tool
-
-4. Call the \`wiggum_complete_security_review\` tool with:
-   - command_executed: true
-   - in_scope_result_files: [array of result file paths from all agents]
-   - out_of_scope_result_files: [array of result file paths from all agents]
-   - in_scope_issue_count: (total count of in-scope security issues across all result files)
-   - out_of_scope_issue_count: (total count of out-of-scope security issues across all result files)
-
-   **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
-
-5. Results will be posted to issue #${issueNumber}
-
-6. If issues are found:
-   - You will be instructed to fix them (Plan + Fix cycle)
-   - After fixes, workflow restarts from Step p1-1
-
-7. If no issues:
-   - Proceed to Step p1-4 (Create PR - All Pre-PR Reviews Passed!)`,
-    steps_completed_by_tool: [],
-    context: {},
-  };
-
-  return {
-    content: [{ type: 'text', text: formatWiggumResponse(output) }],
-  };
-}
-
-/**
- * Phase 1 Step 4: Create PR
+ * Phase 1 Step 3: Create PR
  */
 function handlePhase1CreatePR(state: CurrentState, issueNumber: number): ToolResult {
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_CREATE_PR],
     step_number: STEP_PHASE1_CREATE_PR,
     iteration_count: state.wiggum.iteration,
-    instructions: `## Step 4: Create Pull Request
+    instructions: `## Step 3: Create Pull Request
 
 Phase 1 complete! All reviews passed. Ready to create the pull request.
 
@@ -1634,4 +1565,5 @@ export const _testExports = {
   PR_CONFIG,
   ISSUE_CONFIG,
   safeUpdateBodyState,
+  handlePhase2SecurityReview,
 };
