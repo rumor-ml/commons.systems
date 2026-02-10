@@ -17,7 +17,7 @@ help:
 	@echo "$(CYAN)commons.systems monorepo$(RESET)"
 	@echo ""
 	@echo "$(GREEN)Test targets:$(RESET)"
-	@echo "  make test              - Run all tests (discovers and runs tests for all project types)"
+	@echo "  make test              - Run all tests (discovers apps and runs their tests)"
 	@echo "  make test-unit         - Run unit tests only"
 	@echo "  make test-integration  - Run integration tests only"
 	@echo "  make test-e2e          - Run end-to-end tests only"
@@ -32,7 +32,7 @@ help:
 	@echo "  make clean             - Clean build artifacts"
 	@echo ""
 	@echo "Note: All test targets delegate to infrastructure/scripts/run-tests.sh"
-	@echo "      which automatically discovers project types and runs appropriate tests."
+	@echo "      which discovers known apps and runs their appropriate test suites."
 
 # Test targets - delegate to infrastructure scripts
 test:

@@ -21,44 +21,21 @@
 # - ✓ Test delegation and exit code propagation
 # - ✓ Test type flags (--type unit/integration/e2e)
 # - ✓ CHANGED_ONLY mode handling
-# - ⏸ Validation pipeline execution order (requires toolchain)
-# - ⏸ Project type detection logic (requires toolchain)
+# - ✓ Validation pipeline execution order (uses mock scripts)
+# - ✓ Project type detection logic (uses mock scripts)
 
 set -euo pipefail
 
 # Get repository root (3 levels up from this script)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-# Test result tracking
-test_pass() {
-  local test_name=$1
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  echo "✓ PASS: $test_name"
-}
-
-test_fail() {
-  local test_name=$1
-  local reason=$2
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  echo "✗ FAIL: $test_name"
-  echo "  Reason: $reason"
-}
-
-run_test() {
-  local test_name=$1
-  TESTS_RUN=$((TESTS_RUN + 1))
-  echo ""
-  echo "Running: $test_name"
-  $test_name
-}
+# Source shared test harness
+source "$(dirname "${BASH_SOURCE[0]}")/test-harness.sh"
 
 # Helper function to create executable bash scripts
-# Usage: create_script <filepath> <line1> <line2> ...
+# Usage: create_script <filepath> "<line1>" "<line2>" ...
+# Each line argument will be written as a separate line in the script.
+# Example: create_script "test.sh" "echo hello" "exit 0"
 create_script() {
   local filepath=$1
   shift
@@ -677,38 +654,25 @@ run_test test_make_test_e2e_passes_type_flag
 
 echo ""
 echo "=== Validation Pipeline Tests ==="
-# TODO(#1621): These tests need Go toolchain installed - skipping for now
-# run_test test_make_validate_runs_full_pipeline
-# run_test test_make_validate_stops_on_lint_failure
-# run_test test_make_validate_stops_on_typecheck_failure
+# Validation pipeline tests verify lint→typecheck→test execution order
+# NOTE: Using mock scripts to avoid Go toolchain dependency
+run_test test_make_validate_runs_full_pipeline
+run_test test_make_validate_stops_on_lint_failure
+run_test test_make_validate_stops_on_typecheck_failure
 run_test test_make_validate_changed_only_delegates_to_run_all_local_tests
 
 echo ""
 echo "=== Project Type Detection Tests ==="
-# TODO(#1621): These tests need Go/Node toolchain installed - skipping for now
-# run_test test_format_detects_go_project
-# run_test test_lint_detects_go_project
-# run_test test_typecheck_detects_go_project
-# run_test test_format_detects_nodejs_project
-# run_test test_format_handles_missing_pnpm_gracefully
+# Project type detection tests verify Makefile detects go.mod/package.json
+# NOTE: Using mock scripts to avoid Go/Node toolchain dependency
+run_test test_format_detects_go_project
+run_test test_lint_detects_go_project
+run_test test_typecheck_detects_go_project
+run_test test_format_detects_nodejs_project
+run_test test_format_handles_missing_pnpm_gracefully
 
 # ============================================================================
 # Test Summary
 # ============================================================================
 
-echo ""
-echo "========================================"
-echo "Test Results"
-echo "========================================"
-echo "Total:  $TESTS_RUN"
-echo "Passed: $TESTS_PASSED"
-echo "Failed: $TESTS_FAILED"
-echo "========================================"
-
-if [ $TESTS_FAILED -eq 0 ]; then
-  echo "✓ All tests passed!"
-  exit 0
-else
-  echo "✗ Some tests failed"
-  exit 1
-fi
+print_test_summary

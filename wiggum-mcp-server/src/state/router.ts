@@ -71,6 +71,7 @@ type CurrentStateWithPR = CurrentState & {
  *
  * Failure cases include lastError and attemptCount for debugging (issue #625).
  */
+// TODO(#1880): Consider using branded types for attemptCount to enforce positive integers at type level
 export type StateUpdateResult =
   | { readonly success: true }
   | {

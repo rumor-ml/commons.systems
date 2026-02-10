@@ -552,23 +552,11 @@ if ! jq empty firebase.json 2>/dev/null; then
   exit 1
 fi
 
-# Map app directory names to Firebase site IDs
-# This handles apps where directory name != site ID in firebase.json
-get_firebase_site_id() {
-  local app_name="$1"
-  case "$app_name" in
-    print) echo "print-dfb47" ;;
-    videobrowser) echo "videobrowser-7696a" ;;
-    budget) echo "budget-81cb7" ;;
-    *) echo "$app_name" ;;  # Default: use app name as-is
-  esac
-}
-
 # Filter hosting config to only include the site being tested (if APP_NAME provided)
 # Keep paths relative - Firebase emulator resolves them from CWD (PROJECT_ROOT)
 # Remove site/target fields - hosting emulator serves all configs at root path
 if [ -n "$APP_NAME" ]; then
-  # Map directory name to Firebase site ID
+  # Map directory name to Firebase site ID (uses shared function from port-utils.sh)
   SITE_ID=$(get_firebase_site_id "$APP_NAME")
 
   # Extract the one site config and remove site/target fields

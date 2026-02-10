@@ -7,26 +7,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REGISTRY_SCRIPT="${SCRIPT_DIR}/worktree-registry.sh"
 
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
+# Source shared test harness
+source "$(dirname "${BASH_SOURCE[0]}")/tests/test-harness.sh"
 
-# Test result tracking
-test_pass() {
-  local test_name=$1
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  echo "✓ PASS: $test_name"
-}
-
-test_fail() {
-  local test_name=$1
-  local reason=$2
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  echo "✗ FAIL: $test_name"
-  echo "  Reason: $reason"
-}
-
+# Override run_test to include setup/teardown
 run_test() {
   local test_name=$1
   TESTS_RUN=$((TESTS_RUN + 1))
@@ -534,22 +518,7 @@ main() {
   run_test test_concurrent_registrations
 
   # Print summary
-  echo ""
-  echo "========================================"
-  echo "Test Summary"
-  echo "========================================"
-  echo "Tests run:    $TESTS_RUN"
-  echo "Tests passed: $TESTS_PASSED"
-  echo "Tests failed: $TESTS_FAILED"
-  echo ""
-
-  if [ $TESTS_FAILED -eq 0 ]; then
-    echo "✓ All tests passed!"
-    exit 0
-  else
-    echo "✗ Some tests failed"
-    exit 1
-  fi
+  print_test_summary
 }
 
 main "$@"

@@ -45,7 +45,9 @@ test-e2e:
 	@echo "Running Playwright E2E tests..."
 	@cd tests && pnpm test
 
-# Validation
+# Validation targets follow commons.systems standard pattern
+# Note: Firebase template has Go code in site/ subdirectory, so we use custom targets
+.PHONY: validate format lint typecheck
 validate: lint typecheck test
 
 format:
@@ -56,6 +58,7 @@ format:
 lint:
 	@echo "Running linters..."
 	@cd site && go vet ./...
+	# TODO(#1875): Remove || true to properly fail on lint errors
 	@cd tests && pnpm eslint . || true
 
 typecheck:

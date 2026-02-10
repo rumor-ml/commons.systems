@@ -3,7 +3,7 @@
 # Usage: run-e2e-tests.sh <app-type> <app-path>
 #
 # App types: firebase, go-fullstack, go-tui
-# Handles: CWD setup, ENV vars, emulators, platform detection
+# Features: CWD setup, ENV vars, emulator pool/singleton modes, platform detection, emulator reuse
 
 set -e
 
@@ -36,11 +36,34 @@ APP_NAME=$(basename "$APP_PATH_ABS")
 
 echo "=== E2E Tests: $APP_NAME ($APP_TYPE) ==="
 
-# Source port utilities for sandbox detection
-source "$SCRIPT_DIR/port-utils.sh"
-
 # Check sandbox requirement BEFORE any emulator operations
 check_sandbox_requirement "Running E2E tests with Firebase emulators" || exit 1
+
+# ============================================================================
+# MASTER CLEANUP HANDLER: Composes all cleanup functions
+# ============================================================================
+# Ensures all cleanup actions run even if traps are set multiple times.
+# Individual cleanup functions register themselves with add_cleanup_handler.
+CLEANUP_FUNCTIONS=()
+
+add_cleanup_handler() {
+  local func_name="$1"
+  # Check if already added to avoid duplicates
+  for existing in "${CLEANUP_FUNCTIONS[@]}"; do
+    [[ "$existing" = "$func_name" ]] && return 0
+  done
+  CLEANUP_FUNCTIONS+=("$func_name")
+}
+
+run_all_cleanup() {
+  for func in "${CLEANUP_FUNCTIONS[@]}"; do
+    if declare -f "$func" > /dev/null; then
+      "$func" 2>&1 || true
+    fi
+  done
+}
+
+trap run_all_cleanup EXIT
 
 # ============================================================================
 # EMULATOR POOL INTEGRATION: Claim instance from pool if available
@@ -58,7 +81,8 @@ if [ -f "$EMULATOR_POOL_SCRIPT" ] && [ -f "${HOME}/.firebase-emulator-pool/pool.
   echo "=== Attempting to claim emulator pool instance ==="
 
   # Claim an instance from the pool
-  if POOL_INSTANCE_JSON=$(source "$EMULATOR_POOL_SCRIPT" claim 2>/dev/null); then
+  CLAIM_ERROR=$(mktemp)
+  if POOL_INSTANCE_JSON=$(source "$EMULATOR_POOL_SCRIPT" claim 2>"$CLAIM_ERROR"); then
     POOL_INSTANCE_ID=$(echo "$POOL_INSTANCE_JSON" | jq -r '.id')
     POOL_INSTANCE_CLAIMED=true
 
@@ -78,16 +102,25 @@ if [ -f "$EMULATOR_POOL_SCRIPT" ] && [ -f "${HOME}/.firebase-emulator-pool/pool.
     echo "✓ Claimed pool instance: $POOL_INSTANCE_ID"
     echo "  Ports: Auth=$AUTH_PORT, Firestore=$FIRESTORE_PORT, Storage=$STORAGE_PORT, Hosting=$HOSTING_PORT"
 
-    # Set up cleanup trap to release instance on exit
+    # Set up cleanup handler to release instance on exit
     release_pool_instance() {
       if [ "$POOL_INSTANCE_CLAIMED" = "true" ] && [ -n "$POOL_INSTANCE_ID" ]; then
         echo "Releasing pool instance: $POOL_INSTANCE_ID"
-        source "$EMULATOR_POOL_SCRIPT" release "$POOL_INSTANCE_ID" 2>/dev/null || true
+        if ! source "$EMULATOR_POOL_SCRIPT" release "$POOL_INSTANCE_ID" 2>&1; then
+          echo "WARNING: Failed to release pool instance $POOL_INSTANCE_ID" >&2
+          echo "Pool may be in inconsistent state. Run: source $EMULATOR_POOL_SCRIPT status" >&2
+        fi
       fi
     }
-    trap release_pool_instance EXIT
+    add_cleanup_handler release_pool_instance
+    rm -f "$CLAIM_ERROR"
   else
-    echo "⚠️  No available pool instances - falling back to singleton mode"
+    echo "⚠️  Failed to claim pool instance - falling back to singleton mode"
+    if [ -s "$CLAIM_ERROR" ]; then
+      echo "   Reason:" >&2
+      cat "$CLAIM_ERROR" | sed 's/^/     /' >&2
+    fi
+    rm -f "$CLAIM_ERROR"
   fi
 else
   echo "⚠️  Emulator pool not initialized - using singleton mode"
@@ -99,7 +132,7 @@ echo ""
 # ============================================================================
 # SUPERVISOR DETECTION: Check if supervisor is managing emulators
 # ============================================================================
-# TODO(#1714): Add tests for supervisor detection and multi-worktree hosting startup
+# TODO(#1714): Add test coverage for supervisor detection, stale PID handling, and multi-worktree hosting startup
 SUPERVISOR_PID_FILE="$HOME/.firebase-emulators/supervisor.pid"
 
 # Check if supervisor is already running
@@ -131,7 +164,7 @@ is_supervisor_running() {
 # ============================================================================
 # If .test-env.json exists and emulators are healthy, reuse them instead of
 # starting new ones. This prevents port exhaustion when dev server is running.
-# TODO(#1713): Add tests for emulator reuse logic
+# TODO(#1713): Add test coverage for emulator reuse, app name mismatch detection, and health checks
 
 TEST_ENV_CONFIG="${ROOT_DIR}/.test-env.json"
 REUSE_EMULATORS=false
@@ -154,9 +187,10 @@ if [ -f "$TEST_ENV_CONFIG" ]; then
        nc -z 127.0.0.1 "$HOSTING_PORT_CHECK" 2>/dev/null; then
 
       # CRITICAL FIX: Verify that the hosting emulator is serving the correct app
-      # Problem: When audiobrowser tests run first, fellspiral tests reuse the
-      # audiobrowser hosting emulator, causing test failures
-      # Solution: Check if stored appName matches current APP_NAME
+      # Problem: When audiobrowser tests run first, fellspiral tests would reuse the
+      # audiobrowser hosting emulator, causing test failures due to wrong app being served.
+      # Solution: Check if stored appName matches current APP_NAME before reusing emulators.
+      # Testing: Covered by TODO(#1713) - emulator reuse test coverage
       if [ -n "$EXISTING_APP_NAME" ] && [ "$EXISTING_APP_NAME" != "$APP_NAME" ]; then
         echo "⚠️  Hosting emulator is serving different app: $EXISTING_APP_NAME (need: $APP_NAME)"
         echo "   Skipping reuse - will restart hosting emulator for correct app"
@@ -191,15 +225,26 @@ if [ "$REUSE_EMULATORS" = "false" ] && [ "$POOL_INSTANCE_CLAIMED" = "false" ]; t
 
   # Capture stderr from allocate-test-ports.sh for better diagnostics
   ALLOC_ERROR=$(mktemp)
+  ALLOC_EXIT=0
   if ! source "$SCRIPT_DIR/allocate-test-ports.sh" 2>"$ALLOC_ERROR"; then
-    echo "FATAL: Port allocation failed" >&2
-    echo "" >&2
-    if [ -s "$ALLOC_ERROR" ]; then
-      echo "Error output from allocate-test-ports.sh:" >&2
-      cat "$ALLOC_ERROR" | sed 's/^/  /' >&2
+    ALLOC_EXIT=$?
+  fi
+
+  # Check for any stderr output (errors or warnings)
+  if [ -s "$ALLOC_ERROR" ]; then
+    if [ $ALLOC_EXIT -ne 0 ]; then
+      echo "FATAL: Port allocation failed (exit code: $ALLOC_EXIT)" >&2
       echo "" >&2
+      echo "Error output from allocate-test-ports.sh:" >&2
+    else
+      echo "⚠️  Port allocation succeeded with warnings:" >&2
     fi
-    rm -f "$ALLOC_ERROR"
+    cat "$ALLOC_ERROR" | sed 's/^/  /' >&2
+    echo "" >&2
+  fi
+  rm -f "$ALLOC_ERROR"
+
+  if [ $ALLOC_EXIT -ne 0 ]; then
     echo "This could be due to:" >&2
     echo "  - All ports in range 5000-5999 are in use" >&2
     echo "  - allocate-test-ports.sh missing or not executable" >&2
@@ -208,7 +253,6 @@ if [ "$REUSE_EMULATORS" = "false" ] && [ "$POOL_INSTANCE_CLAIMED" = "false" ]; t
     echo "Try: infrastructure/scripts/stop-emulators.sh --force-backend" >&2
     exit 1
   fi
-  rm -f "$ALLOC_ERROR"
 
   # Validate all critical variables are set by allocate-test-ports.sh
   MISSING_VARS=""
@@ -238,7 +282,7 @@ else
   echo "=== Clearing Firestore Data (Reused Emulators) ==="
   CLEAR_ERROR=$(mktemp)
   if ! clear_firestore_data "$FIRESTORE_HOST" "$FIRESTORE_PORT" "$GCP_PROJECT_ID" 2>"$CLEAR_ERROR"; then
-    echo "⚠️  Firestore data clearing failed" >&2
+    echo "ERROR: Firestore data clearing failed" >&2
     echo "" >&2
     if [ -s "$CLEAR_ERROR" ]; then
       echo "Error details:" >&2
@@ -246,12 +290,18 @@ else
       echo "" >&2
     fi
     rm -f "$CLEAR_ERROR"
-    echo "This may cause test flakiness due to stale data from previous runs" >&2
-    echo "" >&2
-    echo "Recovery options:" >&2
-    echo "  1. Restart emulators: infrastructure/scripts/stop-emulators.sh && infrastructure/scripts/start-emulators.sh" >&2
-    echo "  2. Continue anyway (tests may be flaky): Press Ctrl+C to abort or wait 5s to continue" >&2
-    sleep 5
+
+    if [ "${ALLOW_STALE_DATA:-false}" = "true" ]; then
+      echo "⚠️  ALLOW_STALE_DATA=true - continuing with potentially stale data" >&2
+      echo "   Tests may be flaky due to data from previous runs" >&2
+    else
+      echo "Firestore data must be cleared to ensure test isolation" >&2
+      echo "" >&2
+      echo "Recovery options:" >&2
+      echo "  1. Restart emulators: infrastructure/scripts/stop-emulators.sh && infrastructure/scripts/start-emulators.sh" >&2
+      echo "  2. Override (not recommended): ALLOW_STALE_DATA=true $0 $@" >&2
+      exit 1
+    fi
   else
     rm -f "$CLEAR_ERROR"
   fi
@@ -316,7 +366,7 @@ case "$APP_TYPE" in
         # Problem: When supervisor manages emulators in another worktree, this worktree's
         # hosting emulator may not be running, causing E2E tests to fail with connection errors.
         # Solution: Independently start hosting emulator if not detected on expected port.
-        # Related: commit e927b42 "Fix hosting emulator startup when supervisor runs in other worktrees"
+        # Testing: Covered by TODO(#1714) - multi-worktree hosting startup test coverage
         echo "🔍 Verifying hosting emulator for this worktree..."
         echo "   Expected hosting port: ${HOSTING_PORT}"
 
@@ -329,19 +379,7 @@ case "$APP_TYPE" in
           HOSTING_LOG="${ROOT_DIR}/tmp/infrastructure/firebase-hosting-${GCP_PROJECT_ID}.log"
           TEMP_CONFIG="${ROOT_DIR}/.firebase-${GCP_PROJECT_ID}.json"
 
-          # Map app name to Firebase site ID (must match firebase.json hosting.site values)
-          get_firebase_site_id() {
-            local app_name="$1"
-            case "$app_name" in
-              videobrowser) echo "videobrowser-7696a" ;;
-              print) echo "print-dfb47" ;;
-              budget) echo "budget-81cb7" ;;
-              fellspiral) echo "fellspiral" ;;
-              audiobrowser) echo "audiobrowser" ;;
-              *) echo "$app_name" ;;  # Default: use app name as-is
-            esac
-          }
-
+          # Use shared function from port-utils.sh to get Firebase site ID
           SITE_ID=$(get_firebase_site_id "$APP_NAME")
 
           # Validate firebase.json exists and is valid JSON before processing
@@ -444,39 +482,14 @@ EOF
 
           # Set up cleanup for independently-started hosting emulator
           cleanup_independent_hosting() {
-            echo "Cleaning up independently-started hosting emulator..."
-
-            if [ -n "${HOSTING_PID:-}" ]; then
-              if kill -0 "$HOSTING_PID" 2>/dev/null; then
-                echo "  Stopping hosting emulator (PID: $HOSTING_PID)..."
-                if kill -TERM "$HOSTING_PID" 2>/dev/null; then
-                  sleep 1
-                  # Check if still running
-                  if kill -0 "$HOSTING_PID" 2>/dev/null; then
-                    echo "  Process didn't exit, sending SIGKILL..."
-                    kill -KILL "$HOSTING_PID" 2>/dev/null || echo "  WARNING: Failed to SIGKILL $HOSTING_PID" >&2
-                  fi
-                  echo "  ✓ Hosting emulator stopped"
-                else
-                  echo "  WARNING: Failed to send SIGTERM to $HOSTING_PID (may have already exited)" >&2
-                fi
-              else
-                echo "  ℹ️  Hosting emulator already exited (PID: $HOSTING_PID)"
-              fi
-            else
-              echo "  ℹ️  No HOSTING_PID set, skipping process cleanup"
+            if [ -n "${HOSTING_PID:-}" ] && kill -0 "$HOSTING_PID" 2>/dev/null; then
+              kill -TERM "$HOSTING_PID" 2>/dev/null || true
+              sleep 1
+              kill -0 "$HOSTING_PID" 2>/dev/null && kill -KILL "$HOSTING_PID" 2>/dev/null || true
             fi
-
-            # Clean up temp config
-            if [ -n "${TEMP_CONFIG:-}" ] && [ -f "$TEMP_CONFIG" ]; then
-              if rm -f "$TEMP_CONFIG" 2>/dev/null; then
-                echo "  ✓ Removed temp config: $TEMP_CONFIG"
-              else
-                echo "  WARNING: Failed to remove temp config: $TEMP_CONFIG" >&2
-              fi
-            fi
+            rm -f "${TEMP_CONFIG:-}" 2>/dev/null || true
           }
-          trap cleanup_independent_hosting EXIT
+          add_cleanup_handler cleanup_independent_hosting
         else
           echo "✓ Hosting emulator already running on port ${HOSTING_PORT}"
         fi
@@ -567,7 +580,7 @@ EOF
     cat "$TEST_ENV_CONFIG"
     echo "================================"
 
-    # Set up cleanup trap (only when we started the emulators AND supervisor is NOT managing them)
+    # Set up cleanup handler (only when we started the emulators AND supervisor is NOT managing them)
     if [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
       cleanup() {
         echo "Stopping emulators..."
@@ -581,7 +594,7 @@ EOF
         # Kill zombie node processes
         ps aux | grep -E "defunct|<defunct>" | grep -E "node|playwright|firefox|chromium" | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
       }
-      trap cleanup EXIT
+      add_cleanup_handler cleanup
     else
       echo "ℹ️  Emulators managed by supervisor - no cleanup on exit"
     fi
@@ -631,13 +644,13 @@ EOF
     export FIREBASE_AUTH_EMULATOR_HOST
     export GCP_PROJECT_ID
 
-    # Set up cleanup trap (only when we started the emulators AND supervisor is NOT managing them)
+    # Set up cleanup handler (only when we started the emulators AND supervisor is NOT managing them)
     if [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
-      cleanup() {
+      cleanup_backend() {
         echo "Stopping emulators..."
         "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
       }
-      trap cleanup EXIT
+      add_cleanup_handler cleanup_backend
     else
       echo "ℹ️  Backend emulators managed by supervisor - no cleanup on exit"
     fi

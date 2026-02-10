@@ -46,7 +46,9 @@ test-e2e: build
 	@echo "Running Playwright E2E tests..."
 	@cd tests && pnpm test
 
-# Validation
+# Validation targets follow commons.systems standard pattern
+# Note: videobrowser has multiple TS directories, so we override the targets
+.PHONY: validate format lint typecheck
 validate: lint typecheck test
 
 format:

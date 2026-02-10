@@ -58,7 +58,9 @@ clean:
 	@cd site && make clean
 	@rm -rf tests/test-results
 
-# Validation pipeline
+# Validation targets follow commons.systems standard pattern
+# Note: printsync has Go code in site/ subdirectory, so we use custom targets
+.PHONY: validate format lint typecheck
 validate: lint typecheck test
 
 format:

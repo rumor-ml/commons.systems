@@ -84,19 +84,8 @@ dev:
 	@echo "Starting tmux-tui in development mode..."
 	$(GO) run ./cmd/tmux-tui
 
-# Validation pipeline
-validate: lint typecheck test
-
-format:
-	@echo "Formatting code..."
-	@$(GO) fmt ./...
-
-lint:
-	@echo "Running linters..."
-	@$(GO) vet ./...
-
-typecheck:
-	@echo "Type checking..."
-	@$(GO) build ./...
+# Validation targets follow commons.systems standard pattern
+HAS_GO=1
+include ../infrastructure/make/validate.mk
 
 .DEFAULT_GOAL := build

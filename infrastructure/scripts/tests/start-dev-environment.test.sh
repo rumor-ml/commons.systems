@@ -7,115 +7,13 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
+# Source shared test harness
+source "$(dirname "${BASH_SOURCE[0]}")/test-harness.sh"
 
-# Test result tracking
-test_pass() {
-  local test_name=$1
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-  echo "✓ PASS: $test_name"
-}
-
-test_fail() {
-  local test_name=$1
-  local reason=$2
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-  echo "✗ FAIL: $test_name"
-  echo "  Reason: $reason"
-}
-
-run_test() {
-  local test_name=$1
-  TESTS_RUN=$((TESTS_RUN + 1))
-  echo ""
-  echo "Running: $test_name"
-  $test_name
-}
-
-# Helper: Run start-dev-environment.sh in test mode (parsing only, no actual execution)
-# This extracts just the argument parsing and validation logic
+# Helper: Run start-dev-environment.sh in dry-run mode (parsing only, no execution)
 run_parse_test() {
-  # Create a temporary test script file
-  local test_script="$SCRIPT_DIR/tests/.test-wrapper-$$.sh"
-
-  cat > "$test_script" <<'EOF'
-#!/usr/bin/env bash
-set -uo pipefail
-
-# Parse arguments (copied from start-dev-environment.sh)
-MODE="${1:-}"
-APP_NAME="${2:-}"
-
-# Determine mode and app (copied from start-dev-environment.sh)
-if [ "$MODE" = "pool" ]; then
-  # Pool mode: Second arg is app name
-  if [ -z "$APP_NAME" ]; then
-    echo "ERROR: Pool mode requires app name" >&2
-    echo "Usage: start-dev-environment.sh pool <app-name>" >&2
-    exit 1
-  fi
-  USE_POOL=1
-elif [ "$MODE" = "backend" ]; then
-  # Backend only mode
-  USE_POOL=0
-  APP_NAME=""
-elif [ -n "$MODE" ]; then
-  # First arg is app name
-  APP_NAME="$MODE"
-  USE_POOL=0
-else
-  # Auto-detect app from current directory
-  USE_POOL=0
-  CURRENT_DIR="$(basename "$PWD")"
-
-  # Check if we're in a known app directory
-  case "$CURRENT_DIR" in
-    fellspiral|printsync|budget|videobrowser|audiobrowser)
-      APP_NAME="$CURRENT_DIR"
-      ;;
-    *)
-      # Check if parent is an app directory
-      PARENT_DIR="$(basename "$(dirname "$PWD")")"
-      case "$PARENT_DIR" in
-        fellspiral|printsync|budget|videobrowser|audiobrowser)
-          APP_NAME="$PARENT_DIR"
-          ;;
-        *)
-          echo "ERROR: Could not auto-detect app from current directory" >&2
-          echo "Please specify app name or run from app directory" >&2
-          echo "" >&2
-          echo "Usage: start-dev-environment.sh [APP_NAME]" >&2
-          echo "Available apps: fellspiral, printsync, budget, videobrowser, audiobrowser" >&2
-          exit 1
-          ;;
-      esac
-      ;;
-  esac
-fi
-
-# Output parsed values for testing
-echo "MODE=$MODE"
-echo "APP_NAME=$APP_NAME"
-echo "USE_POOL=$USE_POOL"
-exit 0
-EOF
-
-  chmod +x "$test_script"
-
-  # Run the test script with provided args
-  local output
-  local exit_code
-  output=$("$test_script" "$@" 2>&1)
-  exit_code=$?
-
-  # Clean up
-  rm -f "$test_script"
-
-  echo "$output"
-  return $exit_code
+  # Call the actual script with --dry-run flag
+  "$SCRIPT_DIR/start-dev-environment.sh" --dry-run "$@" 2>&1
 }
 
 # ============================================================================
@@ -551,19 +449,4 @@ run_test test_example_backend_only
 # Test Summary
 # ============================================================================
 
-echo ""
-echo "========================================"
-echo "Test Results"
-echo "========================================"
-echo "Total:  $TESTS_RUN"
-echo "Passed: $TESTS_PASSED"
-echo "Failed: $TESTS_FAILED"
-echo "========================================"
-
-if [ $TESTS_FAILED -eq 0 ]; then
-  echo "✓ All tests passed!"
-  exit 0
-else
-  echo "✗ Some tests failed"
-  exit 1
-fi
+print_test_summary

@@ -713,3 +713,21 @@ clear_firestore_data() {
   echo "  ✓ Firestore data cleared successfully"
   return 0
 }
+
+# Map app directory names to Firebase site IDs
+# This handles apps where directory name != site ID in firebase.json
+# Args:
+#   $1 (app_name): App directory name
+# Returns:
+#   Firebase site ID (outputs to stdout)
+get_firebase_site_id() {
+  local app_name="$1"
+  case "$app_name" in
+    videobrowser) echo "videobrowser-7696a" ;;
+    print) echo "print-dfb47" ;;
+    budget) echo "budget-81cb7" ;;
+    fellspiral) echo "fellspiral" ;;
+    audiobrowser) echo "audiobrowser" ;;
+    *) echo "$app_name" ;;  # Default: use app name as-is
+  esac
+}

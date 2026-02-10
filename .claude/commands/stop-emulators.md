@@ -44,15 +44,83 @@ Stop Firebase emulators and clean up resources. Unregisters worktree and release
    - The script automatically handles pool release
    - Display: "Pool instance released successfully"
 
-6. Error handling:
-   - If stop fails with permission issues, suggest checking file permissions
-   - If PID files are stale, script will clean them up
-   - Show cleanup status for each resource: hosting, backend, pool, registrations
+6. Error handling and verification:
+   - After script completes, verify resources are actually freed:
+     - Parse script output for success indicators (✓ markers)
+     - Check for WARNING messages indicating failures
+     - Look for specific failure patterns:
+       * "WARNING: PID file exists but could not be parsed"
+       * "WARNING: Failed to unregister worktree"
+       * "WARNING: Failed to release pool instance"
+       * "WARNING: Stopped backend emulators while N worktree(s) may still be using them"
 
-7. Final summary:
-   - Display "Emulator shutdown complete" or "Partial cleanup - see messages above"
-   - For singleton mode: "Confirm emulators stopped with /emulator-status"
-   - For pool mode: "Pool instance has been released and is available for other worktrees"
+   - For each resource failure detected, provide specific guidance:
+     * **Hosting emulator parse failure**: Show the PID file location and suggest manual inspection or `/debug`
+     * **Port-based cleanup attempted**: Explain that fallback cleanup was used (may indicate stale PID file)
+     * **Worktree unregister failure**: Suggest manual registry check: `infrastructure/scripts/worktree-registry.sh list`
+     * **Pool release failure**: Provide manual release command: `infrastructure/scripts/emulator-pool.sh release <instance-id>`
+     * **Permission denied**: Show specific file/process that failed and suggest checking ownership
+
+   - Verify final state by analyzing script output:
+     * Count success markers (✓) vs warnings (WARNING)
+     * Identify which resources were stopped vs which failed
+     * Distinguish between:
+       - Complete success: All ✓ markers, no warnings
+       - Partial success: Some ✓ markers, backend intentionally left running (other worktrees active)
+       - Partial failure: Some ✓ markers, some WARNING messages
+       - Complete failure: Multiple WARNING messages, few or no ✓ markers
+
+7. Display results in structured format:
+   - Create a resource status summary showing:
+     ```
+     Resource Status:
+       Hosting emulator:     ✓ Stopped
+       Hosting cleanup:      ✓ Complete (PID, log, config)
+       Worktree registry:    ✓ Unregistered
+       Pool instance:        ✓ Released
+       Backend emulators:    - Not stopped (N other worktrees active)
+     ```
+
+   - If any failures occurred, show:
+     ```
+     Shutdown Status: PARTIAL FAILURE (X warnings)
+
+     Issues detected:
+       1. [Resource]: [Specific error message from script]
+          → Suggestion: [Specific remediation step]
+       2. [Resource]: [Specific error message from script]
+          → Suggestion: [Specific remediation step]
+
+     Next steps:
+       • For detailed logs: /debug
+       • For manual cleanup: [Specific commands based on failures]
+       • To verify status: /emulator-status
+       • To retry: /stop-emulators [with appropriate flags]
+     ```
+
+   - For partial success (backend left running intentionally):
+     ```
+     Shutdown Status: PARTIAL (backend shared with N worktrees)
+
+     Stopped:
+       ✓ Hosting emulator for this worktree
+       ✓ Worktree unregistered
+       ✓ Pool instance released (if applicable)
+
+     Not stopped:
+       • Backend emulators (shared with N other worktrees)
+
+     Options:
+       1. Stop backend anyway: /stop-emulators --force-backend
+       2. Check other worktrees: infrastructure/scripts/worktree-registry.sh list
+       3. Verify backend status: /emulator-status
+     ```
+
+8. Final summary:
+   - For complete success: "All resources stopped and cleaned up successfully"
+   - For partial success: "Hosting stopped, backend still running (N worktrees active)"
+   - For failures: "Shutdown incomplete - see issues above"
+   - Always suggest verification: "Run /emulator-status to confirm current state"
 
 ## Examples
 

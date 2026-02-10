@@ -8,7 +8,8 @@ set -euo pipefail
 # - Singleton mode: Use dedicated emulator instance per worktree
 # - Auto-seeds QA users after backend startup
 #
-# Usage: start-dev-environment.sh [MODE] [APP_NAME]
+# Usage: start-dev-environment.sh [--dry-run] [MODE] [APP_NAME]
+#   --dry-run: Parse arguments and output variables (testing only)
 #   MODE: Optional mode (pool, backend, or app name)
 #   APP_NAME: Required when MODE=pool, otherwise optional
 #
@@ -20,6 +21,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# Check for dry-run mode (testing only)
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ]; then
+  DRY_RUN=1
+  shift  # Remove --dry-run from args
+fi
 
 # Source port utilities
 source "${SCRIPT_DIR}/port-utils.sh"
@@ -73,6 +81,14 @@ else
       esac
       ;;
   esac
+fi
+
+# If dry-run mode, output parsed values and exit
+if [ "$DRY_RUN" = "1" ]; then
+  echo "MODE=$MODE"
+  echo "APP_NAME=$APP_NAME"
+  echo "USE_POOL=$USE_POOL"
+  exit 0
 fi
 
 # Display startup banner

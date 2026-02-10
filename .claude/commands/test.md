@@ -46,8 +46,16 @@ Run tests for the current project or entire monorepo using the unified test inte
      - If not running:
        - Run: `infrastructure/scripts/start-emulators.sh`
        - Use `dangerouslyDisableSandbox: true`
-       - If startup succeeds, continue to next step
-       - If startup fails, display error and exit
+       - Capture both stdout and stderr
+       - If startup succeeds (exit code 0), continue to next step
+       - If startup fails (non-zero exit code):
+         - Display the error output showing why startup failed
+         - Show the last 20 lines of emulator logs if available
+         - Provide recovery steps:
+           * Check if ports are already in use: `lsof -i :9099`
+           * Kill stale emulators: `infrastructure/scripts/stop-emulators.sh --force`
+           * Check disk space: `df -h`
+         - Exit with error status
 
 3. Execute the appropriate make command:
    - If test type is `all`: Run `make test`

@@ -80,20 +80,8 @@ test-emulator:
 	kill $$EMULATOR_PID 2>/dev/null || true; \
 	exit $$TEST_EXIT
 
-# Validation pipeline
-validate: lint typecheck test
-
-format:
-	@echo "Formatting code..."
-	@go fmt ./...
-	@cd .. && cd tests && pnpm prettier --write .
-
-lint:
-	@echo "Running linters..."
-	@go vet ./...
-	@cd .. && cd tests && pnpm eslint . || true
-
-typecheck:
-	@echo "Type checking..."
-	@go build ./...
-	@cd .. && cd tests && pnpm tsc --noEmit || true
+# Validation targets follow commons.systems standard pattern
+HAS_GO=1
+HAS_TS=1
+TS_DIR=../tests
+include ../../../../infrastructure/make/validate.mk

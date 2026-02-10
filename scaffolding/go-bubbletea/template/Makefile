@@ -58,20 +58,9 @@ dev:
 	@echo "Starting {{APP_NAME}} in development mode..."
 	$(GO) run ./cmd/{{APP_NAME}}
 
-# Validation pipeline
-validate: lint typecheck test
-
-format:
-	@echo "Formatting code..."
-	@$(GO) fmt ./...
-
-lint:
-	@echo "Running linters..."
-	@$(GO) vet ./...
-
-typecheck:
-	@echo "Type checking..."
-	@$(GO) build ./...
+# Validation targets follow commons.systems standard pattern
+HAS_GO=1
+include ../../../infrastructure/make/validate.mk
 
 cover:
 	@$(GO) test -coverprofile=coverage.out ./...

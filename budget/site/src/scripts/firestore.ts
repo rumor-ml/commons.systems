@@ -18,6 +18,7 @@ import {
   getAccountsCollectionName,
   getInstitutionsCollectionName,
 } from './collection-names';
+import type { Category } from '../islands/types';
 
 // TODO(#1455): Add test coverage for Firestore query functions (loadUserTransactions,
 // loadDemoTransactions, loadUserStatements, loadUserAccounts, loadUserInstitutions).
@@ -126,24 +127,25 @@ export interface Transaction {
   readonly date: DateString; // Type-safe date string in YYYY-MM-DD format
   readonly description: string;
   readonly amount: number; // Positive = income, Negative = expense (normalized after parsing)
-  readonly category: string;
+  readonly category: Category;
   readonly redeemable?: boolean;
   readonly vacation?: boolean;
   readonly transfer?: boolean;
   readonly redemptionRate?: number;
   readonly linkedTransactionId?: string;
-  readonly statementIds: string[];
+  readonly statementIds: readonly string[];
   readonly createdAt?: Date;
 }
 
 // Statement interface
+// TODO(#1881): Add readonly modifiers for immutability
 export interface Statement {
   id: string;
   userId: string;
   accountId: string;
   startDate: string;
   endDate: string;
-  transactionIds: string[];
+  transactionIds: readonly string[];
   createdAt?: Date;
 }
 
@@ -245,35 +247,31 @@ function mapDocumentToTransaction(data: DocumentData): Transaction {
 }
 
 // Validate Transaction data from Firestore
-export function validateTransaction(data: any): Transaction | null {
+export function validateTransaction(data: any): Transaction {
   // Validate required fields
   // Note: userId is optional for demo transactions (shared data without ownership)
   if (!data.id || !data.date || !data.description) {
-    console.warn('Transaction missing required fields:', {
+    throw new Error(`Transaction missing required fields: ${JSON.stringify({
       hasId: !!data.id,
       hasUserId: !!data.userId,
       hasDate: !!data.date,
       hasDescription: !!data.description,
-    });
-    return null;
+    })}`);
   }
 
   // Validate date format using type guard
   if (!isValidDateString(data.date)) {
-    console.warn('Transaction has invalid date format:', data.date);
-    return null;
+    throw new Error(`Invalid date format: ${data.date}. Expected YYYY-MM-DD.`);
   }
 
   // Validate amount is number
   if (typeof data.amount !== 'number' || isNaN(data.amount)) {
-    console.warn('Transaction has invalid amount:', data.amount);
-    return null;
+    throw new Error(`Invalid amount: ${data.amount}`);
   }
 
   // Validate redemptionRate range if present
   if (data.redemptionRate !== undefined && (data.redemptionRate < 0 || data.redemptionRate > 1)) {
-    console.warn('Transaction has invalid redemptionRate:', data.redemptionRate);
-    return null;
+    throw new Error(`Invalid redemptionRate: ${data.redemptionRate}. Must be between 0 and 1.`);
   }
 
   return mapDocumentToTransaction(data);
@@ -286,7 +284,7 @@ export function createTransaction(data: {
   date: string;
   description: string;
   amount: number;
-  category: string;
+  category: Category;
   redeemable?: boolean;
   vacation?: boolean;
   transfer?: boolean;
@@ -294,7 +292,7 @@ export function createTransaction(data: {
   linkedTransactionId?: string;
   statementIds?: string[];
   createdAt?: Date;
-}): Transaction | null {
+}): Transaction {
   // Use existing validation logic
   return validateTransaction({
     ...data,
@@ -352,9 +350,11 @@ export async function loadUserTransactions(
   const transactions: Transaction[] = [];
   querySnapshot.forEach((doc) => {
     const data = doc.data();
-    const transaction = validateTransaction(data);
-    if (transaction) {
+    try {
+      const transaction = validateTransaction(data);
       transactions.push(transaction);
+    } catch (error) {
+      console.warn('Skipping invalid transaction:', error instanceof Error ? error.message : String(error));
     }
   });
 
@@ -396,9 +396,11 @@ export async function loadDemoTransactions(options?: {
   const transactions: Transaction[] = [];
   querySnapshot.forEach((doc) => {
     const data = doc.data();
-    const transaction = validateTransaction(data);
-    if (transaction) {
+    try {
+      const transaction = validateTransaction(data);
       transactions.push(transaction);
+    } catch (error) {
+      console.warn('Skipping invalid transaction:', error instanceof Error ? error.message : String(error));
     }
   });
 

@@ -22,34 +22,63 @@ Show comprehensive status of Firebase emulators, pool status, and worktree regis
    - Run: `source infrastructure/scripts/allocate-test-ports.sh`
    - This gets all port variables: AUTH_PORT, FIRESTORE_PORT, STORAGE_PORT, UI_PORT, HOSTING_PORT, PROJECT_ID
 
-2. Check backend emulator status (shared across worktrees):
-   - Check Auth: `nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null && echo "RUNNING" || echo "STOPPED"`
-   - Check Firestore: `nc -z 127.0.0.1 $FIRESTORE_PORT 2>/dev/null && echo "RUNNING" || echo "STOPPED"`
-   - Check Storage: `nc -z 127.0.0.1 $STORAGE_PORT 2>/dev/null && echo "RUNNING" || echo "STOPPED"`
-   - Check UI: `nc -z 127.0.0.1 $UI_PORT 2>/dev/null && echo "RUNNING" || echo "STOPPED"`
+2. Verify nc (netcat) is available:
+   - Run: `command -v nc >/dev/null 2>&1 || { echo "ERROR: nc (netcat) command not found. Install with: apt install netcat" >&2; exit 1; }`
 
-3. Check backend PID file:
+3. Check backend emulator status (shared across worktrees):
+   - For each port (AUTH_PORT, FIRESTORE_PORT, STORAGE_PORT, UI_PORT), check status with proper error handling:
+   - Use this function pattern for each check:
+     ```bash
+     check_emulator_port() {
+       local port=$1
+       local name=$2
+       local nc_output
+
+       # Try connection and capture full output
+       nc_output=$(nc -z 127.0.0.1 "$port" 2>&1)
+       local nc_exit=$?
+
+       if [ $nc_exit -eq 0 ]; then
+         echo "$name: RUNNING"
+       elif echo "$nc_output" | grep -q "Connection refused"; then
+         echo "$name: STOPPED"
+       else
+         # Other error - show what went wrong
+         echo "$name: UNKNOWN (check failed: $nc_output)" >&2
+       fi
+     }
+
+     check_emulator_port "$AUTH_PORT" "Auth"
+     check_emulator_port "$FIRESTORE_PORT" "Firestore"
+     check_emulator_port "$STORAGE_PORT" "Storage"
+     check_emulator_port "$UI_PORT" "UI"
+     ```
+
+4. Check backend PID file:
    - Read: `~/.firebase-emulators/firebase-backend-emulators.pid`
    - If exists, verify process is alive: `kill -0 <pid> 2>/dev/null`
 
-4. Check hosting emulator status (this worktree only):
-   - Check: `nc -z 127.0.0.1 $HOSTING_PORT 2>/dev/null && echo "RUNNING" || echo "STOPPED"`
+5. Check hosting emulator status (this worktree only):
+   - Use the same check_emulator_port function defined in step 3:
+     ```bash
+     check_emulator_port "$HOSTING_PORT" "Hosting"
+     ```
    - Read PID file: `$PROJECT_ROOT/tmp/infrastructure/firebase-hosting-${PROJECT_ID}.pid`
 
-5. Check pool status:
+6. Check pool status:
    - Run: `infrastructure/scripts/emulator-pool.sh status`
    - Display total instances, available, and claimed instances
 
-6. Check worktree registrations:
+7. Check worktree registrations:
    - Run: `infrastructure/scripts/worktree-registry.sh list`
    - This shows all active worktrees using emulators and their modes
 
-7. Perform health checks on running emulators:
+8. Perform health checks on running emulators:
    - If Auth running: Try HTTP request to `http://localhost:$AUTH_PORT/`
    - If Firestore running: Try HTTP request to `http://localhost:$FIRESTORE_PORT/`
    - Display health status (reachable or unreachable)
 
-8. Display comprehensive status output with these sections:
+9. Display comprehensive status output with these sections:
 
    **Backend Emulators (Shared):**
    - Auth: [port] - [RUNNING/STOPPED] [✓/✗]
@@ -71,7 +100,7 @@ Show comprehensive status of Firebase emulators, pool status, and worktree regis
    - Emulator UI: http://localhost:[UI_PORT]
    - Hosting: http://localhost:[HOSTING_PORT]
 
-9. Suggest next steps based on status:
+10. Suggest next steps based on status:
    - If all running: "Emulators ready for development"
    - If none running: "Run `/start-emulators` to start"
    - If partial: "Run `/stop-emulators` then `/start-emulators` to reset"

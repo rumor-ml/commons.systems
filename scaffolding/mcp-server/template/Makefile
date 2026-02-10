@@ -48,17 +48,12 @@ test-unit:
 test-e2e:
 	@echo "No E2E tests configured for MCP server"
 
-# Validation
-validate: lint typecheck test
+# Validation targets follow commons.systems standard pattern
+HAS_TS=1
+TS_DIR=.
+include ../../../infrastructure/make/validate.mk
 
-format:
-	@echo "Formatting code..."
-	@pnpm prettier --write .
-
-lint:
-	@echo "Running linters..."
-	@pnpm eslint . || true
-
+# Override typecheck to use pnpm typecheck instead of pnpm tsc --noEmit
 typecheck:
 	@echo "Type checking..."
 	@pnpm typecheck

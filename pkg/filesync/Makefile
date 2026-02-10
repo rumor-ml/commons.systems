@@ -30,20 +30,9 @@ test-integration:
 	@echo "Running integration tests..."
 	@../../infrastructure/scripts/run-go-tests.sh
 
-# Validation pipeline
-validate: lint typecheck test
-
-format:
-	@echo "Formatting code..."
-	@go fmt ./...
-
-lint:
-	@echo "Running linters..."
-	@go vet ./...
-
-typecheck:
-	@echo "Type checking..."
-	@go build ./...
+# Validation targets follow commons.systems standard pattern
+HAS_GO=1
+include ../../infrastructure/make/validate.mk
 
 clean:
 	@echo "Cleaning..."

@@ -64,11 +64,27 @@ Start Firebase emulators (Auth, Firestore, Storage, Hosting) with automatic pool
    - Show how to stop: "To stop: /stop-emulators"
    - Show how to check status: "To check status: /emulator-status"
 
-7. If startup fails:
-   - If port conflict error, suggest: "Run /stop-emulators to release ports"
-   - Show last 20 lines of error output
-   - If pool instance was claimed, attempt to release it: `infrastructure/scripts/emulator-pool.sh release <instance-id>`
-   - Suggest `/debug` command for more investigation
+7. If startup fails (non-zero exit code):
+   - Capture the full output (stdout and stderr)
+   - Display all output, not just last 20 lines (failure often at start)
+   - Check for common error patterns:
+     * Port conflict: "address already in use" or "EADDRINUSE"
+     * Missing binary: "firebase: command not found"
+     * Invalid config: "firebase.json" errors
+     * Permission denied: "EACCES" or "Permission denied"
+   - For each error type, provide specific recovery:
+     * Port conflict: "Run /stop-emulators to release ports"
+     * Missing binary: "Install Firebase CLI: npm install -g firebase-tools"
+     * Invalid config: "Check firebase.json syntax: jq . firebase.json"
+     * Permission denied: "Check file permissions and port binding capabilities"
+   - Check if emulator log files exist and show last 50 lines:
+     * Backend: ~/.firebase-emulators/firebase-backend-emulators.log
+     * Hosting: tmp/infrastructure/firebase-hosting-*.log
+   - If pool instance was claimed:
+     * Attempt release: `infrastructure/scripts/emulator-pool.sh release <instance-id>`
+     * Verify release succeeded (check exit code)
+     * If release fails, warn: "Pool instance may be leaked. Run: emulator-pool.sh status"
+   - Provide actionable next step: "Run /debug for interactive troubleshooting"
 
 ## Notes
 
