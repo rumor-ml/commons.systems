@@ -1,7 +1,7 @@
 # Makefile for tmux-tui
 # Follows commons.systems monorepo build patterns
 
-.PHONY: build build-tui build-daemon build-block test test-unit test-e2e test-e2e-real clean dev
+.PHONY: help build build-tui build-daemon build-block test test-unit test-e2e test-e2e-real clean dev validate format lint typecheck
 
 # Binary output location
 BINARY_NAME=tmux-tui
@@ -13,6 +13,31 @@ BUILD_DIR=./build
 GO=go
 GOFLAGS=-v
 LDFLAGS=-ldflags "-s -w"
+
+help:
+	@echo "\033[36mtmux-tui - Terminal UI for tmux session management\033[0m"
+	@echo ""
+	@echo "\033[32mBuild targets:\033[0m"
+	@echo "  make build          - Build all binaries (tui + daemon + block)"
+	@echo "  make build-tui      - Build tmux-tui binary only"
+	@echo "  make build-daemon   - Build tmux-tui-daemon binary only"
+	@echo "  make build-block    - Build tmux-tui-block binary only"
+	@echo ""
+	@echo "\033[32mTest targets:\033[0m"
+	@echo "  make test           - Run all tests (unit + e2e with fake Claude)"
+	@echo "  make test-unit      - Run unit tests only"
+	@echo "  make test-e2e       - Run E2E tests with fake Claude (no API tokens)"
+	@echo "  make test-e2e-real  - Run E2E tests with REAL Claude (uses API tokens)"
+	@echo ""
+	@echo "\033[32mValidation targets:\033[0m"
+	@echo "  make validate       - Run full validation pipeline (lint + typecheck + test)"
+	@echo "  make lint           - Run linters (go vet)"
+	@echo "  make typecheck      - Run type checking (go build)"
+	@echo "  make format         - Auto-format code (go fmt)"
+	@echo ""
+	@echo "\033[32mOther targets:\033[0m"
+	@echo "  make dev            - Start tmux-tui in development mode"
+	@echo "  make clean          - Clean build artifacts"
 
 build: build-tui build-daemon build-block
 
@@ -58,5 +83,9 @@ clean:
 dev:
 	@echo "Starting tmux-tui in development mode..."
 	$(GO) run ./cmd/tmux-tui
+
+# Validation targets follow commons.systems standard pattern
+HAS_GO=1
+include ../infrastructure/make/validate.mk
 
 .DEFAULT_GOAL := build
