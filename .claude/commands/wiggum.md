@@ -87,7 +87,7 @@ When in-scope issues are found during reviews, wiggum launches the unsupervised-
 Execute BEFORE creating the PR to ensure code quality:
 
 1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
-2. **p1-2: Code Review (Pre-PR)** - Invoke all-hands agent (creates summary), then launch 6 review agents
+2. **p1-2: Code Review (Pre-PR)** - Launch 6 review agents, then 6 prioritizers to filter findings
 3. **p1-3: Create PR** - Only after all pre-PR checks pass
 
 **Key Point:** Step p1-2 reviews LOCAL CODE before PR exists. If issues found, fix them and restart from p1-1.

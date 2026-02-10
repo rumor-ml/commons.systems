@@ -1212,6 +1212,10 @@ describe('Security Review Instructions', () => {
   });
 });
 
+// TODO(#1900): Add behavioral tests for safeUpdateBodyState error classification paths
+// Missing tests that invoke the function with a mocked updateFn throwing classified errors
+// (404, auth, transient, unexpected) and verify correct behavior (throw vs retry vs return failure).
+// Requires test infrastructure (mocking updateFn) not currently established in this file.
 describe('createStateUpdateFailure integration', () => {
   it('should create valid failure result with minimum attemptCount', () => {
     const error = new Error('Network timeout');

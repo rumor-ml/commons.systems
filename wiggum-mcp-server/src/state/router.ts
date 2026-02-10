@@ -72,6 +72,8 @@ type CurrentStateWithPR = CurrentState & {
  *
  * Resolves TODO(#941) and TODO(#810): Consolidates duplicate state update pattern.
  */
+// TODO(#1898): Simplify ResourceConfig discriminated union
+// TODO(#1903): Consider branded types for resource IDs to enforce config-to-resourceId relationship at compile time
 type ResourceConfig =
   | {
       readonly resourceType: 'pr';
@@ -255,6 +257,7 @@ function checkBranchPushed(
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
  */
+// TODO(#1904): Add runtime assertions to validate config-resourceId alignment
 async function safeUpdateBodyState(
   config: ResourceConfig,
   resourceId: number,
@@ -266,8 +269,8 @@ async function safeUpdateBodyState(
 
   // Validate resourceId parameter (must be positive integer for valid resource number)
   // CRITICAL: Invalid resourceId would cause StateApiError.create() to throw ValidationError
-  // from within catch blocks below (e.g., line 324), replacing the original error and making
-  // the root cause impossible to diagnose
+  // from within the catch blocks in the retry loop below, replacing the original error and
+  // making the root cause impossible to diagnose
   if (!Number.isInteger(resourceId) || resourceId <= 0) {
     throw new ValidationError(
       `${fnName}: resourceId must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
@@ -349,6 +352,7 @@ async function safeUpdateBodyState(
         });
       }
 
+      // TODO(#1902): Missing tests for retry success after transient failure
       return { success: true };
     } catch (updateError) {
       // State update is CRITICAL for race condition fix (issue #388)
@@ -369,6 +373,7 @@ async function safeUpdateBodyState(
       const classification = classifyGitHubError(errorMsg, exitCode);
 
       // Build error context including classification results for debugging
+      // TODO(#1894): Missing tests for error context object correctness
       const errorContext = {
         resourceType: config.resourceType,
         resourceId,
@@ -388,6 +393,7 @@ async function safeUpdateBodyState(
 
       // Critical errors: Resource not found or authentication failures - throw immediately (no retry)
       // Note: 404 detection uses classifyGitHubError() via classification.is404, not direct status checking
+      // TODO(#1901): Missing tests for critical error propagation (404/auth throw-through)
       if (classification.is404) {
         logger.error(`Critical: ${config.resourceLabel} not found - cannot update state in body`, {
           ...errorContext,
@@ -484,17 +490,7 @@ async function safeUpdateBodyState(
 /**
  * Safely update wiggum state in PR body with error handling and retry logic
  *
- * Thin wrapper that calls safeUpdateBodyState with PR-specific configuration.
- * This function injects PR_CONFIG as the first parameter and forwards all other
- * parameters (prNumber, state, step, maxRetries) to the generic function.
- * See safeUpdateBodyState for retry strategy and error handling documentation.
- *
- * @param prNumber - PR number to update
- * @param state - New wiggum state to save
- * @param step - Step identifier for logging context
- * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
- * @returns Result indicating success or transient failure with reason
- * @throws Critical errors (404, 401/403) and unexpected errors
+ * Delegates to safeUpdateBodyState with PR configuration. See safeUpdateBodyState for full documentation.
  */
 export async function safeUpdatePRBodyState(
   prNumber: number,
@@ -508,17 +504,7 @@ export async function safeUpdatePRBodyState(
 /**
  * Safely update wiggum state in issue body with error handling and retry logic
  *
- * Thin wrapper that calls safeUpdateBodyState with issue-specific configuration.
- * This function injects ISSUE_CONFIG as the first parameter and forwards all other
- * parameters (issueNumber, state, step, maxRetries) to the generic function.
- * See safeUpdateBodyState for retry strategy and error handling documentation.
- *
- * @param issueNumber - Issue number to update
- * @param state - New wiggum state to save
- * @param step - Step identifier for logging context
- * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
- * @returns Result indicating success or transient failure with reason
- * @throws Critical errors (404, 401/403) and unexpected errors
+ * Delegates to safeUpdateBodyState with issue configuration. See safeUpdateBodyState for full documentation.
  */
 export async function safeUpdateIssueBodyState(
   issueNumber: number,
@@ -630,6 +616,7 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
   });
 
   // Route based on phase
+  // TODO(#1899): Consider refactoring single-level ternary for consistency with other routing patterns
   return state.wiggum.phase === 'phase1'
     ? await getPhase1NextStep(state)
     : await getPhase2NextStep(state);
@@ -739,7 +726,7 @@ async function handlePhase1MonitorWorkflow(
         content: [
           {
             type: 'text',
-            // TODO(#1012): Repeated state update failure error message construction
+            // TODO(#1905): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
@@ -806,7 +793,7 @@ async function handlePhase1MonitorWorkflow(
         content: [
           {
             type: 'text',
-            // TODO(#1012): Repeated state update failure error message construction
+            // TODO(#1905): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
