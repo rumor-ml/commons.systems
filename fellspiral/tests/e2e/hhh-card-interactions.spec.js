@@ -19,7 +19,6 @@ import { test, expect } from '../../../playwright.fixtures.ts';
 import {
   createCardViaUI,
   waitForCardInFirestore,
-  getCardFromFirestore,
   generateTestCardData,
   getTestCollectionName,
 } from './test-helpers.js';
@@ -192,6 +191,17 @@ test.describe('Combobox Interaction Tests', () => {
     await page.locator('#cardType').focus();
     const initialCount = await page.locator('#typeListbox .combobox-option').count();
     await page.locator('#cardType').fill('equip');
+
+    // Wait for the combobox to filter the options (DOM update after refresh())
+    await page.waitForFunction(
+      (expectedMax) => {
+        const options = document.querySelectorAll('#typeListbox .combobox-option');
+        return options.length < expectedMax;
+      },
+      initialCount,
+      { timeout: 2000 }
+    );
+
     const filteredCount = await page.locator('#typeListbox .combobox-option').count();
     expect(filteredCount).toBeLessThan(initialCount);
   });
@@ -346,7 +356,6 @@ test.describe('Combobox - Error State Recovery', () => {
     await page.waitForSelector('#cardEditorModal.active', { timeout: 5000 });
 
     // Inject error into getOptions function
-    let shouldThrow = true;
     await page.evaluate(() => {
       window.__shouldThrowError = true;
       window.__originalGetTypes = window.getTypesFromCards;
