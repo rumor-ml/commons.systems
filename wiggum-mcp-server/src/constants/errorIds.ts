@@ -24,12 +24,8 @@ const errorIds = {
   GIT_NOT_A_REPOSITORY: 'GIT_NOT_A_REPOSITORY',
 
   /**
-   * Invalid GitError parameters (validation failures in git operations)
-   *
-   * Note: This is NOT used in GitError.create() parameter validation,
-   * as those throw ValidationError (from mcp-common) which doesn't support errorId.
-   * This constant is reserved for git commands that fail due to invalid inputs
-   * (e.g., invalid branch names, malformed refs), not for validating our own parameters.
+   * Git commands that fail due to invalid inputs (e.g., invalid branch names, malformed refs).
+   * Not used for GitError.create() parameter validation (those use ValidationError from mcp-common).
    */
   GIT_VALIDATION_ERROR: 'GIT_VALIDATION_ERROR',
 

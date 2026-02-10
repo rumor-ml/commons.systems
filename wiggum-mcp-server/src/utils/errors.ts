@@ -100,6 +100,7 @@ export class GitError extends McpError {
    */
   static create(message: string, exitCode?: number, stderr?: string, errorId?: ErrorId): GitError {
     // TODO(#1910): Consider trimming message to ensure consistent error formatting
+    // TODO(#1916): No runtime validation on errorId parameter
     if (!message || message.trim() === '') {
       throw new ValidationError('GitError: message cannot be empty or whitespace-only');
     }
@@ -118,7 +119,8 @@ export class GitError extends McpError {
       );
     }
 
-    // Log at debug level if stderr provided without exitCode (unusual but valid - may indicate programming error)
+    // TODO(#1921): GitError.create debug logging could include more context
+    // Log at debug level if stderr provided without exitCode (unusual pattern)
     if (stderr !== undefined && exitCode === undefined) {
       logger.debug('GitError.create: stderr provided without exitCode (unusual pattern)', {
         message,
@@ -129,6 +131,7 @@ export class GitError extends McpError {
 
     // Log at debug level if non-zero exitCode provided without stderr (unusual but valid - may indicate data loss)
     // Note: exitCode 0 without stderr is normal (success with no error output), so we don't log
+    // TODO(#1917): Consider adding debug logging for exitCode 0 with stderr (warnings on success)
     if (exitCode !== undefined && exitCode !== 0 && stderr === undefined) {
       logger.debug('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
         message,
@@ -377,6 +380,7 @@ export function extractZodValidationDetails(
     };
   }
 
+  // TODO(#1922): Consider refining error message or severity for non-Error throws
   // Non-Error thrown (unexpected) - log critical programming error
   logger.error('CRITICAL: Non-Error thrown during validation', {
     validationError: error,

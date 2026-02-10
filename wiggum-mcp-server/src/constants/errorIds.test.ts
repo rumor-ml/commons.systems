@@ -138,3 +138,56 @@ describe('ErrorIds constant immutability', () => {
     assert.strictEqual(typeof ErrorIds, 'object');
   });
 });
+
+describe('ErrorIds runtime type safety', () => {
+  it('should verify all values are strings at runtime (Record<string, string> constraint)', () => {
+    // This test verifies the satisfies Record<string, string> constraint at runtime
+    // TypeScript enforces this at compile-time, but this confirms it at runtime
+    const entries = Object.entries(ErrorIds);
+
+    assert.ok(entries.length > 0, 'ErrorIds should have at least one entry');
+
+    entries.forEach(([key, value]) => {
+      assert.strictEqual(
+        typeof key,
+        'string',
+        `ErrorIds key "${key}" should be a string at runtime`
+      );
+      assert.strictEqual(
+        typeof value,
+        'string',
+        `ErrorIds value for key "${key}" should be a string at runtime`
+      );
+      assert.ok(key.length > 0, `ErrorIds key should not be empty`);
+      assert.ok(value.length > 0, `ErrorIds value for key "${key}" should not be empty`);
+    });
+  });
+
+  it('should verify ErrorId type matches runtime values', () => {
+    // Verify that the ErrorId type accurately represents the runtime values
+    const runtimeValues = Object.values(ErrorIds);
+    const typeValues: ErrorId[] = [
+      ErrorIds.GIT_COMMAND_FAILED,
+      ErrorIds.GIT_NOT_A_REPOSITORY,
+      ErrorIds.GIT_VALIDATION_ERROR,
+      ErrorIds.GIT_NO_MAIN_BRANCH,
+    ];
+
+    // Every type value should exist in runtime values
+    typeValues.forEach((typeValue) => {
+      assert.ok(
+        runtimeValues.includes(typeValue),
+        `Type value "${typeValue}" should exist in runtime values`
+      );
+    });
+
+    // Every runtime value should be a string
+    runtimeValues.forEach((runtimeValue) => {
+      assert.strictEqual(
+        typeof runtimeValue,
+        'string',
+        `Runtime value "${runtimeValue}" should be a string`
+      );
+    });
+  });
+});

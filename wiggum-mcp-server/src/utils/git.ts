@@ -20,6 +20,7 @@ export interface GitOptions {
  *
  * @returns The absolute path to the git repository root
  * @throws {GitError} When not in a git repository or git command fails
+ * @throws {ValidationError} When GitError.create validation fails (programming error)
  *
  * @example
  * ```typescript
@@ -33,11 +34,10 @@ export async function getGitRoot(): Promise<string> {
       reject: false,
     });
 
-    // Explicit validation for empty stdout with exit code 0
-    // This should never happen - git rev-parse --show-toplevel either:
-    // 1. Returns the repo root path (success)
-    // 2. Fails with exit code 128 (not in a repo)
-    // Empty stdout with exit 0 could indicate git corruption or unusual git version behavior
+    // Defensive check: empty stdout with exit code 0 should never occur in practice.
+    // Normal git behavior: (1) returns repo root path, or (2) fails with exit 128 if not in repo.
+    // This check catches anomalies like git corruption, custom git wrappers, or unusual git versions
+    // that produce unexpected output patterns. Provides actionable debugging steps.
     if (result.exitCode === 0 && !result.stdout) {
       logger.error('getGitRoot: git command succeeded but stdout is empty', {
         exitCode: result.exitCode,
@@ -74,9 +74,7 @@ export async function getGitRoot(): Promise<string> {
       result.exitCode === 128 ? ErrorIds.GIT_NOT_A_REPOSITORY : ErrorIds.GIT_COMMAND_FAILED
     );
   } catch (error) {
-    // Re-throw ValidationError as-is (programming error from GitError.create())
-    // Wrapping would hide the validation failure and make debugging harder
-    // ValidationErrors should never occur in production (they indicate bugs in our code)
+    // Re-throw ValidationError as-is (programming error, don't wrap)
     if (error instanceof ValidationError) {
       throw error;
     }
@@ -119,6 +117,7 @@ export async function getGitRoot(): Promise<string> {
  * @param options - Optional execution options (cwd, timeout)
  * @returns The stdout from the git command
  * @throws {GitError} When git command fails or exits with non-zero code
+ * @throws {ValidationError} When GitError.create validation fails (programming error)
  *
  * @example
  * ```typescript
@@ -149,9 +148,9 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
       );
     }
 
-    // Explicit check for null/undefined stdout with success exit code
-    // Empty stdout ("") is valid for some commands (e.g., 'git status --porcelain' on clean repo)
-    // but null/undefined stdout indicates execa buffer issues or stream errors
+    // Defensive check: null/undefined stdout with success indicates execa internal failure.
+    // Empty string "" is valid (e.g., 'git status --porcelain' on clean repo), but null/undefined
+    // means execa's stdout capture failed (buffer overflow, broken pipe, or stream error).
     if (result.stdout == null) {
       logger.error(
         'git: Command succeeded but stdout is null/undefined - this indicates execa failure',
@@ -177,9 +176,7 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
   } catch (error) {
     // TODO(#487): Broad catch-all hides programming errors - add explicit checks for system/programming errors
 
-    // Re-throw ValidationError as-is (programming error from GitError.create())
-    // Wrapping would hide the validation failure and make debugging harder
-    // ValidationErrors should never occur in production (they indicate bugs in our code)
+    // Re-throw ValidationError as-is (programming error, don't wrap)
     if (error instanceof ValidationError) {
       throw error;
     }
@@ -288,6 +285,7 @@ export async function hasRemoteTracking(branch?: string, options?: GitOptions): 
       return false;
     }
 
+    // TODO(#1913): Distinguish ValidationError from other unexpected errors in log message
     // Unexpected error - log with actionable context and RE-THROW (don't hide it)
     const errorMsg = error instanceof Error ? error.message : String(error);
     const exitCode = error instanceof GitError ? error.exitCode : undefined;
@@ -355,10 +353,9 @@ export async function isBranchPushed(branch?: string, options?: GitOptions): Pro
  * ```
  */
 export async function getMainBranch(options?: GitOptions): Promise<string> {
-  // Helper to extract error message (used multiple times below for both main and master branch errors)
+  /** Extract error message string from unknown error types */
   const getErrorMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-  // Helper to extract exit code (used multiple times to identify "branch not found" errors)
+  /** Extract exit code from GitError, undefined otherwise */
   const getExitCode = (err: unknown): number | undefined =>
     err instanceof GitError ? err.exitCode : undefined;
 
@@ -369,6 +366,7 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
   } catch (error) {
     // Only fallback to master if main branch doesn't exist (exit code 128)
     // Re-throw all other errors (network, permissions, validation, etc.)
+    // TODO(#1920): Distinguish ValidationError from unexpected errors in log message
     if (!(error instanceof GitError && error.exitCode === 128)) {
       logger.error('getMainBranch: unexpected error checking main branch', {
         errorMessage: getErrorMsg(error),
@@ -387,6 +385,7 @@ export async function getMainBranch(options?: GitOptions): Promise<string> {
       return 'master';
     } catch (masterError) {
       // Only accept "branch not found" error here too
+      // TODO(#1920): Distinguish ValidationError from unexpected errors in log message
       if (!(masterError instanceof GitError && masterError.exitCode === 128)) {
         logger.error('getMainBranch: unexpected error checking master branch', {
           errorMessage: getErrorMsg(masterError),
