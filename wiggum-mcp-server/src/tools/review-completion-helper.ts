@@ -46,7 +46,6 @@ import {
   STEP_NAMES,
   STEP_PHASE1_PR_REVIEW,
   STEP_PHASE2_PR_REVIEW,
-  STEP_PHASE1_SECURITY_REVIEW,
   STEP_PHASE2_SECURITY_REVIEW,
   PHASE1_PR_REVIEW_COMMAND,
   PHASE2_PR_REVIEW_COMMAND,
@@ -795,14 +794,14 @@ export async function loadReviewResults(
  * Zod schema for ReviewConfig runtime validation
  *
  * Validates that step identifiers match their expected phases:
- * - phase1Step must start with 'p1-'
+ * - phase1Step must start with 'p1-' (optional for security review)
  * - phase2Step must start with 'p2-'
  */
 export const ReviewConfigSchema = z
   .object({
-    phase1Step: z.string().min(1, 'phase1Step cannot be empty'),
+    phase1Step: z.string().min(1, 'phase1Step cannot be empty').optional(),
     phase2Step: z.string().min(1, 'phase2Step cannot be empty'),
-    phase1Command: z.string().min(1, 'phase1Command cannot be empty'),
+    phase1Command: z.string().min(1, 'phase1Command cannot be empty').optional(),
     phase2Command: z.string().min(1, 'phase2Command cannot be empty'),
     reviewTypeLabel: z.string().min(1, 'reviewTypeLabel cannot be empty'),
     issueTypeLabel: z.string().min(1, 'issueTypeLabel cannot be empty'),
@@ -810,11 +809,11 @@ export const ReviewConfigSchema = z
   })
   .refine(
     (data) => {
-      return data.phase1Step.startsWith('p1-');
+      // If phase1Step is provided, it must start with 'p1-'
+      return !data.phase1Step || data.phase1Step.startsWith('p1-');
     },
     {
-      message:
-        "phase1Step must start with 'p1-' prefix (e.g., 'p1-pr-review', 'p1-security-review')",
+      message: "phase1Step must start with 'p1-' prefix (e.g., 'p1-pr-review') or be omitted",
     }
   )
   .refine(
@@ -833,12 +832,12 @@ export const ReviewConfigSchema = z
  * All fields are readonly since configuration should be immutable once created.
  */
 export interface ReviewConfig {
-  /** Step identifier for Phase 1 */
-  readonly phase1Step: WiggumStep;
+  /** Step identifier for Phase 1 (optional for security review) */
+  readonly phase1Step?: WiggumStep;
   /** Step identifier for Phase 2 */
   readonly phase2Step: WiggumStep;
-  /** Command for Phase 1 */
-  readonly phase1Command: string;
+  /** Command for Phase 1 (optional for security review) */
+  readonly phase1Command?: string;
   /** Command for Phase 2 */
   readonly phase2Command: string;
   /** Type label for logging and messages (e.g., "PR", "Security") */
@@ -894,13 +893,14 @@ export function createPRReviewConfig(): ReviewConfig {
  * all required fields pre-configured and validated. This reduces
  * duplication and ensures consistency across security review tools.
  *
+ * Note: Phase 1 security review has been removed from the workflow.
+ * Security reviews now only occur in Phase 2 (post-PR).
+ *
  * @returns Validated ReviewConfig for security reviews
  */
 export function createSecurityReviewConfig(): ReviewConfig {
   return validateReviewConfig({
-    phase1Step: STEP_PHASE1_SECURITY_REVIEW,
     phase2Step: STEP_PHASE2_SECURITY_REVIEW,
-    phase1Command: SECURITY_REVIEW_COMMAND,
     phase2Command: SECURITY_REVIEW_COMMAND,
     reviewTypeLabel: 'Security',
     issueTypeLabel: 'security issue(s) found',
@@ -1026,7 +1026,16 @@ export interface ReviewCompletionInput {
  * Get the review step based on current phase
  */
 function getReviewStep(phase: WiggumPhase, config: ReviewConfig): WiggumStep {
-  return phase === 'phase1' ? config.phase1Step : config.phase2Step;
+  if (phase === 'phase1') {
+    if (!config.phase1Step) {
+      throw new ValidationError(
+        `Phase 1 ${config.reviewTypeLabel} review is not supported. ` +
+          `This review type only runs in Phase 2.`
+      );
+    }
+    return config.phase1Step;
+  }
+  return config.phase2Step;
 }
 
 /**
@@ -1067,7 +1076,8 @@ export function buildCommentContent(
   config: ReviewConfig,
   phase: WiggumPhase
 ): { title: string; body: string } {
-  const commandExecuted = phase === 'phase1' ? config.phase1Command : config.phase2Command;
+  const commandExecuted =
+    phase === 'phase1' ? (config.phase1Command ?? config.phase2Command) : config.phase2Command;
 
   const title =
     issues.total > 0
