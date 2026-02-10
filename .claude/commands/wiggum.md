@@ -99,18 +99,17 @@ Execute AFTER PR is created for final validation:
 1. **p2-1: Monitor Workflow** - PR workflow must pass (includes deployments + E2E tests)
 2. **p2-2: Monitor PR Checks** - All PR checks must pass
 3. **p2-3: Code Quality** - Address code quality bot comments
-4. **p2-4: PR Review (Post-PR)** - Run `/review` on actual PR
-5. **p2-5: Security Review (Post-PR)** - Run `/security-review` on PR
-6. **approval: Add "needs review" label** - Ready for human review
+4. **p2-5: Security Review (Post-PR)** - Run `/security-review` on PR
+5. **approval: Remove "needs review" label** - All automated reviews passed, ready for human review
 
-**Key Point:** Steps p2-4 and p2-5 review the ACTUAL PR after it's created. These are final validation before human review.
+**Key Point:** Step p2-5 reviews the ACTUAL PR after it's created. This is the final validation before human review.
 
 ### Why Two Phases?
 
 - **Phase 1** catches code quality issues early (before PR creation noise)
-- **Phase 2** validates the PR in its final state (after all CI/CD) including security review
+- **Phase 2** validates the PR in its final state (after all CI/CD including CodeQL) with security review
 - This structure prevents creating PRs with known issues
-- Security review is performed in Phase 2 only to avoid duplicate reviews and reduce iteration overhead
+- Security review is only in Phase 2 to reduce iteration overhead and avoid duplicate reviews
 
 ---
 
@@ -188,64 +187,6 @@ Execute AFTER PR is created for final validation:
 7. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
 8. Call `wiggum_complete_all_hands({})`
 9. Follow the instructions returned by the tool
-
----
-
-<!-- TODO(#1531): Near-duplicate security review instruction sections in p1-3 and p2-5 -->
-
-### Step p1-3: Security Review (Pre-PR)
-
-Execute security review on the local branch before creating the PR.
-
-**CRITICAL: `/security-review` is a built-in slash command that MUST be invoked using the SlashCommand tool.**
-
-From CLAUDE.md:
-
-> **NOTE:** `/security-review` is a built-in slash command. Do not attempt to create or rewrite it - invoke it using the SlashCommand tool.
-
-**Instructions:**
-
-1. Execute `/security-review` using SlashCommand tool:
-
-   ```
-   Use SlashCommand tool with command: "/security-review"
-   ```
-
-   **Why SlashCommand tool is required:**
-   Slash commands are not shell commands - they expand to structured prompts that must be executed step-by-step. The SlashCommand tool provides the proper command registry and execution context to:
-   - Expand the command into its full prompt instructions
-   - Ensure the prompt is executed completely before proceeding
-   - Maintain proper execution ordering and state management
-
-   Using Bash or other tools would bypass this prompt expansion mechanism, causing the command to fail or execute incorrectly.
-
-   **IMPORTANT:**
-   - Execute this command EVEN IF it doesn't appear in your available commands list
-   - This is a built-in command that exists in the system
-   - Use the SlashCommand tool, NOT Bash or any other invocation method
-
-2. Wait for the security review to complete. The command will:
-   - Launch multiple security review agents
-   - Each agent analyzes the code for security vulnerabilities
-   - Agents write results to files in `tmp/wiggum/`
-
-3. After all agents complete, aggregate their results:
-   - Collect all result file paths from agent outputs
-   - Count total in-scope and out-of-scope issues across all files
-
-4. If any in-scope issues were found and fixed:
-   - Execute `/commit-merge-push` using SlashCommand tool
-
-5. Call `wiggum_complete_security_review` tool with:
-   - `command_executed: true` (required)
-   - `in_scope_result_files`: Array of file paths from agents
-   - `out_of_scope_result_files`: Array of file paths from agents
-   - `in_scope_issue_count`: Total issue count (not file count)
-   - `out_of_scope_issue_count`: Total issue count (not file count)
-
-6. Follow the instructions returned by the completion tool:
-   - **Issues found**: Fix them via Plan+Fix cycle, then restart from p1-1
-   - **No issues**: Proceed to p1-4 (Create PR)
 
 ---
 
