@@ -188,19 +188,23 @@ test.describe('Combobox Interaction Tests', () => {
     await authEmulator.signInTestUser(email);
 
     await page.locator('#addCardBtn').click();
-    await page.locator('#cardType').focus();
 
-    // Wait for the listbox to open and populate
+    // Click the toggle button to explicitly open the dropdown
+    await page.locator('#typeCombobox .combobox-toggle').click();
+
+    // Wait for the listbox to be visible and populated
     await expect(page.locator('#typeCombobox.open')).toBeVisible();
-    await page.waitForTimeout(100); // Give time for options to populate
+    await expect(page.locator('#typeListbox .combobox-option').first()).toBeVisible();
 
     const initialCount = await page.locator('#typeListbox .combobox-option').count();
     expect(initialCount).toBeGreaterThan(1); // Ensure we have multiple options to filter
 
+    // Now type to filter
     await page.locator('#cardType').fill('equip');
 
-    // Wait for DOM update with a small timeout
-    await page.waitForTimeout(200);
+    // Wait for filtering to complete - use a small fixed timeout
+    // (The combobox refresh() is synchronous, but DOM updates may be async)
+    await page.waitForTimeout(300);
 
     const filteredCount = await page.locator('#typeListbox .combobox-option').count();
     expect(filteredCount).toBeLessThan(initialCount);
