@@ -813,8 +813,7 @@ export const ReviewConfigSchema = z
       return !data.phase1Step || data.phase1Step.startsWith('p1-');
     },
     {
-      message:
-        "phase1Step must start with 'p1-' prefix (e.g., 'p1-pr-review') or be omitted",
+      message: "phase1Step must start with 'p1-' prefix (e.g., 'p1-pr-review') or be omitted",
     }
   )
   .refine(
@@ -1078,9 +1077,7 @@ export function buildCommentContent(
   phase: WiggumPhase
 ): { title: string; body: string } {
   const commandExecuted =
-    phase === 'phase1'
-      ? config.phase1Command ?? config.phase2Command
-      : config.phase2Command;
+    phase === 'phase1' ? (config.phase1Command ?? config.phase2Command) : config.phase2Command;
 
   const title =
     issues.total > 0
