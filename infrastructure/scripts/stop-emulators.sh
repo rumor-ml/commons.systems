@@ -94,7 +94,34 @@ if [ -f "$HOSTING_PID_FILE" ]; then
         echo "No process found on port $HOSTING_PORT" >&2
       fi
     else
-      echo "HOSTING_PORT not set, cannot attempt port-based cleanup" >&2
+      echo "HOSTING_PORT not set, scanning common port range for emulator processes..." >&2
+
+      # Scan 5000-5999 for Firebase hosting emulators
+      FOUND_PORTS=$(lsof -i :5000-5999 2>/dev/null | grep firebase | awk '{print $9}' | cut -d: -f2 | sort -u || true)
+
+      if [ -n "$FOUND_PORTS" ]; then
+        echo "Found Firebase processes on ports: $FOUND_PORTS" >&2
+        for PORT in $FOUND_PORTS; do
+          PID=$(lsof -ti :$PORT 2>/dev/null | head -1 || true)
+          if [ -n "$PID" ]; then
+            echo "Killing process $PID on port $PORT" >&2
+            kill -TERM "$PID" 2>/dev/null || true
+            sleep 1
+            kill -KILL "$PID" 2>/dev/null || true
+          fi
+        done
+        echo "✓ Stopped emulator processes via port scan" >&2
+      else
+        echo "No Firebase processes found on ports 5000-5999" >&2
+        echo "" >&2
+        echo "To manually find and kill orphaned emulator processes:" >&2
+        echo "  1. Find Firebase processes: ps aux | grep firebase" >&2
+        echo "  2. Find hosting emulator by port: lsof -i :5000-5999 | grep firebase" >&2
+        echo "  3. Kill by PID: kill -TERM <pid>" >&2
+        echo "  4. Force kill if needed: kill -KILL <pid>" >&2
+        echo "" >&2
+        echo "Or use stop-emulators.sh --force-backend to kill all emulators" >&2
+      fi
     fi
   fi
 

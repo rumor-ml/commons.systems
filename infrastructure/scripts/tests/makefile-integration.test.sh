@@ -632,6 +632,386 @@ test_format_handles_missing_pnpm_gracefully() {
 }
 
 # ============================================================================
+# Error Scenario Tests
+# ============================================================================
+
+test_format_handles_hybrid_project() {
+  # Create a project with both go.mod and package.json
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create proper go.mod with module declaration
+  printf '%s\n' 'module test.example.com/hybrid' 'go 1.21' > "$test_dir/go.mod"
+
+  # Create a simple Go file
+  printf '%s\n' 'package main' 'func main() {' '    x:=1' '    _ = x' '}' > "$test_dir/main.go"
+
+  # Create package.json
+  printf '%s\n' '{' '  "name": "test-project",' '  "version": "1.0.0"' '}' > "$test_dir/package.json"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Run make format (may fail on pnpm prettier, but that's OK)
+  local output
+  output=$(cd "$test_dir" && make format 2>&1 || true)
+
+  # Verify it formatted both Go and TypeScript/JavaScript
+  if ! echo "$output" | grep -q "Formatting Go code"; then
+    test_fail "format handles hybrid project" "Did not format Go code"
+    return
+  fi
+
+  if ! echo "$output" | grep -q "Formatting TypeScript/JavaScript"; then
+    test_fail "format handles hybrid project" "Did not attempt TypeScript/JavaScript formatting"
+    return
+  fi
+
+  test_pass "format handles hybrid project"
+}
+
+test_lint_handles_hybrid_project() {
+  # Create a project with both go.mod and package.json
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create proper go.mod with module declaration
+  printf '%s\n' 'module test.example.com/hybrid' 'go 1.21' > "$test_dir/go.mod"
+
+  # Create a simple Go file
+  printf '%s\n' 'package main' 'func main() {}' > "$test_dir/main.go"
+
+  # Create package.json
+  printf '%s\n' '{' '  "name": "test-project",' '  "version": "1.0.0"' '}' > "$test_dir/package.json"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Run make lint
+  local output
+  output=$(cd "$test_dir" && make lint 2>&1 || true)
+
+  # Verify it ran go vet
+  if ! echo "$output" | grep -q "Running go vet"; then
+    test_fail "lint handles hybrid project" "Did not run go vet"
+    return
+  fi
+
+  # Verify it attempted eslint (may fail if eslint not configured)
+  if ! echo "$output" | grep -q "Running eslint"; then
+    test_fail "lint handles hybrid project" "Did not attempt eslint"
+    return
+  fi
+
+  test_pass "lint handles hybrid project"
+}
+
+test_typecheck_handles_hybrid_project() {
+  # Create a project with both go.mod and package.json with tsconfig.json
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create proper go.mod with module declaration
+  printf '%s\n' 'module test.example.com/hybrid' 'go 1.21' > "$test_dir/go.mod"
+
+  # Create a simple Go file
+  printf '%s\n' 'package main' 'func main() {}' > "$test_dir/main.go"
+
+  # Create package.json and tsconfig.json
+  printf '%s\n' '{' '  "name": "test-project",' '  "version": "1.0.0"' '}' > "$test_dir/package.json"
+  printf '%s\n' '{' '  "compilerOptions": {' '    "target": "ES2020"' '  }' '}' > "$test_dir/tsconfig.json"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Run make typecheck
+  local output
+  output=$(cd "$test_dir" && make typecheck 2>&1 || true)
+
+  # Verify it ran go build
+  if ! echo "$output" | grep -q "Type checking Go code"; then
+    test_fail "typecheck handles hybrid project" "Did not run go build"
+    return
+  fi
+
+  # Verify it attempted TypeScript type checking
+  if ! echo "$output" | grep -q "Type checking TypeScript"; then
+    test_fail "typecheck handles hybrid project" "Did not attempt TypeScript type checking"
+    return
+  fi
+
+  test_pass "typecheck handles hybrid project"
+}
+
+test_lint_handles_missing_go_vet() {
+  # Create a Go project
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create proper go.mod with module declaration
+  printf '%s\n' 'module test.example.com/missing-go' 'go 1.21' > "$test_dir/go.mod"
+
+  # Create a simple Go file
+  printf '%s\n' 'package main' 'func main() {}' > "$test_dir/main.go"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Get make path and create minimal PATH with just make and core utils (no go)
+  local make_dir=$(dirname "$(which make)")
+  local test_path="/bin:/usr/bin:$make_dir"
+
+  # Run make lint with PATH that excludes go
+  local output
+  local exit_code
+  output=$(cd "$test_dir" && PATH="$test_path" make lint 2>&1) || exit_code=$?
+
+  # Should fail with non-zero exit code
+  if [ -z "$exit_code" ] || [ "$exit_code" -eq 0 ]; then
+    test_fail "lint handles missing go vet" "Expected failure but command succeeded"
+    return
+  fi
+
+  # Should attempt to run go vet
+  if ! echo "$output" | grep -q "Running go vet"; then
+    test_fail "lint handles missing go vet" "Did not attempt to run go vet"
+    return
+  fi
+
+  # Should show command not found error
+  if ! echo "$output" | grep -q "go: command not found"; then
+    test_fail "lint handles missing go vet" "Did not show command not found error"
+    return
+  fi
+
+  test_pass "lint handles missing go vet"
+}
+
+test_format_handles_missing_go_fmt() {
+  # Create a Go project
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create proper go.mod with module declaration
+  printf '%s\n' 'module test.example.com/missing-go' 'go 1.21' > "$test_dir/go.mod"
+
+  # Create a simple Go file
+  printf '%s\n' 'package main' 'func main() {' '    x:=1' '    _ = x' '}' > "$test_dir/main.go"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Get make path and create minimal PATH with just make and core utils (no go)
+  local make_dir=$(dirname "$(which make)")
+  local test_path="/bin:/usr/bin:$make_dir"
+
+  # Run make format with PATH that excludes go
+  local output
+  local exit_code
+  output=$(cd "$test_dir" && PATH="$test_path" make format 2>&1) || exit_code=$?
+
+  # Should fail with non-zero exit code
+  if [ -z "$exit_code" ] || [ "$exit_code" -eq 0 ]; then
+    test_fail "format handles missing go fmt" "Expected failure but command succeeded"
+    return
+  fi
+
+  # Should attempt to format Go code
+  if ! echo "$output" | grep -q "Formatting Go code"; then
+    test_fail "format handles missing go fmt" "Did not attempt to format Go code"
+    return
+  fi
+
+  # Should show command not found error
+  if ! echo "$output" | grep -q "go: command not found"; then
+    test_fail "format handles missing go fmt" "Did not show command not found error"
+    return
+  fi
+
+  test_pass "format handles missing go fmt"
+}
+
+test_typecheck_handles_missing_go_build() {
+  # Create a Go project
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create proper go.mod with module declaration
+  printf '%s\n' 'module test.example.com/missing-go' 'go 1.21' > "$test_dir/go.mod"
+
+  # Create a simple Go file
+  printf '%s\n' 'package main' 'func main() {}' > "$test_dir/main.go"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Get make path and create minimal PATH with just make and core utils (no go)
+  local make_dir=$(dirname "$(which make)")
+  local test_path="/bin:/usr/bin:$make_dir"
+
+  # Run make typecheck with PATH that excludes go
+  local output
+  local exit_code
+  output=$(cd "$test_dir" && PATH="$test_path" make typecheck 2>&1) || exit_code=$?
+
+  # Should fail with non-zero exit code
+  if [ -z "$exit_code" ] || [ "$exit_code" -eq 0 ]; then
+    test_fail "typecheck handles missing go build" "Expected failure but command succeeded"
+    return
+  fi
+
+  # Should attempt to type check Go code
+  if ! echo "$output" | grep -q "Type checking Go code"; then
+    test_fail "typecheck handles missing go build" "Did not attempt to type check Go code"
+    return
+  fi
+
+  # Should show command not found error
+  if ! echo "$output" | grep -q "go: command not found"; then
+    test_fail "typecheck handles missing go build" "Did not show command not found error"
+    return
+  fi
+
+  test_pass "typecheck handles missing go build"
+}
+
+test_lint_handles_missing_eslint() {
+  # Create a Node.js project
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create package.json
+  printf '%s\n' '{' '  "name": "test-project",' '  "version": "1.0.0"' '}' > "$test_dir/package.json"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Get make path and create minimal PATH with just make and core utils
+  local make_dir
+  make_dir=$(dirname "$(which make)")
+  local test_path="/bin:/usr/bin:$make_dir"
+
+  # Run make lint with PATH that excludes pnpm/npx and capture exit code
+  local output
+  local exit_code=0
+  output=$(cd "$test_dir" && PATH="$test_path" make lint 2>&1) || exit_code=$?
+
+  # Makefile detects package.json and prints "Running eslint..."
+  if ! echo "$output" | grep -q "Running eslint"; then
+    test_fail "lint handles missing eslint" "Did not show eslint detection message"
+    return
+  fi
+
+  # Should complete gracefully (no error) since command -v checks prevent execution
+  if ! echo "$output" | grep -q "Linting complete"; then
+    test_fail "lint handles missing eslint" "Did not show completion message"
+    return
+  fi
+
+  # Should exit with code 0 (graceful handling)
+  if [ "$exit_code" -ne 0 ]; then
+    test_fail "lint handles missing eslint" "Should exit cleanly but got exit code $exit_code"
+    return
+  fi
+
+  test_pass "lint handles missing eslint"
+}
+
+test_typecheck_handles_missing_tsc() {
+  # Create a TypeScript project
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create package.json and tsconfig.json
+  printf '%s\n' '{' '  "name": "test-project",' '  "version": "1.0.0"' '}' > "$test_dir/package.json"
+  printf '%s\n' '{' '  "compilerOptions": {' '    "target": "ES2020"' '  }' '}' > "$test_dir/tsconfig.json"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Get make path and create minimal PATH with just make and core utils
+  local make_dir
+  make_dir=$(dirname "$(which make)")
+  local test_path="/bin:/usr/bin:$make_dir"
+
+  # Run make typecheck with PATH that excludes pnpm/npx and capture exit code
+  local output
+  local exit_code=0
+  output=$(cd "$test_dir" && PATH="$test_path" make typecheck 2>&1) || exit_code=$?
+
+  # Makefile detects package.json + tsconfig.json and prints "Type checking TypeScript..."
+  if ! echo "$output" | grep -q "Type checking TypeScript"; then
+    test_fail "typecheck handles missing tsc" "Did not show TypeScript detection message"
+    return
+  fi
+
+  # Should complete gracefully (no error) since command -v checks prevent execution
+  if ! echo "$output" | grep -q "Type checking complete"; then
+    test_fail "typecheck handles missing tsc" "Did not show completion message"
+    return
+  fi
+
+  # Should exit with code 0 (graceful handling)
+  if [ "$exit_code" -ne 0 ]; then
+    test_fail "typecheck handles missing tsc" "Should exit cleanly but got exit code $exit_code"
+    return
+  fi
+
+  test_pass "typecheck handles missing tsc"
+}
+
+test_typecheck_skips_typescript_when_no_tsconfig() {
+  # Create a Node.js project without tsconfig.json
+  local test_dir=$(mktemp -d)
+  trap "rm -rf '$test_dir'" RETURN
+
+  mkdir -p "$test_dir/infrastructure/scripts"
+
+  # Create package.json only (no tsconfig.json)
+  printf '%s\n' '{' '  "name": "test-project",' '  "version": "1.0.0"' '}' > "$test_dir/package.json"
+
+  # Copy Makefile
+  cp "$REPO_ROOT/Makefile" "$test_dir/Makefile"
+
+  # Run make typecheck
+  local output
+  if ! output=$(cd "$test_dir" && make typecheck 2>&1); then
+    test_fail "typecheck skips TypeScript when no tsconfig" "make typecheck failed: $output"
+    return
+  fi
+
+  # Should NOT attempt TypeScript type checking
+  if echo "$output" | grep -q "Type checking TypeScript"; then
+    test_fail "typecheck skips TypeScript when no tsconfig" "Should not type check TypeScript without tsconfig.json"
+    return
+  fi
+
+  # Should show completion message
+  if ! echo "$output" | grep -q "Type checking complete"; then
+    test_fail "typecheck skips TypeScript when no tsconfig" "Did not show completion message"
+    return
+  fi
+
+  test_pass "typecheck skips TypeScript when no tsconfig"
+}
+
+# ============================================================================
 # Run All Tests
 # ============================================================================
 
@@ -670,6 +1050,19 @@ run_test test_lint_detects_go_project
 run_test test_typecheck_detects_go_project
 run_test test_format_detects_nodejs_project
 run_test test_format_handles_missing_pnpm_gracefully
+
+echo ""
+echo "=== Error Scenario Tests ==="
+# Error scenario tests verify Makefile handles edge cases gracefully
+run_test test_format_handles_hybrid_project
+run_test test_lint_handles_hybrid_project
+run_test test_typecheck_handles_hybrid_project
+run_test test_lint_handles_missing_go_vet
+run_test test_format_handles_missing_go_fmt
+run_test test_typecheck_handles_missing_go_build
+run_test test_lint_handles_missing_eslint
+run_test test_typecheck_handles_missing_tsc
+run_test test_typecheck_skips_typescript_when_no_tsconfig
 
 # ============================================================================
 # Test Summary

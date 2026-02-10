@@ -8,6 +8,7 @@
 #   HAS_GO      - Set to 1 if project has Go code (default: 0)
 #   HAS_TS      - Set to 1 if project has TypeScript code (default: 0)
 #   TS_DIR      - Directory containing TypeScript code (default: tests)
+#   TS_DIRS     - Space-separated list of TypeScript directories (alternative to TS_DIR)
 #
 # Optional variables:
 #   GO          - Go binary path (default: go)
@@ -27,8 +28,13 @@
 #   TS_DIR=.
 #   include ../../infrastructure/make/validate.mk
 #
-# Note: Projects with complex structures (multiple TS directories, Go code in subdirectories)
-# should define custom targets instead of using this include. See printsync/Makefile for example.
+# Example for project with multiple TypeScript directories:
+#   HAS_TS=1
+#   TS_DIRS=site tests
+#   include ../../infrastructure/make/validate.mk
+#
+# Note: Use either TS_DIR (single directory) or TS_DIRS (multiple directories), not both.
+# If TS_DIRS is set, TS_DIR is ignored.
 #
 # Note: TypeScript lint/typecheck use || true to allow failure (non-blocking for iterative development)
 
@@ -36,7 +42,11 @@
 HAS_GO ?= 0
 HAS_TS ?= 0
 TS_DIR ?= tests
+TS_DIRS ?=
 GO ?= go
+
+# If TS_DIRS is set, use it; otherwise use TS_DIR
+_TS_DIRS := $(if $(TS_DIRS),$(TS_DIRS),$(TS_DIR))
 
 # Validation pipeline - runs lint, typecheck, and test
 .PHONY: validate
@@ -50,7 +60,10 @@ ifeq ($(HAS_GO),1)
 	@$(GO) fmt ./...
 endif
 ifeq ($(HAS_TS),1)
-	@cd $(TS_DIR) && pnpm prettier --write .
+	@for dir in $(_TS_DIRS); do \
+		echo "Formatting $$dir..."; \
+		(cd $$dir && pnpm prettier --write .); \
+	done
 endif
 
 # Run linters (go vet + ESLint)
@@ -61,7 +74,10 @@ ifeq ($(HAS_GO),1)
 	@$(GO) vet ./...
 endif
 ifeq ($(HAS_TS),1)
-	@cd $(TS_DIR) && pnpm eslint . || true
+	@for dir in $(_TS_DIRS); do \
+		echo "Linting $$dir..."; \
+		(cd $$dir && pnpm eslint . || true); \
+	done
 endif
 
 # Type checking (go build + tsc)
@@ -72,5 +88,8 @@ ifeq ($(HAS_GO),1)
 	@$(GO) build ./...
 endif
 ifeq ($(HAS_TS),1)
-	@cd $(TS_DIR) && pnpm tsc --noEmit || true
+	@for dir in $(_TS_DIRS); do \
+		echo "Type checking $$dir..."; \
+		(cd $$dir && pnpm tsc --noEmit || true); \
+	done
 endif

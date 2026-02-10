@@ -53,7 +53,7 @@ Run tests for the current project or entire monorepo using the unified test inte
          - Show the last 20 lines of emulator logs if available
          - Provide recovery steps:
            * Check if ports are already in use: `lsof -i :9099`
-           * Kill stale emulators: `infrastructure/scripts/stop-emulators.sh --force`
+           * Kill stale emulators: `infrastructure/scripts/stop-emulators.sh --force-backend`
            * Check disk space: `df -h`
          - Exit with error status
 

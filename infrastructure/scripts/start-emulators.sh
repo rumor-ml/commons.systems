@@ -375,6 +375,26 @@ EOF
       echo "Install Node.js or set SKIP_QA_SEEDING=1 to skip" >&2
       if [ -z "${SKIP_QA_SEEDING:-}" ]; then
         exit 1
+      else
+        echo "" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  QA user seeding SKIPPED (SKIP_QA_SEEDING set)" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        echo "E2E tests will FAIL with authentication errors!" >&2
+        echo "" >&2
+        echo "Tests requiring QA GitHub user (qa-github@test.com) will fail:" >&2
+        echo "  - OAuth login flows" >&2
+        echo "  - User authentication tests" >&2
+        echo "  - Any test using pre-seeded test users" >&2
+        echo "" >&2
+        echo "To fix: Install Node.js and remove SKIP_QA_SEEDING" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+
+        # Set environment variable so test failure logs can reference it
+        export QA_SEEDING_SKIPPED="true"
+        export TEST_WARNING="NO_QA_USERS"
       fi
     else
       # Set up environment for seed script
@@ -389,12 +409,41 @@ EOF
         echo "✓ QA users configured"
       else
         echo "ERROR: Failed to seed QA users (exit code: $SEED_EXIT)" >&2
-        echo "Error output:" >&2
-        echo "$SEED_ERROR" | sed 's/^/  /' >&2
         echo "" >&2
-        echo "This will cause E2E test authentication to fail" >&2
-        if [ -z "${SKIP_QA_SEEDING:-}" ]; then
-          exit 1
+
+        # Check for specific error patterns to provide targeted advice
+        if echo "$SEED_ERROR" | grep -q "Network error"; then
+          echo "Error: Cannot connect to Auth emulator" >&2
+          echo "" >&2
+          echo "Possible causes:" >&2
+          echo "  - Auth emulator not fully started (wait longer)" >&2
+          echo "  - Wrong port: Check FIREBASE_AUTH_EMULATOR_HOST=${FIREBASE_AUTH_EMULATOR_HOST}" >&2
+          echo "  - Firewall blocking localhost connections" >&2
+          echo "" >&2
+          echo "Try: nc -z 127.0.0.1 ${AUTH_PORT} (should succeed if emulator is ready)" >&2
+          echo "" >&2
+          echo "Full error output:" >&2
+          echo "$SEED_ERROR" | sed 's/^/  /' >&2
+        elif echo "$SEED_ERROR" | grep -q "raw id exists"; then
+          # This is actually success - duplicate is handled gracefully by seed script
+          echo "Note: User already exists (this is normal)" >&2
+          echo "✓ QA users configured (pre-existing)" >&2
+          SEED_EXIT=0  # Treat as success
+        else
+          echo "Full error output:" >&2
+          echo "$SEED_ERROR" | sed 's/^/  /' >&2
+        fi
+
+        if [ $SEED_EXIT -ne 0 ]; then
+          echo "" >&2
+          echo "This will cause E2E test authentication to fail" >&2
+
+          if [ -n "${SKIP_QA_SEEDING:-}" ]; then
+            echo "⚠️  SKIP_QA_SEEDING is set - continuing without QA users" >&2
+            echo "   E2E tests WILL FAIL with authentication errors" >&2
+          else
+            exit 1
+          fi
         fi
       fi
     fi
@@ -470,73 +519,13 @@ fi
 echo "Starting per-worktree hosting emulator..."
 
 # ============================================================================
-# PORT RETRY LOOP - Handle port allocation race conditions
+# FIREBASE.JSON VALIDATION - Validate ONCE before port retry loop
 # ============================================================================
-# Port conflicts can occur between allocation check and emulator binding.
-# Retry with exponential backoff and automatic port reallocation on failure.
+# This prevents confusing error messages when JQ fails during port retries.
+# If JQ fails, we want immediate failure, not "port conflict" messages.
 
-# INFRASTRUCTURE STABILITY FIX: Increase retry attempts from 3 to 5
-# This reduces race conditions during parallel test runs and CI overload
-MAX_PORT_RETRIES=5
-PORT_RETRY_COUNT=0
-HOSTING_STARTED=false
-ORIGINAL_HOSTING_PORT="${HOSTING_PORT}"  # Save for error messages
-
-while [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ] && [ "$HOSTING_STARTED" = "false" ]; do
-  if [ $PORT_RETRY_COUNT -gt 0 ]; then
-    # Calculate backoff delay: 2^retry (1s, 2s, 4s)
-    BACKOFF_DELAY=$((2 ** PORT_RETRY_COUNT))
-    echo "Retrying in ${BACKOFF_DELAY}s... (attempt $((PORT_RETRY_COUNT + 1))/${MAX_PORT_RETRIES})"
-    sleep $BACKOFF_DELAY
-  fi
-
-  echo "  Port: ${HOSTING_PORT}"
-  echo "  Project: ${PROJECT_ID}"
-  echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
-
-  # Validate port availability
-  # allocate-test-ports.sh found an available port, but verify it's still free
-  # (race condition possible if another process claimed it between allocation and startup)
-  if ! is_port_available ${HOSTING_PORT}; then
-    echo "WARNING: Allocated port ${HOSTING_PORT} is not available" >&2
-    echo "Port allocation race condition detected!" >&2
-    echo "" >&2
-    echo "Port owner details:" >&2
-    if ! get_port_owner ${HOSTING_PORT} >&2; then
-      echo "  (Unable to determine port owner - port may have been freed)" >&2
-    fi
-    echo "" >&2
-
-    # Try to find a new port
-    PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
-    if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
-      # Find next available port (start 10 ports higher)
-      NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
-      if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
-        echo "Found alternative port: ${NEW_PORT}" >&2
-        HOSTING_PORT=$NEW_PORT
-        continue
-      else
-        echo "ERROR: Could not find alternative port" >&2
-      fi
-    fi
-
-    # All retries exhausted
-    echo "ERROR: Failed to allocate hosting port after ${MAX_PORT_RETRIES} attempts" >&2
-    echo "Original port: ${ORIGINAL_HOSTING_PORT}" >&2
-    echo "" >&2
-    echo "Solutions:" >&2
-    echo "  - Run: infrastructure/scripts/stop-emulators.sh to stop all emulators" >&2
-    echo "  - Check for processes holding ports: lsof -i :5000-5990" >&2
-    exit 1
-  fi
-
-# Change to repository root
+# Change to repository root for firebase.json access
 cd "${PROJECT_ROOT}"
-
-# Create temporary firebase config for this worktree with custom hosting port
-# Put it in PROJECT_ROOT so relative paths work correctly
-TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
 # Validate firebase.json exists and is readable
 if [ ! -f firebase.json ]; then
@@ -552,7 +541,7 @@ if ! jq empty firebase.json 2>/dev/null; then
   exit 1
 fi
 
-# Filter hosting config to only include the site being tested (if APP_NAME provided)
+# Extract hosting config ONCE before port retry loop
 # Keep paths relative - Firebase emulator resolves them from CWD (PROJECT_ROOT)
 # Remove site/target fields - hosting emulator serves all configs at root path
 if [ -n "$APP_NAME" ]; then
@@ -616,6 +605,74 @@ else
 
   echo "Hosting all sites from firebase.json"
 fi
+
+# ============================================================================
+# PORT RETRY LOOP - Handle port allocation race conditions
+# ============================================================================
+# Port conflicts can occur between allocation check and emulator binding.
+# Retry with exponential backoff and automatic port reallocation on failure.
+# NOTE: HOSTING_CONFIG extracted above is reused on all retry attempts.
+
+# INFRASTRUCTURE STABILITY FIX: Increase retry attempts from 3 to 5
+# This reduces race conditions during parallel test runs and CI overload
+MAX_PORT_RETRIES=5
+PORT_RETRY_COUNT=0
+HOSTING_STARTED=false
+ORIGINAL_HOSTING_PORT="${HOSTING_PORT}"  # Save for error messages
+
+while [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ] && [ "$HOSTING_STARTED" = "false" ]; do
+  if [ $PORT_RETRY_COUNT -gt 0 ]; then
+    # Calculate backoff delay: 2^retry (1s, 2s, 4s)
+    BACKOFF_DELAY=$((2 ** PORT_RETRY_COUNT))
+    echo "Retrying in ${BACKOFF_DELAY}s... (attempt $((PORT_RETRY_COUNT + 1))/${MAX_PORT_RETRIES})"
+    sleep $BACKOFF_DELAY
+  fi
+
+  echo "  Port: ${HOSTING_PORT}"
+  echo "  Project: ${PROJECT_ID}"
+  echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
+
+  # Validate port availability
+  # allocate-test-ports.sh found an available port, but verify it's still free
+  # (race condition possible if another process claimed it between allocation and startup)
+  if ! is_port_available ${HOSTING_PORT}; then
+    echo "WARNING: Allocated port ${HOSTING_PORT} is not available" >&2
+    echo "Port allocation race condition detected!" >&2
+    echo "" >&2
+    echo "Port owner details:" >&2
+    if ! get_port_owner ${HOSTING_PORT} >&2; then
+      echo "  (Unable to determine port owner - port may have been freed)" >&2
+    fi
+    echo "" >&2
+
+    # Try to find a new port
+    PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
+    if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
+      # Find next available port (start 10 ports higher)
+      NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
+      if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
+        echo "Found alternative port: ${NEW_PORT}" >&2
+        HOSTING_PORT=$NEW_PORT
+        continue
+      else
+        echo "ERROR: Could not find alternative port" >&2
+      fi
+    fi
+
+    # All retries exhausted
+    echo "ERROR: Failed to allocate hosting port after ${MAX_PORT_RETRIES} attempts" >&2
+    echo "Original port: ${ORIGINAL_HOSTING_PORT}" >&2
+    echo "" >&2
+    echo "Solutions:" >&2
+    echo "  - Run: infrastructure/scripts/stop-emulators.sh to stop all emulators" >&2
+    echo "  - Check for processes holding ports: lsof -i :5000-5990" >&2
+    exit 1
+  fi
+
+# Create temporary firebase config for this worktree with custom hosting port
+# Put it in PROJECT_ROOT so relative paths work correctly
+# NOTE: HOSTING_CONFIG was already extracted and validated before the port retry loop
+TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
 cat > "${TEMP_CONFIG}" <<EOF
 {

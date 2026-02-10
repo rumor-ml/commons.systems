@@ -152,6 +152,7 @@ export interface Statement {
 // Account type union for compile-time safety
 export type AccountType = 'checking' | 'savings' | 'credit' | 'investment';
 
+// TODO(#1886): Add readonly modifiers for consistency with Transaction interface
 // Account interface
 export interface Account {
   id: string;

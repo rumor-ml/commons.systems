@@ -3,7 +3,7 @@
 # Usage: run-e2e-tests.sh <app-type> <app-path>
 #
 # App types: firebase, go-fullstack, go-tui
-# Features: CWD setup, ENV vars, emulator pool/singleton modes, platform detection, emulator reuse
+# Features: CWD setup, ENV vars, singleton mode (pool optional), platform detection, emulator reuse
 
 set -e
 
@@ -56,11 +56,40 @@ add_cleanup_handler() {
 }
 
 run_all_cleanup() {
+  local cleanup_failed=false
+  local failed_handlers=()
+
   for func in "${CLEANUP_FUNCTIONS[@]}"; do
     if declare -f "$func" > /dev/null; then
-      "$func" 2>&1 || true
+      echo "Running cleanup: $func" >&2
+
+      if ! "$func" 2>&1; then
+        echo "WARNING: Cleanup handler '$func' failed" >&2
+        cleanup_failed=true
+        failed_handlers+=("$func")
+      fi
     fi
   done
+
+  if [ "$cleanup_failed" = "true" ]; then
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "⚠️  CLEANUP FAILURES DETECTED" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "" >&2
+    echo "The following cleanup handlers failed:" >&2
+    for handler in "${failed_handlers[@]}"; do
+      echo "  - $handler" >&2
+    done
+    echo "" >&2
+    echo "This may leave system resources in inconsistent state:" >&2
+    echo "  - Pool instances may remain claimed" >&2
+    echo "  - Emulator processes may still be running" >&2
+    echo "  - Temp files may not be cleaned up" >&2
+    echo "" >&2
+    echo "Manual cleanup may be required before next test run" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+  fi
 }
 
 trap run_all_cleanup EXIT
@@ -81,8 +110,9 @@ if [ -f "$EMULATOR_POOL_SCRIPT" ] && [ -f "${HOME}/.firebase-emulator-pool/pool.
   echo "=== Attempting to claim emulator pool instance ==="
 
   # Claim an instance from the pool
+  # TODO(#1885): Extract repeated mktemp/capture/display/rm error handling pattern into helper function
   CLAIM_ERROR=$(mktemp)
-  if POOL_INSTANCE_JSON=$(source "$EMULATOR_POOL_SCRIPT" claim 2>"$CLAIM_ERROR"); then
+  if POOL_INSTANCE_JSON=$("$EMULATOR_POOL_SCRIPT" claim 2>"$CLAIM_ERROR"); then
     POOL_INSTANCE_ID=$(echo "$POOL_INSTANCE_JSON" | jq -r '.id')
     POOL_INSTANCE_CLAIMED=true
 
@@ -106,9 +136,9 @@ if [ -f "$EMULATOR_POOL_SCRIPT" ] && [ -f "${HOME}/.firebase-emulator-pool/pool.
     release_pool_instance() {
       if [ "$POOL_INSTANCE_CLAIMED" = "true" ] && [ -n "$POOL_INSTANCE_ID" ]; then
         echo "Releasing pool instance: $POOL_INSTANCE_ID"
-        if ! source "$EMULATOR_POOL_SCRIPT" release "$POOL_INSTANCE_ID" 2>&1; then
+        if ! "$EMULATOR_POOL_SCRIPT" release "$POOL_INSTANCE_ID" 2>&1; then
           echo "WARNING: Failed to release pool instance $POOL_INSTANCE_ID" >&2
-          echo "Pool may be in inconsistent state. Run: source $EMULATOR_POOL_SCRIPT status" >&2
+          echo "Pool may be in inconsistent state. Run: $EMULATOR_POOL_SCRIPT status" >&2
         fi
       fi
     }
@@ -119,6 +149,13 @@ if [ -f "$EMULATOR_POOL_SCRIPT" ] && [ -f "${HOME}/.firebase-emulator-pool/pool.
     if [ -s "$CLAIM_ERROR" ]; then
       echo "   Reason:" >&2
       cat "$CLAIM_ERROR" | sed 's/^/     /' >&2
+    else
+      echo "   Reason: Claim command failed with no error output" >&2
+      echo "   This may indicate:" >&2
+      echo "     - emulator-pool.sh not found or not executable" >&2
+      echo "     - Missing dependencies (jq, pool.json)" >&2
+      echo "     - Script execution error" >&2
+      echo "   Check: ls -l $EMULATOR_POOL_SCRIPT" >&2
     fi
     rm -f "$CLAIM_ERROR"
   fi
@@ -141,7 +178,8 @@ is_supervisor_running() {
     local pid
     pid=$(cat "$SUPERVISOR_PID_FILE")
     if kill -0 "$pid" 2>/dev/null; then
-      # Validate the process is actually the supervisor script (not some random process with reused PID)
+      # Check if the process cmdline contains "emulator-supervisor" string
+      # This prevents PID reuse by unrelated processes (basic validation, not cryptographic)
       local cmdline
       cmdline=$(cat /proc/"$pid"/cmdline 2>/dev/null | tr '\0' ' ' || echo "")
       if [[ "$cmdline" == *"emulator-supervisor"* ]]; then
@@ -186,11 +224,11 @@ if [ -f "$TEST_ENV_CONFIG" ]; then
     if nc -z 127.0.0.1 "$AUTH_PORT_CHECK" 2>/dev/null && \
        nc -z 127.0.0.1 "$HOSTING_PORT_CHECK" 2>/dev/null; then
 
-      # CRITICAL FIX: Verify that the hosting emulator is serving the correct app
-      # Problem: When audiobrowser tests run first, fellspiral tests would reuse the
-      # audiobrowser hosting emulator, causing test failures due to wrong app being served.
-      # Solution: Check if stored appName matches current APP_NAME before reusing emulators.
-      # Testing: Covered by TODO(#1713) - emulator reuse test coverage
+      # Prevent cross-app contamination when reusing emulators
+      # Bug: audiobrowser tests leave hosting emulator running. When fellspiral runs next,
+      # it detects the port in use and reuses it, but emulator serves wrong app files.
+      # Fix: Check stored appName matches current app before reusing. If mismatch, restart.
+      # Testing: Missing - tracked in #1713
       if [ -n "$EXISTING_APP_NAME" ] && [ "$EXISTING_APP_NAME" != "$APP_NAME" ]; then
         echo "⚠️  Hosting emulator is serving different app: $EXISTING_APP_NAME (need: $APP_NAME)"
         echo "   Skipping reuse - will restart hosting emulator for correct app"
@@ -241,6 +279,18 @@ if [ "$REUSE_EMULATORS" = "false" ] && [ "$POOL_INSTANCE_CLAIMED" = "false" ]; t
     fi
     cat "$ALLOC_ERROR" | sed 's/^/  /' >&2
     echo "" >&2
+  else
+    # CRITICAL: No stderr captured but command failed
+    if [ $ALLOC_EXIT -ne 0 ]; then
+      echo "FATAL: Port allocation failed with no error output (exit code: $ALLOC_EXIT)" >&2
+      echo "" >&2
+      echo "This usually indicates:" >&2
+      echo "  - allocate-test-ports.sh not found at: $SCRIPT_DIR/allocate-test-ports.sh" >&2
+      echo "  - Bash syntax error in allocate-test-ports.sh" >&2
+      echo "  - Permission denied executing the script" >&2
+      echo "" >&2
+      echo "Check script existence: ls -l $SCRIPT_DIR/allocate-test-ports.sh" >&2
+    fi
   fi
   rm -f "$ALLOC_ERROR"
 
@@ -273,8 +323,9 @@ if [ "$REUSE_EMULATORS" = "false" ] && [ "$POOL_INSTANCE_CLAIMED" = "false" ]; t
 elif [ "$POOL_INSTANCE_CLAIMED" = "true" ]; then
   echo "✓ Pool instance ports already configured (skipping allocate-test-ports.sh)"
 else
-  # INFRASTRUCTURE STABILITY FIX: Clear Firestore data when reusing emulators
-  # This ensures test isolation and prevents stale data from affecting tests
+  # Clear Firestore data when reusing emulators to ensure test isolation
+  # This prevents stale data from previous test runs affecting current tests
+  # Note: ALLOW_STALE_DATA=true override bypasses this (may cause flaky tests)
   FIRESTORE_PORT="${FIRESTORE_EMULATOR_HOST##*:}"
   FIRESTORE_HOST="${FIRESTORE_EMULATOR_HOST%%:*}"
 
@@ -292,14 +343,40 @@ else
     rm -f "$CLEAR_ERROR"
 
     if [ "${ALLOW_STALE_DATA:-false}" = "true" ]; then
-      echo "⚠️  ALLOW_STALE_DATA=true - continuing with potentially stale data" >&2
-      echo "   Tests may be flaky due to data from previous runs" >&2
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+      echo "⚠️  WARNING: Running tests with STALE DATA" >&2
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+      echo "" >&2
+      echo "Firestore data clearing FAILED but ALLOW_STALE_DATA=true" >&2
+      echo "" >&2
+      echo "CRITICAL: Test results are UNRELIABLE in this mode!" >&2
+      echo "" >&2
+      echo "Risks:" >&2
+      echo "  - Tests may fail due to data from previous runs" >&2
+      echo "  - Assertions may pass incorrectly on stale data" >&2
+      echo "  - Timing-dependent failures (A passes alone, fails after B)" >&2
+      echo "  - Cannot trust test results for code validation" >&2
+      echo "" >&2
+      echo "This mode should ONLY be used for debugging data clearing issues" >&2
+      echo "DO NOT merge code validated with ALLOW_STALE_DATA=true" >&2
+      echo "" >&2
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+
+      # Add marker to test output
+      export TEST_ENV_STALE_DATA="true"
+      export TEST_WARNING="STALE_DATA_MODE"
+
+      # Sleep to ensure user sees the warning
+      sleep 3
     else
       echo "Firestore data must be cleared to ensure test isolation" >&2
       echo "" >&2
       echo "Recovery options:" >&2
       echo "  1. Restart emulators: infrastructure/scripts/stop-emulators.sh && infrastructure/scripts/start-emulators.sh" >&2
-      echo "  2. Override (not recommended): ALLOW_STALE_DATA=true $0 $@" >&2
+      echo "  2. Debug data clearing: Check emulator logs, verify API endpoint" >&2
+      echo "  3. Override (DEBUG ONLY): ALLOW_STALE_DATA=true $0 $@" >&2
+      echo "" >&2
+      echo "WARNING: Do not use ALLOW_STALE_DATA for actual validation" >&2
       exit 1
     fi
   else
@@ -325,8 +402,9 @@ case "$APP_TYPE" in
     # Static Firebase app with Firebase emulators
 
     # Build the site BEFORE starting emulators to prevent 404 caching
-    # The hosting emulator caches 404 responses for missing files during startup.
-    # Building first ensures files exist when emulator initializes, preventing cached 404s.
+    # The hosting emulator caches 404 responses for files missing at startup.
+    # These cached 404s persist even if files are added later, causing tests to fail.
+    # Building first ensures all files exist before the emulator starts caching.
     echo "Building..."
     VITE_USE_FIREBASE_EMULATOR=true VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" pnpm --dir "${APP_PATH_ABS}/site" build
 
@@ -362,11 +440,11 @@ case "$APP_TYPE" in
       else
         echo "ℹ️  Using existing supervised emulators"
 
-        # CRITICAL FIX: Ensure hosting emulator is running for this worktree
+        # Ensure hosting emulator is running for this worktree
         # Problem: When supervisor manages emulators in another worktree, this worktree's
         # hosting emulator may not be running, causing E2E tests to fail with connection errors.
         # Solution: Independently start hosting emulator if not detected on expected port.
-        # Testing: Covered by TODO(#1714) - multi-worktree hosting startup test coverage
+        # Testing: Missing - tracked in #1714
         echo "🔍 Verifying hosting emulator for this worktree..."
         echo "   Expected hosting port: ${HOSTING_PORT}"
 
@@ -396,8 +474,9 @@ case "$APP_TYPE" in
             exit 1
           fi
 
-          # Extract the one site config and remove site/target fields
-          # This avoids port conflicts when firebase.json has multiple hosting targets
+          # Extract single site config without site/target fields to prevent multi-target port allocation
+          # When site/target fields are present, Firebase attempts to serve all targets simultaneously,
+          # causing port conflicts with our single-port-per-instance setup (HOSTING_PORT=${HOSTING_PORT})
           JQ_ERROR=$(mktemp)
           HOSTING_CONFIG=$(jq --arg site "$SITE_ID" \
             '.hosting[] | select(.site == $site) | del(.site, .target)' \
@@ -527,7 +606,8 @@ EOF
     TIMEOUT_MULTIPLIER="${TIMEOUT_MULTIPLIER:-1}"
     DEPLOYED_URL="${DEPLOYED_URL:-}"
 
-    # CRITICAL VERIFICATION: Ensure hosting emulator is actually running before writing config
+    # Pre-config health check: Verify hosting emulator is actually running
+    # This prevents writing .test-env.json with a port that has no running server
     echo ""
     echo "=== Pre-Config Verification ==="
     echo "Verifying hosting emulator on port ${HOSTING_PORT}..."
@@ -568,7 +648,9 @@ EOF
 }
 EOF
 
-    # Verify config consistency
+    # Sanity check: Verify the written config matches our shell variables
+    # This catches JSON generation errors, variable substitution failures, or file corruption
+    # Should never fail in normal operation - indicates a serious infrastructure bug if it does
     WRITTEN_PORT=$(jq -r '.emulators.hostingPort' "$TEST_ENV_CONFIG")
     if [ "$WRITTEN_PORT" != "$HOSTING_PORT" ]; then
       echo "ERROR: Config mismatch - HOSTING_PORT=${HOSTING_PORT} but .test-env.json has ${WRITTEN_PORT}" >&2

@@ -65,7 +65,28 @@ const auth = getAuth();
 async function seedQAGitHubUser() {
   try {
     // Check if user already exists with GitHub provider
-    const existingUser = await auth.getUser(QA_GITHUB_USER.uid).catch(() => null);
+    let existingUser;
+    try {
+      existingUser = await auth.getUser(QA_GITHUB_USER.uid);
+    } catch (getUserError) {
+      // Check if it's "user not found" (expected) vs actual error
+      if (getUserError.code === 'auth/user-not-found') {
+        // Expected - user doesn't exist yet
+        existingUser = null;
+      } else {
+        // Unexpected error - fail fast with context
+        console.error('   ❌ Error checking for existing user');
+        console.error(`      UID: ${QA_GITHUB_USER.uid}`);
+        console.error(`      Error Code: ${getUserError.code}`);
+        console.error(`      Error Message: ${getUserError.message}`);
+        console.error('');
+        console.error('   This usually indicates:');
+        console.error('      - Auth emulator not fully started');
+        console.error('      - Admin SDK misconfigured');
+        console.error('      - Network connectivity issue');
+        throw new Error(`Failed to check existing user: ${getUserError.message}`);
+      }
+    }
 
     if (existingUser) {
       const hasGitHub = existingUser.providerData?.some((p) => p.providerId === 'github.com');
@@ -73,9 +94,18 @@ async function seedQAGitHubUser() {
         console.log(`   ✓ QA GitHub user already exists (${QA_GITHUB_USER.email})`);
         return true;
       }
+
       // User exists but no GitHub provider - delete and recreate
       console.log('   ⏳ Recreating QA user with GitHub provider...');
-      await auth.deleteUser(QA_GITHUB_USER.uid);
+      try {
+        await auth.deleteUser(QA_GITHUB_USER.uid);
+        console.log('   ✓ Deleted existing user without GitHub provider');
+      } catch (deleteError) {
+        console.error('   ❌ Failed to delete existing user');
+        console.error(`      UID: ${QA_GITHUB_USER.uid}`);
+        console.error(`      Error: ${deleteError.message}`);
+        throw new Error(`User deletion failed: ${deleteError.message}`);
+      }
     }
 
     // Use batchCreate REST API to create user with GitHub provider
@@ -132,8 +162,52 @@ async function seedQAGitHubUser() {
       throw new Error(`Network error: ${fetchError.message}`);
     }
 
-    const result = await response.json();
+    // Check HTTP status BEFORE attempting JSON parse
+    if (!response.ok) {
+      const statusText = response.statusText || 'Unknown Error';
+      let errorBody;
 
+      try {
+        // Try to parse as JSON first (structured error)
+        errorBody = await response.json();
+        const errorMsg = errorBody.error?.message || JSON.stringify(errorBody);
+        throw new Error(`HTTP ${response.status}: ${errorMsg}`);
+      } catch (jsonError) {
+        // Not JSON - get as text
+        try {
+          errorBody = await response.text();
+          // Truncate long HTML error pages
+          const truncated =
+            errorBody.length > 200 ? errorBody.substring(0, 200) + '...' : errorBody;
+          throw new Error(`HTTP ${response.status} ${statusText}: ${truncated}`);
+        } catch (textError) {
+          // Can't read body at all
+          throw new Error(`HTTP ${response.status} ${statusText} (body unreadable)`);
+        }
+      }
+    }
+
+    // Response is OK - attempt JSON parse with error handling
+    let result;
+    try {
+      result = await response.json();
+    } catch (parseError) {
+      console.error('   ❌ Failed to parse API response as JSON');
+      console.error(`      Status: ${response.status}`);
+      console.error(`      Parse Error: ${parseError.message}`);
+
+      // Try to show raw response for debugging
+      try {
+        const rawBody = await response.text();
+        console.error(`      Raw Response (first 500 chars): ${rawBody.substring(0, 500)}`);
+      } catch {
+        console.error('      (Unable to read response body)');
+      }
+
+      throw new Error(`Invalid JSON response from Auth emulator: ${parseError.message}`);
+    }
+
+    // Now check for application-level errors in the JSON
     if (result.error && result.error.length > 0) {
       // Check if it's a duplicate error (OAuth provider rawId already exists)
       // Firebase enforces uniqueness on providerUserInfo[].rawId (GitHub UID 12345678)

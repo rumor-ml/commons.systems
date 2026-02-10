@@ -57,20 +57,9 @@ run:
 run-server:
 	@go run ./cmd/server
 
-# Validation pipeline
-validate: lint typecheck test
-
-format:
-	@echo "Formatting code..."
-	@go fmt ./...
-
-lint:
-	@echo "Running linters..."
-	@go vet ./...
-
-typecheck:
-	@echo "Type checking..."
-	@go build ./...
+# Validation pipeline (using shared infrastructure)
+HAS_GO=1
+include ../infrastructure/make/validate.mk
 
 # Development helpers
 deps:

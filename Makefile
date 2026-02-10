@@ -1,7 +1,7 @@
 # Root Makefile for commons.systems monorepo
 # Provides unified test and validation interface across all project types
-# Test targets delegate to infrastructure/scripts/ for discovery and execution
-# Validation targets orchestrate lint/typecheck/test pipeline
+# Test targets: delegate to infrastructure/scripts/run-tests.sh for app discovery
+# Validation targets: inline project-type detection with per-type commands
 
 .PHONY: help test test-unit test-integration test-e2e validate format lint typecheck clean
 
@@ -31,8 +31,9 @@ help:
 	@echo "$(GREEN)Other targets:$(RESET)"
 	@echo "  make clean             - Clean build artifacts"
 	@echo ""
-	@echo "Note: All test targets delegate to infrastructure/scripts/run-tests.sh"
-	@echo "      which discovers known apps and runs their appropriate test suites."
+	@echo "Note: Test targets (test, test-unit, test-integration, test-e2e) delegate to"
+	@echo "      infrastructure/scripts/run-tests.sh which discovers and runs test suites."
+	@echo "      Validation targets (validate, lint, typecheck, format) use inline project-type detection."
 
 # Test targets - delegate to infrastructure scripts
 test:

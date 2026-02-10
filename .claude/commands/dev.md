@@ -45,33 +45,7 @@ Start a development server with Firebase emulators for local development and tes
    - Run: `make dev` (or appropriate dev command for the app type)
    - Capture output and display
 
-6. Display comprehensive dev environment summary:
-
-   **Development Server Started**
-
-   Mode: [Pool/Singleton]
-   App: [app-name]
-
-   URLs:
-   - Dev Server: http://localhost:[dev-port]
-   - Emulator UI: http://localhost:[ui-port]
-   - Firebase Hosting: http://localhost:[hosting-port]
-
-   Emulator Configuration:
-   - Auth Host: localhost:[auth-port]
-   - Firestore Host: localhost:[firestore-port]
-   - Storage Host: localhost:[storage-port]
-   - Project ID: [project-id]
-
-   QA User Credentials:
-   - Email: qa-github@test.com
-   - Provider: GitHub
-   - Password: (auto-generated in emulator)
-
-   Next Steps:
-   - Open browser: http://localhost:[dev-port]
-   - View Firestore data: http://localhost:[ui-port]
-   - Stop server: Press Ctrl+C
+6. Display the dev server URL, emulator URLs, and QA credentials
 
 7. If startup fails:
    - Show error message from make dev
@@ -100,48 +74,6 @@ cd fellspiral
 
 ```bash
 /dev fellspiral --no-pool
-```
-
-## Expected Output
-
-```
-Starting development environment for fellspiral...
-
-Checking emulators...
-✓ Emulators already running
-
-Seeding QA users...
-✓ QA users seeded successfully
-
-Starting dev server...
-✓ Dev server started
-
-================================================
-Development Environment Ready
-================================================
-
-App: fellspiral
-Mode: Singleton
-Project ID: demo-test-314015698
-
-URLs:
-  Dev Server: http://localhost:8080
-  Emulator UI: http://localhost:4000
-  Hosting: http://localhost:5030
-
-Emulators:
-  Auth: localhost:9099
-  Firestore: localhost:8080
-  Storage: localhost:9199
-
-QA User:
-  Email: qa-github@test.com
-  Provider: GitHub
-
-Next: Open http://localhost:8080 in your browser
-Stop: Press Ctrl+C to shut down dev server
-
-===============================================
 ```
 
 ## Notes

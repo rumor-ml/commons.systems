@@ -2,7 +2,11 @@
 # Firebase static site
 # Follows commons.systems monorepo build patterns
 
-.PHONY: help build dev test test-unit test-e2e clean install validate format lint typecheck
+# Validation targets - configure for validate.mk include
+HAS_TS=1
+TS_DIRS=site tests
+
+.PHONY: help build dev test test-unit test-e2e clean install
 
 help:
 	@echo "\033[36maudiobrowser - Audio file browser\033[0m"
@@ -46,22 +50,8 @@ test-e2e: build
 	@echo "Running Playwright E2E tests..."
 	@cd tests && pnpm test
 
-# Validation
-validate: lint typecheck test
-
-format:
-	@echo "Formatting code..."
-	@cd site && pnpm prettier --write .
-	@cd tests && pnpm prettier --write .
-
-lint:
-	@echo "Running linters..."
-	@cd site && pnpm eslint . || true
-	@cd tests && pnpm eslint . || true
-
-typecheck:
-	@echo "Type checking..."
-	@cd tests && pnpm tsc --noEmit || true
+# Validation targets provided by infrastructure/make/validate.mk
+include ../infrastructure/make/validate.mk
 
 # Cleanup
 clean:
