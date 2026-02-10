@@ -149,17 +149,20 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
       );
     }
 
-    // Explicit check for falsy stdout with success exit code
-    // Empty stdout is valid for some commands (e.g., 'git status --porcelain' on clean repo)
-    // but null/undefined stdout may indicate execa buffer issues or stream errors
-    if (!result.stdout) {
-      logger.error('git: Command succeeded but stdout is falsy - this indicates execa failure', {
-        command: `git ${args.join(' ')}`,
-        exitCode: result.exitCode,
-        stderr: result.stderr || 'none',
-        stdoutType: typeof result.stdout,
-        errorId: ErrorIds.GIT_COMMAND_FAILED,
-      });
+    // Explicit check for null/undefined stdout with success exit code
+    // Empty stdout ("") is valid for some commands (e.g., 'git status --porcelain' on clean repo)
+    // but null/undefined stdout indicates execa buffer issues or stream errors
+    if (result.stdout == null) {
+      logger.error(
+        'git: Command succeeded but stdout is null/undefined - this indicates execa failure',
+        {
+          command: `git ${args.join(' ')}`,
+          exitCode: result.exitCode,
+          stderr: result.stderr || 'none',
+          stdoutType: typeof result.stdout,
+          errorId: ErrorIds.GIT_COMMAND_FAILED,
+        }
+      );
       throw GitError.create(
         `Git command succeeded but produced no output (stdout is ${typeof result.stdout}). ` +
           `This may indicate a buffer overflow, stream error, or execa failure. ` +
