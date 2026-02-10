@@ -189,21 +189,22 @@ test.describe('Combobox Interaction Tests', () => {
 
     await page.locator('#addCardBtn').click();
     await page.locator('#cardType').focus();
+
+    // Wait for the listbox to open and populate
+    await expect(page.locator('#typeCombobox.open')).toBeVisible();
+    await page.waitForTimeout(100); // Give time for options to populate
+
     const initialCount = await page.locator('#typeListbox .combobox-option').count();
+    expect(initialCount).toBeGreaterThan(1); // Ensure we have multiple options to filter
+
     await page.locator('#cardType').fill('equip');
 
-    // Wait for the combobox to filter the options (DOM update after refresh())
-    await page.waitForFunction(
-      (expectedMax) => {
-        const options = document.querySelectorAll('#typeListbox .combobox-option');
-        return options.length < expectedMax;
-      },
-      initialCount,
-      { timeout: 2000 }
-    );
+    // Wait for DOM update with a small timeout
+    await page.waitForTimeout(200);
 
     const filteredCount = await page.locator('#typeListbox .combobox-option').count();
     expect(filteredCount).toBeLessThan(initialCount);
+    expect(filteredCount).toBeGreaterThan(0); // Should still have at least "Equipment"
   });
 
   test('should toggle dropdown via toggle button', async ({ page, authEmulator }) => {
