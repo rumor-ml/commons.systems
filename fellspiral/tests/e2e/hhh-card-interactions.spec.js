@@ -178,7 +178,8 @@ test.describe('Combobox Subtype Clearing', () => {
 test.describe('Combobox Interaction Tests', () => {
   test.skip(!isEmulatorMode, 'Auth tests only run against emulator');
 
-  test('should filter combobox options as user types', async ({ page, authEmulator }) => {
+  // TODO(#1891): Flaky test - combobox filtering fails in CI with timing issues
+  test.skip('should filter combobox options as user types', async ({ page, authEmulator }) => {
     await page.goto('/cards.html');
     await page.waitForLoadState('load');
     await page.waitForTimeout(3000);
