@@ -101,16 +101,14 @@ export class GitError extends McpError {
   static create(message: string, exitCode?: number, stderr?: string, errorId?: ErrorId): GitError {
     // TODO(#1910): Consider trimming message to ensure consistent error formatting
     // TODO(#1916): No runtime validation on errorId parameter
-    if (!message || message.trim() === '') {
+    if (message.trim() === '') {
       throw new ValidationError('GitError: message cannot be empty or whitespace-only');
     }
 
-    if (exitCode !== undefined) {
-      if (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255) {
-        throw new ValidationError(
-          `GitError: exitCode must be an integer in range 0-255, got: ${exitCode}`
-        );
-      }
+    if (exitCode !== undefined && (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255)) {
+      throw new ValidationError(
+        `GitError: exitCode must be an integer in range 0-255, got: ${exitCode}`
+      );
     }
 
     if (stderr !== undefined && stderr.trim() === '') {

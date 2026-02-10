@@ -51,20 +51,22 @@ export async function detectGitState(): Promise<GitState> {
   const isMainBranch = currentBranch === mainBranch;
   const uncommitted = await hasUncommittedChanges();
 
+  function createErrorContext(error: unknown): { errorMessage: string; errorType: string } {
+    return {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+    };
+  }
+
   // Handle hasRemoteTracking() throws (unexpected errors like network timeout, permission issues)
   // Expected GitError exit code 128 is handled internally, but unexpected errors are re-thrown
   let remoteTracking: boolean;
   try {
     remoteTracking = await hasRemoteTracking(currentBranch);
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
     logger.warn(
       'detectGitState: hasRemoteTracking failed with unexpected error, treating as no remote tracking',
-      {
-        branch: currentBranch,
-        errorMessage: errorMsg,
-        errorType: error instanceof Error ? error.constructor.name : typeof error,
-      }
+      { branch: currentBranch, ...createErrorContext(error) }
     );
     remoteTracking = false;
   }
@@ -74,14 +76,9 @@ export async function detectGitState(): Promise<GitState> {
   try {
     pushed = await isBranchPushed(currentBranch);
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
     logger.warn(
       'detectGitState: isBranchPushed failed with unexpected error, treating as not pushed',
-      {
-        branch: currentBranch,
-        errorMessage: errorMsg,
-        errorType: error instanceof Error ? error.constructor.name : typeof error,
-      }
+      { branch: currentBranch, ...createErrorContext(error) }
     );
     pushed = false;
   }

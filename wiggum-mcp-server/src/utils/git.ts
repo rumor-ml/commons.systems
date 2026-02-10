@@ -84,18 +84,18 @@ export async function getGitRoot(): Promise<string> {
       throw error;
     }
 
-    // Log before wrapping unexpected errors for better production visibility
+    // Wrap unexpected errors with context
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorType = error instanceof Error ? error.constructor.name : typeof error;
+
     logger.error('getGitRoot: unexpected error executing git command', {
-      errorMessage: error instanceof Error ? error.message : String(error),
-      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage,
+      errorType,
       errorId: ErrorIds.GIT_COMMAND_FAILED,
     });
 
-    // Wrap unexpected errors
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    const errorType = error instanceof Error ? error.constructor.name : typeof error;
     throw GitError.create(
-      `Failed to execute git rev-parse --show-toplevel: ${errorMsg}. ` +
+      `Failed to execute git rev-parse --show-toplevel: ${errorMessage}. ` +
         `Error type: ${errorType}. ` +
         `This tool requires running from within a git repository. ` +
         `Ensure git is installed and the current directory is inside a git repository.`,
@@ -186,28 +186,20 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
       throw error;
     }
 
-    // Log before wrapping unexpected errors for better observability
+    // Wrap unexpected errors with context
+    const command = `git ${args.join(' ')}`;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorType = error instanceof Error ? error.constructor.name : typeof error;
+
     logger.error('git: unexpected error executing git command', {
-      command: `git ${args.join(' ')}`,
-      errorMessage: error instanceof Error ? error.message : String(error),
-      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      command,
+      errorMessage,
+      errorType,
       errorId: ErrorIds.GIT_COMMAND_FAILED,
     });
 
-    if (error instanceof Error) {
-      const errorType = error.constructor.name;
-      throw GitError.create(
-        `Failed to execute git command (${errorType}): ${error.message}. ` +
-          `Command: git ${args.join(' ')}`,
-        undefined,
-        undefined,
-        ErrorIds.GIT_COMMAND_FAILED
-      );
-    }
-    const errorType = typeof error;
     throw GitError.create(
-      `Failed to execute git command (unexpected error type: ${errorType}): ${String(error)}. ` +
-        `Command: git ${args.join(' ')}`,
+      `Failed to execute git command (${errorType}): ${errorMessage}. Command: ${command}`,
       undefined,
       undefined,
       ErrorIds.GIT_COMMAND_FAILED
@@ -287,12 +279,10 @@ export async function hasRemoteTracking(branch?: string, options?: GitOptions): 
 
     // TODO(#1913): Distinguish ValidationError from other unexpected errors in log message
     // Unexpected error - log with actionable context and RE-THROW (don't hide it)
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    const exitCode = error instanceof GitError ? error.exitCode : undefined;
     logger.error('hasRemoteTracking: unexpected error checking remote tracking branch', {
       branch: branch || 'current branch',
-      errorMessage: errorMsg,
-      exitCode,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      exitCode: error instanceof GitError ? error.exitCode : undefined,
       suggestion:
         'Check network connectivity, remote configuration (git remote -v), and git permissions',
       errorId: ErrorIds.GIT_COMMAND_FAILED,
@@ -353,11 +343,19 @@ export async function isBranchPushed(branch?: string, options?: GitOptions): Pro
  * ```
  */
 export async function getMainBranch(options?: GitOptions): Promise<string> {
-  /** Extract error message string from unknown error types */
-  const getErrorMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-  /** Extract exit code from GitError, undefined otherwise */
-  const getExitCode = (err: unknown): number | undefined =>
-    err instanceof GitError ? err.exitCode : undefined;
+  function getErrorMsg(err: unknown): string {
+    if (err instanceof Error) {
+      return err.message;
+    }
+    return String(err);
+  }
+
+  function getExitCode(err: unknown): number | undefined {
+    if (err instanceof GitError) {
+      return err.exitCode;
+    }
+    return undefined;
+  }
 
   try {
     // Check if main exists
