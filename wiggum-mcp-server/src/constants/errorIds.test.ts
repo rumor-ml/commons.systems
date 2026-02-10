@@ -35,11 +35,7 @@ describe('ErrorIds constants', () => {
   it('should have all constant names match their values', () => {
     // Verify that constant name matches its string value (SCREAMING_SNAKE_CASE)
     Object.entries(ErrorIds).forEach(([key, value]) => {
-      assert.strictEqual(
-        key,
-        value,
-        `Constant name ${key} should match its value ${value}`
-      );
+      assert.strictEqual(key, value, `Constant name ${key} should match its value ${value}`);
     });
   });
 
@@ -118,10 +114,7 @@ describe('ErrorIds usage patterns', () => {
     };
 
     assert.strictEqual(errorHandlers[ErrorIds.GIT_COMMAND_FAILED](), 'handle command failed');
-    assert.strictEqual(
-      errorHandlers[ErrorIds.GIT_VALIDATION_ERROR](),
-      'handle validation error'
-    );
+    assert.strictEqual(errorHandlers[ErrorIds.GIT_VALIDATION_ERROR](), 'handle validation error');
   });
 });
 
