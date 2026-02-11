@@ -160,7 +160,7 @@ Please report this with the full error context:
     iteration: newState.iteration,
     phase: newState.phase,
     reason: stateResult.reason,
-    lastError: stateResult.lastError.message,
+    lastError: stateResult.lastError?.message,
     attemptCount: stateResult.attemptCount,
     impact: 'Race condition fix requires state persistence',
     recommendation: 'Retry after resolving rate limit/network issues',
@@ -169,7 +169,9 @@ Please report this with the full error context:
   logger.error('Critical: State update failed - halting workflow', logContext);
 
   // Build detailed error context for user-facing message
-  const errorDetails = `\n\nActual error: ${stateResult.lastError.message}`;
+  const errorDetails = stateResult.lastError
+    ? `\n\nActual error: ${stateResult.lastError.message}`
+    : '';
   // Show retry count only when attempts were made
   const retryInfo =
     stateResult.attemptCount > 0 ? `\n\nRetry attempts made: ${stateResult.attemptCount}` : '';
