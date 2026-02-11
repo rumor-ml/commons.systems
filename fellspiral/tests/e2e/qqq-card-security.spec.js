@@ -102,9 +102,8 @@ test.describe('Add Card - Firestore Security Rules', () => {
     // The card should exist but user2's auth context should not be able to access it
     const canReadAsUser2 = await page.evaluate(async (cardTitle) => {
       try {
-        const { getFirestore, collection, query, where, getDocs } = await import(
-          '/scripts/lib/firebase.js'
-        );
+        const { getFirestore, collection, query, where, getDocs } =
+          await import('/scripts/lib/firebase.js');
         const { getCardsCollectionName } = await import('/scripts/lib/collection-names.js');
         const db = getFirestore();
         const cardsCollection = collection(db, getCardsCollectionName());

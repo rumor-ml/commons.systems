@@ -352,7 +352,10 @@ describe('formatWiggumResponse', () => {
         () => formatWiggumResponse(input),
         (error: Error) => {
           assert(error instanceof FormattingError);
-          assert.match(error.message, /Invalid step_number.*expected valid WiggumStep.*got "invalid-step"/);
+          assert.match(
+            error.message,
+            /Invalid step_number.*expected valid WiggumStep.*got "invalid-step"/
+          );
           return true;
         }
       );
