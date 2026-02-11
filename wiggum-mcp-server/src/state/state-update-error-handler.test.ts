@@ -4,7 +4,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { handleStateUpdateFailure, toPositiveInteger } from './state-update-error-handler.js';
+import { handleStateUpdateFailure } from './state-update-error-handler.js';
 import type { StateUpdateResult } from './router.js';
 import type { WiggumState } from './types.js';
 import {
