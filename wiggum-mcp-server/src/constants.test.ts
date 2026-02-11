@@ -18,6 +18,7 @@ import {
   STEP_PHASE2_PR_REVIEW,
   STEP_PHASE2_SECURITY_REVIEW,
   STEP_PHASE2_APPROVAL,
+  STEP_MAX,
   STEP_NAMES,
   isValidStep,
   generateTriageInstructions,
@@ -63,9 +64,9 @@ describe('Step Constants', () => {
     assert.strictEqual(STEP_NAMES[STEP_PHASE2_APPROVAL], 'Approval');
   });
 
-  it('should have exactly 9 steps defined', () => {
+  it('should have exactly 10 steps defined', () => {
     const steps = Object.keys(STEP_NAMES);
-    assert.strictEqual(steps.length, 9);
+    assert.strictEqual(steps.length, 10);
   });
 });
 
@@ -80,6 +81,7 @@ describe('Step Validation (isValidStep)', () => {
     assert.strictEqual(isValidStep(STEP_PHASE2_PR_REVIEW), true);
     assert.strictEqual(isValidStep(STEP_PHASE2_SECURITY_REVIEW), true);
     assert.strictEqual(isValidStep(STEP_PHASE2_APPROVAL), true);
+    assert.strictEqual(isValidStep(STEP_MAX), true);
   });
 
   it('should validate string literals directly', () => {
@@ -92,6 +94,7 @@ describe('Step Validation (isValidStep)', () => {
     assert.strictEqual(isValidStep('p2-4'), true);
     assert.strictEqual(isValidStep('p2-5'), true);
     assert.strictEqual(isValidStep('approval'), true);
+    assert.strictEqual(isValidStep('max'), true);
   });
 
   it('should reject invalid step identifiers', () => {
@@ -139,7 +142,7 @@ describe('Step Order and Progression', () => {
       STEP_PHASE2_APPROVAL,
     ];
 
-    // Verify the order matches expected progression
+    // STEP_ORDER defines workflow progression and is used for validation in formatWiggumResponse
     assert.deepEqual(phase1Order, ['p1-1', 'p1-2', 'p1-3']);
     assert.deepEqual(phase2Order, ['p2-1', 'p2-2', 'p2-3', 'p2-4', 'p2-5', 'approval']);
   });
