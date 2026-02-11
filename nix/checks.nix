@@ -662,7 +662,7 @@ pre-commit-hooks.lib.${pkgs.system}.run {
           echo "Home Manager configuration files changed, validating build..."
 
           # Validate Home Manager configuration builds
-          BUILD_OUTPUT=$(${pkgs.nix}/bin/nix build .#homeConfigurations.aarch64-darwin.activationPackage --impure --no-link 2>&1) || {
+          BUILD_OUTPUT=$(${pkgs.nix}/bin/nix build .#homeConfigurations.${pkgs.system}.activationPackage --impure --no-link 2>&1) || {
             echo ""
             echo "ERROR: Home Manager configuration failed to build"
             echo ""

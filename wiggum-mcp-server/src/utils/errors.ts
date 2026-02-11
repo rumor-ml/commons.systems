@@ -20,6 +20,12 @@
  *   - StateDetectionError: State detection failed (recursion limit, rapid changes)
  *   - StateApiError: GitHub API failures during state operations
  *
+ * Error ID Constants:
+ * - ErrorIds: Standardized error IDs for Sentry tracking and error categorization
+ *   - Used as optional errorId parameter in GitError.create()
+ *   - Enables Sentry to group related errors across different error messages
+ *   - Provides better monitoring dashboards and alerting in production
+ *
  * @module errors
  */
 
@@ -38,6 +44,7 @@ import { logger } from './logger.js';
 import { createErrorResult as baseCreateErrorResult } from '@commons/mcp-common/result-builders';
 import type { ToolError } from '@commons/mcp-common/types';
 import { createToolError } from '@commons/mcp-common/types';
+import { ErrorIds, type ErrorId } from '../constants/errorIds.js';
 
 export {
   McpError,
@@ -48,6 +55,8 @@ export {
   ParsingError,
   FormattingError,
   formatError,
+  ErrorIds,
+  type ErrorId,
 };
 
 /**
@@ -58,15 +67,78 @@ export {
  *
  * Note: This extends McpError, so it's automatically handled by createErrorResult()
  * from mcp-common (falls through to the McpError base case).
+ *
+ * Use GitError.create() factory to construct instances.
+ * The factory validates exitCode and stderr parameters.
  */
 export class GitError extends McpError {
-  constructor(
+  // Private constructor - use GitError.create() factory method instead
+  private constructor(
     message: string,
     public readonly exitCode?: number,
-    public readonly stderr?: string
+    public readonly stderr?: string,
+    public readonly errorId?: ErrorId
   ) {
     super(message, 'GIT_ERROR');
     this.name = 'GitError';
+  }
+
+  // TODO(#1674): Consider testing GitError with null exitCode/stderr (TypeScript allows undefined | null union)
+  /**
+   * Factory function to create GitError with validation
+   *
+   * Validates message, exitCode, and stderr parameters and throws ValidationError if any are invalid.
+   * Message must be non-empty and contain non-whitespace characters.
+   * This is the only way to construct a GitError instance.
+   *
+   * @param message - Human-readable error description (must be non-empty and not whitespace-only)
+   * @param exitCode - Optional exit code (must be integer in 0-255 range if provided)
+   * @param stderr - Optional stderr output (must contain non-whitespace content if provided; use undefined for no stderr)
+   * @param errorId - Optional error ID for Sentry tracking (from ErrorIds constant, compile-time enforced)
+   * @returns GitError instance
+   * @throws {ValidationError} If message is empty/whitespace, exitCode is not in 0-255 range, or stderr is empty/whitespace-only
+   */
+  static create(message: string, exitCode?: number, stderr?: string, errorId?: ErrorId): GitError {
+    // TODO(#1910): Consider trimming message to ensure consistent error formatting
+    // TODO(#1916): No runtime validation on errorId parameter
+    if (message.trim() === '') {
+      throw new ValidationError('GitError: message cannot be empty or whitespace-only');
+    }
+
+    if (exitCode !== undefined && (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255)) {
+      throw new ValidationError(
+        `GitError: exitCode must be an integer in range 0-255, got: ${exitCode}`
+      );
+    }
+
+    if (stderr !== undefined && stderr.trim() === '') {
+      throw new ValidationError(
+        'GitError: stderr cannot be empty or whitespace-only, use undefined instead'
+      );
+    }
+
+    // TODO(#1921): GitError.create debug logging could include more context
+    // Log at debug level if stderr provided without exitCode (unusual pattern)
+    if (stderr !== undefined && exitCode === undefined) {
+      logger.debug('GitError.create: stderr provided without exitCode (unusual pattern)', {
+        message,
+        stderrLength: stderr.length,
+        errorId,
+      });
+    }
+
+    // Log at debug level if non-zero exitCode provided without stderr (unusual but valid - may indicate data loss)
+    // Note: exitCode 0 without stderr is normal (success with no error output), so we don't log
+    // TODO(#1917): Consider adding debug logging for exitCode 0 with stderr (warnings on success)
+    if (exitCode !== undefined && exitCode !== 0 && stderr === undefined) {
+      logger.debug('GitError.create: Non-zero exit code without stderr (unusual pattern)', {
+        message,
+        exitCode,
+        errorId,
+      });
+    }
+
+    return new GitError(message, exitCode, stderr, errorId);
   }
 }
 
@@ -306,6 +378,7 @@ export function extractZodValidationDetails(
     };
   }
 
+  // TODO(#1922): Consider refining error message or severity for non-Error throws
   // Non-Error thrown (unexpected) - log critical programming error
   logger.error('CRITICAL: Non-Error thrown during validation', {
     validationError: error,
