@@ -542,6 +542,44 @@ describe('createStateUpdateFailure factory function', () => {
       assert.strictEqual(result.attemptCount, 100);
     }
   });
+
+  it('should throw error for Infinity attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, Infinity),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should throw error for negative Infinity attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, -Infinity),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should handle Error with undefined message', () => {
+    const errorWithoutMessage = new Error();
+    // Force message to be undefined
+    Object.defineProperty(errorWithoutMessage, 'message', {
+      value: undefined,
+      configurable: true,
+    });
+    const result = createStateUpdateFailure('network', errorWithoutMessage, 1);
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.lastError, errorWithoutMessage);
+    }
+  });
+
+  it('should reject objects that are not Error instances', () => {
+    const fakeError = { message: 'fake', name: 'FakeError' };
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', fakeError as Error, 1),
+      /lastError must be Error instance/
+    );
+  });
 });
 
 describe('State Update Retry Logic', () => {
@@ -554,6 +592,61 @@ describe('State Update Retry Logic', () => {
       assert.ok(Number.isInteger(3) && 3 >= 1, 'maxRetries=3 is valid');
       assert.ok(!Number.isInteger(2.5) || 2.5 < 1, 'maxRetries=2.5 is invalid');
       assert.ok(!Number.isInteger(0) || 0 < 1, 'maxRetries=0 is invalid');
+    });
+  });
+
+  describe('createStateUpdateFailure edge cases', () => {
+    it('should reject Infinity attemptCount', () => {
+      const error = new Error('Test error');
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', error, Infinity),
+        /attemptCount must be positive integer/,
+        'Infinity attemptCount should be rejected'
+      );
+    });
+
+    it('should reject negative Infinity attemptCount', () => {
+      const error = new Error('Test error');
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', error, -Infinity),
+        /attemptCount must be positive integer/,
+        'Negative Infinity attemptCount should be rejected'
+      );
+    });
+
+    it('should handle Error with undefined message gracefully', () => {
+      const errorWithoutMessage = new Error();
+      // Force undefined message
+      Object.defineProperty(errorWithoutMessage, 'message', { value: undefined });
+      const result = createStateUpdateFailure('network', errorWithoutMessage, 1);
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.lastError, errorWithoutMessage);
+    });
+
+    it('should reject objects that duck-type as Error but are not Error instances', () => {
+      const fakeError = { message: 'fake error', name: 'FakeError', stack: 'fake stack' };
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', fakeError as Error, 1),
+        /lastError must be Error instance/,
+        'Non-Error objects should be rejected even if they have Error properties'
+      );
+    });
+
+    it('should reject null as lastError', () => {
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', null as unknown as Error, 1),
+        /lastError must be Error instance/,
+        'Null should be rejected as lastError'
+      );
+    });
+
+    it('should reject undefined as lastError', () => {
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', undefined as unknown as Error, 1),
+        /lastError must be Error instance/,
+        'Undefined should be rejected as lastError'
+      );
     });
   });
 
@@ -880,7 +973,8 @@ describe('handleStateUpdateFailure integration', () => {
     });
 
     it('should verify targetType is never accidentally swapped', () => {
-      // This test prevents the bug where targetType='issue' is used for Phase 2
+      // Documents the targetType convention: Phase 1 uses 'issue', Phase 2 uses 'pr'
+      // Note: This test verifies constants but doesn't validate actual callsites
 
       // Phase 1 must use 'issue'
       const phase1Step = STEP_PHASE1_MONITOR_WORKFLOW;
@@ -1007,25 +1101,10 @@ describe('handleStateUpdateFailure integration', () => {
 
   describe('Real callsite integration', () => {
     it('should handle state update failure in actual router.ts callsite', async () => {
-      // TODO(#1844): Add integration test that executes actual router.ts code paths
-      // Current tests verify parameter shapes but don't test actual callsite behavior.
-      //
-      // Blocked by: router.ts architecture doesn't support dependency injection
-      // - safeUpdateIssueBodyState is a direct import, can't be mocked
-      // - Handler functions (handlePhase1MonitorWorkflow, etc.) are not exported
-      // - No test entry points to inject mocks
-      //
-      // Needed refactoring:
-      // 1. Export handler functions or add test-only entry points
-      // 2. Use dependency injection for safeUpdateIssueBodyState
-      // 3. Add integration tests that verify actual callsites call handleStateUpdateFailure
-      //
-      // This test would prevent bugs like:
-      // - Missing 'return' keyword at callsite (returns wrong value)
-      // - Wrong targetType passed ('issue' instead of 'pr')
-      // - Wrong stateResult variable used (stateResult vs stateResult2)
-
-      // Placeholder assertion to make test pass until refactoring is done
+      // TODO(#1844): Add integration test with dependency injection
+      // Currently blocked by router.ts architecture - handler functions not exported,
+      // safeUpdateIssueBodyState is direct import (cannot be mocked).
+      // Integration test needed to verify actual callsites use correct parameters.
       assert.ok(true, 'Integration test pending router.ts refactoring');
     });
   });

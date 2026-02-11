@@ -61,7 +61,7 @@ describe('handleStateUpdateFailure', () => {
             newState: createMockState(),
             step: STEP_PHASE1_MONITOR_WORKFLOW,
             targetType: 'issue',
-            targetNumber: toPositiveInteger(123),
+            targetNumber: 123,
           });
         },
         {
@@ -70,48 +70,68 @@ describe('handleStateUpdateFailure', () => {
       );
     });
 
-    it('should throw error for targetNumber = 0', () => {
-      assert.throws(
-        () => {
-          toPositiveInteger(0);
-        },
-        {
-          message: /Must be positive integer, got: 0/,
-        }
-      );
+    it('should handle invalid targetNumber = 0 with compound error message', () => {
+      const result = handleStateUpdateFailure({
+        stateResult: createMockFailure(),
+        newState: createMockState(),
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'issue',
+        targetNumber: 0,
+      });
+
+      assert.strictEqual(result.isError, true);
+      const responseText = result.content[0].text;
+      assert.ok(responseText.includes('Multiple failures occurred'));
+      assert.ok(responseText.includes('State update failed'));
+      assert.ok(responseText.includes('Invalid issue number: 0'));
     });
 
-    it('should throw error for negative targetNumber', () => {
-      assert.throws(
-        () => {
-          toPositiveInteger(-5);
-        },
-        {
-          message: /Must be positive integer, got: -5/,
-        }
-      );
+    it('should handle negative targetNumber with compound error message', () => {
+      const result = handleStateUpdateFailure({
+        stateResult: createMockFailure(),
+        newState: createMockState(),
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'pr',
+        targetNumber: -5,
+      });
+
+      assert.strictEqual(result.isError, true);
+      const responseText = result.content[0].text;
+      assert.ok(responseText.includes('Multiple failures occurred'));
+      assert.ok(responseText.includes('State update failed'));
+      assert.ok(responseText.includes('Invalid PR number: -5'));
     });
 
-    it('should throw error for NaN targetNumber', () => {
-      assert.throws(
-        () => {
-          toPositiveInteger(NaN);
-        },
-        {
-          message: /Must be positive integer, got: NaN/,
-        }
-      );
+    it('should handle NaN targetNumber with compound error message', () => {
+      const result = handleStateUpdateFailure({
+        stateResult: createMockFailure(),
+        newState: createMockState(),
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'issue',
+        targetNumber: NaN,
+      });
+
+      assert.strictEqual(result.isError, true);
+      const responseText = result.content[0].text;
+      assert.ok(responseText.includes('Multiple failures occurred'));
+      assert.ok(responseText.includes('State update failed'));
+      assert.ok(responseText.includes('Invalid issue number: NaN'));
     });
 
-    it('should throw error for decimal targetNumber', () => {
-      assert.throws(
-        () => {
-          toPositiveInteger(123.5);
-        },
-        {
-          message: /Must be positive integer, got: 123.5/,
-        }
-      );
+    it('should handle decimal targetNumber with compound error message', () => {
+      const result = handleStateUpdateFailure({
+        stateResult: createMockFailure(),
+        newState: createMockState(),
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'issue',
+        targetNumber: 123.5,
+      });
+
+      assert.strictEqual(result.isError, true);
+      const responseText = result.content[0].text;
+      assert.ok(responseText.includes('Multiple failures occurred'));
+      assert.ok(responseText.includes('State update failed'));
+      assert.ok(responseText.includes('Invalid issue number: 123.5'));
     });
 
     it('should accept valid positive integer targetNumber', () => {
@@ -120,7 +140,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       assert.strictEqual(result.isError, true);
@@ -134,7 +154,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase1' }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       // Phase1 should result in empty context object
@@ -149,7 +169,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(456),
+        targetNumber: 456,
       });
 
       // Phase2 should result in context with pr_number
@@ -164,7 +184,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_APPROVAL,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(789),
+        targetNumber: 789,
       });
 
       // Approval step should be treated as phase2
@@ -181,7 +201,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase1' }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -195,7 +215,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(456),
+        targetNumber: 456,
       });
 
       const responseText = result.content[0].text;
@@ -212,7 +232,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -238,7 +258,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -251,7 +271,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -264,7 +284,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -277,7 +297,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -292,7 +312,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       assert.strictEqual(result.isError, true);
@@ -304,7 +324,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       assert.strictEqual(result.content.length, 1);
@@ -319,7 +339,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ iteration: 3 }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -339,7 +359,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase1' }),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       // For phase1, context is empty, so no pr_number should appear in structured data
@@ -353,7 +373,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState({ phase: 'phase2' }),
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(456),
+        targetNumber: 456,
       });
 
       // For phase2, context should have pr_number
@@ -377,7 +397,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -390,7 +410,7 @@ describe('handleStateUpdateFailure', () => {
         newState: createMockState(),
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(123),
+        targetNumber: 123,
       });
 
       const responseText = result.content[0].text;
@@ -458,7 +478,7 @@ describe('handleStateUpdateFailure', () => {
           newState: createMockState({ phase: 'phase1', iteration: 2 }),
           step: STEP_PHASE1_MONITOR_WORKFLOW,
           targetType: 'issue',
-          targetNumber: toPositiveInteger(789),
+          targetNumber: 789,
         });
 
         // Verify logger.error was called
@@ -496,7 +516,7 @@ describe('handleStateUpdateFailure', () => {
           newState: createMockState({ phase: 'phase2' }),
           step: STEP_PHASE2_MONITOR_WORKFLOW,
           targetType: 'pr',
-          targetNumber: toPositiveInteger(999),
+          targetNumber: 999,
         });
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -57,14 +57,13 @@ export interface StateUpdateFailureParams {
   readonly newState: WiggumState;
   readonly step: WiggumStep;
   readonly targetType: 'issue' | 'pr';
-  readonly targetNumber: PositiveInteger;
+  readonly targetNumber: number;
 }
 
 /**
  * Guaranteed error result type - handleStateUpdateFailure always returns errors
  *
- * Design note: This function always returns ToolResult with isError: true rather than
- * throwing exceptions because:
+ * Design note: Returns ToolResult with isError rather than throwing because:
  * 1. Callers in router.ts need to return the error result to the MCP framework
  * 2. Maintains consistent error handling pattern across all workflow steps
  * 3. Avoids need for try-catch blocks at 5+ call sites
@@ -110,7 +109,49 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Guar
     );
   }
 
-  // Note: targetNumber validation is enforced by PositiveInteger branded type at call site
+  // Validate targetNumber is a positive integer
+  // If invalid, provide compound error message with both failures
+  if (!Number.isInteger(targetNumber) || targetNumber < 1) {
+    logger.error('CRITICAL: Invalid target number during state update error handling', {
+      targetNumber,
+      targetType,
+      stateUpdateReason: stateResult.reason,
+      step,
+      phase: newState.phase,
+      iteration: newState.iteration,
+      lastError: stateResult.lastError.message,
+      attemptCount: stateResult.attemptCount,
+      impact: 'Multiple failures: state update + invalid number',
+    });
+
+    const targetRef = targetType === 'issue' ? 'issue number' : 'PR number';
+    return createGuaranteedError([
+      {
+        type: 'text',
+        text: `ERROR: Multiple failures occurred:
+1. State update failed: ${stateResult.reason}
+2. Invalid ${targetRef}: ${targetNumber}
+
+This indicates a critical bug. The state update failure suggests:
+- GitHub API rate limiting (429)
+- Network connectivity issues
+- Temporary GitHub API unavailability
+
+The invalid ${targetRef} (${targetNumber}) suggests:
+- Data corruption
+- GitHub API returned unexpected data
+- Programming error
+
+Please report this with the full error context:
+- Step: ${STEP_NAMES[step]}
+- Iteration: ${newState.iteration}
+- Phase: ${newState.phase}
+- State update reason: ${stateResult.reason}
+- Retry attempts: ${stateResult.attemptCount}
+- Invalid ${targetRef}: ${targetNumber}`,
+      },
+    ]);
+  }
 
   // Log critical error with full context for debugging
   const logContext = {
@@ -119,19 +160,16 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Guar
     iteration: newState.iteration,
     phase: newState.phase,
     reason: stateResult.reason,
-    lastError: stateResult.lastError?.message,
+    lastError: stateResult.lastError.message,
     attemptCount: stateResult.attemptCount,
     impact: 'Race condition fix requires state persistence',
     recommendation: 'Retry after resolving rate limit/network issues',
   };
 
   logger.error('Critical: State update failed - halting workflow', logContext);
-  // TODO(#1854): Remove outdated TODO - logger.error test already exists
 
   // Build detailed error context for user-facing message
-  const errorDetails = stateResult.lastError
-    ? `\n\nActual error: ${stateResult.lastError.message}`
-    : '';
+  const errorDetails = `\n\nActual error: ${stateResult.lastError.message}`;
   // Show retry count only when attempts were made
   const retryInfo =
     stateResult.attemptCount > 0 ? `\n\nRetry attempts made: ${stateResult.attemptCount}` : '';
@@ -191,6 +229,10 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Guar
       {
         type: 'text',
         text: `ERROR: State update failed in ${targetRef} (${STEP_NAMES[step]}, iteration ${newState.iteration})
+
+Operations attempted:
+- Attempted to update state in body
+- Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts
 
 Failure reason: ${stateResult.reason}${errorDetails}${retryInfo}
 

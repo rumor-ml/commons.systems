@@ -19,7 +19,7 @@ import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
-import { handleStateUpdateFailure, toPositiveInteger } from './state-update-error-handler.js';
+import { handleStateUpdateFailure } from './state-update-error-handler.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
 import { WiggumStateSchema, createWiggumState } from './types.js';
 import { applyWiggumState } from './state-utils.js';
@@ -829,7 +829,7 @@ async function handlePhase1MonitorWorkflow(
         newState,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(issueNumber),
+        targetNumber: issueNumber,
       });
     }
 
@@ -863,7 +863,7 @@ async function handlePhase1MonitorWorkflow(
         newState,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
         targetType: 'issue',
-        targetNumber: toPositiveInteger(issueNumber),
+        targetNumber: issueNumber,
       });
     }
 
@@ -1127,7 +1127,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         newState,
         step: STEP_PHASE2_MONITOR_WORKFLOW,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(state.pr.number),
+        targetNumber: state.pr.number,
       });
     }
 
@@ -1186,7 +1186,7 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
         newState: newState2,
         step: STEP_PHASE2_MONITOR_CHECKS,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(state.pr.number),
+        targetNumber: state.pr.number,
       });
     }
 
@@ -1266,7 +1266,7 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
         newState,
         step: STEP_PHASE2_MONITOR_CHECKS,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(state.pr.number),
+        targetNumber: state.pr.number,
       });
     }
 
@@ -1370,7 +1370,7 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
         newState,
         step: STEP_PHASE2_CODE_QUALITY,
         targetType: 'pr',
-        targetNumber: toPositiveInteger(state.pr.number),
+        targetNumber: state.pr.number,
       });
     }
 
