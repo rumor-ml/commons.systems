@@ -6,6 +6,7 @@
  * wiggum_init (at start) and completion tools (after each step).
  */
 
+// TODO(#1859): Add context to TODO comments - future developers need brief explanations of what each TODO tracks
 // TODO(#942): Extract verbose error handling pattern in router.ts state update failures
 // TODO(#932): Add retry history tracking to StateUpdateResult for better diagnostics
 // TODO(#858): Improve state update retry loop error context capture
@@ -24,7 +25,6 @@ import { advanceToNextStep } from './transitions.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
-  STEP_PHASE1_SECURITY_REVIEW,
   STEP_PHASE1_CREATE_PR,
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
@@ -58,6 +58,58 @@ type CurrentStateWithPR = CurrentState & {
 };
 
 /**
+ * Configuration for resource-specific state update operations
+ *
+ * This discriminated union enables the generic safeUpdateBodyState function to
+ * operate on both PRs and issues with resource-specific behavior for:
+ * - Error messages and logging (using resourceLabel, resourceType)
+ * - Error context tracking (using resourceType, resourceId)
+ * - Verification commands (using verifyCommand)
+ * - State persistence (using updateFn)
+ *
+ * Each union variant uses literal string types (e.g., 'pr', 'PR', 'gh pr view') to
+ * enforce consistency between resourceType, resourceLabel, and verifyCommand at compile
+ * time. TypeScript prevents mismatched combinations like { resourceType: 'pr', resourceLabel: 'Issue' }.
+ *
+ * Resolves TODO(#941) and TODO(#810): Consolidates duplicate state update pattern.
+ */
+// TODO(#1898): Simplify ResourceConfig discriminated union
+// TODO(#1903): Consider branded types for resource IDs to enforce config-to-resourceId relationship at compile time
+type ResourceConfig =
+  | {
+      readonly resourceType: 'pr';
+      readonly resourceLabel: 'PR';
+      readonly verifyCommand: 'gh pr view';
+      readonly updateFn: (prNumber: number, state: WiggumState) => Promise<void>;
+    }
+  | {
+      readonly resourceType: 'issue';
+      readonly resourceLabel: 'Issue';
+      readonly verifyCommand: 'gh issue view';
+      readonly updateFn: (issueNumber: number, state: WiggumState) => Promise<void>;
+    };
+
+/**
+ * Configuration for PR state updates
+ */
+const PR_CONFIG: ResourceConfig = {
+  resourceType: 'pr',
+  resourceLabel: 'PR',
+  verifyCommand: 'gh pr view',
+  updateFn: updatePRBodyState,
+};
+
+/**
+ * Configuration for issue state updates
+ */
+const ISSUE_CONFIG: ResourceConfig = {
+  resourceType: 'issue',
+  resourceLabel: 'Issue',
+  verifyCommand: 'gh issue view',
+  updateFn: updateIssueBodyState,
+};
+
+/**
  * Result type for state update operations
  *
  * Discriminated union for race-safe state persistence (issue #388).
@@ -70,6 +122,7 @@ type CurrentStateWithPR = CurrentState & {
  *
  * Failure cases include lastError and attemptCount for debugging (issue #625).
  */
+// TODO(#1880): Consider using branded types for attemptCount to enforce positive integers at type level
 export type StateUpdateResult =
   | { readonly success: true }
   | {
@@ -486,14 +539,18 @@ async function executeStateUpdateWithRetry(
           // Validate uncapped delay to catch corrupted attempt counter early
           // Invalid uncappedDelayMs indicates programming error in retry logic
           if (!Number.isFinite(uncappedDelayMs) || uncappedDelayMs < 0) {
-            safeLog('error', 'CRITICAL: Invalid uncapped delay calculated - retry logic corrupted', {
-              [resourceIdField]: resourceId,
-              step,
-              uncappedDelayMs,
-              attempt,
-              maxRetries,
-              attemptType: typeof attempt,
-            });
+            safeLog(
+              'error',
+              'CRITICAL: Invalid uncapped delay calculated - retry logic corrupted',
+              {
+                [resourceIdField]: resourceId,
+                step,
+                uncappedDelayMs,
+                attempt,
+                maxRetries,
+                attemptType: typeof attempt,
+              }
+            );
             throw new Error(
               `INTERNAL ERROR: Invalid uncapped delay calculated (${uncappedDelayMs}ms) from attempt ${attempt}. ` +
                 `This indicates a bug in the retry loop counter. Expected: positive finite number.`
@@ -654,7 +711,7 @@ function checkBranchPushed(
 }
 
 /**
- * Safely update wiggum state in PR body with error handling and retry logic
+ * Generic state update with error handling and retry logic
  *
  * Public API wrapper for executeStateUpdateWithRetry configured for PR updates.
  * Provides parameter adaptation (prNumber → config object) and defensive validation
@@ -662,14 +719,256 @@ function checkBranchPushed(
  * executeStateUpdateWithRetry directly to maintain stable API surface and benefit
  * from validation checks.
  *
- * See executeStateUpdateWithRetry for detailed retry strategy and error handling.
+ * Retry strategy (issue #799):
+ * - Transient errors (429, network): Retry with exponential backoff
+ *   - Formula: 2^attempt * 1000ms (after attempt 1 fails = 2s, after attempt 2 fails = 4s)
+ *   - Maximum delay cap: 60 seconds
+ *   - Default: 3 attempts total with 2 delays (2s before attempt 2, 4s before attempt 3, then fail)
+ * - Critical errors (404, 401/403): Throw immediately - no retry
+ * - Unexpected errors: Re-throw - programming errors or unknown failures
  *
- * @param prNumber - PR number to update
+ * @param config - Resource configuration (PR or issue)
+ * @param resourceId - PR number or issue number to update
  * @param state - New wiggum state to save
  * @param step - Step identifier for logging context
  * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
  * @returns Result indicating success or transient failure with reason
  * @throws Critical errors (404, 401/403) and unexpected errors
+ */
+// TODO(#1904): Add runtime assertions to validate config-resourceId alignment
+async function safeUpdateBodyState(
+  config: ResourceConfig,
+  resourceId: number,
+  state: WiggumState,
+  step: string,
+  maxRetries = 3
+): Promise<StateUpdateResult> {
+  const fnName = `safeUpdate${config.resourceLabel}BodyState`;
+
+  // Validate resourceId parameter (must be positive integer for valid resource number)
+  // CRITICAL: Invalid resourceId would cause StateApiError.create() to throw ValidationError
+  // from within the catch blocks in the retry loop below, replacing the original error and
+  // making the root cause impossible to diagnose
+  if (!Number.isInteger(resourceId) || resourceId <= 0) {
+    throw new ValidationError(
+      `${fnName}: resourceId must be a positive integer, got: ${resourceId} (type: ${typeof resourceId})`
+    );
+  }
+
+  // Validate maxRetries to ensure retry loop executes correctly (issue #625)
+  // CRITICAL: Invalid maxRetries would break retry logic:
+  //   - maxRetries < 1: Loop would not execute (no retries attempted)
+  //   - maxRetries > 100: Excessive retry attempts (even with 60s cap, 100 retries = 100+ min total)
+  //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
+  const MAX_RETRIES_LIMIT = 100;
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
+    // TODO(#1819): Wrap logger calls in try-catch to prevent logging failures from crashing retry loop
+    logger.error(`${fnName}: Invalid maxRetries parameter`, {
+      resourceType: config.resourceType,
+      resourceId,
+      step,
+      maxRetries,
+      maxRetriesType: typeof maxRetries,
+      phase: state.phase,
+      impact: 'Cannot execute retry loop with invalid parameter',
+    });
+    throw new Error(
+      `${fnName}: maxRetries must be a positive integer between 1 and ${MAX_RETRIES_LIMIT}, ` +
+        `got: ${maxRetries} (type: ${typeof maxRetries}). ` +
+        `Common values: 3 (default), 5 (flaky operations), 10 (very flaky). ` +
+        `Values > 10 may indicate excessive retry tolerance that masks systemic issues.`
+    );
+  }
+
+  // Validate state before attempting to post (issue #799: state validation errors)
+  // This catches invalid states early and provides clear error messages rather than
+  // opaque GitHub API errors when posting malformed state to body
+  try {
+    WiggumStateSchema.parse(state);
+  } catch (validationError) {
+    const { details, originalError } = extractZodValidationDetails(validationError, {
+      resourceType: config.resourceType,
+      resourceId,
+      step,
+    });
+
+    logger.error(`${fnName}: State validation failed before posting`, {
+      resourceType: config.resourceType,
+      resourceId,
+      step,
+      state,
+      validationDetails: details,
+      error: originalError?.message ?? String(validationError),
+      errorStack: originalError?.stack,
+      impact: 'Invalid state cannot be persisted to GitHub',
+    });
+    // Include state summary in error message for debugging without log access (issue #625)
+    // TODO(#1863): Safe array access - state.completedSteps.join() could throw if not an array
+    const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${state.completedSteps.join(',')}]`;
+    throw StateApiError.create(
+      `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
+      'write',
+      config.resourceType,
+      resourceId,
+      originalError ?? new Error(String(validationError))
+    );
+  }
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await config.updateFn(resourceId, state);
+
+      // Log recovery on retry success
+      if (attempt > 1) {
+        logger.info('State update succeeded after retry', {
+          resourceType: config.resourceType,
+          resourceId,
+          step,
+          attempt,
+          maxRetries,
+          impact: 'Transient failure recovered automatically',
+        });
+      }
+
+      // TODO(#1902): Missing tests for retry success after transient failure
+      return { success: true };
+    } catch (updateError) {
+      // State update is CRITICAL for race condition fix (issue #388)
+      // Classify errors to distinguish transient (rate limit, network) from critical (404, auth)
+      //
+      // Known limitations:
+      // TODO(#1821): Surface state persistence failures to users instead of silent warning (user-facing)
+      // TODO(#415): Add type guards to catch blocks to avoid broad exception catching (type safety)
+      // TODO(#468): Broad catch-all hides programming errors - add early type validation (related to #415)
+      const errorMsg = updateError instanceof Error ? updateError.message : String(updateError);
+      const exitCode = updateError instanceof GitHubCliError ? updateError.exitCode : undefined;
+      const stderr = updateError instanceof GitHubCliError ? updateError.stderr : undefined;
+      // TODO(#1861): JSON.stringify could throw on circular references, hiding the original error
+      const stateJson = JSON.stringify(state);
+
+      // Classify error type using shared utility
+      // TODO(#940): Document expected GitHub API error patterns and add test coverage
+      const classification = classifyGitHubError(errorMsg, exitCode);
+
+      // Build error context including classification results for debugging
+      // TODO(#1894): Missing tests for error context object correctness
+      const errorContext = {
+        resourceType: config.resourceType,
+        resourceId,
+        step,
+        attempt,
+        maxRetries,
+        iteration: state.iteration,
+        phase: state.phase,
+        completedSteps: state.completedSteps,
+        stateJson,
+        error: errorMsg,
+        errorType: updateError instanceof GitHubCliError ? 'GitHubCliError' : typeof updateError,
+        exitCode,
+        stderr,
+        classification,
+      };
+
+      // Critical errors: Resource not found or authentication failures - throw immediately (no retry)
+      // Note: 404 detection uses classifyGitHubError() via classification.is404, not direct status checking
+      // TODO(#1901): Missing tests for critical error propagation (404/auth throw-through)
+      if (classification.is404) {
+        logger.error(`Critical: ${config.resourceLabel} not found - cannot update state in body`, {
+          ...errorContext,
+          impact: 'Workflow state persistence failed',
+          recommendation: `Verify ${config.resourceLabel} #${resourceId} exists: ${config.verifyCommand} ${resourceId}`,
+          nextSteps: `Workflow cannot continue without valid ${config.resourceLabel.toLowerCase()}`,
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      if (classification.isAuth) {
+        logger.error('Critical: Authentication failed - cannot update state in body', {
+          ...errorContext,
+          impact: 'Workflow state persistence failed - insufficient permissions',
+          recommendation: 'Check gh auth status and token scopes: gh auth status',
+          nextSteps: 'Re-authenticate or update token permissions',
+          isTransient: false,
+        });
+        throw updateError;
+      }
+
+      // Transient errors: Rate limits or network issues - retry with backoff
+      if (classification.isTransient) {
+        const reason = classification.isRateLimit ? 'rate_limit' : 'network';
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 2^attempt * 1000ms (attempt 1 = 2s, attempt 2 = 4s), capped at 60s
+          const MAX_DELAY_MS = 60000;
+          const uncappedDelayMs = Math.pow(2, attempt) * 1000;
+          const delayMs = Math.min(uncappedDelayMs, MAX_DELAY_MS);
+          logger.info('Transient error updating state - retrying with backoff', {
+            ...errorContext,
+            reason,
+            delayMs,
+            wasCapped: uncappedDelayMs > MAX_DELAY_MS,
+            remainingAttempts: maxRetries - attempt,
+          });
+          // TODO(#1858): Wrap sleep() in try-catch to prevent hiding original error
+          await sleep(delayMs);
+          continue; // Retry
+        }
+
+        // All retries exhausted - return failure result with error context for debugging
+        const lastErrorObj =
+          updateError instanceof Error ? updateError : new Error(String(updateError));
+        logger.warn('State update failed after all retries', {
+          ...errorContext,
+          reason,
+          impact: 'Workflow halted - manual retry required',
+          recommendation:
+            reason === 'rate_limit'
+              ? 'Check rate limit status: gh api rate_limit'
+              : 'Check network connection and GitHub API status',
+          isTransient: true,
+        });
+        return createStateUpdateFailure(reason, lastErrorObj, maxRetries);
+      }
+
+      // Unexpected errors: Programming errors or unknown failures - throw immediately
+      logger.error(
+        `Unexpected error updating state in ${config.resourceLabel.toLowerCase()} body - re-throwing`,
+        {
+          ...errorContext,
+          impact: 'Unknown failure type - may indicate programming error',
+          recommendation: 'Review error message and stack trace',
+          nextSteps: 'Workflow halted - manual investigation required',
+          isTransient: false,
+        }
+      );
+      throw updateError;
+    }
+  }
+  // Fallback: TypeScript cannot prove all catch paths return/throw.
+  // If this executes, the retry loop completed without returning success/failure or throwing.
+  // This indicates a programming error in the error handling logic above (issue #625).
+  logger.error(`INTERNAL: ${fnName} retry loop completed without returning`, {
+    resourceType: config.resourceType,
+    resourceId,
+    step,
+    maxRetries,
+    phase: state.phase,
+    iteration: state.iteration,
+    stateJson: JSON.stringify(state),
+    impact: 'Programming error in retry logic',
+  });
+  throw new Error(
+    `INTERNAL ERROR: ${fnName} retry loop completed without returning. ` +
+      `${config.resourceLabel}: #${resourceId}, Step: ${step}, maxRetries: ${maxRetries}, ` +
+      `Phase: ${state.phase}, Iteration: ${state.iteration}`
+  );
+}
+
+/**
+ * Safely update wiggum state in PR body with error handling and retry logic
+ *
+ * Delegates to safeUpdateBodyState with PR configuration. See safeUpdateBodyState for full documentation.
  */
 export async function safeUpdatePRBodyState(
   prNumber: number,
@@ -677,35 +976,13 @@ export async function safeUpdatePRBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  return executeStateUpdateWithRetry(
-    {
-      resourceType: 'pr',
-      resourceId: prNumber,
-      updateFn: updatePRBodyState,
-    },
-    state,
-    step,
-    maxRetries
-  );
+  return safeUpdateBodyState(PR_CONFIG, prNumber, state, step, maxRetries);
 }
 
 /**
  * Safely update wiggum state in issue body with error handling and retry logic
  *
- * Public API wrapper for executeStateUpdateWithRetry configured for issue updates.
- * Provides parameter adaptation (issueNumber → config object) and defensive validation
- * of the updateIssueBodyState function. Prefer using this wrapper over calling
- * executeStateUpdateWithRetry directly to maintain stable API surface and benefit
- * from validation checks.
- *
- * See executeStateUpdateWithRetry for detailed retry strategy and error handling.
- *
- * @param issueNumber - Issue number to update
- * @param state - New wiggum state to save
- * @param step - Step identifier for logging context
- * @param maxRetries - Maximum retry attempts for transient failures (default: 3)
- * @returns Result indicating success or transient failure with reason
- * @throws Critical errors (404, 401/403) and unexpected errors
+ * Delegates to safeUpdateBodyState with issue configuration. See safeUpdateBodyState for full documentation.
  */
 export async function safeUpdateIssueBodyState(
   issueNumber: number,
@@ -713,16 +990,7 @@ export async function safeUpdateIssueBodyState(
   step: string,
   maxRetries = 3
 ): Promise<StateUpdateResult> {
-  return executeStateUpdateWithRetry(
-    {
-      resourceType: 'issue',
-      resourceId: issueNumber,
-      updateFn: updateIssueBodyState,
-    },
-    state,
-    step,
-    maxRetries
-  );
+  return safeUpdateBodyState(ISSUE_CONFIG, issueNumber, state, step, maxRetries);
 }
 
 /**
@@ -757,6 +1025,7 @@ function formatFixInstructions(
   if (failureDetails) {
     const originalLength = failureDetails.length;
     const hadMultipleLines = failureDetails.includes('\n');
+    // TODO(#1862): Consider logging full unsanitized error for debugging while showing sanitized version to users
     sanitizedDetails = sanitizeErrorMessage(failureDetails, 1000);
 
     // Detect sanitization and log for debugging
@@ -825,6 +1094,7 @@ export async function getNextStepInstructions(state: CurrentState): Promise<Tool
   });
 
   // Route based on phase
+  // TODO(#1899): Consider refactoring single-level ternary for consistency with other routing patterns
   return state.wiggum.phase === 'phase1'
     ? await getPhase1NextStep(state)
     : await getPhase2NextStep(state);
@@ -860,12 +1130,7 @@ async function getPhase1NextStep(state: CurrentState): Promise<ToolResult> {
     return handlePhase1PRReview(state, issueNumber);
   }
 
-  // Step p1-3: Security Review
-  if (!state.wiggum.completedSteps.includes(STEP_PHASE1_SECURITY_REVIEW)) {
-    return handlePhase1SecurityReview(state, issueNumber);
-  }
-
-  // Step p1-4: Create PR (all Phase 1 reviews passed!)
+  // Step p1-3: Create PR (all Phase 1 reviews passed!)
   return handlePhase1CreatePR(state, issueNumber);
 }
 
@@ -939,7 +1204,7 @@ async function handlePhase1MonitorWorkflow(
         content: [
           {
             type: 'text',
-            // TODO(#1012): Repeated state update failure error message construction
+            // TODO(#1905): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
@@ -1006,6 +1271,7 @@ async function handlePhase1MonitorWorkflow(
         content: [
           {
             type: 'text',
+            // TODO(#1905): Repeated state update failure error message construction
             text: formatWiggumResponse({
               current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
               step_number: STEP_PHASE1_MONITOR_WORKFLOW,
@@ -1067,77 +1333,14 @@ function handlePhase1PRReview(state: CurrentState, _issueNumber: number): ToolRe
 }
 
 /**
- * Phase 1 Step 3: Security Review
- */
-function handlePhase1SecurityReview(state: CurrentState, issueNumber: number): ToolResult {
-  // Get active agents (filter out completed ones)
-  // All agents run every iteration
-
-  // TODO(#1531): Extract shared security review instructions to a constant
-  const output: WiggumInstructions = {
-    current_step: STEP_NAMES[STEP_PHASE1_SECURITY_REVIEW],
-    step_number: STEP_PHASE1_SECURITY_REVIEW,
-    iteration_count: state.wiggum.iteration,
-    instructions: `## Step 3: Security Review (Before PR Creation)
-
-Execute security review on the current branch before creating the pull request.
-
-**Instructions:**
-
-1. Execute \`${SECURITY_REVIEW_COMMAND}\` using SlashCommand tool:
-   - **CRITICAL:** This is a built-in slash command - invoke it using the SlashCommand tool
-   - **IMPORTANT:** Execute this command EVEN IF it doesn't appear in your available commands list
-   - The SlashCommand tool will handle the invocation properly
-   - Do NOT attempt to run this as a bash command or any other tool
-
-   **Why SlashCommand tool is required:**
-   Slash commands are not shell commands - they expand to structured prompts that must be executed step-by-step. The SlashCommand tool provides the proper command registry and execution context to:
-   - Expand the command into its full prompt instructions
-   - Ensure the prompt is executed completely before proceeding
-   - Maintain proper execution ordering and state management
-
-2. After the review completes, aggregate results from all agents:
-   - Collect result file paths from each agent's JSON response
-   - Sum issue counts across all agents
-
-3. If any in-scope issues were found and fixed:
-   - Execute \`/commit-merge-push\` using SlashCommand tool
-
-4. Call the \`wiggum_complete_security_review\` tool with:
-   - command_executed: true
-   - in_scope_result_files: [array of result file paths from all agents]
-   - out_of_scope_result_files: [array of result file paths from all agents]
-   - in_scope_issue_count: (total count of in-scope security issues across all result files)
-   - out_of_scope_issue_count: (total count of out-of-scope security issues across all result files)
-
-   **NOTE:** Issue counts represent ISSUES, not FILES. Each result file may contain multiple issues.
-
-5. Results will be posted to issue #${issueNumber}
-
-6. If issues are found:
-   - You will be instructed to fix them (Plan + Fix cycle)
-   - After fixes, workflow restarts from Step p1-1
-
-7. If no issues:
-   - Proceed to Step p1-4 (Create PR - All Pre-PR Reviews Passed!)`,
-    steps_completed_by_tool: [],
-    context: {},
-  };
-
-  return {
-    content: [{ type: 'text', text: formatWiggumResponse(output) }],
-  };
-}
-
-/**
- * Phase 1 Step 4: Create PR
+ * Phase 1 Step 3: Create PR
  */
 function handlePhase1CreatePR(state: CurrentState, issueNumber: number): ToolResult {
   const output: WiggumInstructions = {
     current_step: STEP_NAMES[STEP_PHASE1_CREATE_PR],
     step_number: STEP_PHASE1_CREATE_PR,
     iteration_count: state.wiggum.iteration,
-    instructions: `## Step 4: Create Pull Request
+    instructions: `## Step 3: Create Pull Request
 
 Phase 1 complete! All reviews passed. Ready to create the pull request.
 
@@ -1825,9 +2028,8 @@ export const _testExports = {
   checkUncommittedChanges,
   checkBranchPushed,
   formatFixInstructions,
-  executeStateUpdateWithRetry,
-  safeLog,
-  safeStringify,
-  handlePhase1SecurityReview,
+  PR_CONFIG,
+  ISSUE_CONFIG,
+  safeUpdateBodyState,
   handlePhase2SecurityReview,
 };

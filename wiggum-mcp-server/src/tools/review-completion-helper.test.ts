@@ -37,7 +37,6 @@ import {
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
-  STEP_PHASE1_SECURITY_REVIEW,
   STEP_PHASE2_PR_REVIEW,
   STEP_PHASE2_SECURITY_REVIEW,
 } from '../constants.js';
@@ -70,24 +69,21 @@ describe('review-completion-helper', () => {
     });
 
     it('should document Security review config structure', () => {
-      // Security review config includes:
-      // - phase1Step: STEP_PHASE1_SECURITY_REVIEW ('p1-3')
+      // Security review config includes (Phase 2 only after workflow simplification):
       // - phase2Step: STEP_PHASE2_SECURITY_REVIEW ('p2-5')
-      // - phase1Command: '/security-review'
       // - phase2Command: '/security-review'
       // - reviewTypeLabel: 'Security'
       // - issueTypeLabel: 'security issue(s)'
       // - successMessage: 'No security issues found...'
+      // Note: phase1Step and phase1Command are omitted (security review moved to Phase 2 only)
       const config: ReviewConfig = {
-        phase1Step: STEP_PHASE1_SECURITY_REVIEW,
         phase2Step: STEP_PHASE2_SECURITY_REVIEW,
-        phase1Command: '/security-review',
         phase2Command: '/security-review',
         reviewTypeLabel: 'Security',
         issueTypeLabel: 'security issue(s)',
         successMessage: 'No security issues found',
       };
-      assert.strictEqual(config.phase1Step, 'p1-3');
+      assert.strictEqual(config.phase1Step, undefined);
       assert.strictEqual(config.phase2Step, 'p2-5');
     });
   });
@@ -214,7 +210,7 @@ describe('review-completion-helper', () => {
         // In phase1:
         // - reviewStep = config.phase1Step
         // - For PR review: STEP_PHASE1_PR_REVIEW ('p1-2')
-        // - For Security review: STEP_PHASE1_SECURITY_REVIEW ('p1-3')
+        // - For Security review: phase1Step is undefined (security moved to Phase 2)
         assert.strictEqual(true, true, 'Test documents phase1 step selection');
       });
     });
@@ -935,17 +931,16 @@ describe('review-completion-helper', () => {
       it('should create a valid security review configuration', () => {
         const config = createSecurityReviewConfig();
 
-        assert.strictEqual(config.phase1Step, STEP_PHASE1_SECURITY_REVIEW);
+        assert.strictEqual(config.phase1Step, undefined); // Security review moved to Phase 2 only
         assert.strictEqual(config.phase2Step, STEP_PHASE2_SECURITY_REVIEW);
         assert.strictEqual(config.reviewTypeLabel, 'Security');
         assert.strictEqual(config.issueTypeLabel, 'security issue(s) found');
       });
 
-      it('should use same command for both phases', () => {
+      it('should only define Phase 2 command (security review moved to Phase 2)', () => {
         const config = createSecurityReviewConfig();
-        assert.strictEqual(config.phase1Command, '/security-review');
+        assert.strictEqual(config.phase1Command, undefined);
         assert.strictEqual(config.phase2Command, '/security-review');
-        assert.strictEqual(config.phase1Command, config.phase2Command);
       });
 
       it('should have non-empty success message with security aspects', () => {
@@ -958,7 +953,7 @@ describe('review-completion-helper', () => {
       it('should have readonly fields', () => {
         const config = createSecurityReviewConfig();
         // TypeScript enforces readonly, this test documents the expectation
-        assert.strictEqual(typeof config.phase1Step, 'string');
+        assert.strictEqual(config.phase1Step, undefined);
         assert.strictEqual(typeof config.phase2Step, 'string');
       });
     });
@@ -975,13 +970,14 @@ describe('review-completion-helper', () => {
 
       it('should pass phase prefix validation for PR config', () => {
         const config = createPRReviewConfig();
-        assert.ok(config.phase1Step.startsWith('p1-'));
+        assert.ok(config.phase1Step?.startsWith('p1-'));
         assert.ok(config.phase2Step.startsWith('p2-'));
       });
 
       it('should pass phase prefix validation for security config', () => {
         const config = createSecurityReviewConfig();
-        assert.ok(config.phase1Step.startsWith('p1-'));
+        // Security config has no phase1Step (security review moved to Phase 2)
+        assert.strictEqual(config.phase1Step, undefined);
         assert.ok(config.phase2Step.startsWith('p2-'));
       });
     });

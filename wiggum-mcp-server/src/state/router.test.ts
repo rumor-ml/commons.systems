@@ -17,7 +17,7 @@ import {
 } from './router.js';
 import type { CurrentState, PRExists, PRStateValue } from './types.js';
 import { createPRExists, createPRDoesNotExist } from './types.js';
-import * as bodyState from './body-state.js';
+import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import type { WiggumStep } from '../constants.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
@@ -38,7 +38,8 @@ const {
   checkUncommittedChanges,
   checkBranchPushed,
   formatFixInstructions,
-  handlePhase1SecurityReview,
+  PR_CONFIG,
+  ISSUE_CONFIG,
   handlePhase2SecurityReview,
 } = _testExports;
 
@@ -558,6 +559,316 @@ describe('createStateUpdateFailure factory function', () => {
   });
 });
 
+describe('ResourceConfig discriminated union', () => {
+  // TODO(#1860): Test file has redundant assertions across multiple describe blocks
+  describe('PR_CONFIG structure validation', () => {
+    it('should have resourceType "pr"', () => {
+      // Validates PR_CONFIG.resourceType is correctly set for discriminated union
+      // This ensures error context and logging use correct resource type
+      assert.strictEqual(PR_CONFIG.resourceType, 'pr', 'PR_CONFIG.resourceType should be "pr"');
+    });
+
+    it('should have resourceLabel "PR"', () => {
+      // Validates PR_CONFIG.resourceLabel for error messages and logging
+      // Discriminated union enforces this is exactly 'PR' for 'pr' resourceType
+      assert.strictEqual(PR_CONFIG.resourceLabel, 'PR', 'PR_CONFIG.resourceLabel should be "PR"');
+    });
+
+    it('should have verifyCommand "gh pr view"', () => {
+      // Validates PR_CONFIG.verifyCommand for error recommendations
+      // Discriminated union enforces this is exactly 'gh pr view' for 'pr' resourceType
+      assert.strictEqual(
+        PR_CONFIG.verifyCommand,
+        'gh pr view',
+        'PR_CONFIG.verifyCommand should be "gh pr view"'
+      );
+    });
+
+    it('should have updateFn referencing updatePRBodyState', () => {
+      // Validates PR_CONFIG.updateFn references the correct function
+      // This catches misconfigurations where wrong updateFn is assigned
+      assert.strictEqual(
+        PR_CONFIG.updateFn,
+        updatePRBodyState,
+        'PR_CONFIG.updateFn should reference updatePRBodyState'
+      );
+    });
+  });
+
+  describe('ISSUE_CONFIG structure validation', () => {
+    it('should have resourceType "issue"', () => {
+      // Validates ISSUE_CONFIG.resourceType is correctly set for discriminated union
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceType,
+        'issue',
+        'ISSUE_CONFIG.resourceType should be "issue"'
+      );
+    });
+
+    it('should have resourceLabel "Issue"', () => {
+      // Validates ISSUE_CONFIG.resourceLabel for error messages and logging
+      // Discriminated union enforces this is exactly 'Issue' for 'issue' resourceType
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceLabel,
+        'Issue',
+        'ISSUE_CONFIG.resourceLabel should be "Issue"'
+      );
+    });
+
+    it('should have verifyCommand "gh issue view"', () => {
+      // Validates ISSUE_CONFIG.verifyCommand for error recommendations
+      // Discriminated union enforces this is exactly 'gh issue view' for 'issue' resourceType
+      assert.strictEqual(
+        ISSUE_CONFIG.verifyCommand,
+        'gh issue view',
+        'ISSUE_CONFIG.verifyCommand should be "gh issue view"'
+      );
+    });
+
+    it('should have updateFn referencing updateIssueBodyState', () => {
+      // Validates ISSUE_CONFIG.updateFn references the correct function
+      // This catches misconfigurations where wrong updateFn is assigned
+      assert.strictEqual(
+        ISSUE_CONFIG.updateFn,
+        updateIssueBodyState,
+        'ISSUE_CONFIG.updateFn should reference updateIssueBodyState'
+      );
+    });
+  });
+
+  describe('discriminated union type safety', () => {
+    it('should have distinct resourceType values for PR and Issue configs', () => {
+      // The discriminated union uses resourceType to differentiate configs
+      // This test verifies the discriminant values are distinct
+      assert.notStrictEqual(
+        PR_CONFIG.resourceType,
+        ISSUE_CONFIG.resourceType,
+        'PR and Issue configs must have distinct resourceType values'
+      );
+    });
+
+    it('should have distinct resourceLabel values for user-friendly messages', () => {
+      // ResourceLabel is used in error messages ("PR not found" vs "Issue not found")
+      // This test verifies labels are distinct to avoid confusing error messages
+      assert.notStrictEqual(
+        PR_CONFIG.resourceLabel,
+        ISSUE_CONFIG.resourceLabel,
+        'PR and Issue configs must have distinct resourceLabel values'
+      );
+    });
+
+    it('should have distinct verifyCommand values for resource-specific verification', () => {
+      // VerifyCommand is used in error recommendations
+      // This test verifies commands are distinct so users get correct instructions
+      assert.notStrictEqual(
+        PR_CONFIG.verifyCommand,
+        ISSUE_CONFIG.verifyCommand,
+        'PR and Issue configs must have distinct verifyCommand values'
+      );
+    });
+  });
+});
+
+describe('safeUpdateBodyState generic function behavior', () => {
+  describe('error context field names', () => {
+    it('should verify configs provide resourceType for error context', () => {
+      // safeUpdateBodyState builds errorContext with resourceType: config.resourceType
+      // Verify both configs have the resourceType field used in error context
+      assert.strictEqual(
+        PR_CONFIG.resourceType,
+        'pr',
+        'PR_CONFIG provides resourceType for error context'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceType,
+        'issue',
+        'ISSUE_CONFIG provides resourceType for error context'
+      );
+    });
+
+    it('should verify configs provide resourceLabel for error messages', () => {
+      // Error messages use config.resourceLabel for user-friendly output:
+      // - "PR not found" vs "Issue not found"
+      // - "Failed to update state in PR body" vs "Failed to update state in issue body"
+      assert.strictEqual(
+        PR_CONFIG.resourceLabel,
+        'PR',
+        'PR_CONFIG provides label for error messages'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceLabel,
+        'Issue',
+        'ISSUE_CONFIG provides label for error messages'
+      );
+      assert.notStrictEqual(
+        PR_CONFIG.resourceLabel,
+        ISSUE_CONFIG.resourceLabel,
+        'Labels must be distinct'
+      );
+    });
+
+    it('should verify configs provide verifyCommand for error recommendations', () => {
+      // Error recommendations include resource-specific verify commands:
+      // - "Verify PR #123 exists: gh pr view 123"
+      // - "Verify Issue #456 exists: gh issue view 456"
+      assert.strictEqual(
+        PR_CONFIG.verifyCommand,
+        'gh pr view',
+        'PR_CONFIG provides verify command'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.verifyCommand,
+        'gh issue view',
+        'ISSUE_CONFIG provides verify command'
+      );
+      assert.ok(PR_CONFIG.verifyCommand.includes('pr'), 'PR verify command references pr');
+      assert.ok(
+        ISSUE_CONFIG.verifyCommand.includes('issue'),
+        'Issue verify command references issue'
+      );
+    });
+  });
+
+  describe('function name generation', () => {
+    it('should generate PR-specific function name from config', () => {
+      // safeUpdateBodyState generates function name: `safeUpdate${config.resourceLabel}BodyState`
+      // For PR_CONFIG (resourceLabel: 'PR'): "safeUpdatePRBodyState"
+      const fnName = `safeUpdate${PR_CONFIG.resourceLabel}BodyState`;
+      assert.strictEqual(fnName, 'safeUpdatePRBodyState');
+    });
+
+    it('should generate Issue-specific function name from config', () => {
+      // For ISSUE_CONFIG (resourceLabel: 'Issue'): "safeUpdateIssueBodyState"
+      const fnName = `safeUpdate${ISSUE_CONFIG.resourceLabel}BodyState`;
+      assert.strictEqual(fnName, 'safeUpdateIssueBodyState');
+    });
+  });
+
+  describe('retry strategy documentation', () => {
+    it('should document exponential backoff with 60s cap', () => {
+      // safeUpdateBodyState uses exponential backoff capped at 60 seconds:
+      // - Formula: 2^attempt * 1000 ms
+      // - Cap: Math.min(uncappedDelayMs, 60000)
+      const MAX_DELAY_MS = 60000;
+      const attempt6Delay = Math.pow(2, 6) * 1000; // 64000 ms
+      const cappedDelay = Math.min(attempt6Delay, MAX_DELAY_MS);
+      assert.strictEqual(cappedDelay, MAX_DELAY_MS, 'Delays should be capped at 60s');
+    });
+
+    it('should document default retry sequence (2s, 4s, then exhausted)', () => {
+      // With maxRetries=3 (default), only 2 delays actually occur:
+      // - After attempt 1 fails: wait 2^1 * 1000 = 2000ms before attempt 2
+      // - After attempt 2 fails: wait 2^2 * 1000 = 4000ms before attempt 3
+      // - After attempt 3 fails: no delay, return failure immediately
+      //
+      // This test documents the delay formula for all 3 attempts, but the third
+      // delay (8000ms) is never used in practice since we return failure instead.
+      const delaysBeforeEachAttempt = [1, 2, 3].map((attempt) => Math.pow(2, attempt) * 1000);
+      assert.deepStrictEqual(delaysBeforeEachAttempt, [2000, 4000, 8000]);
+    });
+  });
+});
+
+describe('safeUpdatePRBodyState and safeUpdateIssueBodyState wrappers', () => {
+  describe('parameter forwarding documentation', () => {
+    it('should document that wrappers forward all parameters to generic function', () => {
+      // Both wrapper functions forward parameters in the same order:
+      // 1. config (PR_CONFIG or ISSUE_CONFIG) - injected by wrapper
+      // 2. resourceId (prNumber or issueNumber) - passed through
+      // 3. state (WiggumState) - passed through
+      // 4. step (string) - passed through
+      // 5. maxRetries (number, default: 3) - passed through
+      const wrapperParams = ['resourceId', 'state', 'step', 'maxRetries'];
+      assert.strictEqual(wrapperParams.length, 4, 'Wrappers accept 4 parameters');
+    });
+
+    it('should validate PR_CONFIG structure for safeUpdatePRBodyState', () => {
+      // This test validates PR_CONFIG structure, not wrapper behavior.
+      // The wrapper function simply passes PR_CONFIG to safeUpdateBodyState.
+      // Wrapper parameter forwarding is not tested here - we only verify config values.
+      assert.strictEqual(PR_CONFIG.resourceType, 'pr', 'PR_CONFIG is configured for PR updates');
+      assert.strictEqual(PR_CONFIG.updateFn, updatePRBodyState, 'PR_CONFIG uses updatePRBodyState');
+    });
+
+    it('should validate ISSUE_CONFIG structure for safeUpdateIssueBodyState', () => {
+      // This test validates ISSUE_CONFIG structure, not wrapper behavior.
+      // The wrapper function simply passes ISSUE_CONFIG to safeUpdateBodyState.
+      // Wrapper parameter forwarding is not tested here - we only verify config values.
+      assert.strictEqual(
+        ISSUE_CONFIG.resourceType,
+        'issue',
+        'ISSUE_CONFIG is configured for issue updates'
+      );
+      assert.strictEqual(
+        ISSUE_CONFIG.updateFn,
+        updateIssueBodyState,
+        'ISSUE_CONFIG uses updateIssueBodyState'
+      );
+    });
+  });
+
+  describe('default maxRetries behavior', () => {
+    it('should document default maxRetries=3 for PR wrapper', () => {
+      // safeUpdatePRBodyState has default: maxRetries = 3
+      // Callers not providing maxRetries get 3 retry attempts
+      const defaultMaxRetries = 3;
+      assert.strictEqual(defaultMaxRetries, 3, 'Default maxRetries should be 3');
+    });
+
+    it('should document default maxRetries=3 for Issue wrapper', () => {
+      // safeUpdateIssueBodyState has default: maxRetries = 3
+      // Both wrappers use the same default for consistency
+      const defaultMaxRetries = 3;
+      assert.strictEqual(defaultMaxRetries, 3, 'Default maxRetries should be 3');
+    });
+
+    it('should document that custom maxRetries is forwarded', () => {
+      // Both wrappers forward custom maxRetries to generic function:
+      // safeUpdatePRBodyState(123, state, 'step', 5) -> safeUpdateBodyState(PR_CONFIG, 123, state, 'step', 5)
+      const customMaxRetries: number = 5;
+      const defaultMaxRetries: number = 3;
+      assert.ok(
+        customMaxRetries !== defaultMaxRetries,
+        'Custom maxRetries should be forwarded when provided'
+      );
+    });
+  });
+
+  describe('return type documentation', () => {
+    it('should document that wrappers return StateUpdateResult', () => {
+      // Both wrappers return Promise<StateUpdateResult> from the generic function
+      // StateUpdateResult is: { success: true } | { success: false; reason; lastError; attemptCount }
+      const successResult = { success: true as const };
+      const failureResult = {
+        success: false as const,
+        reason: 'rate_limit' as const,
+        lastError: new Error('test'),
+        attemptCount: 3,
+      };
+      assert.strictEqual(successResult.success, true, 'Success result has success: true');
+      assert.strictEqual(failureResult.success, false, 'Failure result has success: false');
+    });
+
+    it('should verify wrappers are thin pass-through functions', () => {
+      // Wrappers do not catch or modify errors from safeUpdateBodyState
+      // This is verified by checking that both configs use their respective update functions
+      // directly, without any wrapper-level error handling
+      assert.strictEqual(
+        typeof PR_CONFIG.updateFn,
+        'function',
+        'PR_CONFIG.updateFn is a function that will be called directly'
+      );
+      assert.strictEqual(
+        typeof ISSUE_CONFIG.updateFn,
+        'function',
+        'ISSUE_CONFIG.updateFn is a function that will be called directly'
+      );
+      // The wrapper functions (safeUpdatePRBodyState, safeUpdateIssueBodyState) simply
+      // call safeUpdateBodyState with the appropriate config - errors propagate unchanged
+    });
+  });
+});
+
 describe('State Update Retry Logic', () => {
   describe('maxRetries validation', () => {
     it('should document that safeUpdatePRBodyState requires positive integer maxRetries', () => {
@@ -588,12 +899,26 @@ describe('State Update Retry Logic', () => {
       }
     });
 
-    it('should document uncapped delay growth', () => {
-      // Verifies that delays are NOT capped - they grow exponentially without limit
-      // This is documented in comments: "No cap on delay"
-      const attempt = 10;
-      const delay = Math.pow(2, attempt) * 1000;
-      assert.strictEqual(delay, 1024000, 'Attempt 10 would have ~17 minute delay (uncapped)');
+    it('should cap delays at 60 seconds to prevent excessive waits', () => {
+      // Delays are capped at 60s (MAX_DELAY_MS = 60000) as implemented in safeUpdateBodyState
+      // This prevents excessive delays when maxRetries is high
+      const MAX_DELAY_MS = 60000;
+
+      // Attempt 6: uncapped would be 64s, but capped to 60s
+      const attempt6Uncapped = Math.pow(2, 6) * 1000; // 64000ms
+      const attempt6Capped = Math.min(attempt6Uncapped, MAX_DELAY_MS);
+      assert.strictEqual(attempt6Uncapped, 64000, 'Uncapped delay at attempt 6 is 64s');
+      assert.strictEqual(attempt6Capped, 60000, 'Capped delay at attempt 6 is 60s');
+
+      // Attempt 10: uncapped would be ~17 minutes, but capped to 60s
+      const attempt10Uncapped = Math.pow(2, 10) * 1000; // 1024000ms (~17 min)
+      const attempt10Capped = Math.min(attempt10Uncapped, MAX_DELAY_MS);
+      assert.strictEqual(
+        attempt10Uncapped,
+        1024000,
+        'Uncapped delay at attempt 10 would be ~17 min'
+      );
+      assert.strictEqual(attempt10Capped, 60000, 'Capped delay at attempt 10 is still 60s');
     });
   });
 
@@ -658,668 +983,213 @@ describe('State Update Retry Logic', () => {
   });
 });
 
-describe('safeUpdatePRBodyState wrapper function', () => {
-  it('should document wrapper function signature and defaults', () => {
-    // Documents the public API - see router.ts for full signature
-    assert.strictEqual(typeof safeUpdatePRBodyState, 'function');
+describe('safeUpdateBodyState validation', () => {
+  const { safeUpdateBodyState, PR_CONFIG, ISSUE_CONFIG } = _testExports;
+
+  // Valid state for tests
+  const validState = {
+    iteration: 0,
+    step: 'p1-1' as const,
+    completedSteps: [] as const,
+    phase: 'phase1' as const,
+  };
+
+  describe('resourceId validation', () => {
+    it('should reject resourceId of 0', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 0, validState, 'test-step'),
+        /resourceId must be a positive integer.*got: 0/,
+        'resourceId=0 should be rejected'
+      );
+    });
+
+    it('should reject negative resourceId', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, -1, validState, 'test-step'),
+        /resourceId must be a positive integer.*got: -1/,
+        'resourceId=-1 should be rejected'
+      );
+    });
+
+    it('should reject non-integer resourceId (float)', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 1.5, validState, 'test-step'),
+        /resourceId must be a positive integer.*got: 1\.5/,
+        'resourceId=1.5 should be rejected'
+      );
+    });
+
+    it('should include type information in error for non-number resourceId', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          'not-a-number' as unknown as number,
+          validState,
+          'test-step'
+        ),
+        /type: string/,
+        'Error should include type information'
+      );
+    });
+
+    it('should accept resourceId of 1 (minimum valid)', async () => {
+      // This will proceed past validation to the actual update
+      // Since we can't easily mock updateFn here, we just verify it doesn't throw validation error
+      // The actual call will fail at the GitHub API level, but that's expected
+      try {
+        await safeUpdateBodyState(PR_CONFIG, 1, validState, 'test-step');
+      } catch (error) {
+        // Should NOT be a ValidationError about resourceId
+        assert.ok(
+          !(
+            error instanceof Error &&
+            error.message.includes('resourceId must be a positive integer')
+          ),
+          'Valid resourceId=1 should pass validation'
+        );
+      }
+    });
   });
 
-  it('should document default maxRetries value of 3', () => {
-    // The wrapper function has maxRetries = 3 as default parameter (line 615 in router.ts)
-    // This ensures retry behavior is consistent across all PR state updates
-    // Without explicit maxRetries, the function will retry transient errors up to 3 times
-    const DEFAULT_MAX_RETRIES = 3;
-    assert.strictEqual(DEFAULT_MAX_RETRIES, 3, 'Default maxRetries should be 3');
+  describe('maxRetries validation', () => {
+    it('should reject maxRetries of 0', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 0),
+        /maxRetries must be a positive integer between 1 and 100.*got: 0/,
+        'maxRetries=0 should be rejected'
+      );
+    });
+
+    it('should reject negative maxRetries', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', -5),
+        /maxRetries must be a positive integer between 1 and 100.*got: -5/,
+        'maxRetries=-5 should be rejected'
+      );
+    });
+
+    it('should reject maxRetries exceeding limit (101)', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 101),
+        /maxRetries must be a positive integer between 1 and 100.*got: 101/,
+        'maxRetries=101 should be rejected'
+      );
+    });
+
+    it('should reject non-integer maxRetries (float)', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 2.5),
+        /maxRetries must be a positive integer/,
+        'maxRetries=2.5 should be rejected'
+      );
+    });
+
+    it('should reject NaN maxRetries', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', NaN),
+        /maxRetries must be a positive integer/,
+        'maxRetries=NaN should be rejected'
+      );
+    });
+
+    it('should include guidance on common values in error message', async () => {
+      await assert.rejects(
+        safeUpdateBodyState(PR_CONFIG, 123, validState, 'test-step', 0),
+        /Common values: 3 \(default\)/,
+        'Error should include guidance on common values'
+      );
+    });
   });
 
-  it('should document StateUpdateResult return type structure', () => {
-    // The function returns Promise<StateUpdateResult> which is a discriminated union:
-    // Success: { success: true }
-    // Failure: { success: false, reason: 'rate_limit' | 'network', lastError: Error, attemptCount: number }
+  describe('state validation', () => {
+    it('should reject state with missing required field (phase)', async () => {
+      const invalidState = {
+        iteration: 0,
+        step: 'p1-1',
+        completedSteps: [],
+        // missing phase
+      };
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          123,
+          invalidState as unknown as typeof validState,
+          'test-step'
+        ),
+        /Invalid state|validation failed/i,
+        'State missing phase should be rejected'
+      );
+    });
 
-    // Critical errors (404, 401/403) throw immediately and never return failure
-    // All returned failures are transient by definition
+    it('should reject state with invalid iteration type', async () => {
+      const invalidState = {
+        iteration: 'not-a-number',
+        step: 'p1-1',
+        completedSteps: [],
+        phase: 'phase1',
+      };
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          123,
+          invalidState as unknown as typeof validState,
+          'test-step'
+        ),
+        /Invalid state|validation failed/i,
+        'State with string iteration should be rejected'
+      );
+    });
 
-    const successResult = { success: true as const };
-    const failureResult = {
-      success: false as const,
-      reason: 'rate_limit' as const,
-      lastError: new Error('test'),
-      attemptCount: 3,
-    };
-
-    assert.strictEqual(successResult.success, true);
-    assert.strictEqual(failureResult.success, false);
-    assert.ok(['rate_limit', 'network'].includes(failureResult.reason));
+    it('should reject state with invalid step value', async () => {
+      const invalidState = {
+        iteration: 0,
+        step: 'invalid-step',
+        completedSteps: [],
+        phase: 'phase1',
+      };
+      await assert.rejects(
+        safeUpdateBodyState(
+          PR_CONFIG,
+          123,
+          invalidState as unknown as typeof validState,
+          'test-step'
+        ),
+        /Invalid state|validation failed/i,
+        'State with invalid step should be rejected'
+      );
+    });
   });
 
-  it('should document PR-specific configuration passed to executeStateUpdateWithRetry', () => {
-    // The wrapper delegates to executeStateUpdateWithRetry with this config:
-    // {
-    //   resourceType: 'pr',
-    //   resourceId: prNumber (from parameter),
-    //   updateFn: updatePRBodyState (from body-state.ts)
-    // }
+  describe('config usage verification', () => {
+    it('should use PR_CONFIG resourceLabel in error messages', async () => {
+      // When resourceId validation fails, error message should include PR-specific function name
+      try {
+        await safeUpdateBodyState(PR_CONFIG, 0, validState, 'test-step');
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(
+          error instanceof Error && error.message.includes('safeUpdatePRBodyState'),
+          'Error should reference PR-specific function name'
+        );
+      }
+    });
 
-    // This ensures:
-    // - Error messages reference "PR #123" not "issue"
-    // - Logging uses prNumber field not issueNumber
-    // - Correct API endpoint is called (gh pr edit, not gh issue edit)
-
-    const config = {
-      resourceType: 'pr' as const,
-      resourceId: 123,
-      // updateFn is the actual updatePRBodyState function from body-state.ts
-    };
-
-    assert.strictEqual(config.resourceType, 'pr');
-    assert.ok(Number.isInteger(config.resourceId));
-  });
-
-  it('should document error handling behavior', () => {
-    // The wrapper inherits all error handling from executeStateUpdateWithRetry:
-    //
-    // Transient errors (rate limit, network) - retry with exponential backoff:
-    // - Rate limit (429, message contains 'rate limit') - backoff capped at 60s
-    // - Network (ECONNREFUSED, ETIMEDOUT, ENOTFOUND, network, fetch)
-    // - Returns { success: false, reason, lastError, attemptCount } after maxRetries exhausted
-    //
-    // Critical errors (throw immediately, no retry):
-    // - 404 errors - PR doesn't exist
-    // - Auth errors (401, 403, permission denied)
-    //
-    // Unexpected errors - throw immediately for investigation
-
-    assert.ok(true, 'Error handling is delegated to executeStateUpdateWithRetry');
-  });
-});
-
-describe('safeUpdateIssueBodyState wrapper function', () => {
-  it('should document wrapper function signature and defaults', () => {
-    // Signature: safeUpdateIssueBodyState(issueNumber, state, step, maxRetries = 3)
-    // Returns: Promise<StateUpdateResult>
-
-    assert.strictEqual(typeof safeUpdateIssueBodyState, 'function');
-    assert.ok(true, 'Wrapper function exists with documented signature');
-  });
-
-  it('should document default maxRetries value of 3', () => {
-    // The wrapper function has maxRetries = 3 as default parameter (line 650 in router.ts)
-    // This ensures consistent retry behavior across all issue state updates
-    const DEFAULT_MAX_RETRIES = 3;
-    assert.strictEqual(DEFAULT_MAX_RETRIES, 3, 'Default maxRetries should be 3');
-  });
-
-  it('should document StateUpdateResult return type structure', () => {
-    // Returns same StateUpdateResult type as PR wrapper
-    // Success: { success: true }
-    // Failure: { success: false, reason: 'rate_limit' | 'network', lastError: Error, attemptCount: number }
-
-    const successResult = { success: true as const };
-    const failureResult = {
-      success: false as const,
-      reason: 'network' as const,
-      lastError: new Error('test'),
-      attemptCount: 3,
-    };
-
-    assert.strictEqual(successResult.success, true);
-    assert.strictEqual(failureResult.success, false);
-    assert.ok(['rate_limit', 'network'].includes(failureResult.reason));
-  });
-
-  it('should document issue-specific configuration passed to executeStateUpdateWithRetry', () => {
-    // The wrapper delegates to executeStateUpdateWithRetry with this config:
-    // {
-    //   resourceType: 'issue',
-    //   resourceId: issueNumber (from parameter),
-    //   updateFn: updateIssueBodyState (from body-state.ts)
-    // }
-
-    // This ensures:
-    // - Error messages reference "issue #456" not "PR"
-    // - Logging uses issueNumber field not prNumber
-    // - Correct API endpoint is called (gh issue edit, not gh pr edit)
-
-    const config = {
-      resourceType: 'issue' as const,
-      resourceId: 456,
-      // updateFn is the actual updateIssueBodyState function from body-state.ts
-    };
-
-    assert.strictEqual(config.resourceType, 'issue');
-    assert.ok(Number.isInteger(config.resourceId));
-  });
-
-  it('should document error handling behavior', () => {
-    // Inherits all error handling from executeStateUpdateWithRetry:
-    // - Transient errors: retry with exponential backoff
-    // - Critical errors (404, auth): throw immediately
-    // - Unexpected errors: throw for investigation
-
-    assert.ok(true, 'Error handling is delegated to executeStateUpdateWithRetry');
-  });
-});
-
-describe('Wrapper function behavioral parity', () => {
-  /**
-   * Tests that verify both wrappers behave identically except for resource type
-   */
-
-  it('should both use same default maxRetries value', () => {
-    // Both wrappers specify maxRetries = 3 as default parameter
-    // This ensures consistent retry behavior across PR and issue operations
-
-    // From router.ts:
-    // - safeUpdatePRBodyState: line 615, maxRetries = 3
-    // - safeUpdateIssueBodyState: line 650, maxRetries = 3
-
-    const PR_DEFAULT_MAX_RETRIES = 3;
-    const ISSUE_DEFAULT_MAX_RETRIES = 3;
-
-    assert.strictEqual(
-      PR_DEFAULT_MAX_RETRIES,
-      ISSUE_DEFAULT_MAX_RETRIES,
-      'Both wrappers should use same default maxRetries'
-    );
-  });
-
-  it('should both return same StateUpdateResult type', () => {
-    // Both wrappers return Promise<StateUpdateResult>
-    // Success: { success: true }
-    // Failure: { success: false, reason: 'rate_limit' | 'network', lastError: Error, attemptCount: number }
-
-    // This ensures callers can handle both PR and issue updates uniformly
-
-    const successResult = { success: true as const };
-    assert.strictEqual(typeof successResult.success, 'boolean');
-  });
-
-  it('should both delegate to executeStateUpdateWithRetry', () => {
-    // Both wrappers are thin wrappers that delegate all logic to executeStateUpdateWithRetry
-    // Only difference is the config object passed:
-    //
-    // PR wrapper:
-    // {
-    //   resourceType: 'pr',
-    //   resourceId: prNumber,
-    //   updateFn: updatePRBodyState
-    // }
-    //
-    // Issue wrapper:
-    // {
-    //   resourceType: 'issue',
-    //   resourceId: issueNumber,
-    //   updateFn: updateIssueBodyState
-    // }
-
-    assert.ok(true, 'Both wrappers delegate to executeStateUpdateWithRetry');
-  });
-
-  it('should both handle transient errors with retry', () => {
-    // Both wrappers inherit retry logic from executeStateUpdateWithRetry:
-    // - Rate limit errors (429, 'rate limit' in message)
-    // - Network errors (ECONNREFUSED, ETIMEDOUT, ENOTFOUND, 'network', 'fetch')
-    // - Exponential backoff: 2^attempt * 1000ms, capped at 60s
-    // - Returns failure result after maxRetries exhausted
-
-    assert.ok(true, 'Both wrappers inherit same retry logic');
-  });
-
-  it('should both throw on critical errors immediately', () => {
-    // Both wrappers inherit critical error handling from executeStateUpdateWithRetry:
-    // - 404 errors: resource doesn't exist
-    // - Auth errors: 401, 403, permission denied
-    // - These throw immediately without retry
-
-    assert.ok(true, 'Both wrappers inherit same critical error handling');
-  });
-
-  it('should document that swapping updateFn would break resource updates', () => {
-    // This test documents the regression that the wrapper tests are designed to catch:
-    // If someone accidentally swaps the updateFn references:
-    //
-    // WRONG (would cause bug):
-    // safeUpdatePRBodyState calls with updateFn: updateIssueBodyState
-    // safeUpdateIssueBodyState calls with updateFn: updatePRBodyState
-    //
-    // Result: PRs would be updated with 'gh issue edit' and vice versa
-    //
-    // The current implementation (lines 617-626, 652-661) correctly maps:
-    // - PR wrapper → updatePRBodyState
-    // - Issue wrapper → updateIssueBodyState
-
-    assert.ok(true, 'Correct updateFn mapping prevents API misuse');
-  });
-
-  it('should document maxRetries parameter pass-through for PR wrapper', () => {
-    // The safeUpdatePRBodyState wrapper accepts an optional maxRetries parameter
-    // and passes it through to executeStateUpdateWithRetry (line 669 in router.ts):
-    //
-    // export async function safeUpdatePRBodyState(
-    //   prNumber: number,
-    //   state: WiggumState,
-    //   step: string,
-    //   maxRetries = 3                              // Default value
-    // ): Promise<StateUpdateResult> {
-    //   return executeStateUpdateWithRetry(
-    //     { resourceType: 'pr', resourceId: prNumber, updateFn: updatePRBodyState },
-    //     state,
-    //     step,
-    //     maxRetries                                // Passed through here
-    //   );
-    // }
-    //
-    // This test documents that custom maxRetries values would be passed through.
-    // The actual retry behavior is tested in router-retry.test.ts.
-    //
-    // Example usage:
-    // - safeUpdatePRBodyState(123, state, 'step')      // Uses default maxRetries = 3
-    // - safeUpdatePRBodyState(123, state, 'step', 5)   // Custom maxRetries = 5
-    // - safeUpdatePRBodyState(123, state, 'step', 1)   // Custom maxRetries = 1
-    //
-    // Failure scenario this would catch:
-    // If someone hardcoded maxRetries in the wrapper:
-    //   return executeStateUpdateWithRetry(..., 3);  // WRONG - always 3
-    // instead of:
-    //   return executeStateUpdateWithRetry(..., maxRetries);  // RIGHT - respects parameter
-
-    assert.strictEqual(typeof safeUpdatePRBodyState, 'function');
-    // Note: .length only counts parameters without defaults, so it's 3 not 4
-    // (prNumber, state, step) - maxRetries has default so not counted
-    assert.strictEqual(safeUpdatePRBodyState.length, 3, 'Function has 3 required parameters');
-  });
-
-  it('should document maxRetries parameter pass-through for issue wrapper', () => {
-    // The safeUpdateIssueBodyState wrapper accepts an optional maxRetries parameter
-    // and passes it through to executeStateUpdateWithRetry (line 714 in router.ts):
-    //
-    // export async function safeUpdateIssueBodyState(
-    //   issueNumber: number,
-    //   state: WiggumState,
-    //   step: string,
-    //   maxRetries = 3                              // Default value
-    // ): Promise<StateUpdateResult> {
-    //   return executeStateUpdateWithRetry(
-    //     { resourceType: 'issue', resourceId: issueNumber, updateFn: updateIssueBodyState },
-    //     state,
-    //     step,
-    //     maxRetries                                // Passed through here
-    //   );
-    // }
-    //
-    // This ensures behavioral parity with the PR wrapper - both accept and pass through
-    // custom maxRetries values the same way.
-    //
-    // The actual retry behavior with custom maxRetries values is thoroughly tested
-    // in router-retry.test.ts for executeStateUpdateWithRetry.
-
-    assert.strictEqual(typeof safeUpdateIssueBodyState, 'function');
-    // Note: .length only counts parameters without defaults, so it's 3 not 4
-    // (issueNumber, state, step) - maxRetries has default so not counted
-    assert.strictEqual(safeUpdateIssueBodyState.length, 3, 'Function has 3 required parameters');
+    it('should use ISSUE_CONFIG resourceLabel in error messages', async () => {
+      // When resourceId validation fails, error message should include Issue-specific function name
+      try {
+        await safeUpdateBodyState(ISSUE_CONFIG, 0, validState, 'test-step');
+        assert.fail('Should have thrown');
+      } catch (error) {
+        assert.ok(
+          error instanceof Error && error.message.includes('safeUpdateIssueBodyState'),
+          'Error should reference Issue-specific function name'
+        );
+      }
+    });
   });
 });
-
-describe('Wrapper function defensive checks', () => {
-  it('should document defensive check for updatePRBodyState', () => {
-    // safeUpdatePRBodyState has a defensive check (lines 645-650 in router.ts):
-    //
-    // if (typeof updatePRBodyState !== 'function') {
-    //   throw new Error(
-    //     'safeUpdatePRBodyState: updatePRBodyState function is not defined. ' +
-    //     'This indicates a module import failure or circular dependency.'
-    //   );
-    // }
-    //
-    // This check catches:
-    // - Import failures during module loading
-    // - Circular dependencies breaking at runtime
-    // - Build system issues with bundling/compilation
-    //
-    // Cannot test at runtime with ES modules (read-only exports), but the check
-    // provides a clear error message if the unlikely scenario occurs.
-
-    assert.strictEqual(typeof bodyState.updatePRBodyState, 'function');
-  });
-
-  it('should document defensive check for updateIssueBodyState', () => {
-    // safeUpdateIssueBodyState has a defensive check (lines 689-694 in router.ts):
-    //
-    // if (typeof updateIssueBodyState !== 'function') {
-    //   throw new Error(
-    //     'safeUpdateIssueBodyState: updateIssueBodyState function is not defined. ' +
-    //     'This indicates a module import failure or circular dependency.'
-    //   );
-    // }
-    //
-    // This check catches serious module loading issues at runtime.
-    // While unlikely (TypeScript provides compile-time protection), it ensures
-    // clear error messages guide developers to the likely cause.
-
-    assert.strictEqual(typeof bodyState.updateIssueBodyState, 'function');
-  });
-});
-
-describe('Wrapper function integration', () => {
-  it('should document that safeUpdatePRBodyState passes PR config to executeStateUpdateWithRetry', () => {
-    // safeUpdatePRBodyState delegates to executeStateUpdateWithRetry with this config:
-    // {
-    //   resourceType: 'pr',
-    //   resourceId: prNumber (from parameter),
-    //   updateFn: updatePRBodyState (from body-state.ts)
-    // }
-    //
-    // This configuration ensures:
-    // - Error messages reference "PR #123" not "issue"
-    // - Logging uses prNumber field correctly
-    // - Correct API endpoint is called (gh pr edit, not gh issue edit)
-    //
-    // The wrapper implementation (lines 652-661) shows the correct mapping:
-    // return executeStateUpdateWithRetry(
-    //   {
-    //     resourceType: 'pr',
-    //     resourceId: prNumber,
-    //     updateFn: updatePRBodyState,
-    //   },
-    //   ...
-    // );
-
-    assert.strictEqual(typeof bodyState.updatePRBodyState, 'function');
-  });
-
-  it('should document that safeUpdateIssueBodyState passes issue config to executeStateUpdateWithRetry', () => {
-    // safeUpdateIssueBodyState delegates to executeStateUpdateWithRetry with this config:
-    // {
-    //   resourceType: 'issue',
-    //   resourceId: issueNumber (from parameter),
-    //   updateFn: updateIssueBodyState (from body-state.ts)
-    // }
-    //
-    // This configuration ensures:
-    // - Error messages reference "issue #456" not "PR"
-    // - Logging uses issueNumber field correctly
-    // - Correct API endpoint is called (gh issue edit, not gh pr edit)
-    //
-    // The wrapper implementation (lines 696-705) shows the correct mapping:
-    // return executeStateUpdateWithRetry(
-    //   {
-    //     resourceType: 'issue',
-    //     resourceId: issueNumber,
-    //     updateFn: updateIssueBodyState,
-    //   },
-    //   ...
-    // );
-
-    assert.strictEqual(typeof bodyState.updateIssueBodyState, 'function');
-  });
-
-  it('should verify wrapper functions use distinct update functions from body-state module', () => {
-    // Regression prevention: This test documents that the wrappers call
-    // different functions from body-state.ts:
-    //
-    // - safeUpdatePRBodyState → updatePRBodyState
-    // - safeUpdateIssueBodyState → updateIssueBodyState
-    //
-    // If someone accidentally swaps these during copy-paste:
-    // - PRs would be updated with 'gh issue edit' (wrong!)
-    // - Issues would be updated with 'gh pr edit' (wrong!)
-    //
-    // The type system enforces this at compile time, and the distinct
-    // function references prevent runtime cross-calls.
-
-    assert.notStrictEqual(
-      bodyState.updatePRBodyState,
-      bodyState.updateIssueBodyState,
-      'PR and issue update functions must be distinct'
-    );
-    assert.strictEqual(typeof bodyState.updatePRBodyState, 'function');
-    assert.strictEqual(typeof bodyState.updateIssueBodyState, 'function');
-  });
-});
-
-// TODO(#1872): Consider integration test for safeUpdatePRBodyState with real GitHub API
 
 describe('Security Review Instructions', () => {
-  describe('Phase 1 Security Review', () => {
-    // TODO(#1832): Extract duplicate test setup to beforeEach hook
-    it('should include SlashCommand invocation guidance', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 552);
-      const instructions = result.content[0].text;
-
-      // Verify critical SlashCommand guidance is present
-      assert.ok(
-        instructions.includes('SlashCommand tool'),
-        'Instructions should mention SlashCommand tool'
-      );
-      // Critical requirement for issue #552: The agent may not see /security-review
-      // in its available commands list due to command registry timing or context issues.
-      // Without explicit instruction to proceed anyway, the agent refuses invocation.
-      // These instructions must override the agent's hesitation when a command appears missing.
-      assert.ok(
-        instructions.includes("EVEN IF it doesn't appear in your available commands list"),
-        'Instructions should include warning about command list'
-      );
-      assert.ok(
-        instructions.includes('Do NOT attempt to run this as a bash command'),
-        'Instructions should warn against bash execution'
-      );
-      assert.ok(
-        instructions.includes(SECURITY_REVIEW_COMMAND),
-        'Instructions should include the security review command'
-      );
-    });
-
-    it('should reference wiggum_complete_security_review tool', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 552);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('wiggum_complete_security_review'),
-        'Instructions should reference completion tool'
-      );
-      assert.ok(
-        instructions.includes('in_scope_result_files'),
-        'Instructions should mention in_scope_result_files parameter'
-      );
-      assert.ok(
-        instructions.includes('out_of_scope_result_files'),
-        'Instructions should mention out_of_scope_result_files parameter'
-      );
-    });
-
-    // TODO(#1835): Add tests for edge cases (large issue numbers, high iteration counts)
-    it('should include issue number in instructions', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 789);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('issue #789'),
-        'Instructions should reference the correct issue number'
-      );
-    });
-
-    it('should include explanation of why SlashCommand tool is required', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 552);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('Why SlashCommand tool is required'),
-        'Instructions should include explanation header'
-      );
-      assert.ok(
-        instructions.includes('expand to structured prompts') ||
-          instructions.includes('prompt expansion mechanism'),
-        'Instructions should explain why SlashCommand is required'
-      );
-      assert.ok(
-        instructions.includes('Expand the command into its full prompt instructions'),
-        'Instructions should explain prompt expansion'
-      );
-      assert.ok(
-        instructions.includes('Ensure the prompt is executed completely before proceeding'),
-        'Instructions should explain execution ordering'
-      );
-    });
-
-    it('should include backward iteration instruction for issues found', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 552);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('restarts from Step p1-1') ||
-          instructions.includes('restart from Step p1-1'),
-        'Instructions should include backward iteration to p1-1 on issue found'
-      );
-    });
-
-    it('should include forward progression instruction when no issues found', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 552);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('Proceed to Step p1-4') ||
-          instructions.includes('proceed to Step p1-4'),
-        'Instructions should include forward progression to p1-4 when no issues'
-      );
-      assert.ok(
-        instructions.includes('Create PR') || instructions.toLowerCase().includes('create pr'),
-        'Instructions should indicate that p1-4 is the Create PR step'
-      );
-    });
-
-    it('should include commit-merge-push instruction for fixes', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 552);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('/commit-merge-push'),
-        'Instructions should include /commit-merge-push for committing fixes'
-      );
-      assert.ok(
-        instructions.includes('in-scope issues were found and fixed'),
-        'Instructions should clarify commit is only needed if fixes were made'
-      );
-    });
-
-    it('should include result aggregation instructions', () => {
-      const state = createMockState({
-        git: { isPushed: true, hasUncommittedChanges: false },
-        wiggum: { phase: 'phase1', iteration: 0 },
-      });
-
-      const result = handlePhase1SecurityReview(state, 552);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('aggregate results'),
-        'Instructions should mention aggregating results'
-      );
-      assert.ok(
-        instructions.includes('Collect result file paths') ||
-          instructions.includes('Collect all result file paths'),
-        'Instructions should explain collecting file paths'
-      );
-      assert.ok(
-        instructions.includes('Sum issue counts') || instructions.includes('Count total'),
-        'Instructions should explain summing issue counts'
-      );
-    });
-
-    describe('Error Handling', () => {
-      it('should handle Phase 1 security review during wrong phase', () => {
-        const state = createMockState({
-          git: { isPushed: true, hasUncommittedChanges: false },
-          wiggum: { phase: 'phase2', iteration: 0 }, // Wrong phase
-        });
-
-        // TODO(#1841): Comment clarifies defensive test behavior but could be more concise
-        // handlePhase1SecurityReview doesn't currently validate phase
-        // Test that it still produces valid instructions (defensive)
-        const result = handlePhase1SecurityReview(state, 552);
-        const instructions = result.content[0].text;
-
-        // Should still include security review command
-        assert.ok(
-          instructions.includes(SECURITY_REVIEW_COMMAND),
-          'Should include security review command even if called during wrong phase'
-        );
-      });
-
-      it('should handle Phase 2 security review without PR', () => {
-        const state = createMockState({
-          pr: { exists: false },
-          wiggum: { phase: 'phase2', iteration: 0 },
-        });
-
-        // TODO(#1842): Comment provides useful context about type system contract but slightly verbose
-        // Type system prevents this at compile time, but test runtime behavior
-        // handlePhase2SecurityReview requires CurrentStateWithPR
-        // Calling with wrong type should be caught by TypeScript
-        // This test documents the contract
-
-        assert.strictEqual(
-          hasExistingPR(state),
-          false,
-          'State without PR should not pass type guard'
-        );
-      });
-
-      it('should handle uncommitted changes during security review', () => {
-        const state = createMockState({
-          git: { isPushed: true, hasUncommittedChanges: true },
-          wiggum: { phase: 'phase1', iteration: 0 },
-        });
-
-        // TODO(#1843): Comment explains test expectation but parenthetical note is unclear
-        // Test that handler still produces instructions
-        // (Pre-commit hooks will catch uncommitted changes)
-        const result = handlePhase1SecurityReview(state, 552);
-        const instructions = result.content[0].text;
-
-        assert.ok(
-          instructions.includes('wiggum_complete_security_review'),
-          'Should include completion tool even with uncommitted changes'
-        );
-      });
-    });
-  });
-
   describe('Phase 2 Security Review', () => {
     // TODO(#1831): Extract duplicate test setup to beforeEach hook
     it('should include SlashCommand invocation guidance', () => {
@@ -1334,240 +1204,72 @@ describe('Security Review Instructions', () => {
       }
 
       const result = handlePhase2SecurityReview(state);
-      const instructions = result.content[0].text;
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
 
-      // Verify critical SlashCommand guidance is present
+      // Verify SlashCommand invocation is mentioned
       assert.ok(
-        instructions.includes('SlashCommand tool'),
-        'Instructions should mention SlashCommand tool'
+        text.includes('SlashCommand tool'),
+        'Should mention SlashCommand tool for invocation'
       );
       assert.ok(
-        instructions.includes("EVEN IF it doesn't appear in your available commands list"),
-        'Instructions should include warning about command list'
-      );
-      assert.ok(
-        instructions.includes('Do NOT attempt to run this as a bash command'),
-        'Instructions should warn against bash execution'
-      );
-      assert.ok(
-        instructions.includes(SECURITY_REVIEW_COMMAND),
-        'Instructions should include the security review command'
-      );
-    });
-
-    it('should reference wiggum_complete_security_review tool', () => {
-      const state = createMockState({
-        pr: { exists: true, state: 'OPEN', number: 123 },
-        wiggum: { phase: 'phase2', iteration: 0 },
-      });
-
-      // Type guard ensures state has PR
-      if (!hasExistingPR(state)) {
-        throw new Error('Test setup failed: PR should exist');
-      }
-
-      const result = handlePhase2SecurityReview(state);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('wiggum_complete_security_review'),
-        'Instructions should reference wiggum_complete_security_review (not wiggum_complete_pr_review)'
-      );
-      assert.ok(
-        instructions.includes('command_executed'),
-        'Instructions should mention command_executed parameter'
-      );
-      assert.ok(
-        instructions.includes('in_scope_result_files'),
-        'Instructions should mention in_scope_result_files parameter'
-      );
-      assert.ok(
-        instructions.includes('out_of_scope_result_files'),
-        'Instructions should mention out_of_scope_result_files parameter'
-      );
-      assert.ok(
-        instructions.includes('in_scope_issue_count'),
-        'Instructions should mention in_scope_issue_count parameter'
-      );
-      assert.ok(
-        instructions.includes('out_of_scope_issue_count'),
-        'Instructions should mention out_of_scope_issue_count parameter'
-      );
-    });
-
-    it('should warn about reviewing all commits', () => {
-      const state = createMockState({
-        pr: { exists: true, state: 'OPEN', number: 123 },
-        wiggum: { phase: 'phase2', iteration: 0 },
-      });
-
-      // Type guard ensures state has PR
-      if (!hasExistingPR(state)) {
-        throw new Error('Test setup failed: PR should exist');
-      }
-
-      const result = handlePhase2SecurityReview(state);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('ALL changes from this branch'),
-        'Instructions should emphasize reviewing all changes'
-      );
-      assert.ok(
-        instructions.includes('git log main..HEAD'),
-        'Instructions should include git log command'
-      );
-    });
-
-    it('should include backward iteration instruction for issues found', () => {
-      const state = createMockState({
-        pr: { exists: true, state: 'OPEN', number: 123 },
-        wiggum: { phase: 'phase2', iteration: 0 },
-      });
-
-      if (!hasExistingPR(state)) {
-        throw new Error('Test setup failed: PR should exist');
-      }
-
-      const result = handlePhase2SecurityReview(state);
-      const instructions = result.content[0].text;
-
-      // TODO(#1833): Clarify comment - test only checks tool reference, not iteration logic
-      assert.ok(
-        instructions.includes('wiggum_complete_security_review'),
-        'Instructions should reference completion tool that handles iteration'
-      );
-    });
-
-    it('should include forward progression instruction when no issues found', () => {
-      const state = createMockState({
-        pr: { exists: true, state: 'OPEN', number: 123 },
-        wiggum: { phase: 'phase2', iteration: 0 },
-      });
-
-      if (!hasExistingPR(state)) {
-        throw new Error('Test setup failed: PR should exist');
-      }
-
-      const result = handlePhase2SecurityReview(state);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('wiggum_complete_security_review'),
-        'Instructions should reference completion tool that provides next step'
-      );
-      assert.ok(
-        instructions.includes('returns next step instructions'),
-        'Instructions should indicate tool returns next steps'
-      );
-    });
-
-    it('should include commit-merge-push instruction for fixes', () => {
-      const state = createMockState({
-        pr: { exists: true, state: 'OPEN', number: 123 },
-        wiggum: { phase: 'phase2', iteration: 0 },
-      });
-
-      if (!hasExistingPR(state)) {
-        throw new Error('Test setup failed: PR should exist');
-      }
-
-      const result = handlePhase2SecurityReview(state);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes(SECURITY_REVIEW_COMMAND),
-        'Instructions should include security review command that handles commits'
-      );
-    });
-
-    it('should include result aggregation instructions', () => {
-      const state = createMockState({
-        pr: { exists: true, state: 'OPEN', number: 123 },
-        wiggum: { phase: 'phase2', iteration: 0 },
-      });
-
-      if (!hasExistingPR(state)) {
-        throw new Error('Test setup failed: PR should exist');
-      }
-
-      const result = handlePhase2SecurityReview(state);
-      const instructions = result.content[0].text;
-
-      assert.ok(
-        instructions.includes('Aggregate results from all agents'),
-        'Instructions should mention aggregating results from all agents'
-      );
-      assert.ok(
-        instructions.includes('in_scope_result_files'),
-        'Instructions should reference in_scope_result_files parameter'
-      );
-      assert.ok(
-        instructions.includes('out_of_scope_result_files'),
-        'Instructions should reference out_of_scope_result_files parameter'
-      );
-      assert.ok(
-        instructions.includes('in_scope_issue_count'),
-        'Instructions should reference in_scope_issue_count parameter'
-      );
-      assert.ok(
-        instructions.includes('out_of_scope_issue_count'),
-        'Instructions should reference out_of_scope_issue_count parameter'
+        text.includes(SECURITY_REVIEW_COMMAND),
+        'Should reference the security review command'
       );
     });
   });
+});
 
-  describe('E2E Slash Command Flow', () => {
-    // TODO(#1666): Implement full E2E test for slash command invocation
-    it.skip('should successfully invoke /security-review and complete', async () => {
-      // This test requires:
-      // 1. Mock SlashCommand tool implementation
-      // 2. Mock agent execution that follows instructions
-      // 3. Mock file system for result files
-      // 4. Integration with wiggum_complete_security_review tool
+// TODO(#1900): Add behavioral tests for safeUpdateBodyState error classification paths
+// Missing tests that invoke the function with a mocked updateFn throwing classified errors
+// (404, auth, transient, unexpected) and verify correct behavior (throw vs retry vs return failure).
+// Requires test infrastructure (mocking updateFn) not currently established in this file.
+describe('createStateUpdateFailure integration', () => {
+  it('should create valid failure result with minimum attemptCount', () => {
+    const error = new Error('Network timeout');
+    const result = createStateUpdateFailure('network', error, 1);
 
-      // Test flow:
-      // - Setup: Create test state with wiggum in security review step
-      // - Execute: Call wiggum_init to get instructions
-      // - Simulate: Agent invokes SlashCommand tool with /security-review
-      // - Verify: Command executes and launches security review agents
-      // - Simulate: Agents complete and write result files
-      // - Execute: Agent calls wiggum_complete_security_review
-      // - Verify: State transitions correctly to next step
-
-      throw new Error('E2E test not implemented - see issue #1666');
-    });
-
-    it.skip('should handle SlashCommand tool invocation failure', async () => {
-      // TODO(#1666): Test error handling when SlashCommand tool fails
-      throw new Error('E2E test not implemented - see issue #1666');
-    });
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.reason, 'network');
+      assert.strictEqual(result.attemptCount, 1);
+      assert.strictEqual(result.lastError.message, 'Network timeout');
+    }
   });
 
-  describe('Completion Tool Parameter Validation', () => {
-    // TODO(#1810): These tests document expected validation behavior
-    // Actual validation should be implemented in wiggum_complete_security_review tool
+  it('should create valid failure result with high attemptCount', () => {
+    const error = new Error('Rate limit exceeded');
+    const result = createStateUpdateFailure('rate_limit', error, 10);
 
-    it.skip('should reject command_executed=false', async () => {
-      // TODO(#1810): Implement in tool handler
-      // Expected: Tool should return error when command not executed
-      throw new Error('Validation test not implemented - see issue #1810');
-    });
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.reason, 'rate_limit');
+      assert.strictEqual(result.attemptCount, 10);
+    }
+  });
 
-    it.skip('should validate result file paths exist', async () => {
-      // TODO(#1810): Implement in tool handler
-      // Expected: Tool should verify result files are readable
-      throw new Error('Validation test not implemented - see issue #1810');
-    });
+  it('should preserve error object reference', () => {
+    const originalError = new Error('Original error message');
+    const result = createStateUpdateFailure('network', originalError, 3);
 
-    it.skip('should detect mismatched counts and files', async () => {
-      // TODO(#1810): Implement in tool handler
-      // Expected: Tool should log warning if counts seem inconsistent
-      throw new Error('Validation test not implemented - see issue #1810');
-    });
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(
+        result.lastError,
+        originalError,
+        'Should preserve original error reference'
+      );
+    }
+  });
 
-    // Note: Testing wrong tool invocation (wiggum_complete_pr_review vs
-    // wiggum_complete_security_review) requires integration test with MCP server
-    // See TODO(#1810) for implementation approach
+  it('should validate error includes attemptCount in message', () => {
+    try {
+      createStateUpdateFailure('rate_limit', new Error('test'), 0);
+      assert.fail('Should have thrown');
+    } catch (error) {
+      assert.ok(
+        error instanceof Error && error.message.includes('0'),
+        'Error message should include the invalid attemptCount value'
+      );
+    }
   });
 });

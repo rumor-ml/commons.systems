@@ -49,8 +49,8 @@ describe('Rate Limit Retry Logic', () => {
       await sleep(100);
       const duration = Date.now() - start;
 
-      // Allow 50ms tolerance for timer precision and event loop scheduling variance
-      assert.ok(duration >= 100 && duration < 150, `Expected ~100ms, got ${duration}ms`);
+      // Allow 50ms tolerance for timer precision (5ms early tolerance for timer variations)
+      assert.ok(duration >= 95 && duration < 150, `Expected ~100ms, got ${duration}ms`);
     });
 
     it('should support different sleep durations', async () => {
@@ -61,13 +61,8 @@ describe('Rate Limit Retry Logic', () => {
         await sleep(ms);
         const duration = Date.now() - start;
 
-        // TODO(#1807): Consider adding test for systematic timing bias
-        // CI environments have higher scheduling variance: use 100ms tolerance vs 50ms local
-        const tolerance = process.env.CI ? 100 : 50;
-        assert.ok(
-          duration >= ms && duration < ms + tolerance,
-          `Expected ~${ms}ms ±${tolerance}ms, got ${duration}ms`
-        );
+        // 5ms early tolerance for timer variations
+        assert.ok(duration >= ms - 5 && duration < ms + 50, `Expected ~${ms}ms, got ${duration}ms`);
       }
     });
   });

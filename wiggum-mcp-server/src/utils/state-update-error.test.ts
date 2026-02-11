@@ -64,7 +64,7 @@ function createMockPhase2State(overrides?: Partial<CurrentState>): CurrentState 
  * Create a mock CurrentState for phase 1 (pre-PR)
  *
  * Note: completedSteps must only contain steps BEFORE the current step in STEP_ORDER
- * STEP_ORDER: p1-1, p1-2, p1-3, p1-4 (create PR)
+ * STEP_ORDER: p1-1, p1-2, p1-3 (create PR)
  */
 function createMockPhase1State(overrides?: Partial<CurrentState>): CurrentState {
   return {
@@ -79,11 +79,10 @@ function createMockPhase1State(overrides?: Partial<CurrentState>): CurrentState 
     issue: { exists: true, number: 625 },
     wiggum: createWiggumState({
       iteration: 1,
-      step: STEP_PHASE1_CREATE_PR, // p1-4
+      step: STEP_PHASE1_CREATE_PR, // p1-3
       completedSteps: [
-        'p1-1' as const, // Monitor Workflow - before p1-4
-        'p1-2' as const, // Code Review - before p1-4
-        'p1-3' as const, // Security Review - before p1-4
+        'p1-1' as const, // Monitor Workflow - before p1-3
+        'p1-2' as const, // Code Review - before p1-3
       ],
       phase: 'phase1',
     }),
@@ -270,7 +269,7 @@ describe('buildStateUpdateFailureResponse', () => {
       const newState = createWiggumState({
         iteration: 2,
         step: STEP_PHASE1_CREATE_PR,
-        completedSteps: ['p1-1' as const, 'p1-2' as const, 'p1-3' as const],
+        completedSteps: ['p1-1' as const, 'p1-2' as const],
         phase: 'phase1',
       });
 
@@ -344,7 +343,7 @@ describe('buildStateUpdateFailureResponse', () => {
         wiggum: createWiggumState({
           iteration: 1,
           step: STEP_PHASE1_CREATE_PR,
-          completedSteps: ['p1-1' as const, 'p1-2' as const, 'p1-3' as const],
+          completedSteps: ['p1-1' as const, 'p1-2' as const],
           phase: 'phase1',
         }),
       };
@@ -352,7 +351,7 @@ describe('buildStateUpdateFailureResponse', () => {
       const newState = createWiggumState({
         iteration: 2,
         step: STEP_PHASE1_CREATE_PR,
-        completedSteps: ['p1-1' as const, 'p1-2' as const, 'p1-3' as const],
+        completedSteps: ['p1-1' as const, 'p1-2' as const],
         phase: 'phase1',
       });
 
@@ -496,7 +495,7 @@ describe('buildStateUpdateFailureResponse', () => {
       const newState = createWiggumState({
         iteration: 2,
         step: STEP_PHASE1_CREATE_PR,
-        completedSteps: ['p1-1' as const, 'p1-2' as const, 'p1-3' as const],
+        completedSteps: ['p1-1' as const, 'p1-2' as const],
         phase: 'phase1',
       });
 
@@ -641,7 +640,7 @@ describe('createStateUpdateFailureParams', () => {
       const newState = createWiggumState({
         iteration: 2,
         step: STEP_PHASE1_CREATE_PR,
-        completedSteps: ['p1-1' as const, 'p1-2' as const, 'p1-3' as const],
+        completedSteps: ['p1-1' as const, 'p1-2' as const],
         phase: 'phase1',
       });
 
