@@ -6,13 +6,20 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { formatWiggumResponse } from './format-response.js';
 import { FormattingError } from './errors.js';
+import {
+  STEP_MAX,
+  STEP_PHASE1_MONITOR_WORKFLOW,
+  STEP_PHASE1_PR_REVIEW,
+  STEP_PHASE1_CREATE_PR,
+  STEP_PHASE2_SECURITY_REVIEW,
+} from '../constants.js';
 
 describe('formatWiggumResponse', () => {
   describe('Valid Input', () => {
     it('should format complete response with all fields', () => {
       const input = {
         current_step: 'PR Review',
-        step_number: '3',
+        step_number: STEP_PHASE1_CREATE_PR,
         iteration_count: 1,
         instructions: 'Execute /pr-review-toolkit:review-pr',
         steps_completed_by_tool: ['Created PR', 'Monitored checks'],
@@ -25,7 +32,7 @@ describe('formatWiggumResponse', () => {
       const result = formatWiggumResponse(input);
 
       // Verify header
-      assert.match(result, /## PR Review \(Step 3\)/);
+      assert.match(result, /## PR Review \(Step p1-3\)/);
       assert.match(result, /\*\*Iteration:\*\* 1/);
 
       // Verify instructions section
@@ -49,7 +56,7 @@ describe('formatWiggumResponse', () => {
     it('should format response with empty steps_completed_by_tool', () => {
       const input = {
         current_step: 'Start',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Begin workflow',
         steps_completed_by_tool: [],
@@ -63,7 +70,7 @@ describe('formatWiggumResponse', () => {
     it('should format response with minimal context', () => {
       const input = {
         current_step: 'Init',
-        step_number: '0',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Initialize',
         steps_completed_by_tool: [],
@@ -77,7 +84,7 @@ describe('formatWiggumResponse', () => {
     it('should handle multiline instructions', () => {
       const input = {
         current_step: 'Complex Step',
-        step_number: '2',
+        step_number: STEP_PHASE1_PR_REVIEW,
         iteration_count: 1,
         instructions: 'Step 1: Do this\nStep 2: Do that\nStep 3: Complete',
         steps_completed_by_tool: [],
@@ -87,13 +94,39 @@ describe('formatWiggumResponse', () => {
       const result = formatWiggumResponse(input);
       assert.match(result, /Step 1: Do this\nStep 2: Do that\nStep 3: Complete/);
     });
+
+    it('should format response with STEP_MAX (iteration limit state)', () => {
+      const input = {
+        current_step: 'Iteration Limit Reached',
+        step_number: STEP_MAX,
+        iteration_count: 10,
+        instructions: 'Maximum iterations reached. Review and increase limit if needed.',
+        steps_completed_by_tool: [],
+        context: {
+          pr_number: 123,
+          current_iteration: 10,
+          max_iterations: 10,
+        },
+      };
+
+      const result = formatWiggumResponse(input);
+
+      // Verify STEP_MAX is accepted and formatted correctly
+      assert.match(result, /## Iteration Limit Reached \(Step max\)/);
+      assert.match(result, /\*\*Iteration:\*\* 10/);
+      assert.match(result, /Maximum iterations reached/);
+
+      // Verify context is formatted
+      assert.match(result, /\*\*Pr Number:\*\* 123/);
+      assert.match(result, /\*\*Current Iteration:\*\* 10/);
+    });
   });
 
   describe('Context Value Formatting', () => {
     it('should format string values', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -107,7 +140,7 @@ describe('formatWiggumResponse', () => {
     it('should format number values', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -122,7 +155,7 @@ describe('formatWiggumResponse', () => {
     it('should format boolean values', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -137,7 +170,7 @@ describe('formatWiggumResponse', () => {
     it('should format null and undefined values', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -152,7 +185,7 @@ describe('formatWiggumResponse', () => {
     it('should format string arrays', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -166,7 +199,7 @@ describe('formatWiggumResponse', () => {
     it('should format number arrays', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -180,7 +213,7 @@ describe('formatWiggumResponse', () => {
     it('should format empty arrays', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -194,7 +227,7 @@ describe('formatWiggumResponse', () => {
     it('should convert snake_case to Title Case', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -246,7 +279,7 @@ describe('formatWiggumResponse', () => {
 
     it('should throw FormattingError for missing current_step', () => {
       const input = {
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -266,7 +299,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for non-string current_step', () => {
       const input = {
         current_step: 123,
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -299,7 +332,30 @@ describe('formatWiggumResponse', () => {
         () => formatWiggumResponse(input),
         (error: Error) => {
           assert(error instanceof FormattingError);
-          assert.match(error.message, /Missing or invalid step_number/);
+          assert.match(error.message, /Invalid step_number.*expected valid WiggumStep/);
+          return true;
+        }
+      );
+    });
+
+    it('should throw FormattingError for invalid string step_number', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: 'invalid-step',
+        iteration_count: 1,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {},
+      };
+
+      assert.throws(
+        () => formatWiggumResponse(input),
+        (error: Error) => {
+          assert(error instanceof FormattingError);
+          assert.match(
+            error.message,
+            /Invalid step_number.*expected valid WiggumStep.*got "invalid-step"/
+          );
           return true;
         }
       );
@@ -308,7 +364,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for missing instructions', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         steps_completed_by_tool: [],
         context: {},
@@ -327,7 +383,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for non-number iteration_count', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: '1',
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -347,7 +403,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for missing steps_completed_by_tool', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         context: {},
@@ -366,7 +422,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for non-array steps_completed_by_tool', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: 'not an array',
@@ -389,7 +445,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for steps_completed_by_tool with non-string items', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: ['valid', 123, 'also valid'],
@@ -409,7 +465,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for missing context', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -428,7 +484,7 @@ describe('formatWiggumResponse', () => {
     it('should throw FormattingError for non-object context', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -450,7 +506,7 @@ describe('formatWiggumResponse', () => {
     it('should preserve context field order and include all fields', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -486,7 +542,7 @@ describe('formatWiggumResponse', () => {
     it('should preserve context field insertion order', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -512,7 +568,7 @@ describe('formatWiggumResponse', () => {
     it('should format arrays with negative numbers and decimals', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -530,7 +586,7 @@ describe('formatWiggumResponse', () => {
     it('should format single-element arrays', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -548,7 +604,7 @@ describe('formatWiggumResponse', () => {
     it('should format context with mixed-type array values', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -574,7 +630,7 @@ describe('formatWiggumResponse', () => {
     it('should display warning banner when warning is present', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Continue with workflow',
         steps_completed_by_tool: [],
@@ -597,7 +653,7 @@ describe('formatWiggumResponse', () => {
     it('should not display warning section when warning is absent', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Normal workflow',
         steps_completed_by_tool: [],
@@ -616,7 +672,7 @@ describe('formatWiggumResponse', () => {
     it('should handle empty warning string', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Normal workflow',
         steps_completed_by_tool: [],
@@ -635,7 +691,7 @@ describe('formatWiggumResponse', () => {
     it('should handle zero iteration_count', () => {
       const input = {
         current_step: 'Start',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 0,
         instructions: 'Begin',
         steps_completed_by_tool: [],
@@ -649,7 +705,7 @@ describe('formatWiggumResponse', () => {
     it('should handle large iteration_count', () => {
       const input = {
         current_step: 'Retry',
-        step_number: '5',
+        step_number: STEP_PHASE2_SECURITY_REVIEW,
         iteration_count: 999,
         instructions: 'Keep trying',
         steps_completed_by_tool: [],
@@ -663,7 +719,7 @@ describe('formatWiggumResponse', () => {
     it('should handle special characters in step names', () => {
       const input = {
         current_step: 'Step w/ Special & Characters <test>',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
@@ -677,7 +733,7 @@ describe('formatWiggumResponse', () => {
     it('should handle special characters in instructions', () => {
       const input = {
         current_step: 'Test',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Run `command --flag="value"` with args',
         steps_completed_by_tool: [],
@@ -691,7 +747,7 @@ describe('formatWiggumResponse', () => {
     it('should handle complex context with mixed types', () => {
       const input = {
         current_step: 'Complex',
-        step_number: '1',
+        step_number: STEP_PHASE1_MONITOR_WORKFLOW,
         iteration_count: 1,
         instructions: 'Test',
         steps_completed_by_tool: [],
