@@ -1,78 +1,227 @@
-# WezTerm Terminal Emulator Configuration
+# WezTerm Configuration Module
 #
-# This module configures WezTerm through Home Manager on Darwin (macOS) only.
-# WezTerm provides GPU-accelerated terminal emulation with true color support,
-# ligatures, multiplexing, and Lua-based configuration.
+# This module configures WezTerm terminal emulator through Home Manager.
+# On WSL, it automatically copies the configuration to the Windows WezTerm
+# location so the Windows WezTerm installation uses this config.
 #
-# Configuration highlights:
-# - GeistMono Nerd Font (matching system fonts)
-# - Tokyo Night color scheme
-# - Native macOS fullscreen mode
-# - Shell integration (Bash/Zsh)
-#
-# After activation:
-#   1. Launch with: wezterm
-#   2. Config location: ~/.config/wezterm/wezterm.lua
-#   3. Customize by editing programs.wezterm.extraConfig below
-#
-# Learn more: https://wezfurlong.org/wezterm/
+# Platform-specific behavior:
+# - Linux (WSL): Includes default_prog to launch WSL, copies config to Windows
+# - macOS: Includes native fullscreen mode setting
+# - All: Common settings for fonts, colors, scrollback, etc.
 
 {
+  config,
   pkgs,
+  lib,
   ...
 }:
 
 {
   programs.wezterm = {
-    # Only enable on Darwin (macOS)
-    enable = pkgs.stdenv.isDarwin;
+    enable = true;
 
-    # Automatically configure shell integration by adding init scripts to shell RC files
-    # This enables WezTerm features like:
-    # - Jump between prompts with keyboard shortcuts
-    # - Copy command output without the prompt
-    # - Semantic zone navigation
-    enableBashIntegration = true;
-    enableZshIntegration = true;
-
-    # Lua configuration in extraConfig
-    # Note: Inside the Lua code below, use -- for comments (Lua syntax), not # (Nix syntax)
+    # Use extraConfig to generate Lua configuration with Nix string interpolation
+    # This allows platform-specific sections via lib.optionalString
     extraConfig = ''
       local wezterm = require('wezterm')
       local config = wezterm.config_builder()
 
-      -- Font Configuration
-      -- Using GeistMono Nerd Font (ensure it's installed on your system)
-      -- Install via nix-darwin fonts.packages or Home Manager fonts.fontconfig.enable
-      config.font = wezterm.font('GeistMono Nerd Font')
-      config.font_size = 12.0
+      config.font = wezterm.font('JetBrains Mono Nerd Font')
+      config.font_size = 11.0
 
-      -- Color Scheme
       config.color_scheme = 'Tokyo Night'
 
-      -- Performance and Features
       config.scrollback_lines = 10000
-      config.enable_scroll_bar = false
 
-      -- Tab Bar
       config.hide_tab_bar_if_only_one_tab = true
-      config.use_fancy_tab_bar = false
 
-      -- Window Appearance
       config.window_padding = {
-        left = 4,
-        right = 4,
-        top = 4,
-        bottom = 4,
+        left = 2,
+        right = 2,
+        top = 2,
+        bottom = 2,
       }
 
-      -- macOS-specific: Native fullscreen mode
-      config.native_macos_fullscreen_mode = true
+      ${lib.optionalString pkgs.stdenv.isLinux ''
+        -- WSL Integration (Linux/WSL only)
+        -- This section is included when Home Manager runs on Linux/WSL.
+        -- The generated config is copied to Windows (via activation script below)
+        -- where WezTerm reads it and automatically launches into WSL.
+        -- Using lib.strings.toJSON to escape special characters in username
+        -- This prevents Lua syntax errors when username contains quotes or backslashes
+        -- Example: username 'test"user' becomes "test\"user" (valid JSON string)
+        -- Generated Lua: '/home/' .. "test\"user" (valid Lua syntax)
+        -- Note: username comes from build environment (USER/HOME vars), not untrusted input
+        config.default_prog = { 'wsl.exe', '-d', 'NixOS', '--cd', '/home/' .. ${lib.strings.toJSON config.home.username} }
+      ''}
 
-      -- Disable update checking (managed by Nix)
-      config.check_for_updates = false
+      ${lib.optionalString pkgs.stdenv.isDarwin ''
+        -- Enable macOS native fullscreen mode
+        config.native_macos_fullscreen_mode = true
+      ''}
 
       return config
     '';
   };
+
+  # WSL: Copy config to Windows WezTerm location
+  # This activation script runs after Home Manager generates config files.
+  # DAG ordering: Must run after "linkGeneration" to ensure the source file exists
+  # before attempting to copy it to Windows.
+  #
+  # Home Manager's linkGeneration step creates symlinks for all managed files
+  # (including ~/.config/wezterm/wezterm.lua). We must wait for this to complete
+  # before copying the config to Windows, otherwise the source file won't exist yet.
+  home.activation.copyWeztermToWindows = lib.mkIf pkgs.stdenv.isLinux (
+    lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+      # Define error codes for different failure modes
+      # Structured exit codes enable programmatic error handling by callers
+      readonly ERR_PERMISSION_DENIED=11    # /mnt/c/Users exists but not readable
+      readonly ERR_USERNAME_DETECTION=12   # Cannot determine Windows username
+      readonly ERR_SOURCE_MISSING=13       # wezterm.lua not generated by Home Manager
+      readonly ERR_COPY_FAILED=14          # Copy to Windows location failed
+      readonly ERR_SOURCE_EMPTY=15         # wezterm.lua exists but is empty
+
+      # Enable strict error handling
+      set -e  # Exit immediately if any command fails
+      set -u  # Error on undefined variable expansion
+      set -o pipefail  # Pipelines fail if any command in pipe fails
+
+      # Check if running on WSL (Windows mount point exists)
+      if [ -d "/mnt/c/Users" ]; then
+        # Verify /mnt/c/Users is readable
+        if [ ! -r "/mnt/c/Users" ]; then
+          echo "ERROR: Permission denied accessing /mnt/c/Users/" >&2
+          echo "  WSL mount exists but directory is not readable" >&2
+          echo "" >&2
+          echo "To fix:" >&2
+          echo "  1. Check mount options: mount | grep /mnt/c" >&2
+          echo "  2. Check directory permissions: ls -ld /mnt/c/Users" >&2
+          echo "  3. May need to remount with proper permissions" >&2
+          exit $ERR_PERMISSION_DENIED
+        fi
+
+        # Auto-detect Windows username by finding first directory that isn't a Windows system directory
+        # (excludes: All Users, Default, Default User, Public, desktop.ini)
+        # Note: Does not require Windows username to match Linux username
+        # Capture ls output and stderr separately for better error diagnostics
+        LS_STDERR=$(mktemp)
+        # Cleanup temp file on exit to prevent /tmp accumulation
+        # Cleanup failures only warn (not fail) to avoid blocking activation on transient issues:
+        #   - /tmp mounted read-only temporarily during system updates
+        #   - Race condition if another process deleted the file
+        #   - Insufficient permissions changed by another process
+        # Note: Repeated warnings may indicate /tmp filesystem health issues worth investigating
+        trap 'if ! rm -f "$LS_STDERR" 2>&1; then echo "WARNING: Failed to cleanup stderr temp file: $LS_STDERR" >&2; fi' EXIT
+        LS_OUTPUT=$(ls /mnt/c/Users/ 2>"$LS_STDERR")
+        LS_EXIT_CODE=$?
+
+        if [ $LS_EXIT_CODE -ne 0 ]; then
+          echo "ERROR: Failed to list /mnt/c/Users/ directory" >&2
+          echo "  Exit code: $LS_EXIT_CODE" >&2
+          if [ -s "$LS_STDERR" ]; then
+            echo "  Error output:" >&2
+            if error_content=$(cat "$LS_STDERR" 2>&1); then
+              echo "$error_content" | sed 's/^/    /' >&2
+            else
+              echo "    (failed to read error file - may indicate filesystem issue)" >&2
+              echo "    Error file location: $LS_STDERR" >&2
+            fi
+          fi
+          echo "  Check permissions and mount status" >&2
+          echo "  Diagnostic directory listing:" >&2
+          ls -ld /mnt/c/Users/ 2>&1 || echo "  (diagnostic ls failed)" >&2
+          exit $ERR_PERMISSION_DENIED
+        fi
+
+        WINDOWS_USER=$(echo "$LS_OUTPUT" | grep -v -E '^(All Users|Default|Default User|Public|desktop.ini)$' | head -n1)
+
+        if [ -z "$WINDOWS_USER" ]; then
+          echo "ERROR: Failed to detect Windows username" >&2
+          echo "  Directory is readable but no valid user directories found" >&2
+          echo "  Available directories:" >&2
+          echo "$LS_OUTPUT" | sed 's/^/    /' >&2
+          exit $ERR_USERNAME_DETECTION
+        fi
+
+        if [ -n "$WINDOWS_USER" ] && [ -d "/mnt/c/Users/$WINDOWS_USER" ]; then
+          TARGET_DIR="/mnt/c/Users/$WINDOWS_USER"
+          TARGET_FILE="$TARGET_DIR/.wezterm.lua"
+
+          # Verify source file exists before copying
+          SOURCE_FILE="${config.home.homeDirectory}/.config/wezterm/wezterm.lua"
+          if [ ! -f "$SOURCE_FILE" ]; then
+            echo "ERROR: Source WezTerm config not found at $SOURCE_FILE" >&2
+            echo "Home-Manager may have failed to generate the configuration" >&2
+            exit $ERR_SOURCE_MISSING
+          fi
+
+          # Verify source file is not empty
+          if [ ! -s "$SOURCE_FILE" ]; then
+            echo "ERROR: Source WezTerm config is empty at $SOURCE_FILE" >&2
+            echo "This may indicate:" >&2
+            echo "  - Home-Manager configuration has empty extraConfig" >&2
+            echo "  - File generation failed or was truncated" >&2
+            echo "  - Accidental empty string in programs.wezterm.extraConfig" >&2
+            exit $ERR_SOURCE_EMPTY
+          fi
+
+          # Copy config file with error checking and stderr capture
+          if [ -z "$DRY_RUN_CMD" ]; then
+            # Normal mode: capture stderr for better diagnostics
+            if ! copy_error=$(cp ''${VERBOSE_ARG:+"$VERBOSE_ARG"} "$SOURCE_FILE" "$TARGET_FILE" 2>&1); then
+              echo "ERROR: Failed to copy WezTerm config to $TARGET_FILE" >&2
+              echo "  Copy error: $copy_error" >&2
+              echo "  Common causes: permissions, disk space, file locked by running WezTerm" >&2
+              exit $ERR_COPY_FAILED
+            fi
+            echo "Copied WezTerm config to Windows location: $TARGET_FILE"
+          else
+            # Dry run mode: show command without executing, but validate paths
+            if [ ! -r "$SOURCE_FILE" ]; then
+              echo "ERROR: Dry run detected source file is not readable: $SOURCE_FILE" >&2
+              exit $ERR_SOURCE_MISSING
+            fi
+            if [ ! -w "$TARGET_DIR" ]; then
+              echo "ERROR: Dry run detected target directory is not writable: $TARGET_DIR" >&2
+              exit $ERR_COPY_FAILED
+            fi
+            $DRY_RUN_CMD cp ''${VERBOSE_ARG:+"$VERBOSE_ARG"} "$SOURCE_FILE" "$TARGET_FILE"
+            echo "Would copy WezTerm config to Windows location: $TARGET_FILE"
+          fi
+        else
+          # User was detected but directory doesn't exist - this is an error state
+          echo "ERROR: Detected Windows username '$WINDOWS_USER' but directory does not exist" >&2
+          echo "  Expected directory: /mnt/c/Users/$WINDOWS_USER" >&2
+          echo "" >&2
+
+          # Attempt to list /mnt/c/Users again for diagnostic output
+          # If this second ls fails, directory passed initial readability check (line 88) but is now inaccessible
+          # Potential causes:
+          #   - WSL filesystem being unmounted during activation (e.g., system shutdown)
+          #   - Windows permissions changed by group policy update
+          #   - Network drive disconnect (if /mnt/c is network-backed in unusual setup)
+          # This is extremely rare but can occur during system state transitions
+          if ! ls_output=$(ls -1 /mnt/c/Users/ 2>&1); then
+            echo "ERROR: Additionally, cannot list /mnt/c/Users/ for diagnostics" >&2
+            echo "  Directory passed initial checks but is now inaccessible" >&2
+            echo "  This indicates a filesystem or permission issue" >&2
+            echo "  Error: $ls_output" >&2
+            exit $ERR_USERNAME_DETECTION
+          fi
+
+          echo "Available directories in /mnt/c/Users/:" >&2
+          echo "$ls_output" | sed 's/^/  /' >&2
+          echo "" >&2
+          echo "This may indicate:" >&2
+          echo "  - WSL mount configuration issue" >&2
+          echo "  - Incorrect user directory detection logic" >&2
+          echo "  - Race condition in directory availability" >&2
+          exit $ERR_USERNAME_DETECTION
+        fi
+      else
+        echo "Not running on WSL, skipping Windows config copy"
+      fi
+    ''
+  );
 }
