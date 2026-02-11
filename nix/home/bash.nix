@@ -1,36 +1,40 @@
 # Bash Shell Configuration
 #
-# Enables Home Manager's bash integration, which manages .bashrc and
-# .bash_profile by regenerating them to include Home Manager's session
-# variables and environment setup. Note: This replaces any existing
-# .bashrc/.bash_profile files with Home Manager-generated versions.
+# Enables Home Manager's bash integration, which manages ~/.bashrc by creating
+# a symlink to a Nix store file. This generated file sources Home Manager's
+# initialization scripts during shell startup.
+#
+# Manual edits to ~/.bashrc are not possible because it is a symlink to a read-only file in the Nix store.
+# If you delete the symlink and create a regular file, your changes will be lost on the next
+# 'home-manager switch' activation when the symlink is recreated.
+# To add custom configuration, use the 'initExtra' option which gets included in the
+# generated .bashrc content and persists across activations.
 #
 # This ensures that all Home Manager-managed environment variables
 # (like TZ for timezone) are properly loaded in new shell sessions.
 
-{ ... }:
+{ lib, ... }:
 
+let
+  shellHelpers = import ./lib/shell-helpers.nix { inherit lib; };
+in
 {
   programs.bash = {
     enable = true;
 
-    # Source session variables in interactive shells (both login and non-login interactive shells)
-    # This is critical for WSL where new terminal tabs start as non-login interactive shells
-    initExtra = ''
-      # Source Home Manager session variables if not already loaded
-      if [ -f "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
-        if ! . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"; then
-          echo "WARNING: Failed to source Home Manager session variables" >&2
-          echo "  File: $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" >&2
-          echo "  This may affect environment variables like TZ (timezone)" >&2
-        fi
-      fi
-    '';
+    # Source session variables in interactive non-login shells (via .bashrc).
+    # WSL starts new terminal tabs as non-login interactive shells, so this ensures
+    # environment variables are available in new tabs.
+    #
+    # Note: Login shells won't load this unless they explicitly source .bashrc.
+    # To check if bash is a login shell:
+    #   - Reliable: Run 'shopt -q login_shell && echo "login" || echo "non-login"'
+    #   - Heuristic: Run 'echo $0'. Login shells typically show '-bash', non-login show 'bash'
+    #     (leading dash convention may vary by system)
+    #
+    # Shared logic defined in lib/shell-helpers.nix
+    initExtra = shellHelpers.sessionVarsSourcingScript;
 
-    # TODO(#1522): Incomplete comment about bash completion in bash.nix
-    # Additional bash configuration can be added here as needed
-    # For example:
-    # enableCompletion = true;
-    # historyControl = [ "ignoredups" "ignorespace" ];
+    # See Home Manager bash module documentation for available options
   };
 }
