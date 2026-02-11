@@ -111,17 +111,18 @@ cleanup_orphaned_configs() {
     local hosting_pid_file="${PROJECT_ROOT}/tmp/infrastructure/firebase-hosting-${config_project_id}.pid"
 
     if [ -f "$hosting_pid_file" ]; then
-      # PID file exists - check if process is alive
-      local pid pgid
-      # CRITICAL: Don't suppress errors - log them
-      if ! IFS=':' read -r pid pgid < "$hosting_pid_file" 2>/dev/null; then
-        echo "WARNING: Failed to read PID file $hosting_pid_file - keeping config $filename" >&2
-        continue  # Safe default: keep the config
-      fi
-
-      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        # Process is alive, config is in use
-        continue
+      # PID file exists - check if process is alive using port-utils.sh parser
+      if parse_pid_file "$hosting_pid_file"; then
+        # Successfully parsed PID file
+        if [ -n "$PARSED_PID" ] && kill -0 "$PARSED_PID" 2>/dev/null; then
+          # Process is alive, config is in use
+          continue
+        fi
+        # Process is dead, safe to clean up config below
+      else
+        # Failed to parse PID file - likely corrupted
+        echo "WARNING: Failed to parse PID file $hosting_pid_file - treating as orphaned" >&2
+        # Fall through to cleanup (safe default: if we can't read the PID file, clean up the config)
       fi
     fi
 
@@ -246,7 +247,9 @@ echo "Merging Firestore rules from all apps..."
 bash "$SCRIPT_DIR/merge-firestore-rules.sh"
 
 # Small delay after merge for filesystem buffers to flush
-# The merge script uses atomic writes (mv), so this is just extra safety
+# The merge script uses atomic writes (mv), so this sleep protects against race
+# conditions where the emulator's file watcher might read the rules file during
+# the mv operation (between unlink and link system calls)
 sleep 1
 
 # Copy merged rules to shared emulator directory so the emulator always sees current rules
@@ -254,8 +257,22 @@ sleep 1
 # so the emulator's file watcher picks up rules changes from this worktree.
 SHARED_RULES_DIR="${SHARED_EMULATOR_DIR}/rules"
 mkdir -p "$SHARED_RULES_DIR"
-cp "${PROJECT_ROOT}/.firebase/firestore.rules" "${SHARED_RULES_DIR}/firestore.rules"
-cp "${PROJECT_ROOT}/shared/storage.rules" "${SHARED_RULES_DIR}/storage.rules"
+
+# Copy Firestore rules with error checking
+if ! cp "${PROJECT_ROOT}/.firebase/firestore.rules" "${SHARED_RULES_DIR}/firestore.rules"; then
+  echo "ERROR: Failed to copy Firestore rules to shared directory" >&2
+  echo "Source: ${PROJECT_ROOT}/.firebase/firestore.rules" >&2
+  echo "Dest: ${SHARED_RULES_DIR}/firestore.rules" >&2
+  exit 1
+fi
+
+# Copy Storage rules with error checking
+if ! cp "${PROJECT_ROOT}/shared/storage.rules" "${SHARED_RULES_DIR}/storage.rules"; then
+  echo "ERROR: Failed to copy Storage rules to shared directory" >&2
+  echo "Source: ${PROJECT_ROOT}/shared/storage.rules" >&2
+  echo "Dest: ${SHARED_RULES_DIR}/storage.rules" >&2
+  exit 1
+fi
 
 # Lock acquired - check if backend is already running
 if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
@@ -277,7 +294,7 @@ else
   # This automatically inherits singleProjectMode, ui.enabled, and any future settings
   # - del(.hosting): backend-only emulators don't need hosting config
   # - Absolute rules paths: emulator watches shared location regardless of starting worktree
-  jq --argjson auth "${AUTH_PORT}" \
+  if ! jq --argjson auth "${AUTH_PORT}" \
      --argjson fs "${FIRESTORE_PORT}" \
      --argjson storage "${STORAGE_PORT}" \
      --argjson ui "${UI_PORT}" \
@@ -287,7 +304,28 @@ else
        emulators: (.emulators | del(.hosting) | .auth.port = $auth | .firestore.port = $fs | .storage.port = $storage | .ui.port = $ui),
        storage: {rules: $storageRules},
        firestore: {rules: $fsRules}
-     }' "${PROJECT_ROOT}/firebase.json" > "${TEMP_BACKEND_CONFIG}"
+     }' "${PROJECT_ROOT}/firebase.json" > "${TEMP_BACKEND_CONFIG}"; then
+    echo "ERROR: Failed to generate backend emulator config with jq" >&2
+    echo "jq exit code: $?" >&2
+    echo "Source: ${PROJECT_ROOT}/firebase.json" >&2
+    echo "Dest: ${TEMP_BACKEND_CONFIG}" >&2
+    exit 1
+  fi
+
+  # Validate generated JSON is valid and not empty
+  if [ ! -s "${TEMP_BACKEND_CONFIG}" ]; then
+    echo "ERROR: Generated backend config is empty" >&2
+    echo "Config file: ${TEMP_BACKEND_CONFIG}" >&2
+    exit 1
+  fi
+
+  if ! jq empty "${TEMP_BACKEND_CONFIG}" 2>/dev/null; then
+    echo "ERROR: Generated backend config contains invalid JSON" >&2
+    echo "Config file: ${TEMP_BACKEND_CONFIG}" >&2
+    echo "Contents:" >&2
+    cat "${TEMP_BACKEND_CONFIG}" >&2
+    exit 1
+  fi
 
   # Start ONLY backend emulators (shared)
   # Import seed data from fellspiral/emulator-data (includes QA test user)
@@ -673,17 +711,9 @@ EOF
 cleanup_hosting_emulator() {
   # Read PID file before deletion if it exists
   if [ -f "$HOSTING_PID_FILE" ]; then
-    IFS=':' read -r pid pgid < "$HOSTING_PID_FILE" 2>/dev/null || true
-    if [ -n "$pgid" ]; then
-      # Kill entire process group (parent + children)
-      kill -TERM -$pgid 2>/dev/null || true
-      sleep 1
-      kill -KILL -$pgid 2>/dev/null || true
-    elif [ -n "$pid" ]; then
-      # Fallback to single PID
-      kill -TERM $pid 2>/dev/null || true
-      sleep 1
-      kill -KILL $pid 2>/dev/null || true
+    if parse_pid_file "$HOSTING_PID_FILE"; then
+      # Successfully parsed - use the utility function to kill process group
+      kill_process_group "$PARSED_PID" "$PARSED_PGID"
     fi
   fi
 

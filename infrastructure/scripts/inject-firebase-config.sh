@@ -3,6 +3,7 @@
 # Usage: inject-firebase-config.sh <site-name>
 
 # TODO(#434): Improve error handling in Firebase deployment infrastructure scripts
+# TODO(#1960): Extract target file path into variable and reduce duplicate echo statements
 set -e
 
 SITE_NAME="${1}"
@@ -114,10 +115,11 @@ echo "  Auth Domain: $AUTH_DOMAIN"
 
 # Inject Firebase config based on app type
 CONFIG_FILE="${SITE_NAME}/site/src/firebase-config.js"
+ENV_FILE="${SITE_NAME}/site/.env"
 ENV_EXAMPLE_FILE="${SITE_NAME}/site/.env.example"
 
+# Pattern 1: Apps using firebase-config.js (legacy)
 if [ -f "$CONFIG_FILE" ]; then
-  # Pattern 1: Apps using firebase-config.js (legacy)
   cat > "$CONFIG_FILE" << EOF
 /**
  * Firebase Configuration for ${SITE_NAME^}
@@ -138,11 +140,18 @@ export const firebaseConfig = {
   appId: "${APP_ID}"
 };
 EOF
-  echo "✅ Firebase configuration injected into $CONFIG_FILE"
 
+  # Validate that the config file was written successfully
+  if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
+    echo "❌ Failed to write Firebase configuration to $CONFIG_FILE"
+    exit 1
+  fi
+
+  TARGET_FILE="$CONFIG_FILE"
+
+# Fallback to .env pattern if firebase-config.js doesn't exist (newer apps use Vite env vars)
+# Pattern 2: Apps using Vite .env files (e.g., budget)
 elif [ -f "$ENV_EXAMPLE_FILE" ]; then
-  # Pattern 2: Apps using Vite .env files (e.g., budget)
-  ENV_FILE="${SITE_NAME}/site/.env"
   cat > "$ENV_FILE" << EOF
 # Firebase Configuration
 # Auto-generated during CI/CD deployment
@@ -154,10 +163,19 @@ VITE_FIREBASE_STORAGE_BUCKET=${STORAGE_BUCKET}
 VITE_FIREBASE_MESSAGING_SENDER_ID=${MESSAGING_SENDER_ID}
 VITE_FIREBASE_APP_ID=${APP_ID}
 EOF
-  echo "✅ Firebase configuration injected into $ENV_FILE"
+
+  # Validate that the .env file was written successfully
+  if [ ! -f "$ENV_FILE" ] || [ ! -s "$ENV_FILE" ]; then
+    echo "❌ Failed to write Firebase configuration to $ENV_FILE"
+    exit 1
+  fi
+
+  TARGET_FILE="$ENV_FILE"
 
 else
   echo "⚠️  No firebase-config.js or .env.example found in ${SITE_NAME}/site"
   echo "⚠️  Skipping Firebase config injection (app doesn't use Firebase SDK)"
   exit 0
 fi
+
+echo "✅ Firebase configuration injected into $TARGET_FILE"

@@ -410,7 +410,8 @@ case "$APP_TYPE" in
     # Set VITE_FIREBASE_* vars for Vite apps to exercise production code paths
     # Apps with .env.example use these vars for Firebase SDK initialization
     # Values don't matter for emulator connectivity (handled by VITE_USE_FIREBASE_EMULATOR=true)
-    # They just need to pass isFirebaseConfigured() validation (non-empty, no "your-" prefix)
+    # but must be set at build time because Vite embeds env vars during build and
+    # isFirebaseConfigured() validates them at runtime (non-empty, no "your-" prefix)
     if [ -f "${APP_PATH_ABS}/site/.env.example" ]; then
       export VITE_FIREBASE_API_KEY="emulator-api-key"
       export VITE_FIREBASE_AUTH_DOMAIN="${GCP_PROJECT_ID}.firebaseapp.com"
@@ -418,6 +419,24 @@ case "$APP_TYPE" in
       export VITE_FIREBASE_STORAGE_BUCKET="${GCP_PROJECT_ID}.appspot.com"
       export VITE_FIREBASE_MESSAGING_SENDER_ID="000000000000"
       export VITE_FIREBASE_APP_ID="1:000000000000:web:0000000000000000000000"
+
+      # Validate that all required VITE_FIREBASE_* variables were exported successfully
+      MISSING_FIREBASE_VARS=""
+      [ -z "${VITE_FIREBASE_API_KEY:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_API_KEY"
+      [ -z "${VITE_FIREBASE_AUTH_DOMAIN:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_AUTH_DOMAIN"
+      [ -z "${VITE_FIREBASE_PROJECT_ID:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_PROJECT_ID"
+      [ -z "${VITE_FIREBASE_STORAGE_BUCKET:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_STORAGE_BUCKET"
+      [ -z "${VITE_FIREBASE_MESSAGING_SENDER_ID:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_MESSAGING_SENDER_ID"
+      [ -z "${VITE_FIREBASE_APP_ID:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_APP_ID"
+
+      if [ -n "$MISSING_FIREBASE_VARS" ]; then
+        echo "FATAL: Required VITE_FIREBASE_* variables not exported:" >&2
+        echo "  Missing:$MISSING_FIREBASE_VARS" >&2
+        echo "" >&2
+        echo "This will cause build to fail or use incorrect Firebase configuration" >&2
+        echo "Check export statements above for errors" >&2
+        exit 1
+      fi
     fi
 
     VITE_USE_FIREBASE_EMULATOR=true VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" pnpm --dir "${APP_PATH_ABS}/site" build

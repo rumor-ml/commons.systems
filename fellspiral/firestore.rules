@@ -31,6 +31,7 @@ service cloud.firestore {
     // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
     // DEPLOYMENT: Run migration script before deploying these rules to prevent cards becoming unreadable.
     // For detailed deployment procedures, see the CRITICAL DEPLOYMENT ORDER section in migrate-ispublic.js
+    // TODO(#1958): Consider moving deployment warnings to rule invocations or creating top-level DEPLOYMENT section
     function canReadCard() {
       return resource.data.get('isPublic', false) == true
              || (isAuthenticated() && resource.data.get('createdBy', '') == request.auth.uid);
@@ -49,6 +50,7 @@ service cloud.firestore {
     // (2) UPDATE operations enforce lastModifiedAt == request.time for audit trail integrity.
     // (3) Server-side queries can use _createTime metadata for accurate ordering if needed.
     // TODO(#283): Add E2E test attempting to forge createdAt timestamp
+    // TODO(#1369): Clarify TODO comment - tests tracked separately in #283
     function canCreateCard() {
       return isAuthenticated()
              && request.resource.data.keys().hasAll(['title', 'type', 'subtype', 'isPublic'])
@@ -250,7 +252,7 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isOwner(userId);
     }
 
-    // Default: deny all access to other collections
+    // TODO(#1961): Move "Default: deny all access" comment to line 415 near the actual default deny rule
 
     // ========================================
     // BUDGET APP RULES

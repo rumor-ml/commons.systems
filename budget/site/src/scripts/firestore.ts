@@ -51,29 +51,20 @@ function validateFirebaseConfig(): void {
   }
 }
 
+// TODO(#1962): Consolidate isFirebaseConfigured() into single every() check for readability
 // Check if Firebase is properly configured (non-throwing variant for UI checks)
 export function isFirebaseConfigured(): boolean {
-  // Emulator mode: getFirebaseConfig() provides dummy values, so Firebase is always "configured"
+  // Emulator mode: skip Firebase config validation since emulator connectivity is handled separately
   if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
     return true;
   }
 
-  // Check if all required environment variables are present and not empty
-  const hasAllVars = requiredEnvVars.every(
-    (key) => import.meta.env[key] && import.meta.env[key] !== ''
-  );
-
-  if (!hasAllVars) {
-    return false;
-  }
-
-  // Check if any values contain placeholder text from .env.example
-  const hasPlaceholders = requiredEnvVars.some((key) => {
+  // Check if all required environment variables are present, not empty, and not placeholders
+  // TODO(#1971): Expand placeholder detection to include demo-, test-, example- prefixes
+  return requiredEnvVars.every((key) => {
     const value = import.meta.env[key] as string;
-    return value.includes('your-');
+    return value && value !== '' && !value.includes('your-');
   });
-
-  return !hasPlaceholders;
 }
 
 // Firebase configuration from environment variables (lazy initialization)
@@ -113,6 +104,7 @@ function getFirebaseConfig() {
 export type DateString = string & { readonly __brand: 'DateString' };
 
 // Type guard to validate date string format
+// TODO(#1969): Add semantic date validation to reject invalid dates like 2024-02-30
 export function isValidDateString(s: string): s is DateString {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
