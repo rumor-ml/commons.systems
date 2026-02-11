@@ -1,4 +1,4 @@
-.PHONY: dev build test clean
+.PHONY: dev build test test-e2e clean
 
 dev:
 	go run ./cmd/wezterm-navigator
@@ -9,6 +9,9 @@ build:
 
 test:
 	go test ./...
+
+test-e2e:
+	@echo "No E2E tests defined yet for wezterm-navigator"
 
 clean:
 	rm -rf build/
