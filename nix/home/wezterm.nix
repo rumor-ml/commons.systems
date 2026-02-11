@@ -18,7 +18,9 @@
 
 {
   programs.wezterm = {
-    enable = true;
+    # Enable on Linux (including WSL) and macOS, but not other platforms
+    # This prevents evaluation errors when building homeConfigurations for all systems
+    enable = pkgs.stdenv.isLinux || pkgs.stdenv.isDarwin;
 
     # Use extraConfig to generate Lua configuration with Nix string interpolation
     # This allows platform-specific sections via lib.optionalString
