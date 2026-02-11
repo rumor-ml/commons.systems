@@ -32,6 +32,11 @@ export const STEP_PHASE2_PR_REVIEW = 'p2-4' as const;
 export const STEP_PHASE2_SECURITY_REVIEW = 'p2-5' as const;
 export const STEP_PHASE2_APPROVAL = 'approval' as const;
 
+// TODO(#1932): Improve const assertion pattern explanation in constants.ts
+
+// Special step identifier for iteration limit state
+export const STEP_MAX = 'max' as const;
+
 /**
  * Valid step identifiers in the Wiggum workflow
  * Using a discriminated union to enforce type safety and prevent invalid steps
@@ -45,7 +50,8 @@ export type WiggumStep =
   | typeof STEP_PHASE2_CODE_QUALITY
   | typeof STEP_PHASE2_PR_REVIEW
   | typeof STEP_PHASE2_SECURITY_REVIEW
-  | typeof STEP_PHASE2_APPROVAL;
+  | typeof STEP_PHASE2_APPROVAL
+  | typeof STEP_MAX;
 
 /**
  * Ordered list of steps in the Wiggum workflow
@@ -64,12 +70,16 @@ export const STEP_ORDER: readonly WiggumStep[] = [
 ] as const;
 
 /**
- * Validates if a string is a valid WiggumStep
- * @param step - The step to validate
- * @returns true if the step is valid
+ * Type guard that validates if a value is a valid WiggumStep
+ *
+ * Note: STEP_MAX is checked separately because it's a terminal state not part of the normal
+ * workflow progression. STEP_ORDER contains only the sequential workflow steps.
+ *
+ * @param step - The value to validate (accepts any type)
+ * @returns true if the value is a valid WiggumStep, false otherwise
  */
 export function isValidStep(step: unknown): step is WiggumStep {
-  return STEP_ORDER.includes(step as WiggumStep);
+  return step === STEP_MAX || STEP_ORDER.includes(step as WiggumStep);
 }
 
 // Step names (human-readable)
@@ -83,6 +93,7 @@ export const STEP_NAMES: Record<WiggumStep, string> = {
   [STEP_PHASE2_PR_REVIEW]: 'Phase 2: PR Review (Post-PR)',
   [STEP_PHASE2_SECURITY_REVIEW]: 'Phase 2: Security Review (Post-PR)',
   [STEP_PHASE2_APPROVAL]: 'Approval',
+  [STEP_MAX]: 'Iteration Limit Reached',
 };
 
 // Comment markers for state tracking

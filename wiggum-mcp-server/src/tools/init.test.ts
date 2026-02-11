@@ -64,4 +64,31 @@ describe('init tool', () => {
     // 2. Returns error result for StateApiError
     // 3. Re-throws unexpected errors after logging
   });
+
+  describe('iteration limit handling', () => {
+    it('should accept step_number STEP_MAX in formatWiggumResponse when iteration limit reached', async () => {
+      // Verifies formatWiggumResponse validation accepts STEP_MAX from init.ts iteration limit handling
+
+      const { formatWiggumResponse } = await import('../utils/format-response.js');
+      const { STEP_MAX } = await import('../constants.js');
+
+      const output = {
+        current_step: 'Iteration Limit Reached',
+        step_number: STEP_MAX,
+        iteration_count: 10,
+        instructions: 'Test instructions for iteration limit',
+        steps_completed_by_tool: [],
+        context: {
+          pr_number: 123,
+          current_branch: 'test-branch',
+        },
+      };
+
+      assert.doesNotThrow(() => formatWiggumResponse(output));
+      const formatted = formatWiggumResponse(output);
+      assert.match(formatted, /Iteration Limit Reached/);
+      assert.match(formatted, /Step max\)/);
+      assert.match(formatted, /Test instructions for iteration limit/);
+    });
+  });
 });

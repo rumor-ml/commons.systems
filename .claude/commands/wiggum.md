@@ -190,6 +190,31 @@ Execute AFTER PR is created for final validation:
 
 ---
 
+### Step p2-3: Code Quality (Post-PR)
+
+Address code quality bot comments after PR is created.
+
+**CRITICAL: How to Fetch github-code-quality Bot Comments**
+
+The github-code-quality bot posts INLINE REVIEW COMMENTS (not PR discussion comments).
+
+Use the correct GitHub API endpoint:
+✅ CORRECT: `gh api repos/{owner}/{repo}/pulls/{PR}/comments`
+❌ WRONG: `gh pr view {PR} --json comments` (gets discussion comments, not review comments)
+❌ WRONG: `gh api repos/{owner}/{repo}/pulls/{PR}/reviews` (gets formal reviews, which may have empty bodies)
+
+The wiggum MCP server's `wiggum_init` tool automatically fetches these comments using the correct endpoint.
+
+**Instructions:**
+
+1. The wiggum_init tool has already fetched code quality bot comments using the correct endpoint
+2. Review the comments returned by the tool
+3. If comments exist, implement fixes for the issues
+4. Execute `/commit-merge-push` using SlashCommand tool if fixes were made
+5. Call appropriate completion tool as directed by wiggum_init instructions
+
+---
+
 ### Step p2-5: Security Review (Post-PR)
 
 Execute security review on the actual PR after it's created.
