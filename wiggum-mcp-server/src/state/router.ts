@@ -160,6 +160,7 @@ export function createStateUpdateFailure(
   return { success: false, reason, lastError, attemptCount };
 }
 
+// TODO(#1942): Unify WiggumInstructions and ResponseData interfaces to reduce duplication
 interface WiggumInstructions {
   current_step: string;
   step_number: WiggumStep;

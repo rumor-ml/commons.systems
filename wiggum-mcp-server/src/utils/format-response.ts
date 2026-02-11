@@ -85,13 +85,15 @@ function validateResponseData(data: unknown): asserts data is ResponseData {
 
   // Validate step_number is a valid WiggumStep (union of string literals)
   if (!isValidStep(d.step_number)) {
-    const actualValue = typeof d.step_number === 'string' ? `"${d.step_number}"` : String(d.step_number);
+    const actualType = typeof d.step_number;
+    const actualValue = actualType === 'string' ? `"${d.step_number}"` : String(d.step_number);
     throw new FormattingError(
-      `Invalid step_number: expected valid WiggumStep, got ${actualValue} (${typeof d.step_number})`
+      `Invalid step_number: expected valid WiggumStep, got ${actualValue} (${actualType})`
     );
   }
 
   // Validate iteration_count
+  // TODO(#1941): Add range validation for iteration_count (non-negative integer check)
   if (typeof d.iteration_count !== 'number') {
     throw new FormattingError(
       `Invalid iteration_count: expected number, got ${typeof d.iteration_count}`

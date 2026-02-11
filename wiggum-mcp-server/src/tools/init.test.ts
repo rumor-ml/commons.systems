@@ -67,8 +67,7 @@ describe('init tool', () => {
 
   describe('iteration limit handling', () => {
     it('should accept step_number STEP_MAX in formatWiggumResponse when iteration limit reached', async () => {
-      // Verifies that STEP_MAX (used in the iteration limit handling block of init.ts) is accepted by formatWiggumResponse validation.
-      // Critical integration point: validation must accept STEP_MAX for iteration limit handling.
+      // Verifies formatWiggumResponse validation accepts STEP_MAX from init.ts iteration limit handling
 
       const { formatWiggumResponse } = await import('../utils/format-response.js');
       const { STEP_MAX } = await import('../constants.js');

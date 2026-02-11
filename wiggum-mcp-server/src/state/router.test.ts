@@ -271,7 +271,6 @@ describe('formatFixInstructions', () => {
 
 describe('Step Sequencing Logic', () => {
   describe('completedSteps filtering', () => {
-    // Test all 9 workflow progression steps (STEP_ORDER steps, excluding STEP_MAX terminal state)
     it('should recognize valid step values in completedSteps', () => {
       const validSteps: WiggumStep[] = [
         STEP_PHASE1_MONITOR_WORKFLOW,
@@ -285,7 +284,7 @@ describe('Step Sequencing Logic', () => {
         STEP_PHASE2_APPROVAL,
       ];
 
-      assert.strictEqual(validSteps.length, 9, 'Should test all 9 workflow progression steps (excludes STEP_MAX terminal state)');
+      assert.strictEqual(validSteps.length, 9, 'Should test all 9 workflow steps');
 
       for (const step of validSteps) {
         const state = createMockState({
@@ -391,10 +390,7 @@ describe('Error State Handling', () => {
 
 describe('WiggumStep Type Safety', () => {
   it('should reject invalid WiggumStep values at compile time', () => {
-    // TypeScript's @ts-expect-error directive enforces compile-time type safety.
-    // Each line below is expected to produce a type error. If the type error disappears
-    // (e.g., someone widens WiggumStep back to `string`), `pnpm typecheck` will fail.
-
+    // Each ts-expect-error below ensures type safety - pnpm typecheck fails if type errors disappear
     // @ts-expect-error - Type '"invalid-step"' is not assignable to type 'WiggumStep'
     const invalid: WiggumStep = 'invalid-step';
     // @ts-expect-error - Type '"1"' is not assignable to type 'WiggumStep'
@@ -1271,10 +1267,7 @@ describe('Security Review Instructions', () => {
 
 describe('Iteration Limit Edge Cases', () => {
   it('should document router behavior when iteration limit is reached', () => {
-    // This test documents an edge case that shouldn't occur in normal flow.
-    // Design: init.ts checks iteration limits and returns STEP_MAX before calling the router.
-    // The router focuses on step progression logic and doesn't enforce iteration limits.
-    // If the router were incorrectly called at iteration limit, it would continue normally.
+    // init.ts checks iteration limits before calling router; router doesn't enforce limits.
 
     const state = createMockState({
       pr: { exists: true, state: 'OPEN', number: 123 },
