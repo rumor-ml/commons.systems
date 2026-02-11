@@ -140,6 +140,9 @@ describe('Step Order and Progression', () => {
     ];
 
     // Verify the order matches expected progression
+    // CRITICAL: STEP_ORDER defines normal workflow progression (p1-1 → p1-2 → ... → approval).
+    // This order is used by formatWiggumResponse validation to ensure step_number values
+    // are valid WiggumStep values. All step_number values must pass isValidStep() check.
     assert.deepEqual(phase1Order, ['p1-1', 'p1-2', 'p1-3']);
     assert.deepEqual(phase2Order, ['p2-1', 'p2-2', 'p2-3', 'p2-4', 'p2-5', 'approval']);
   });

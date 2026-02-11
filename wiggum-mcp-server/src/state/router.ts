@@ -38,6 +38,7 @@ import {
   WORKFLOW_MONITOR_TIMEOUT_MS,
   generateWorkflowTriageInstructions,
 } from '../constants.js';
+import type { WiggumStep } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import {
   GitHubCliError,
@@ -161,7 +162,7 @@ export function createStateUpdateFailure(
 
 interface WiggumInstructions {
   current_step: string;
-  step_number: string;
+  step_number: WiggumStep;
   iteration_count: number;
   instructions: string;
   steps_completed_by_tool: string[];
