@@ -2,7 +2,7 @@
  * Tests for error handling utilities
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import {
   McpError,
@@ -17,7 +17,9 @@ import {
   createErrorResult,
   formatError,
   isTerminalError,
+  ErrorIds,
 } from './errors.js';
+import { logger } from './logger.js';
 
 describe('Error Classes', () => {
   it('should create McpError with message and code', () => {
@@ -64,7 +66,7 @@ describe('Error Classes', () => {
   });
 
   it('should create GitError with exit code and stderr', () => {
-    const error = new GitError('Git failed', 128, 'fatal error');
+    const error = GitError.create('Git failed', 128, 'fatal error');
     assert.strictEqual(error.message, 'Git failed');
     assert.strictEqual(error.code, 'GIT_ERROR');
     assert.strictEqual(error.exitCode, 128);
@@ -166,12 +168,34 @@ describe('createErrorResult', () => {
   });
 
   it('should create error result for GitError', () => {
-    const error = new GitError('Git failed');
+    const error = GitError.create('Git failed');
     const result = createErrorResult(error);
 
     // GitError extends McpError, so it's handled as McpError with specific code
     assert.strictEqual(result._meta?.errorType, 'McpError');
     assert.strictEqual(result._meta?.errorCode, 'GIT_ERROR');
+  });
+
+  it('should create error result for GitError with errorId', () => {
+    const error = GitError.create('Git failed', 128, 'fatal', ErrorIds.GIT_NOT_A_REPOSITORY);
+    const result = createErrorResult(error);
+
+    // GitError with errorId is handled as McpError
+    // The errorId field exists on the GitError instance but may not be exposed in ToolError metadata
+    assert.strictEqual(result._meta?.errorType, 'McpError');
+    assert.strictEqual(result._meta?.errorCode, 'GIT_ERROR');
+    // Note: errorId is accessible on the original error instance for Sentry tracking
+    assert.strictEqual(error.errorId, ErrorIds.GIT_NOT_A_REPOSITORY);
+  });
+
+  it('should create error result for GitError without errorId gracefully', () => {
+    const error = GitError.create('Git failed', 1, 'error');
+    const result = createErrorResult(error);
+
+    // Verify it doesn't crash or include undefined errorId
+    assert.strictEqual(result._meta?.errorType, 'McpError');
+    assert.strictEqual(result._meta?.errorCode, 'GIT_ERROR');
+    assert.strictEqual(error.errorId, undefined);
   });
 
   it('should create error result for FormattingError', () => {
@@ -380,5 +404,470 @@ describe('StateApiError.create() factory function', () => {
     assert.strictEqual(error.operation, 'read');
     assert.strictEqual(error.resourceType, 'pr');
     assert.strictEqual(error.resourceId, 123);
+  });
+});
+
+describe('GitError.create() factory function', () => {
+  // TODO(#1884): Consider adding property-based testing for GitError validation edge cases
+  it('should return GitError for valid exitCode 0 with stderr', () => {
+    const result = GitError.create('Git failed', 0, 'error output');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 0);
+    assert.strictEqual(result.stderr, 'error output');
+    assert.strictEqual(result.message, 'Git failed');
+  });
+
+  it('should return GitError for valid exitCode 128 with stderr', () => {
+    const result = GitError.create('Git failed', 128, 'fatal: not a git repository');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 128);
+    assert.strictEqual(result.stderr, 'fatal: not a git repository');
+  });
+
+  it('should return GitError for valid exitCode 255 with stderr', () => {
+    const result = GitError.create('Git failed', 255, 'error');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 255);
+    assert.strictEqual(result.stderr, 'error');
+  });
+
+  it('should return GitError for undefined exitCode and stderr', () => {
+    const result = GitError.create('Git failed');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, undefined);
+    assert.strictEqual(result.stderr, undefined);
+  });
+
+  it('should return GitError for exitCode without stderr', () => {
+    const result = GitError.create('Git failed', 1);
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, 1);
+    assert.strictEqual(result.stderr, undefined);
+  });
+
+  it('should throw ValidationError for negative exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', -1, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('-1')
+        );
+      },
+      'Should throw ValidationError for negative exitCode'
+    );
+  });
+
+  it('should throw ValidationError for exitCode greater than 255', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 256, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('256')
+        );
+      },
+      'Should throw ValidationError for exitCode > 255'
+    );
+  });
+
+  it('should throw ValidationError for non-integer exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1.5, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('1.5')
+        );
+      },
+      'Should throw ValidationError for non-integer exitCode'
+    );
+  });
+
+  it('should throw ValidationError for NaN exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', NaN, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('NaN')
+        );
+      },
+      'Should throw ValidationError for NaN exitCode'
+    );
+  });
+
+  it('should throw ValidationError for empty string stderr', () => {
+    assert.throws(
+      () => GitError.create('Git failed', 1, ''),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty or whitespace-only') &&
+          error.message.includes('use undefined instead')
+        );
+      },
+      'Should throw ValidationError for empty string stderr'
+    );
+  });
+
+  it('should throw ValidationError for empty string stderr without exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', undefined, ''),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('stderr cannot be empty or whitespace-only') &&
+          error.message.includes('use undefined instead')
+        );
+      },
+      'Should throw ValidationError for empty string stderr'
+    );
+  });
+
+  it('should enforce factory pattern via private constructor', () => {
+    // TODO(#1909): Test doesn't verify that private constructor actually prevents instantiation
+    // This test documents that direct instantiation is not allowed.
+    // If someone attempts: new GitError('msg', 128, 'error')
+    // TypeScript will fail compilation with: "Constructor of class 'GitError' is private"
+    // This is compile-time enforcement - the factory pattern ensures validation always runs.
+
+    // Must use factory method instead
+    const error = GitError.create('msg', 128, 'fatal error');
+    assert.ok(error instanceof GitError);
+    assert.strictEqual(error.message, 'msg');
+    assert.strictEqual(error.exitCode, 128);
+    assert.strictEqual(error.stderr, 'fatal error');
+  });
+
+  it('should throw ValidationError for null exitCode', () => {
+    assert.throws(
+      // @ts-expect-error - Testing runtime behavior with null
+      () => GitError.create('Git failed', null, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255')
+        );
+      },
+      'Should throw ValidationError for null exitCode'
+    );
+  });
+
+  it('should throw TypeError for null stderr', () => {
+    // null bypasses the !== undefined check but fails on .trim()
+    assert.throws(
+      // @ts-expect-error - Testing runtime behavior with null
+      () => GitError.create('Git failed', 1, null),
+      (error: unknown) => {
+        return error instanceof TypeError;
+      },
+      'Should throw TypeError for null stderr attempting to call .trim()'
+    );
+  });
+
+  it('should document expected behavior for undefined parameters', () => {
+    // undefined is the supported "no value" marker
+    const error = GitError.create('Git failed', undefined, undefined);
+    assert.strictEqual(error.exitCode, undefined);
+    assert.strictEqual(error.stderr, undefined);
+  });
+});
+
+describe('GitError.create() validation edge cases', () => {
+  it('should throw ValidationError for empty string message', () => {
+    assert.throws(
+      () => GitError.create('', 1, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('message cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for empty message'
+    );
+  });
+
+  it('should throw ValidationError for whitespace-only message', () => {
+    assert.throws(
+      () => GitError.create('   ', 1, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('message cannot be empty or whitespace-only')
+        );
+      },
+      'Should throw ValidationError for whitespace-only message'
+    );
+  });
+
+  // Test multiple whitespace-only inputs (spaces, tabs, newlines, mixed)
+  const whitespaceInputs = [
+    { input: '   ', name: 'spaces' },
+    { input: '\t', name: 'tabs' },
+    { input: '\n', name: 'newlines' },
+    { input: '  \n\t  ', name: 'mixed' },
+  ];
+
+  for (const { input, name } of whitespaceInputs) {
+    it(`should throw ValidationError for whitespace-only stderr (${name})`, () => {
+      assert.throws(
+        () => GitError.create('Git failed', 1, input),
+        (error: unknown) => {
+          return (
+            error instanceof ValidationError &&
+            error.message.includes('stderr cannot be empty or whitespace-only')
+          );
+        },
+        `Should throw ValidationError for ${name} stderr`
+      );
+    });
+  }
+
+  it('should throw ValidationError for Infinity exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', Infinity, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('Infinity')
+        );
+      },
+      'Should throw ValidationError for Infinity exitCode'
+    );
+  });
+
+  it('should throw ValidationError for -Infinity exitCode', () => {
+    assert.throws(
+      () => GitError.create('Git failed', -Infinity, 'error'),
+      (error: unknown) => {
+        return (
+          error instanceof ValidationError &&
+          error.message.includes('exitCode must be an integer in range 0-255') &&
+          error.message.includes('-Infinity')
+        );
+      },
+      'Should throw ValidationError for -Infinity exitCode'
+    );
+  });
+
+  it('should return GitError for stderr without exitCode', () => {
+    const result = GitError.create('Git failed', undefined, 'fatal: repository not found');
+    assert.ok(result instanceof GitError, 'Should return GitError');
+    assert.strictEqual(result.exitCode, undefined);
+    assert.strictEqual(result.stderr, 'fatal: repository not found');
+    assert.strictEqual(result.message, 'Git failed');
+  });
+
+  it('should handle very long stderr strings', () => {
+    const longStderr = 'error: '.repeat(10000); // ~70KB string
+    const result = GitError.create('Git failed', 1, longStderr);
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.stderr, longStderr);
+    assert.strictEqual(result.stderr.length, longStderr.length);
+  });
+
+  // Test preservation of leading/trailing whitespace when content exists
+  const whitespacePreservationCases = [
+    { input: '  fatal error\n', name: 'leading and trailing whitespace' },
+    { input: '  fatal: repository not found', name: 'leading whitespace' },
+    { input: 'fatal: not a git repository  ', name: 'trailing whitespace' },
+  ];
+
+  for (const { input, name } of whitespacePreservationCases) {
+    it(`should accept stderr with ${name} if content exists`, () => {
+      const result = GitError.create('Git failed', 1, input);
+      assert.strictEqual(result.stderr, input);
+    });
+  }
+
+  // Test stderr handling with special characters (null bytes, ANSI, Unicode, control chars)
+  const specialCharCases = [
+    { input: 'error\0truncated', name: 'null bytes' },
+    { input: '\x1b[31merror\x1b[0m', name: 'ANSI escape codes' },
+    { input: 'Error: 文件不存在 (file not found)', name: 'Unicode characters' },
+    { input: 'error\rwith\bcontrol\tchars', name: 'control characters' },
+  ];
+
+  for (const { input, name } of specialCharCases) {
+    it(`should handle stderr with ${name}`, () => {
+      const result = GitError.create('Git failed', 1, input);
+      assert.ok(result.stderr);
+      if (name === 'ANSI escape codes') {
+        assert.ok(result.stderr.includes('\x1b[31m'));
+      } else {
+        assert.strictEqual(result.stderr, input);
+      }
+    });
+  }
+});
+
+describe('GitError.create() errorId parameter', () => {
+  it('should accept and store errorId', () => {
+    const result = GitError.create('Git failed', 1, 'error', 'GIT_COMMAND_FAILED');
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.errorId, 'GIT_COMMAND_FAILED');
+  });
+
+  it('should accept undefined errorId', () => {
+    const result = GitError.create('Git failed', 1, 'error', undefined);
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.errorId, undefined);
+  });
+
+  it('should store errorId without exitCode or stderr', () => {
+    const result = GitError.create('Git failed', undefined, undefined, 'GIT_NOT_A_REPOSITORY');
+    assert.ok(result instanceof GitError);
+    assert.strictEqual(result.errorId, 'GIT_NOT_A_REPOSITORY');
+    assert.strictEqual(result.exitCode, undefined);
+    assert.strictEqual(result.stderr, undefined);
+  });
+
+  it('should preserve message with leading/trailing whitespace if content exists', () => {
+    const result = GitError.create('  Git failed\n', 1, 'error');
+    assert.strictEqual(result.message, '  Git failed\n');
+  });
+
+  it('should accept valid ErrorIds constants for errorId parameter', () => {
+    // Documents that only ErrorIds constants are valid
+    const error1 = GitError.create('Test', 1, 'error', ErrorIds.GIT_COMMAND_FAILED);
+    assert.strictEqual(error1.errorId, ErrorIds.GIT_COMMAND_FAILED);
+
+    const error2 = GitError.create('Test', 1, 'error', ErrorIds.GIT_NOT_A_REPOSITORY);
+    assert.strictEqual(error2.errorId, ErrorIds.GIT_NOT_A_REPOSITORY);
+  });
+
+  it('should reject arbitrary string errorId at compile time', () => {
+    // These lines should fail TypeScript compilation
+    // @ts-expect-error - Should reject arbitrary strings not in ErrorIds
+    const _error1 = GitError.create('Test', 1, 'error', 'INVALID_ERROR_ID');
+
+    // @ts-expect-error - Should reject custom strings
+    const _error2 = GitError.create('Test', 1, 'error', 'CUSTOM_ERROR');
+
+    // Valid: accepts ErrorIds constants
+    const error3 = GitError.create('Test', 1, 'error', ErrorIds.GIT_COMMAND_FAILED);
+    assert.ok(error3 instanceof GitError, 'Type validation enforced at compile time');
+  });
+
+  it('should accept undefined errorId', () => {
+    const error = GitError.create('Test', 1, 'error', undefined);
+    assert.strictEqual(error.errorId, undefined);
+  });
+
+  it('should preserve errorId through throw/catch cycle', () => {
+    try {
+      throw GitError.create('Test', 1, 'error', ErrorIds.GIT_COMMAND_FAILED);
+    } catch (error) {
+      assert.ok(error instanceof GitError);
+      assert.strictEqual(error.errorId, ErrorIds.GIT_COMMAND_FAILED);
+    }
+  });
+
+  it('should allow errorId to be read in error handlers', () => {
+    const error = GitError.create('Test', 1, 'error', ErrorIds.GIT_NOT_A_REPOSITORY);
+    // Simulate what error handling code does
+    const errorIdForSentry = error.errorId;
+    assert.strictEqual(errorIdForSentry, ErrorIds.GIT_NOT_A_REPOSITORY);
+  });
+});
+
+describe('GitError.create() logging behavior', () => {
+  let loggerDebugMock: ReturnType<typeof mock.method>;
+
+  beforeEach(() => {
+    // Mock logger.debug to verify GitError.create() logs at debug level for unusual patterns
+    loggerDebugMock = mock.method(logger, 'debug', (_message: string, _data?: unknown) => {});
+  });
+
+  afterEach(() => {
+    // Restore logger.debug to prevent test pollution
+    loggerDebugMock.mock.restore();
+  });
+
+  it('should log at debug level when stderr provided without exitCode', () => {
+    GitError.create('Git failed', undefined, 'fatal error', ErrorIds.GIT_COMMAND_FAILED);
+
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 1);
+    const call = loggerDebugMock.mock.calls[0];
+    assert.strictEqual(
+      call.arguments[0],
+      'GitError.create: stderr provided without exitCode (unusual pattern)'
+    );
+    assert.ok(call.arguments[1]);
+    assert.strictEqual((call.arguments[1] as any).stderrLength, 11);
+  });
+
+  it('should log at debug level when non-zero exitCode provided without stderr', () => {
+    GitError.create('Git failed', 1, undefined, ErrorIds.GIT_COMMAND_FAILED);
+
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 1);
+    const call = loggerDebugMock.mock.calls[0];
+    assert.strictEqual(
+      call.arguments[0],
+      'GitError.create: Non-zero exit code without stderr (unusual pattern)'
+    );
+    assert.ok(call.arguments[1]);
+    assert.strictEqual((call.arguments[1] as any).exitCode, 1);
+  });
+
+  it('should not log at debug level when exitCode 0 without stderr', () => {
+    GitError.create('Git succeeded', 0, undefined);
+
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 0);
+  });
+
+  it('should not log at debug level when both exitCode and stderr provided', () => {
+    GitError.create('Git failed', 1, 'error output');
+
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 0);
+  });
+
+  it('should not log at debug level when neither exitCode nor stderr provided', () => {
+    GitError.create('Git failed', undefined, undefined);
+
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 0);
+  });
+
+  it('should include errorId in logging context when provided', () => {
+    GitError.create('Git failed', 1, undefined, 'GIT_COMMAND_FAILED');
+
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 1);
+    const call = loggerDebugMock.mock.calls[0];
+    assert.strictEqual((call.arguments[1] as any).errorId, 'GIT_COMMAND_FAILED');
+  });
+
+  it('should handle concurrent GitError.create calls with logging', async () => {
+    // Reset mock to start fresh for this test
+    loggerDebugMock.mock.resetCalls();
+
+    // Simulate concurrent git command failures
+    const errors = await Promise.all([
+      Promise.resolve(GitError.create('Error 1', 1, undefined)),
+      Promise.resolve(GitError.create('Error 2', undefined, 'stderr')),
+      Promise.resolve(GitError.create('Error 3', 2, undefined)),
+    ]);
+
+    // Each call should log independently
+    assert.strictEqual(loggerDebugMock.mock.callCount(), 3);
+
+    // Verify all errors were created successfully
+    assert.strictEqual(errors.length, 3);
+    errors.forEach((error) => assert.ok(error instanceof GitError));
+
+    // Verify each error has the expected properties
+    assert.strictEqual(errors[0].exitCode, 1);
+    assert.strictEqual(errors[0].stderr, undefined);
+
+    assert.strictEqual(errors[1].exitCode, undefined);
+    assert.strictEqual(errors[1].stderr, 'stderr');
+
+    assert.strictEqual(errors[2].exitCode, 2);
+    assert.strictEqual(errors[2].stderr, undefined);
   });
 });
