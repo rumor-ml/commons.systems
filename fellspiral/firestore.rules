@@ -253,6 +253,7 @@ service cloud.firestore {
     }
 
     // TODO(#1961): Move "Default: deny all access" comment to line 415 near the actual default deny rule
+    // Default: deny all access to other collections
 
     // ========================================
     // BUDGET APP RULES

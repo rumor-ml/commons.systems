@@ -61,6 +61,8 @@ Initialization/entry point tool that analyzes current state and returns next act
 4. p2-1 - Monitor Workflow: PR workflow must pass
 5. p2-2 - Monitor PR Checks: All PR checks must pass (includes CodeQL)
 6. p2-3 - Code Quality: Address github-code-quality bot comments
+   - Note: Uses GitHub API endpoint `GET /repos/{owner}/{repo}/pulls/{PR}/comments` for inline review comments
+   - This is different from PR discussion comments or formal review objects
 7. p2-5 - Security Review: Execute security review
 8. approval - Remove "needs review" label and mark ready for human review
 
