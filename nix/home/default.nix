@@ -4,24 +4,16 @@
 # declarative way. This allows you to version control your dotfiles and
 # ensures reproducibility across different machines.
 #
-# This configuration includes:
-# - Bash shell configuration (bash.nix)
-# - Zsh shell configuration (zsh.nix)
-# - Git configuration (git.nix)
-# - Tmux configuration (tmux.nix)
-# - Development tools: direnv, neovim (tools.nix)
-# - Claude Code CLI (claude-code.nix)
-# - Nix settings: experimental features (nix.nix)
-# - SSH client and agent configuration (ssh.nix)
-# - SSH key auto-generation (ssh-keygen.nix)
-# - SSH authorized keys management (ssh-authorized-keys.nix)
-# - Timezone configuration (timezone.nix)
-# - WezTerm terminal emulator (wezterm.nix, Darwin only)
+# This configuration includes shell environments (bash, zsh), development tools
+# (direnv, neovim, claude-code), terminal emulators (wezterm), version control
+# (git, tmux), SSH management, and Nix settings. See the imports array below for
+# the complete list of managed configurations.
 #
 # To activate this configuration for your system:
 #   First time (requires experimental features flags):
 #     nix --extra-experimental-features 'nix-command flakes' run home-manager/master -- switch --extra-experimental-features 'nix-command flakes' --flake .#default --impure
 #
+# TODO(#1576): Add note about PATH setup for home-manager command
 #   After first activation (auto-detects system architecture):
 #     home-manager switch --flake .#default --impure
 #
@@ -39,36 +31,55 @@
 }:
 
 {
+  # Integration tests in default.test.nix verify all modules work together
   imports = [
     ./bash.nix
     ./zsh.nix
     ./git.nix
     ./tmux.nix
+    ./wezterm.nix
     ./tools.nix
     ./claude-code.nix
     ./nix.nix
     ./ssh.nix
     ./ssh-keygen.nix
     ./ssh-authorized-keys.nix
-    ./timezone.nix
-    ./wezterm.nix
   ];
 
   # User identity - detect from environment or HOME directory
+  # TODO(#1685): Add validation of extracted username values (e.g., check for "..", ".", or "/" prefixes)
   home.username = lib.mkDefault (
     let
       envUser = builtins.getEnv "USER";
       # Fallback: extract username from HOME environment variable
-      # e.g., /home/username -> username
+      # Edge case: if HOME=/ then extractedUser would be "/" which passes the empty check
+      # but will cause errors in downstream code expecting a valid username.
+      # TODO(#1685) will add validation to reject "/", ".", "..", and paths with "/" prefix
+      # Note: This fallback is extremely rare - USER is set by login systems in virtually all Unix environments.
       homeDir = builtins.getEnv "HOME";
       extractedUser = if homeDir != "" then builtins.baseNameOf homeDir else "";
+
+      # Build diagnostic message showing actual environment state
+      diagnosticMsg = ''
+        Could not determine username. Environment variable diagnostics:
+          USER=${if envUser != "" then envUser else "(empty)"}
+          HOME=${if homeDir != "" then homeDir else "(empty)"}
+          Extracted from HOME=${
+            if extractedUser != "" then extractedUser else "(empty - HOME is empty or /)"
+          }
+
+        To fix:
+          - Set USER environment variable to your username, OR
+          - Set HOME environment variable to your home directory path
+          - Ensure HOME is not set to "/" (root directory)
+      '';
     in
     if envUser != "" then
       envUser
     else if extractedUser != "" then
       extractedUser
     else
-      throw "Could not determine username. Please set USER or HOME environment variable."
+      throw diagnosticMsg
   );
 
   home.homeDirectory = lib.mkDefault (
