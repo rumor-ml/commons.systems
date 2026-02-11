@@ -249,6 +249,14 @@ bash "$SCRIPT_DIR/merge-firestore-rules.sh"
 # The merge script uses atomic writes (mv), so this is just extra safety
 sleep 1
 
+# Copy merged rules to shared emulator directory so the emulator always sees current rules
+# regardless of which worktree started it. This runs even when reusing an existing backend,
+# so the emulator's file watcher picks up rules changes from this worktree.
+SHARED_RULES_DIR="${SHARED_EMULATOR_DIR}/rules"
+mkdir -p "$SHARED_RULES_DIR"
+cp "${PROJECT_ROOT}/.firebase/firestore.rules" "${SHARED_RULES_DIR}/firestore.rules"
+cp "${PROJECT_ROOT}/shared/storage.rules" "${SHARED_RULES_DIR}/storage.rules"
+
 # Lock acquired - check if backend is already running
 if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"
@@ -265,46 +273,21 @@ else
   # Cleanup: stop-emulators.sh removes this file on shutdown
   TEMP_BACKEND_CONFIG="${PROJECT_ROOT}/.firebase-backend-${PROJECT_ID}.json"
 
-  # Extract storage rules path from main firebase.json if it exists
-  # Firebase CLI resolves paths relative to the config file location (PROJECT_ROOT in this case)
-  STORAGE_RULES=$(jq -r '.storage.rules // "shared/storage.rules"' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "shared/storage.rules")
-  FIRESTORE_RULES=$(jq -r '.firestore.rules // empty' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "")
-
-  # Build config with emulator ports and rules
-  cat > "${TEMP_BACKEND_CONFIG}" <<EOF
-{
-  "emulators": {
-    "auth": {
-      "port": ${AUTH_PORT}
-    },
-    "firestore": {
-      "port": ${FIRESTORE_PORT}
-    },
-    "storage": {
-      "port": ${STORAGE_PORT}
-    },
-    "ui": {
-      "enabled": true,
-      "port": ${UI_PORT}
-    }
-  },
-  "storage": {
-    "rules": "${STORAGE_RULES}"
-  }
-EOF
-
-  # Add firestore rules if specified
-  if [ -n "$FIRESTORE_RULES" ]; then
-    cat >> "${TEMP_BACKEND_CONFIG}" <<EOF
-,
-  "firestore": {
-    "rules": "${FIRESTORE_RULES}"
-  }
-EOF
-  fi
-
-  # Close JSON
-  echo "}" >> "${TEMP_BACKEND_CONFIG}"
+  # Derive backend config from firebase.json, overriding only ports and rules paths
+  # This automatically inherits singleProjectMode, ui.enabled, and any future settings
+  # - del(.hosting): backend-only emulators don't need hosting config
+  # - Absolute rules paths: emulator watches shared location regardless of starting worktree
+  jq --argjson auth "${AUTH_PORT}" \
+     --argjson fs "${FIRESTORE_PORT}" \
+     --argjson storage "${STORAGE_PORT}" \
+     --argjson ui "${UI_PORT}" \
+     --arg fsRules "${SHARED_RULES_DIR}/firestore.rules" \
+     --arg storageRules "${SHARED_RULES_DIR}/storage.rules" \
+     '{
+       emulators: (.emulators | del(.hosting) | .auth.port = $auth | .firestore.port = $fs | .storage.port = $storage | .ui.port = $ui),
+       storage: {rules: $storageRules},
+       firestore: {rules: $fsRules}
+     }' "${PROJECT_ROOT}/firebase.json" > "${TEMP_BACKEND_CONFIG}"
 
   # Start ONLY backend emulators (shared)
   # Import seed data from fellspiral/emulator-data (includes QA test user)
@@ -316,7 +299,8 @@ EOF
     > "$BACKEND_LOG_FILE" 2>&1 &
 
   BACKEND_PID=$!
-  echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
+  BACKEND_PGID=$(ps -o pgid= -p $BACKEND_PID 2>/dev/null | tr -d ' ')
+  echo "${BACKEND_PID}:${BACKEND_PGID}" > "$BACKEND_PID_FILE"
 
   echo "Backend emulators started with PID: ${BACKEND_PID}"
   echo "Log file: $BACKEND_LOG_FILE"

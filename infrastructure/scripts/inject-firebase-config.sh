@@ -112,17 +112,13 @@ echo "  API Key: ${API_KEY:0:20}..."
 echo "  Project ID: $PROJECT_ID"
 echo "  Auth Domain: $AUTH_DOMAIN"
 
-# Update the firebase-config.js file
+# Inject Firebase config based on app type
 CONFIG_FILE="${SITE_NAME}/site/src/firebase-config.js"
+ENV_EXAMPLE_FILE="${SITE_NAME}/site/.env.example"
 
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "⚠️  Configuration file not found: $CONFIG_FILE"
-  echo "⚠️  Skipping Firebase config injection (app doesn't use Firebase SDK)"
-  exit 0
-fi
-
-# Create the new configuration
-cat > "$CONFIG_FILE" << EOF
+if [ -f "$CONFIG_FILE" ]; then
+  # Pattern 1: Apps using firebase-config.js (legacy)
+  cat > "$CONFIG_FILE" << EOF
 /**
  * Firebase Configuration for ${SITE_NAME^}
  *
@@ -142,5 +138,26 @@ export const firebaseConfig = {
   appId: "${APP_ID}"
 };
 EOF
+  echo "✅ Firebase configuration injected into $CONFIG_FILE"
 
-echo "✅ Firebase configuration injected into $CONFIG_FILE"
+elif [ -f "$ENV_EXAMPLE_FILE" ]; then
+  # Pattern 2: Apps using Vite .env files (e.g., budget)
+  ENV_FILE="${SITE_NAME}/site/.env"
+  cat > "$ENV_FILE" << EOF
+# Firebase Configuration
+# Auto-generated during CI/CD deployment
+
+VITE_FIREBASE_API_KEY=${API_KEY}
+VITE_FIREBASE_AUTH_DOMAIN=${AUTH_DOMAIN}
+VITE_FIREBASE_PROJECT_ID=${PROJECT_ID}
+VITE_FIREBASE_STORAGE_BUCKET=${STORAGE_BUCKET}
+VITE_FIREBASE_MESSAGING_SENDER_ID=${MESSAGING_SENDER_ID}
+VITE_FIREBASE_APP_ID=${APP_ID}
+EOF
+  echo "✅ Firebase configuration injected into $ENV_FILE"
+
+else
+  echo "⚠️  No firebase-config.js or .env.example found in ${SITE_NAME}/site"
+  echo "⚠️  Skipping Firebase config injection (app doesn't use Firebase SDK)"
+  exit 0
+fi

@@ -213,6 +213,12 @@ if [ -f "$BACKEND_PID_FILE" ]; then
       echo "✓ Cleaned up backend temp config(s)"
     fi
 
+    # Clean up shared rules directory
+    if [ -d "${SHARED_EMULATOR_DIR}/rules" ]; then
+      rm -rf "${SHARED_EMULATOR_DIR}/rules"
+      echo "✓ Cleaned up shared rules directory"
+    fi
+
     if [ "$FORCE_BACKEND" = "true" ] && [ "$ACTIVE_COUNT" -gt 0 ]; then
       echo ""
       echo "WARNING: Stopped backend emulators while $ACTIVE_COUNT worktree(s) may still be using them!" >&2

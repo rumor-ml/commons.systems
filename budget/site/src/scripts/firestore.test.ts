@@ -198,19 +198,42 @@ describe('Firestore module', () => {
       Object.assign(import.meta.env, currentEnv);
     });
 
-    it('does not throw error when called (unlike validateFirebaseConfig)', async () => {
+    it('returns true in emulator mode even without env vars', async () => {
       const { isFirebaseConfigured } = await import('./firestore');
 
       // Save current env state
       const currentEnv = { ...import.meta.env };
 
-      // Clear Firebase env vars
+      // Clear all Firebase env vars but set emulator mode
       delete import.meta.env.VITE_FIREBASE_API_KEY;
       delete import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
       delete import.meta.env.VITE_FIREBASE_PROJECT_ID;
       delete import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
       delete import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID;
       delete import.meta.env.VITE_FIREBASE_APP_ID;
+      import.meta.env.VITE_USE_FIREBASE_EMULATOR = 'true';
+
+      // Emulator mode provides dummy values via getFirebaseConfig(), so it's always "configured"
+      expect(isFirebaseConfigured()).toBe(true);
+
+      // Restore env
+      Object.assign(import.meta.env, currentEnv);
+    });
+
+    it('does not throw error when called (unlike validateFirebaseConfig)', async () => {
+      const { isFirebaseConfigured } = await import('./firestore');
+
+      // Save current env state
+      const currentEnv = { ...import.meta.env };
+
+      // Clear Firebase env vars and emulator flag to test non-configured, non-emulator state
+      delete import.meta.env.VITE_FIREBASE_API_KEY;
+      delete import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+      delete import.meta.env.VITE_FIREBASE_PROJECT_ID;
+      delete import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
+      delete import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID;
+      delete import.meta.env.VITE_FIREBASE_APP_ID;
+      delete import.meta.env.VITE_USE_FIREBASE_EMULATOR;
 
       // Should return false, not throw
       expect(() => {

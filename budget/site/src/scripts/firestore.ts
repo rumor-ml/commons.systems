@@ -53,6 +53,11 @@ function validateFirebaseConfig(): void {
 
 // Check if Firebase is properly configured (non-throwing variant for UI checks)
 export function isFirebaseConfigured(): boolean {
+  // Emulator mode: getFirebaseConfig() provides dummy values, so Firebase is always "configured"
+  if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
+    return true;
+  }
+
   // Check if all required environment variables are present and not empty
   const hasAllVars = requiredEnvVars.every(
     (key) => import.meta.env[key] && import.meta.env[key] !== ''
