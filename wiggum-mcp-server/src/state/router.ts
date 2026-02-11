@@ -18,6 +18,7 @@ import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import { monitorRun, monitorPRChecks } from '../utils/gh-workflow.js';
 import { logger } from '../utils/logger.js';
 import { formatWiggumResponse } from '../utils/format-response.js';
+import { handleStateUpdateFailure } from './state-update-error-handler.js';
 import type { WiggumState, CurrentState, PRExists } from './types.js';
 import { WiggumStateSchema, createWiggumState, isIssueExists } from './types.js';
 import { applyWiggumState } from './state-utils.js';
@@ -705,46 +706,13 @@ async function handlePhase1MonitorWorkflow(
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State update failed - halting workflow', {
-        issueNumber,
+      return handleStateUpdateFailure({
+        stateResult,
+        newState,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
-        iteration: newState.iteration,
-        phase: newState.phase,
-        reason: stateResult.reason,
-        lastError: stateResult.lastError?.message,
-        attemptCount: stateResult.attemptCount,
-        impact: 'Race condition fix requires state persistence',
-        recommendation: 'Retry after resolving rate limit/network issues',
+        targetType: 'issue',
+        targetNumber: issueNumber,
       });
-
-      // Build detailed error context for user-facing message
-      const errorDetails = stateResult.lastError
-        ? `\n\nActual error: ${stateResult.lastError.message}`
-        : '';
-      const retryInfo = stateResult.attemptCount
-        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
-        : '';
-
-      return {
-        content: [
-          {
-            type: 'text',
-            // TODO(#1905): Repeated state update failure error message construction
-            text: formatWiggumResponse({
-              current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
-              step_number: STEP_PHASE1_MONITOR_WORKFLOW,
-              iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-              steps_completed_by_tool: [
-                'Attempted to update state in body',
-                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
-              ],
-              context: {},
-            }),
-          },
-        ],
-        isError: true,
-      };
     }
 
     // Reuse newState to avoid race condition with GitHub API (issue #388)
@@ -772,46 +740,13 @@ async function handlePhase1MonitorWorkflow(
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State update failed - halting workflow', {
-        issueNumber,
+      return handleStateUpdateFailure({
+        stateResult,
+        newState,
         step: STEP_PHASE1_MONITOR_WORKFLOW,
-        iteration: newState.iteration,
-        phase: newState.phase,
-        reason: stateResult.reason,
-        lastError: stateResult.lastError?.message,
-        attemptCount: stateResult.attemptCount,
-        impact: 'Race condition fix requires state persistence',
-        recommendation: 'Retry after resolving rate limit/network issues',
+        targetType: 'issue',
+        targetNumber: issueNumber,
       });
-
-      // Build detailed error context for user-facing message
-      const errorDetails = stateResult.lastError
-        ? `\n\nActual error: ${stateResult.lastError.message}`
-        : '';
-      const retryInfo = stateResult.attemptCount
-        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
-        : '';
-
-      return {
-        content: [
-          {
-            type: 'text',
-            // TODO(#1905): Repeated state update failure error message construction
-            text: formatWiggumResponse({
-              current_step: STEP_NAMES[STEP_PHASE1_MONITOR_WORKFLOW],
-              step_number: STEP_PHASE1_MONITOR_WORKFLOW,
-              iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in issue #${issueNumber} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming issue #${issueNumber} exists: \`gh issue view ${issueNumber}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-              steps_completed_by_tool: [
-                'Attempted to update state in body',
-                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
-              ],
-              context: {},
-            }),
-          },
-        ],
-        isError: true,
-      };
     }
 
     output.iteration_count = newState.iteration;
@@ -1014,45 +949,13 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State update failed - halting workflow', {
-        prNumber: state.pr.number,
+      return handleStateUpdateFailure({
+        stateResult,
+        newState,
         step: STEP_PHASE2_MONITOR_WORKFLOW,
-        iteration: newState.iteration,
-        phase: newState.phase,
-        reason: stateResult.reason,
-        lastError: stateResult.lastError?.message,
-        attemptCount: stateResult.attemptCount,
-        impact: 'Race condition fix requires state persistence',
-        recommendation: 'Retry after resolving rate limit/network issues',
+        targetType: 'pr',
+        targetNumber: state.pr.number,
       });
-
-      // Build detailed error context for user-facing message
-      const errorDetails = stateResult.lastError
-        ? `\n\nActual error: ${stateResult.lastError.message}`
-        : '';
-      const retryInfo = stateResult.attemptCount
-        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
-        : '';
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: formatWiggumResponse({
-              current_step: STEP_NAMES[STEP_PHASE2_MONITOR_WORKFLOW],
-              step_number: STEP_PHASE2_MONITOR_WORKFLOW,
-              iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-              steps_completed_by_tool: [
-                'Attempted to update state in body',
-                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
-              ],
-              context: { pr_number: state.pr.number },
-            }),
-          },
-        ],
-        isError: true,
-      };
     }
 
     const stepsCompleted = [
@@ -1105,45 +1008,13 @@ async function handlePhase2MonitorWorkflow(state: CurrentStateWithPR): Promise<T
     );
 
     if (!stateResult2.success) {
-      logger.error('Critical: State update failed - halting workflow', {
-        prNumber: state.pr.number,
+      return handleStateUpdateFailure({
+        stateResult: stateResult2,
+        newState: newState2,
         step: STEP_PHASE2_MONITOR_CHECKS,
-        iteration: newState2.iteration,
-        phase: newState2.phase,
-        reason: stateResult2.reason,
-        lastError: stateResult2.lastError?.message,
-        attemptCount: stateResult2.attemptCount,
-        impact: 'Race condition fix requires state persistence',
-        recommendation: 'Retry after resolving rate limit/network issues',
+        targetType: 'pr',
+        targetNumber: state.pr.number,
       });
-
-      // Build detailed error context for user-facing message
-      const errorDetails = stateResult2.lastError
-        ? `\n\nActual error: ${stateResult2.lastError.message}`
-        : '';
-      const retryInfo = stateResult2.attemptCount
-        ? `\n\nRetry attempts made: ${stateResult2.attemptCount}`
-        : '';
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: formatWiggumResponse({
-              current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
-              step_number: STEP_PHASE2_MONITOR_CHECKS,
-              iteration_count: newState2.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult2.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-              steps_completed_by_tool: [
-                'Attempted to update state in body',
-                `Failed due to ${stateResult2.reason} after ${stateResult2.attemptCount ?? 'unknown'} attempts`,
-              ],
-              context: { pr_number: state.pr.number },
-            }),
-          },
-        ],
-        isError: true,
-      };
     }
 
     stepsCompleted.push(
@@ -1217,45 +1088,13 @@ async function handlePhase2MonitorPRChecks(state: CurrentStateWithPR): Promise<T
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State update failed - halting workflow', {
-        prNumber: state.pr.number,
+      return handleStateUpdateFailure({
+        stateResult,
+        newState,
         step: STEP_PHASE2_MONITOR_CHECKS,
-        iteration: newState.iteration,
-        phase: newState.phase,
-        reason: stateResult.reason,
-        lastError: stateResult.lastError?.message,
-        attemptCount: stateResult.attemptCount,
-        impact: 'Race condition fix requires state persistence',
-        recommendation: 'Retry after resolving rate limit/network issues',
+        targetType: 'pr',
+        targetNumber: state.pr.number,
       });
-
-      // Build detailed error context for user-facing message
-      const errorDetails = stateResult.lastError
-        ? `\n\nActual error: ${stateResult.lastError.message}`
-        : '';
-      const retryInfo = stateResult.attemptCount
-        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
-        : '';
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: formatWiggumResponse({
-              current_step: STEP_NAMES[STEP_PHASE2_MONITOR_CHECKS],
-              step_number: STEP_PHASE2_MONITOR_CHECKS,
-              iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-              steps_completed_by_tool: [
-                'Attempted to update state in body',
-                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
-              ],
-              context: { pr_number: state.pr.number },
-            }),
-          },
-        ],
-        isError: true,
-      };
     }
 
     const stepsCompleted = [
@@ -1353,45 +1192,13 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
     );
 
     if (!stateResult.success) {
-      logger.error('Critical: State update failed - halting workflow', {
-        prNumber: state.pr.number,
+      return handleStateUpdateFailure({
+        stateResult,
+        newState,
         step: STEP_PHASE2_CODE_QUALITY,
-        iteration: newState.iteration,
-        phase: newState.phase,
-        reason: stateResult.reason,
-        lastError: stateResult.lastError?.message,
-        attemptCount: stateResult.attemptCount,
-        impact: 'Race condition fix requires state persistence',
-        recommendation: 'Retry after resolving rate limit/network issues',
+        targetType: 'pr',
+        targetNumber: state.pr.number,
       });
-
-      // Build detailed error context for user-facing message
-      const errorDetails = stateResult.lastError
-        ? `\n\nActual error: ${stateResult.lastError.message}`
-        : '';
-      const retryInfo = stateResult.attemptCount
-        ? `\n\nRetry attempts made: ${stateResult.attemptCount}`
-        : '';
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: formatWiggumResponse({
-              current_step: STEP_NAMES[STEP_PHASE2_CODE_QUALITY],
-              step_number: STEP_PHASE2_CODE_QUALITY,
-              iteration_count: newState.iteration,
-              instructions: `ERROR: Failed to update state in PR #${state.pr.number} body. The race condition fix requires state persistence.\n\nFailure reason: ${stateResult.reason}${errorDetails}${retryInfo}\n\nThis is typically caused by:\n- GitHub API rate limiting (429)\n- Network connectivity issues\n- Temporary GitHub API unavailability\n\nPlease retry after:\n1. Checking rate limits: \`gh api rate_limit\`\n2. Verifying network connectivity\n3. Confirming PR #${state.pr.number} exists: \`gh pr view ${state.pr.number}\`\n\nThe workflow will resume from this step once the issue is resolved.`,
-              steps_completed_by_tool: [
-                'Attempted to update state in body',
-                `Failed due to ${stateResult.reason} after ${stateResult.attemptCount ?? 'unknown'} attempts`,
-              ],
-              context: { pr_number: state.pr.number },
-            }),
-          },
-        ],
-        isError: true,
-      };
     }
 
     output.steps_completed_by_tool.push(

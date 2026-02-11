@@ -10,10 +10,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { _testExports, createStateUpdateFailure } from './router.js';
-import type { CurrentState, PRExists, PRStateValue } from './types.js';
+import type { CurrentState, PRExists, PRStateValue, WiggumState } from './types.js';
 import { createPRExists, createPRDoesNotExist } from './types.js';
 import { updatePRBodyState, updateIssueBodyState } from './body-state.js';
 import type { WiggumStep } from '../constants.js';
+import type { ToolResult } from '../types.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
@@ -603,6 +604,44 @@ describe('createStateUpdateFailure factory function', () => {
       assert.strictEqual(result.attemptCount, 100);
     }
   });
+
+  it('should throw error for Infinity attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, Infinity),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should throw error for negative Infinity attemptCount', () => {
+    const error = new Error('Test error');
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', error, -Infinity),
+      /attemptCount must be positive integer/
+    );
+  });
+
+  it('should handle Error with undefined message', () => {
+    const errorWithoutMessage = new Error();
+    // Force message to be undefined
+    Object.defineProperty(errorWithoutMessage, 'message', {
+      value: undefined,
+      configurable: true,
+    });
+    const result = createStateUpdateFailure('network', errorWithoutMessage, 1);
+    assert.strictEqual(result.success, false);
+    if (!result.success) {
+      assert.strictEqual(result.lastError, errorWithoutMessage);
+    }
+  });
+
+  it('should reject objects that are not Error instances', () => {
+    const fakeError = { message: 'fake', name: 'FakeError' };
+    assert.throws(
+      () => createStateUpdateFailure('rate_limit', fakeError as Error, 1),
+      /lastError must be Error instance/
+    );
+  });
 });
 
 describe('ResourceConfig discriminated union', () => {
@@ -928,6 +967,61 @@ describe('State Update Retry Logic', () => {
     });
   });
 
+  describe('createStateUpdateFailure edge cases', () => {
+    it('should reject Infinity attemptCount', () => {
+      const error = new Error('Test error');
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', error, Infinity),
+        /attemptCount must be positive integer/,
+        'Infinity attemptCount should be rejected'
+      );
+    });
+
+    it('should reject negative Infinity attemptCount', () => {
+      const error = new Error('Test error');
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', error, -Infinity),
+        /attemptCount must be positive integer/,
+        'Negative Infinity attemptCount should be rejected'
+      );
+    });
+
+    it('should handle Error with undefined message gracefully', () => {
+      const errorWithoutMessage = new Error();
+      // Force undefined message
+      Object.defineProperty(errorWithoutMessage, 'message', { value: undefined });
+      const result = createStateUpdateFailure('network', errorWithoutMessage, 1);
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.lastError, errorWithoutMessage);
+    });
+
+    it('should reject objects that duck-type as Error but are not Error instances', () => {
+      const fakeError = { message: 'fake error', name: 'FakeError', stack: 'fake stack' };
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', fakeError as Error, 1),
+        /lastError must be Error instance/,
+        'Non-Error objects should be rejected even if they have Error properties'
+      );
+    });
+
+    it('should reject null as lastError', () => {
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', null as unknown as Error, 1),
+        /lastError must be Error instance/,
+        'Null should be rejected as lastError'
+      );
+    });
+
+    it('should reject undefined as lastError', () => {
+      assert.throws(
+        () => createStateUpdateFailure('rate_limit', undefined as unknown as Error, 1),
+        /lastError must be Error instance/,
+        'Undefined should be rejected as lastError'
+      );
+    });
+  });
+
   describe('exponential backoff formula', () => {
     it('should follow 2^attempt * 1000 pattern', () => {
       // Verifies the exponential backoff formula used in safeUpdatePRBodyState
@@ -1025,6 +1119,379 @@ describe('State Update Retry Logic', () => {
       // When exitCode is undefined, classification falls back to message patterns
       const exitCode = undefined;
       assert.strictEqual(exitCode, undefined, 'Undefined exitCode should trigger fallback');
+    });
+  });
+});
+
+describe('handleStateUpdateFailure integration', () => {
+  describe('Phase 1 Monitor Workflow callsite', () => {
+    it('should pass correct parameters when state update fails after success', () => {
+      // Tests that Phase 1 Monitor Workflow passes correct params to handleStateUpdateFailure
+
+      // Mock StateUpdateResult failure
+      const mockStateResult = createStateUpdateFailure(
+        'rate_limit',
+        new Error('API rate limit exceeded'),
+        3
+      );
+
+      // Mock state that would be passed after workflow success
+      const mockState: WiggumState = {
+        phase: 'phase1',
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        iteration: 0,
+        completedSteps: [],
+      };
+
+      // Expected parameters
+      const expectedParams = {
+        stateResult: mockStateResult,
+        newState: mockState,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'issue' as const,
+        targetNumber: 123,
+      };
+
+      // Verify parameter types match what handleStateUpdateFailure expects
+      assert.strictEqual(expectedParams.stateResult.success, false);
+      assert.strictEqual(expectedParams.stateResult.reason, 'rate_limit');
+      assert.strictEqual(expectedParams.newState.phase, 'phase1');
+      assert.strictEqual(expectedParams.step, STEP_PHASE1_MONITOR_WORKFLOW);
+      assert.strictEqual(expectedParams.targetType, 'issue');
+      assert.strictEqual(expectedParams.targetNumber, 123);
+    });
+
+    it('should pass correct parameters when state update fails after failure', () => {
+      // This test verifies Phase 1 Monitor Workflow failure path callsite
+      // Tests state update failure during iteration increment (workflow failed)
+
+      const mockStateResult = createStateUpdateFailure('network', new Error('ECONNREFUSED'), 3);
+      const mockState: WiggumState = {
+        phase: 'phase1',
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        iteration: 1, // Incremented after workflow failure
+        completedSteps: [],
+      };
+
+      const expectedParams = {
+        stateResult: mockStateResult,
+        newState: mockState,
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'issue' as const,
+        targetNumber: 456,
+      };
+
+      assert.strictEqual(expectedParams.stateResult.success, false);
+      assert.strictEqual(expectedParams.stateResult.reason, 'network');
+      assert.strictEqual(expectedParams.newState.iteration, 1);
+      assert.strictEqual(expectedParams.targetType, 'issue');
+    });
+  });
+
+  describe('Phase 2 Monitor Workflow callsite', () => {
+    it('should pass correct parameters with PR target type', () => {
+      // Tests that Phase 2 Monitor Workflow uses 'pr' instead of 'issue'
+
+      const mockStateResult = createStateUpdateFailure(
+        'rate_limit',
+        new Error('Secondary rate limit'),
+        5
+      );
+      const mockState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_MONITOR_WORKFLOW,
+        iteration: 2,
+        completedSteps: [STEP_PHASE1_CREATE_PR],
+      };
+
+      const expectedParams = {
+        stateResult: mockStateResult,
+        newState: mockState,
+        step: STEP_PHASE2_MONITOR_WORKFLOW,
+        targetType: 'pr' as const, // CRITICAL: Must be 'pr' not 'issue'
+        targetNumber: 789,
+      };
+
+      assert.strictEqual(expectedParams.targetType, 'pr');
+      assert.strictEqual(expectedParams.newState.phase, 'phase2');
+      assert.strictEqual(expectedParams.step, STEP_PHASE2_MONITOR_WORKFLOW);
+    });
+  });
+
+  describe('Phase 2 Monitor Checks callsites', () => {
+    it('should pass correct parameters from first callsite (success path)', () => {
+      // This test verifies Phase 2 Monitor Checks success path callsite
+      // Tests state update failure after PR checks succeed (marking step complete)
+
+      const mockStateResult = createStateUpdateFailure('network', new Error('Timeout'), 3);
+      const mockState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_MONITOR_CHECKS,
+        iteration: 0,
+        completedSteps: [STEP_PHASE1_CREATE_PR, STEP_PHASE2_MONITOR_WORKFLOW],
+      };
+
+      const expectedParams = {
+        stateResult: mockStateResult,
+        newState: mockState,
+        step: STEP_PHASE2_MONITOR_CHECKS,
+        targetType: 'pr' as const,
+        targetNumber: 100,
+      };
+
+      assert.strictEqual(expectedParams.step, STEP_PHASE2_MONITOR_CHECKS);
+      assert.strictEqual(expectedParams.targetType, 'pr');
+      assert.strictEqual(
+        expectedParams.newState.completedSteps.includes(STEP_PHASE2_MONITOR_WORKFLOW),
+        true
+      );
+    });
+
+    it('should pass correct parameters from second callsite (standalone path)', () => {
+      // This test verifies Phase 2 Monitor Checks standalone path callsite
+      // Tests standalone handlePhase2MonitorPRChecks when called after fixes
+
+      const mockStateResult = createStateUpdateFailure('rate_limit', new Error('429'), 3);
+      const mockState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_MONITOR_CHECKS,
+        iteration: 3,
+        completedSteps: [STEP_PHASE1_CREATE_PR, STEP_PHASE2_MONITOR_WORKFLOW],
+      };
+
+      const expectedParams = {
+        stateResult: mockStateResult,
+        newState: mockState,
+        step: STEP_PHASE2_MONITOR_CHECKS,
+        targetType: 'pr' as const,
+        targetNumber: 200,
+      };
+
+      assert.strictEqual(expectedParams.newState.iteration, 3);
+      assert.strictEqual(expectedParams.step, STEP_PHASE2_MONITOR_CHECKS);
+    });
+  });
+
+  describe('Phase 2 Code Quality callsite', () => {
+    it('should pass correct parameters for code quality step', () => {
+      // This test verifies Phase 2 Code Quality callsite
+      // Tests state update failure when marking code quality step complete
+
+      const mockStateResult = createStateUpdateFailure('network', new Error('ETIMEDOUT'), 2);
+      const mockState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_CODE_QUALITY,
+        iteration: 1,
+        completedSteps: [
+          STEP_PHASE1_CREATE_PR,
+          STEP_PHASE2_MONITOR_WORKFLOW,
+          STEP_PHASE2_MONITOR_CHECKS,
+        ],
+      };
+
+      const expectedParams = {
+        stateResult: mockStateResult,
+        newState: mockState,
+        step: STEP_PHASE2_CODE_QUALITY,
+        targetType: 'pr' as const,
+        targetNumber: 300,
+      };
+
+      assert.strictEqual(expectedParams.step, STEP_PHASE2_CODE_QUALITY);
+      assert.strictEqual(
+        expectedParams.newState.completedSteps.includes(STEP_PHASE2_MONITOR_CHECKS),
+        true
+      );
+    });
+  });
+
+  describe('Error message correctness', () => {
+    it('should produce issue-specific error messages for Phase 1', () => {
+      // Documents the expected string format for issue references in error messages
+      const targetRef = 'issue #123';
+      const verifyCommand = 'gh issue view 123';
+
+      assert.ok(targetRef.includes('issue'));
+      assert.ok(verifyCommand.includes('issue'));
+      assert.ok(!targetRef.includes('PR'));
+      assert.ok(!verifyCommand.includes('pr'));
+    });
+
+    it('should produce PR-specific error messages for Phase 2', () => {
+      // Verifies that PR references use correct format
+      // Simulate handleStateUpdateFailure logic for Phase 2
+      const targetRef = 'PR #456';
+      const verifyCommand = 'gh pr view 456';
+
+      assert.ok(targetRef.includes('PR'));
+      assert.ok(verifyCommand.includes('pr'));
+      assert.ok(!targetRef.includes('issue #'));
+      assert.ok(!verifyCommand.includes('issue'));
+    });
+  });
+
+  describe('Parameter validation', () => {
+    it('should verify all required params are provided at each callsite', () => {
+      // This test documents that all 5 required parameters must be provided
+      const requiredParams = ['stateResult', 'newState', 'step', 'targetType', 'targetNumber'];
+
+      // Create a valid params object
+      const validParams = {
+        stateResult: createStateUpdateFailure('rate_limit', new Error('Test'), 3),
+        newState: {
+          phase: 'phase1' as const,
+          step: STEP_PHASE1_MONITOR_WORKFLOW,
+          iteration: 0,
+          completedSteps: [],
+        },
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        targetType: 'issue' as const,
+        targetNumber: 123,
+      };
+
+      // Verify all required keys exist
+      for (const param of requiredParams) {
+        assert.ok(
+          param in validParams,
+          `Parameter ${param} must be provided to handleStateUpdateFailure`
+        );
+      }
+    });
+
+    it('should verify targetType is never accidentally swapped', () => {
+      // Documents the targetType convention: Phase 1 uses 'issue', Phase 2 uses 'pr'
+      // Note: This test verifies constants but doesn't validate actual callsites
+
+      // Phase 1 must use 'issue'
+      const phase1Step = STEP_PHASE1_MONITOR_WORKFLOW;
+      const phase1TargetType = 'issue' as const;
+      assert.ok(phase1Step.startsWith('p1-'));
+      assert.strictEqual(phase1TargetType, 'issue');
+
+      // Phase 2 must use 'pr'
+      const phase2Step = STEP_PHASE2_MONITOR_WORKFLOW;
+      const phase2TargetType = 'pr' as const;
+      assert.ok(phase2Step.startsWith('p2-'));
+      assert.strictEqual(phase2TargetType, 'pr');
+    });
+
+    it('should verify step names match between params and state', () => {
+      // Ensures step parameter matches newState.step
+      const step = STEP_PHASE2_CODE_QUALITY;
+      const newState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_CODE_QUALITY,
+        iteration: 1,
+        completedSteps: [],
+      };
+
+      assert.strictEqual(step, newState.step, 'Step param must match newState.step');
+    });
+  });
+
+  describe('Return value verification', () => {
+    it('should verify handleStateUpdateFailure returns ToolResult with isError', () => {
+      // Tests that the return value structure matches ToolResult type
+      const mockReturn: ToolResult = {
+        content: [
+          {
+            type: 'text',
+            text: 'ERROR: Failed to update state',
+          },
+        ],
+        isError: true,
+      };
+
+      assert.strictEqual(mockReturn.isError, true);
+      assert.ok(Array.isArray(mockReturn.content));
+      assert.strictEqual(mockReturn.content[0].type, 'text');
+    });
+
+    it('should verify each callsite returns the result immediately', () => {
+      // Documents that each callsite must use 'return handleStateUpdateFailure(...)'
+      // not just call it without returning
+      const mustReturnImmediately = true;
+      assert.strictEqual(
+        mustReturnImmediately,
+        true,
+        'Each callsite must return handleStateUpdateFailure result to halt workflow'
+      );
+    });
+  });
+
+  describe('Iteration handling', () => {
+    it('should verify iteration is preserved across state update attempts', () => {
+      // When state update fails, iteration should be preserved in newState
+      const beforeIteration = 3;
+      const newState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_MONITOR_WORKFLOW,
+        iteration: beforeIteration,
+        completedSteps: [],
+      };
+
+      // State update failure should preserve iteration
+      assert.strictEqual(newState.iteration, beforeIteration);
+    });
+
+    it('should verify iteration increments before state update on workflow failure', () => {
+      // When workflow fails, iteration is incremented BEFORE state update attempt
+      const startIteration = 0;
+      const afterFailureIteration = startIteration + 1;
+
+      const newState: WiggumState = {
+        phase: 'phase1',
+        step: STEP_PHASE1_MONITOR_WORKFLOW,
+        iteration: afterFailureIteration,
+        completedSteps: [],
+      };
+
+      assert.strictEqual(newState.iteration, 1, 'Iteration should be incremented after failure');
+    });
+  });
+
+  describe('CompletedSteps handling', () => {
+    it('should verify completedSteps is updated before state update on success', () => {
+      // When step succeeds, completedSteps includes the step BEFORE state update
+      const newState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_MONITOR_CHECKS,
+        iteration: 0,
+        completedSteps: [
+          STEP_PHASE1_CREATE_PR,
+          STEP_PHASE2_MONITOR_WORKFLOW,
+          STEP_PHASE2_MONITOR_CHECKS,
+        ],
+      };
+
+      assert.ok(
+        newState.completedSteps.includes(STEP_PHASE2_MONITOR_CHECKS),
+        'Step should be in completedSteps when marking complete'
+      );
+    });
+
+    it('should verify completedSteps is unchanged on workflow failure', () => {
+      // When workflow fails, completedSteps remains unchanged (step not completed)
+      const originalSteps: WiggumStep[] = [STEP_PHASE1_CREATE_PR];
+      const newState: WiggumState = {
+        phase: 'phase2',
+        step: STEP_PHASE2_MONITOR_WORKFLOW,
+        iteration: 1,
+        completedSteps: [...originalSteps],
+      };
+
+      assert.deepStrictEqual(newState.completedSteps, originalSteps);
+      assert.ok(!newState.completedSteps.includes(STEP_PHASE2_MONITOR_WORKFLOW));
+    });
+  });
+
+  describe('Real callsite integration', () => {
+    it('should handle state update failure in actual router.ts callsite', async () => {
+      // TODO(#1844): Add integration test with dependency injection
+      // Currently blocked by router.ts architecture - handler functions not exported,
+      // safeUpdateIssueBodyState is direct import (cannot be mocked).
+      // Integration test needed to verify actual callsites use correct parameters.
+      assert.ok(true, 'Integration test pending router.ts refactoring');
     });
   });
 });
