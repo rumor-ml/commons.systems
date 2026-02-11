@@ -28,7 +28,8 @@
       local wezterm = require('wezterm')
       local config = wezterm.config_builder()
 
-      config.font = wezterm.font('JetBrains Mono Nerd Font')
+      -- Use JetBrains Mono if available, fallback to monospace
+      config.font = wezterm.font('JetBrains Mono', { weight = 'Regular' })
       config.font_size = 11.0
 
       config.color_scheme = 'Tokyo Night'
@@ -61,6 +62,42 @@
         -- Enable macOS native fullscreen mode
         config.native_macos_fullscreen_mode = true
       ''}
+
+      -- Persistent navigator configuration (singleton window)
+      -- Creates a dedicated WezTerm window for the navigator that persists
+      -- across all tabs and windows opened in the main workspace
+      wezterm.on('gui-startup', function(cmd)
+        local mux = wezterm.mux
+
+        -- Step 1: Create navigator window (separate from main window)
+        local nav_tab, nav_pane, nav_window = mux.spawn_window({
+          workspace = 'default',
+        })
+
+        -- Launch wezterm-navigator in the navigator window
+        nav_pane:send_text('${pkgs.wezterm-navigator}/bin/wezterm-navigator\n')
+
+        -- Step 2: Create main working window
+        local main_tab, main_pane, main_window = mux.spawn_window(cmd or {
+          workspace = 'default',
+        })
+
+        -- Focus the main window so user starts typing immediately
+        main_pane:activate()
+      end)
+
+      -- Keybinding to switch between windows (jump to navigator)
+      config.keys = config.keys or {}
+      table.insert(config.keys, {
+        key = '9',
+        mods = 'CTRL|SHIFT',
+        action = wezterm.action.ActivateWindow(0),
+      })
+      table.insert(config.keys, {
+        key = '0',
+        mods = 'CTRL|SHIFT',
+        action = wezterm.action.ActivateWindow(1),
+      })
 
       return config
     '';
