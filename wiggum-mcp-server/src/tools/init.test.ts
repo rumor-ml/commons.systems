@@ -67,10 +67,8 @@ describe('init tool', () => {
 
   describe('iteration limit handling', () => {
     it('should accept step_number STEP_MAX in formatWiggumResponse when iteration limit reached', async () => {
-      // This test verifies that the step_number value used at line 90 of init.ts
-      // (STEP_MAX) is accepted by formatWiggumResponse validation.
-      // This is a critical integration point - if validation rejects STEP_MAX,
-      // the entire workflow fails when iteration limits are reached.
+      // Verifies that STEP_MAX (used in the iteration limit handling block of init.ts) is accepted by formatWiggumResponse validation.
+      // Critical integration point: validation must accept STEP_MAX for iteration limit handling.
 
       const { formatWiggumResponse } = await import('../utils/format-response.js');
       const { STEP_MAX } = await import('../constants.js');
@@ -87,10 +85,7 @@ describe('init tool', () => {
         },
       };
 
-      // Should not throw - validates that STEP_MAX is accepted as a valid step_number
       assert.doesNotThrow(() => formatWiggumResponse(output));
-
-      // Verify the formatted output contains expected content
       const formatted = formatWiggumResponse(output);
       assert.match(formatted, /Iteration Limit Reached/);
       assert.match(formatted, /Step max\)/);

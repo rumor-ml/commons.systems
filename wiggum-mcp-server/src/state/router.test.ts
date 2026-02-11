@@ -271,14 +271,12 @@ describe('formatFixInstructions', () => {
 
 describe('Step Sequencing Logic', () => {
   describe('completedSteps filtering', () => {
+    // Test all 9 workflow progression steps (STEP_ORDER steps, excluding STEP_MAX terminal state)
     it('should recognize valid step values in completedSteps', () => {
-      // Test all 9 WiggumStep values
       const validSteps: WiggumStep[] = [
-        // Phase 1 steps
         STEP_PHASE1_MONITOR_WORKFLOW,
         STEP_PHASE1_PR_REVIEW,
         STEP_PHASE1_CREATE_PR,
-        // Phase 2 steps
         STEP_PHASE2_MONITOR_WORKFLOW,
         STEP_PHASE2_MONITOR_CHECKS,
         STEP_PHASE2_CODE_QUALITY,
@@ -287,8 +285,7 @@ describe('Step Sequencing Logic', () => {
         STEP_PHASE2_APPROVAL,
       ];
 
-      // Verify we're testing all 9 WiggumStep values
-      assert.strictEqual(validSteps.length, 9, 'Should test all 9 WiggumStep values');
+      assert.strictEqual(validSteps.length, 9, 'Should test all 9 workflow progression steps (excludes STEP_MAX terminal state)');
 
       for (const step of validSteps) {
         const state = createMockState({
@@ -394,13 +391,16 @@ describe('Error State Handling', () => {
 
 describe('WiggumStep Type Safety', () => {
   it('should reject invalid WiggumStep values at compile time', () => {
-    // MANUAL VERIFICATION REQUIRED: This test documents the expected compile-time behavior.
-    // To verify type safety, uncomment these lines one at a time and run `pnpm typecheck`.
-    // Each should produce a TypeScript error.
+    // TypeScript's @ts-expect-error directive enforces compile-time type safety.
+    // Each line below is expected to produce a type error. If the type error disappears
+    // (e.g., someone widens WiggumStep back to `string`), `pnpm typecheck` will fail.
 
-    // const invalid: WiggumStep = 'invalid-step'; // Should error: Type '"invalid-step"' is not assignable
-    // const numeric: WiggumStep = '1'; // Should error: Type '"1"' is not assignable
-    // const wrongPhase: WiggumStep = 'p1-99'; // Should error: Type '"p1-99"' is not assignable
+    // @ts-expect-error - Type '"invalid-step"' is not assignable to type 'WiggumStep'
+    const invalid: WiggumStep = 'invalid-step';
+    // @ts-expect-error - Type '"1"' is not assignable to type 'WiggumStep'
+    const numeric: WiggumStep = '1';
+    // @ts-expect-error - Type '"p1-99"' is not assignable to type 'WiggumStep'
+    const wrongPhase: WiggumStep = 'p1-99';
 
     // Valid assignment should compile without error
     const valid: WiggumStep = STEP_PHASE1_MONITOR_WORKFLOW;
@@ -408,26 +408,19 @@ describe('WiggumStep Type Safety', () => {
   });
 
   it('should accept all valid WiggumStep constants', () => {
-    // This test verifies runtime behavior for valid step values
     const validSteps: WiggumStep[] = [
-      // Phase 1 (pre-PR) - all 3 steps
       STEP_PHASE1_MONITOR_WORKFLOW,
       STEP_PHASE1_PR_REVIEW,
       STEP_PHASE1_CREATE_PR,
-
-      // Phase 2 (post-PR) - all 6 steps
       STEP_PHASE2_MONITOR_WORKFLOW,
       STEP_PHASE2_MONITOR_CHECKS,
       STEP_PHASE2_CODE_QUALITY,
       STEP_PHASE2_PR_REVIEW,
       STEP_PHASE2_SECURITY_REVIEW,
       STEP_PHASE2_APPROVAL,
-
-      // Terminal state
       STEP_MAX,
     ];
 
-    // Verify we're testing all 10 WiggumStep values
     assert.strictEqual(validSteps.length, 10, 'Should test all 10 WiggumStep values');
 
     for (const step of validSteps) {
@@ -1278,23 +1271,10 @@ describe('Security Review Instructions', () => {
 
 describe('Iteration Limit Edge Cases', () => {
   it('should document router behavior when iteration limit is reached', () => {
-    // NOTE: This is a defensive programming test for an edge case that shouldn't occur in normal flow.
-    //
-    // Normal flow: init.ts checks iteration limit BEFORE calling getNextStepInstructions,
-    // and returns output with step_number: STEP_MAX. The router should never be called in this state.
-    //
-    // Edge case: If somehow the router is called with state at iteration limit (e.g.,
-    // from corrupted state, race condition, or manual state manipulation), the router
-    // would continue with its normal step progression logic because it doesn't check
-    // iteration limits itself.
-    //
-    // Design decision: Iteration limit checking is the responsibility of init.ts, not the router.
-    // The router's job is to determine the next step based on current state, not to enforce
-    // iteration limits.
-    //
-    // Current behavior: When iteration limit is reached, init.ts returns step_number: STEP_MAX
-    // directly without calling the router. This test documents what WOULD happen if the router
-    // were incorrectly called in this state.
+    // This test documents an edge case that shouldn't occur in normal flow.
+    // Design: init.ts checks iteration limits and returns STEP_MAX before calling the router.
+    // The router focuses on step progression logic and doesn't enforce iteration limits.
+    // If the router were incorrectly called at iteration limit, it would continue normally.
 
     const state = createMockState({
       pr: { exists: true, state: 'OPEN', number: 123 },
@@ -1305,12 +1285,8 @@ describe('Iteration Limit Edge Cases', () => {
       },
     });
 
-    // Document current behavior: state object is valid
     assert.strictEqual(state.wiggum.iteration, 10);
     assert.ok(state.pr.exists && state.pr.state === 'OPEN');
-
-    // The router would process this state normally because it doesn't check iteration limits.
-    // This test documents the current design where iteration limit enforcement is in init.ts.
   });
 });
 

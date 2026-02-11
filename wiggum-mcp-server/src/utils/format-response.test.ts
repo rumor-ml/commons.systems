@@ -332,7 +332,27 @@ describe('formatWiggumResponse', () => {
         () => formatWiggumResponse(input),
         (error: Error) => {
           assert(error instanceof FormattingError);
-          assert.match(error.message, /Missing or invalid step_number/);
+          assert.match(error.message, /Invalid step_number.*expected valid WiggumStep/);
+          return true;
+        }
+      );
+    });
+
+    it('should throw FormattingError for invalid string step_number', () => {
+      const input = {
+        current_step: 'Test',
+        step_number: 'invalid-step',
+        iteration_count: 1,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {},
+      };
+
+      assert.throws(
+        () => formatWiggumResponse(input),
+        (error: Error) => {
+          assert(error instanceof FormattingError);
+          assert.match(error.message, /Invalid step_number.*expected valid WiggumStep.*got "invalid-step"/);
           return true;
         }
       );

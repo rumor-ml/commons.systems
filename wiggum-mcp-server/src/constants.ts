@@ -71,7 +71,10 @@ export const STEP_ORDER: readonly WiggumStep[] = [
 
 /**
  * Type guard that validates if a value is a valid WiggumStep
- * Accepts values from STEP_ORDER (the normal workflow progression) plus STEP_MAX (iteration limit state)
+ *
+ * Note: STEP_MAX is checked separately because it's a terminal state not part of the normal
+ * workflow progression. STEP_ORDER contains only the sequential workflow steps.
+ *
  * @param step - The value to validate (accepts any type)
  * @returns true if the value is a valid WiggumStep, false otherwise
  */

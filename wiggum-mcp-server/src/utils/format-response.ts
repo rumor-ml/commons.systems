@@ -83,16 +83,11 @@ function validateResponseData(data: unknown): asserts data is ResponseData {
     }
   }
 
-  // TODO(#1934): Consider enhancing runtime validation with WIGGUM_STEPS array check for consistency
-  // Validate step_number (WiggumStep is a union of string literals)
-  if (typeof d.step_number !== 'string') {
-    throw new FormattingError(
-      `Missing or invalid step_number: expected WiggumStep, got ${typeof d.step_number}`
-    );
-  }
+  // Validate step_number is a valid WiggumStep (union of string literals)
   if (!isValidStep(d.step_number)) {
+    const actualValue = typeof d.step_number === 'string' ? `"${d.step_number}"` : String(d.step_number);
     throw new FormattingError(
-      `Invalid step_number value: "${d.step_number}" is not a valid WiggumStep`
+      `Invalid step_number: expected valid WiggumStep, got ${actualValue} (${typeof d.step_number})`
     );
   }
 
@@ -170,10 +165,10 @@ function formatContextValue(value: ContextValue): string {
  * @example
  * ```typescript
  * const markdown = formatWiggumResponse({
- *   current_step: "Security Review",
- *   step_number: "4",
+ *   current_step: "PR Review",
+ *   step_number: "p2-4",
  *   iteration_count: 2,
- *   instructions: "Execute /security-review...",
+ *   instructions: "Execute /review-pr...",
  *   steps_completed_by_tool: [],
  *   context: { pr_number: 252, current_branch: "feature-branch" }
  * });
