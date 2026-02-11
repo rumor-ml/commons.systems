@@ -43,21 +43,26 @@ Initialization/entry point tool that analyzes current state and returns next act
 **Returns:**
 
 - `current_step`: Name of current step
-- `step_number`: Step identifier (0, 1, 1b, 2, 3, 4, 4b, approval)
+- `step_number`: Step identifier (p1-1, p1-2, p1-3, p2-1, p2-2, p2-3, p2-5, approval)
 - `iteration_count`: Current iteration count (max 10)
 - `instructions`: Detailed instructions for next action
 - `context`: PR number and current branch
 
 **Workflow Steps:**
 
-1. **Step 0 - Ensure PR Exists**: Create PR using wiggum_complete_pr_creation tool
-2. **Step 1 - Monitor Workflow**: Monitor GitHub Actions workflow completion
-3. **Step 1b - Monitor PR Checks**: Monitor all PR status checks
-4. **Step 2 - Code Quality**: Review and address code quality bot comments
-5. **Step 3 - PR Review**: Execute comprehensive PR review
-6. **Step 4 - Security Review**: Execute security review
-7. **Step 4b - Verify Reviews**: Verify both reviews were executed
-8. **Approval**: Post summary and approve PR
+**Phase 1 (Pre-PR):**
+
+1. p1-1 - Monitor Workflow: Feature branch workflow must pass
+2. p1-2 - Code Review: Launch 6 review agents + prioritizers
+3. p1-3 - Create PR: Create PR with "needs review" label
+
+**Phase 2 (Post-PR):**
+
+4. p2-1 - Monitor Workflow: PR workflow must pass
+5. p2-2 - Monitor PR Checks: All PR checks must pass (includes CodeQL)
+6. p2-3 - Code Quality: Address github-code-quality bot comments
+7. p2-5 - Security Review: Execute security review
+8. approval - Remove "needs review" label and mark ready for human review
 
 ### wiggum_complete_pr_creation
 

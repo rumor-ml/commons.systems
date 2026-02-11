@@ -8,4 +8,5 @@ export const errorIds = {
   AUTH_SIGNOUT_FAILED: 'AUTH_SIGNOUT_FAILED',
 } as const;
 
+// TODO(#1878): Consider using string literal union instead of typeof extraction
 export type ErrorId = (typeof errorIds)[keyof typeof errorIds];

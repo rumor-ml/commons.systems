@@ -19,7 +19,6 @@ import {
   STEP_ORDER,
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
-  STEP_PHASE1_SECURITY_REVIEW,
   STEP_PHASE1_CREATE_PR,
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
@@ -37,12 +36,12 @@ describe('getNextStep', () => {
       assert.strictEqual(next, STEP_PHASE1_PR_REVIEW);
     });
 
-    it('should return next step for middle phase 1 step', () => {
+    it('should return next step for last phase 1 step (transitions to phase 2)', () => {
       const next = getNextStep(STEP_PHASE1_PR_REVIEW);
-      assert.strictEqual(next, STEP_PHASE1_SECURITY_REVIEW);
+      assert.strictEqual(next, STEP_PHASE1_CREATE_PR);
     });
 
-    it('should return next step for last phase 1 step (transitions to phase 2)', () => {
+    it('should return next step from create PR to phase 2', () => {
       const next = getNextStep(STEP_PHASE1_CREATE_PR);
       assert.strictEqual(next, STEP_PHASE2_MONITOR_WORKFLOW);
     });
@@ -65,8 +64,7 @@ describe('getNextStep', () => {
     // Test ALL valid transitions comprehensively
     const validTransitions: [WiggumStep, WiggumStep | null][] = [
       [STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE1_PR_REVIEW],
-      [STEP_PHASE1_PR_REVIEW, STEP_PHASE1_SECURITY_REVIEW],
-      [STEP_PHASE1_SECURITY_REVIEW, STEP_PHASE1_CREATE_PR],
+      [STEP_PHASE1_PR_REVIEW, STEP_PHASE1_CREATE_PR],
       [STEP_PHASE1_CREATE_PR, STEP_PHASE2_MONITOR_WORKFLOW],
       [STEP_PHASE2_MONITOR_WORKFLOW, STEP_PHASE2_MONITOR_CHECKS],
       [STEP_PHASE2_MONITOR_CHECKS, STEP_PHASE2_CODE_QUALITY],
@@ -327,15 +325,11 @@ describe('advanceToNextStep', () => {
 
       // p1-2 -> p1-3
       state = advanceToNextStep(state);
-      assert.strictEqual(state.step, STEP_PHASE1_SECURITY_REVIEW);
+      assert.strictEqual(state.step, STEP_PHASE1_CREATE_PR);
       assert.deepStrictEqual(
         [...state.completedSteps],
         [STEP_PHASE1_MONITOR_WORKFLOW, STEP_PHASE1_PR_REVIEW]
       );
-
-      // p1-3 -> p1-4
-      state = advanceToNextStep(state);
-      assert.strictEqual(state.step, STEP_PHASE1_CREATE_PR);
     });
   });
 
@@ -435,7 +429,6 @@ describe('advanceToNextStep', () => {
         completedSteps: [
           STEP_PHASE1_MONITOR_WORKFLOW,
           STEP_PHASE1_PR_REVIEW,
-          STEP_PHASE1_SECURITY_REVIEW,
           STEP_PHASE1_CREATE_PR,
           STEP_PHASE2_MONITOR_WORKFLOW,
           STEP_PHASE2_MONITOR_CHECKS,
@@ -445,7 +438,7 @@ describe('advanceToNextStep', () => {
 
       const newState = advanceToNextStep(state);
       assert.strictEqual(newState.step, STEP_PHASE2_SECURITY_REVIEW);
-      assert.strictEqual(newState.completedSteps.length, 8);
+      assert.strictEqual(newState.completedSteps.length, 7);
       // Verify all p1 steps are still present
       assert.ok(newState.completedSteps.includes(STEP_PHASE1_MONITOR_WORKFLOW));
       assert.ok(newState.completedSteps.includes(STEP_PHASE1_CREATE_PR));

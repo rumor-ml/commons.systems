@@ -11,7 +11,15 @@ import {
   getNextWeek,
   getPreviousWeek,
 } from './weeklyAggregation';
-import { Transaction, WeeklyData, WeekId, Category, BudgetPlan, weekId } from '../islands/types';
+import {
+  Transaction,
+  WeeklyData,
+  WeekId,
+  Category,
+  BudgetPlan,
+  weekId,
+  createDateString,
+} from '../islands/types';
 import { StateManager } from './state';
 import * as types from '../islands/types';
 
@@ -116,7 +124,8 @@ describe('weeklyAggregation', () => {
   describe('aggregateTransactionsByWeek', () => {
     const createTransaction = (overrides: Partial<Transaction>): Transaction => ({
       id: 'txn-1',
-      date: '2025-01-06',
+      userId: 'user-1',
+      date: createDateString('2025-01-06'),
       category: 'groceries' as Category,
       amount: -100,
       description: 'Test',
@@ -210,8 +219,8 @@ describe('weeklyAggregation', () => {
 
     it('should aggregate multiple transactions in same week and category', () => {
       const transactions = [
-        createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100 }),
-        createTransaction({ id: 'txn-2', date: '2025-01-07', amount: -50 }),
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+        createTransaction({ id: 'txn-2', date: createDateString('2025-01-07'), amount: -50 }),
       ];
       const result = aggregateTransactionsByWeek(transactions, {
         hiddenCategories: new Set(),
@@ -224,8 +233,8 @@ describe('weeklyAggregation', () => {
 
     it('should split transactions across multiple weeks', () => {
       const transactions = [
-        createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100 }),
-        createTransaction({ id: 'txn-2', date: '2025-01-13', amount: -50 }),
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+        createTransaction({ id: 'txn-2', date: createDateString('2025-01-13'), amount: -50 }),
       ];
       const result = aggregateTransactionsByWeek(transactions, {
         hiddenCategories: new Set(),
@@ -259,7 +268,9 @@ describe('weeklyAggregation', () => {
     });
 
     it('should include week boundaries in output', () => {
-      const transactions = [createTransaction({ id: 'txn-1', date: '2025-01-06', amount: -100 })];
+      const transactions = [
+        createTransaction({ id: 'txn-1', date: createDateString('2025-01-06'), amount: -100 }),
+      ];
       const result = aggregateTransactionsByWeek(transactions, {
         hiddenCategories: new Set(),
         showVacation: true,
@@ -279,8 +290,8 @@ describe('weeklyAggregation', () => {
 
       it('should exclude transactions with invalid dates and show partial data warning', () => {
         const transactions = [
-          createTransaction({ id: 'txn-1', date: '2025-02-31', amount: -100 }), // Invalid - Feb 31st
-          createTransaction({ id: 'txn-2', date: '2025-01-15', amount: -200 }), // Valid
+          createTransaction({ id: 'txn-1', date: createDateString('2025-02-31'), amount: -100 }), // Invalid - Feb 31st
+          createTransaction({ id: 'txn-2', date: createDateString('2025-01-15'), amount: -200 }), // Valid
         ];
 
         const result = aggregateTransactionsByWeek(transactions, {
@@ -304,8 +315,8 @@ describe('weeklyAggregation', () => {
 
       it('should show CRITICAL error banner when ALL transactions have invalid dates', () => {
         const transactions = [
-          createTransaction({ id: 'txn-1', date: '2025-02-31', amount: -100 }), // Invalid
-          createTransaction({ id: 'txn-2', date: '2025-04-31', amount: -200 }), // Invalid
+          createTransaction({ id: 'txn-1', date: createDateString('2025-02-31'), amount: -100 }), // Invalid
+          createTransaction({ id: 'txn-2', date: createDateString('2025-04-31'), amount: -200 }), // Invalid
         ];
 
         const result = aggregateTransactionsByWeek(transactions, {
@@ -327,10 +338,10 @@ describe('weeklyAggregation', () => {
 
       it('should exclude multiple invalid dates from different weeks', () => {
         const transactions = [
-          createTransaction({ id: 'txn-1', date: '2025-02-31', amount: -100 }), // Invalid - Feb 31st
-          createTransaction({ id: 'txn-2', date: '2025-04-31', amount: -150 }), // Invalid - Apr 31st
-          createTransaction({ id: 'txn-3', date: '2025-01-15', amount: -200 }), // Valid
-          createTransaction({ id: 'txn-4', date: '2025-03-15', amount: -250 }), // Valid
+          createTransaction({ id: 'txn-1', date: createDateString('2025-02-31'), amount: -100 }), // Invalid - Feb 31st
+          createTransaction({ id: 'txn-2', date: createDateString('2025-04-31'), amount: -150 }), // Invalid - Apr 31st
+          createTransaction({ id: 'txn-3', date: createDateString('2025-01-15'), amount: -200 }), // Valid
+          createTransaction({ id: 'txn-4', date: createDateString('2025-03-15'), amount: -250 }), // Valid
         ];
 
         const result = aggregateTransactionsByWeek(transactions, {
@@ -351,8 +362,8 @@ describe('weeklyAggregation', () => {
 
       it('should handle invalid dates on non-leap years (Feb 29th)', () => {
         const transactions = [
-          createTransaction({ id: 'txn-1', date: '2025-02-29', amount: -100 }), // Invalid - 2025 not leap year
-          createTransaction({ id: 'txn-2', date: '2025-01-15', amount: -200 }), // Valid
+          createTransaction({ id: 'txn-1', date: createDateString('2025-02-29'), amount: -100 }), // Invalid - 2025 not leap year
+          createTransaction({ id: 'txn-2', date: createDateString('2025-01-15'), amount: -200 }), // Valid
         ];
 
         const result = aggregateTransactionsByWeek(transactions, {
@@ -370,8 +381,8 @@ describe('weeklyAggregation', () => {
 
       it('should accept valid dates on leap years (Feb 29th)', () => {
         const transactions = [
-          createTransaction({ id: 'txn-1', date: '2024-02-29', amount: -100 }), // Valid - 2024 is leap year
-          createTransaction({ id: 'txn-2', date: '2024-01-15', amount: -200 }), // Valid
+          createTransaction({ id: 'txn-1', date: createDateString('2024-02-29'), amount: -100 }), // Valid - 2024 is leap year
+          createTransaction({ id: 'txn-2', date: createDateString('2024-01-15'), amount: -200 }), // Valid
         ];
 
         const result = aggregateTransactionsByWeek(transactions, {
@@ -388,9 +399,9 @@ describe('weeklyAggregation', () => {
 
       it('should aggregate valid transactions from same week while excluding invalid ones', () => {
         const transactions = [
-          createTransaction({ id: 'txn-1', date: '2025-01-13', amount: -100 }), // Valid - W03
-          createTransaction({ id: 'txn-2', date: '2025-01-14', amount: -50 }), // Valid - W03
-          createTransaction({ id: 'txn-3', date: '2025-02-31', amount: -200 }), // Invalid
+          createTransaction({ id: 'txn-1', date: createDateString('2025-01-13'), amount: -100 }), // Valid - W03
+          createTransaction({ id: 'txn-2', date: createDateString('2025-01-14'), amount: -50 }), // Valid - W03
+          createTransaction({ id: 'txn-3', date: createDateString('2025-02-31'), amount: -200 }), // Invalid
         ];
 
         const result = aggregateTransactionsByWeek(transactions, {
@@ -414,19 +425,19 @@ describe('weeklyAggregation', () => {
         const transactions = [
           createTransaction({
             id: 'txn-1',
-            date: '2025-02-31',
+            date: createDateString('2025-02-31'),
             amount: -100,
             description: 'Invalid Feb',
           }),
           createTransaction({
             id: 'txn-2',
-            date: '2025-04-31',
+            date: createDateString('2025-04-31'),
             amount: -200,
             description: 'Invalid Apr',
           }),
           createTransaction({
             id: 'txn-3',
-            date: '2025-01-15',
+            date: createDateString('2025-01-15'),
             amount: -300,
             description: 'Valid',
           }),
@@ -443,7 +454,7 @@ describe('weeklyAggregation', () => {
           expect.objectContaining({
             transactions: expect.arrayContaining([
               expect.objectContaining({
-                date: '2025-02-31',
+                date: createDateString('2025-02-31'),
                 amount: -100,
                 description: 'Invalid Feb',
               }),
@@ -1778,7 +1789,8 @@ describe('weeklyAggregation', () => {
   describe('getAvailableWeeks', () => {
     const createTransaction = (overrides: Partial<Transaction>): Transaction => ({
       id: 'txn-1',
-      date: '2025-01-06',
+      userId: 'user-1',
+      date: createDateString('2025-01-06'),
       category: 'groceries' as Category,
       amount: -100,
       description: 'Test',
@@ -1792,9 +1804,9 @@ describe('weeklyAggregation', () => {
 
     it('should return unique weeks sorted', () => {
       const transactions = [
-        createTransaction({ date: '2025-01-06' }), // W02
-        createTransaction({ date: '2025-01-13' }), // W03
-        createTransaction({ date: '2025-01-07' }), // W02
+        createTransaction({ date: createDateString('2025-01-06') }), // W02
+        createTransaction({ date: createDateString('2025-01-13') }), // W03
+        createTransaction({ date: createDateString('2025-01-07') }), // W02
       ];
       const weeks = getAvailableWeeks(transactions);
       expect(weeks).toEqual([weekId('2025-W02'), weekId('2025-W03')]);

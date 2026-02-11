@@ -22,8 +22,7 @@ export type WiggumPhase = 'phase1' | 'phase2';
 // Phase 1 step identifiers (pre-PR)
 export const STEP_PHASE1_MONITOR_WORKFLOW = 'p1-1' as const;
 export const STEP_PHASE1_PR_REVIEW = 'p1-2' as const;
-export const STEP_PHASE1_SECURITY_REVIEW = 'p1-3' as const;
-export const STEP_PHASE1_CREATE_PR = 'p1-4' as const;
+export const STEP_PHASE1_CREATE_PR = 'p1-3' as const;
 
 // Phase 2 step identifiers (post-PR)
 export const STEP_PHASE2_MONITOR_WORKFLOW = 'p2-1' as const;
@@ -40,7 +39,6 @@ export const STEP_PHASE2_APPROVAL = 'approval' as const;
 export type WiggumStep =
   | typeof STEP_PHASE1_MONITOR_WORKFLOW
   | typeof STEP_PHASE1_PR_REVIEW
-  | typeof STEP_PHASE1_SECURITY_REVIEW
   | typeof STEP_PHASE1_CREATE_PR
   | typeof STEP_PHASE2_MONITOR_WORKFLOW
   | typeof STEP_PHASE2_MONITOR_CHECKS
@@ -56,7 +54,6 @@ export type WiggumStep =
 export const STEP_ORDER: readonly WiggumStep[] = [
   STEP_PHASE1_MONITOR_WORKFLOW,
   STEP_PHASE1_PR_REVIEW,
-  STEP_PHASE1_SECURITY_REVIEW,
   STEP_PHASE1_CREATE_PR,
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
@@ -79,7 +76,6 @@ export function isValidStep(step: unknown): step is WiggumStep {
 export const STEP_NAMES: Record<WiggumStep, string> = {
   [STEP_PHASE1_MONITOR_WORKFLOW]: 'Phase 1: Monitor Workflow',
   [STEP_PHASE1_PR_REVIEW]: 'Phase 1: Code Review (Pre-PR)',
-  [STEP_PHASE1_SECURITY_REVIEW]: 'Phase 1: Security Review (Pre-PR)',
   [STEP_PHASE1_CREATE_PR]: 'Phase 1: Create PR',
   [STEP_PHASE2_MONITOR_WORKFLOW]: 'Phase 2: Monitor Workflow',
   [STEP_PHASE2_MONITOR_CHECKS]: 'Phase 2: Monitor PR Checks',

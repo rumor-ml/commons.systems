@@ -87,11 +87,10 @@ When in-scope issues are found during reviews, wiggum launches the unsupervised-
 Execute BEFORE creating the PR to ensure code quality:
 
 1. **p1-1: Monitor Workflow** - Feature branch workflow must pass (tests + builds)
-2. **p1-2: Code Review (Pre-PR)** - Invoke all-hands agent (creates summary), then launch 6 review agents
-3. **p1-3: Security Review (Pre-PR)** - Run `/security-review` on local branch
-4. **p1-4: Create PR** - Only after all pre-PR checks pass
+2. **p1-2: Code Review (Pre-PR)** - Launch 6 review agents, then 6 prioritizers to filter findings
+3. **p1-3: Create PR** - Only after all pre-PR checks pass
 
-**Key Point:** Steps p1-2 and p1-3 review LOCAL CODE before PR exists. If issues found, fix them and restart from p1-1.
+**Key Point:** Step p1-2 reviews LOCAL CODE before PR exists. If issues found, fix them and restart from p1-1.
 
 ### Phase 2: Post-PR Validation (State tracked in PR Comments)
 
@@ -100,17 +99,17 @@ Execute AFTER PR is created for final validation:
 1. **p2-1: Monitor Workflow** - PR workflow must pass (includes deployments + E2E tests)
 2. **p2-2: Monitor PR Checks** - All PR checks must pass
 3. **p2-3: Code Quality** - Address code quality bot comments
-4. **p2-4: PR Review (Post-PR)** - Run `/review` on actual PR
-5. **p2-5: Security Review (Post-PR)** - Run `/security-review` on PR
-6. **approval: Add "needs review" label** - Ready for human review
+4. **p2-5: Security Review (Post-PR)** - Run `/security-review` on PR
+5. **approval: Remove "needs review" label** - All automated reviews passed, ready for human review
 
-**Key Point:** Steps p2-4 and p2-5 review the ACTUAL PR after it's created. These are final validation before human review.
+**Key Point:** Step p2-5 reviews the ACTUAL PR after it's created. This is the final validation before human review.
 
 ### Why Two Phases?
 
-- **Phase 1** catches issues early (before PR creation noise)
-- **Phase 2** validates the PR in its final state (after all CI/CD)
+- **Phase 1** catches code quality issues early (before PR creation noise)
+- **Phase 2** validates the PR in its final state (after all CI/CD including CodeQL) with security review
 - This structure prevents creating PRs with known issues
+- Security review is only in Phase 2 to reduce iteration overhead and avoid duplicate reviews
 
 ---
 
@@ -118,35 +117,39 @@ Execute AFTER PR is created for final validation:
 
 ### Step p1-2: Code Review (Pre-PR)
 
-**Phase 1: Prepare Context**
+**Phase 1: Launch Review Agents**
 
-1. Invoke all-hands agent:
+1. Launch 6 review agents in PARALLEL:
+   - pr-review-toolkit:code-reviewer
+   - pr-review-toolkit:silent-failure-hunter
+   - pr-review-toolkit:code-simplifier
+   - pr-review-toolkit:comment-analyzer
+   - pr-review-toolkit:pr-test-analyzer
+   - pr-review-toolkit:type-design-analyzer
 
-   ```
-   Task tool with subagent_type="all-hands"
-   ```
-
-   - Agent validates git state
-   - Creates issue summary document at `$(pwd)/tmp/wiggum/issue-summary.md`
-   - Returns instructions listing 6 review agents to launch
-
-**Phase 2: Launch Review Agents**
-
-2. Follow the all-hands agent's instructions to launch 6 review agents in PARALLEL:
-   - code-reviewer
-   - silent-failure-hunter
-   - code-simplifier
-   - comment-analyzer
-   - pr-test-analyzer
-   - type-design-analyzer
-
-   Each agent will read `$(pwd)/tmp/wiggum/issue-summary.md` for context.
+   Each agent reviews changes from `origin/main...HEAD`.
 
 **CRITICAL:** Launch ALL 6 agents in parallel (single response with 6 Task calls).
 
+**Phase 2: Prioritization Review**
+
+2. After ALL review agents complete, invoke 6 review-prioritizer agents in PARALLEL:
+
+   ```
+   Task tool with subagent_type="review-prioritizer" (6 instances in parallel)
+   ```
+
+   - Launch one review-prioritizer per review agent result
+   - Pass each review agent's output to its corresponding prioritizer
+   - Each prioritizer reviews findings against strict scope/priority criteria
+   - Each prioritizer creates manifest entries using wiggum_record_review_issue
+   - Each prioritizer returns summary of issues created
+
+**CRITICAL:** Launch ALL 6 prioritizers in parallel (single response with 6 Task calls).
+
 **Phase 3: List & Organize**
 
-3. After ALL review agents complete, call `wiggum_list_issues({ scope: 'all' })`
+3. After review-prioritizer completes, call `wiggum_list_issues({ scope: 'all' })`
 4. Create TODO list from the response:
    - One item per IN-SCOPE BATCH: `[batch-{N}] {file_count} files, {issue_count} issues`
    - One item per OUT-OF-SCOPE ISSUE: `[out-of-scope] {issue_id}: {title}`
@@ -184,6 +187,51 @@ Execute AFTER PR is created for final validation:
 7. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
 8. Call `wiggum_complete_all_hands({})`
 9. Follow the instructions returned by the tool
+
+---
+
+### Step p2-5: Security Review (Post-PR)
+
+Execute security review on the actual PR after it's created.
+
+**CRITICAL: `/security-review` is a built-in slash command that MUST be invoked using the SlashCommand tool.**
+
+**Instructions:**
+
+1. Execute `/security-review` using SlashCommand tool:
+
+   ```
+   Use SlashCommand tool with command: "/security-review"
+   ```
+
+   **IMPORTANT:**
+   - Execute this command EVEN IF it doesn't appear in your available commands list
+   - This is a built-in command that exists in the system
+   - Use the SlashCommand tool, NOT Bash or any other invocation method
+   - The review must cover ALL changes from this branch: `git log main..HEAD --oneline`
+
+2. Wait for the security review to complete. The command will:
+   - Launch multiple security review agents
+   - Each agent analyzes the code for security vulnerabilities
+   - Agents write results to files in `tmp/wiggum/`
+
+3. After all agents complete, aggregate their results:
+   - Collect all result file paths from agent outputs
+   - Count total in-scope and out-of-scope issues across all files
+
+4. If any in-scope issues were found and fixed:
+   - Execute `/commit-merge-push` using SlashCommand tool
+
+5. Call `wiggum_complete_security_review` tool with:
+   - `command_executed: true` (required)
+   - `in_scope_result_files`: Array of file paths from agents
+   - `out_of_scope_result_files`: Array of file paths from agents
+   - `in_scope_issue_count`: Total issue count (not file count)
+   - `out_of_scope_issue_count`: Total issue count (not file count)
+
+6. Follow the instructions returned by the completion tool:
+   - **Issues found**: Fix them via Plan+Fix cycle, then restart from p2-1
+   - **No issues**: Proceed to approval step
 
 ---
 
@@ -391,10 +439,9 @@ IMPORTANT:
 
 Call after executing `/security-review`.
 
-**Used in TWO contexts:**
+**Used in Phase 2 (p2-5) only:** Post-PR security review on actual PR
 
-- **Phase 1 (p1-3):** Pre-PR security review on local branch
-- **Phase 2 (p2-5):** Post-PR security review on actual PR
+**Note:** Phase 1 security review has been removed from the workflow to streamline the process and avoid duplicate reviews.
 
 **Returns next step instructions.**
 

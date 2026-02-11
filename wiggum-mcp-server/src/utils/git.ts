@@ -3,8 +3,9 @@
  */
 
 import { execa } from 'execa';
-import { GitError } from './errors.js';
+import { GitError, ValidationError } from './errors.js';
 import { logger } from './logger.js';
+import { ErrorIds } from '../constants/errorIds.js';
 
 export interface GitOptions {
   cwd?: string;
@@ -19,6 +20,7 @@ export interface GitOptions {
  *
  * @returns The absolute path to the git repository root
  * @throws {GitError} When not in a git repository or git command fails
+ * @throws {ValidationError} When GitError.create validation fails (programming error)
  *
  * @example
  * ```typescript
@@ -32,33 +34,74 @@ export async function getGitRoot(): Promise<string> {
       reject: false,
     });
 
+    // Defensive check: empty stdout with exit code 0 should never occur in practice.
+    // Normal git behavior: (1) returns repo root path, or (2) fails with exit 128 if not in repo.
+    // This check catches anomalies like git corruption, custom git wrappers, or unusual git versions
+    // that produce unexpected output patterns. Provides actionable debugging steps.
+    if (result.exitCode === 0 && !result.stdout) {
+      logger.error('getGitRoot: git command succeeded but stdout is empty', {
+        exitCode: result.exitCode,
+        stderr: result.stderr || 'none',
+        errorId: ErrorIds.GIT_COMMAND_FAILED,
+      });
+      throw GitError.create(
+        'git rev-parse --show-toplevel succeeded but returned empty output. ' +
+          'This indicates git corruption or unusual git version behavior. ' +
+          'Debugging steps: ' +
+          '1. Run `git --version` to check git version (expected: 2.x+). ' +
+          '2. Run `git status` to verify repository integrity. ' +
+          '3. Check `.git/` directory exists and is readable. ' +
+          '4. Verify no GIT_DIR or GIT_WORK_TREE environment variables are set. ' +
+          '5. Try `git fsck` to check for repository corruption.',
+        result.exitCode,
+        result.stderr || undefined,
+        ErrorIds.GIT_COMMAND_FAILED
+      );
+    }
+
     if (result.exitCode === 0 && result.stdout) {
       return result.stdout.trim();
     }
 
     // Non-zero exit code means we're not in a git repository or git failed
-    throw new GitError(
+    throw GitError.create(
       `Not in a git repository or git command failed (exit code ${result.exitCode}). ` +
         `This tool requires running from within a git repository. ` +
         `Command: git rev-parse --show-toplevel. ` +
         `Error: ${result.stderr || 'none'}`,
       result.exitCode,
-      result.stderr || undefined
+      result.stderr || undefined,
+      result.exitCode === 128 ? ErrorIds.GIT_NOT_A_REPOSITORY : ErrorIds.GIT_COMMAND_FAILED
     );
   } catch (error) {
-    // Re-throw GitError as-is
+    // Re-throw ValidationError as-is (programming error, don't wrap)
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+
+    // Re-throw GitError as-is (already properly categorized)
     if (error instanceof GitError) {
       throw error;
     }
 
-    // Wrap unexpected errors
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    // Wrap unexpected errors with context
+    const errorMessage = error instanceof Error ? error.message : String(error);
     const errorType = error instanceof Error ? error.constructor.name : typeof error;
-    throw new GitError(
-      `Failed to execute git rev-parse --show-toplevel: ${errorMsg}. ` +
+
+    logger.error('getGitRoot: unexpected error executing git command', {
+      errorMessage,
+      errorType,
+      errorId: ErrorIds.GIT_COMMAND_FAILED,
+    });
+
+    throw GitError.create(
+      `Failed to execute git rev-parse --show-toplevel: ${errorMessage}. ` +
         `Error type: ${errorType}. ` +
         `This tool requires running from within a git repository. ` +
-        `Ensure git is installed and the current directory is inside a git repository.`
+        `Ensure git is installed and the current directory is inside a git repository.`,
+      undefined,
+      undefined,
+      ErrorIds.GIT_COMMAND_FAILED
     );
   }
 }
@@ -74,6 +117,7 @@ export async function getGitRoot(): Promise<string> {
  * @param options - Optional execution options (cwd, timeout)
  * @returns The stdout from the git command
  * @throws {GitError} When git command fails or exits with non-zero code
+ * @throws {ValidationError} When GitError.create validation fails (programming error)
  *
  * @example
  * ```typescript
@@ -84,6 +128,7 @@ export async function getGitRoot(): Promise<string> {
 export async function git(args: string[], options: GitOptions = {}): Promise<string> {
   try {
     const cwd = options.cwd || (await getGitRoot());
+    // TODO(#1883): Use type instead of `any` for execaOptions in git function
     const execaOptions: any = {
       timeout: options.timeout,
       reject: false,
@@ -94,31 +139,70 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
 
     if (result.exitCode !== 0) {
       const errorOutput = result.stderr || result.stdout || 'no error output';
-      throw new GitError(
+      throw GitError.create(
         `Git command failed (exit code ${result.exitCode}): ${errorOutput}. ` +
           `Command: git ${args.join(' ')}`,
         result.exitCode,
-        result.stderr || undefined
+        result.stderr || undefined,
+        ErrorIds.GIT_COMMAND_FAILED
       );
     }
 
-    return result.stdout || '';
+    // Defensive check: null/undefined stdout with success indicates execa internal failure.
+    // Empty string "" is valid (e.g., 'git status --porcelain' on clean repo), but null/undefined
+    // means execa's stdout capture failed (buffer overflow, broken pipe, or stream error).
+    if (result.stdout == null) {
+      logger.error(
+        'git: Command succeeded but stdout is null/undefined - this indicates execa failure',
+        {
+          command: `git ${args.join(' ')}`,
+          exitCode: result.exitCode,
+          stderr: result.stderr || 'none',
+          stdoutType: typeof result.stdout,
+          errorId: ErrorIds.GIT_COMMAND_FAILED,
+        }
+      );
+      throw GitError.create(
+        `Git command succeeded but produced no output (stdout is ${typeof result.stdout}). ` +
+          `This may indicate a buffer overflow, stream error, or execa failure. ` +
+          `Command: git ${args.join(' ')}`,
+        result.exitCode,
+        result.stderr || undefined,
+        ErrorIds.GIT_COMMAND_FAILED
+      );
+    }
+
+    return result.stdout;
   } catch (error) {
     // TODO(#487): Broad catch-all hides programming errors - add explicit checks for system/programming errors
+
+    // Re-throw ValidationError as-is (programming error, don't wrap)
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+
+    // Re-throw GitError as-is (already properly categorized)
     if (error instanceof GitError) {
       throw error;
     }
-    if (error instanceof Error) {
-      const errorType = error.constructor.name;
-      throw new GitError(
-        `Failed to execute git command (${errorType}): ${error.message}. ` +
-          `Command: git ${args.join(' ')}`
-      );
-    }
-    const errorType = typeof error;
-    throw new GitError(
-      `Failed to execute git command (unexpected error type: ${errorType}): ${String(error)}. ` +
-        `Command: git ${args.join(' ')}`
+
+    // Wrap unexpected errors with context
+    const command = `git ${args.join(' ')}`;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorType = error instanceof Error ? error.constructor.name : typeof error;
+
+    logger.error('git: unexpected error executing git command', {
+      command,
+      errorMessage,
+      errorType,
+      errorId: ErrorIds.GIT_COMMAND_FAILED,
+    });
+
+    throw GitError.create(
+      `Failed to execute git command (${errorType}): ${errorMessage}. Command: ${command}`,
+      undefined,
+      undefined,
+      ErrorIds.GIT_COMMAND_FAILED
     );
   }
 }
@@ -167,11 +251,13 @@ export async function hasUncommittedChanges(options?: GitOptions): Promise<boole
  *
  * Verifies if a remote branch exists on origin for the specified branch.
  * Distinguishes between expected errors (no remote branch, exit code 128)
- * and unexpected errors (which are logged as warnings).
+ * and unexpected errors (which are logged and re-thrown to the caller).
  *
  * @param branch - Branch name to check (defaults to current branch)
  * @param options - Optional git execution options
  * @returns true if remote tracking branch exists, false otherwise
+ * @throws {GitError} When git command fails unexpectedly (not exit code 128)
+ * @throws {ValidationError} When GitError.create validation fails
  *
  * @example
  * ```typescript
@@ -191,15 +277,19 @@ export async function hasRemoteTracking(branch?: string, options?: GitOptions): 
       return false;
     }
 
-    // Unexpected error - log and return false
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    const exitCode = error instanceof GitError ? error.exitCode : undefined;
-    logger.warn('hasRemoteTracking: unexpected error checking remote tracking', {
+    // TODO(#1913): Distinguish ValidationError from other unexpected errors in log message
+    // Unexpected error - log with actionable context and RE-THROW (don't hide it)
+    logger.error('hasRemoteTracking: unexpected error checking remote tracking branch', {
       branch: branch || 'current branch',
-      errorMessage: errorMsg,
-      exitCode,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      exitCode: error instanceof GitError ? error.exitCode : undefined,
+      suggestion:
+        'Check network connectivity, remote configuration (git remote -v), and git permissions',
+      errorId: ErrorIds.GIT_COMMAND_FAILED,
     });
-    return false;
+
+    // Re-throw to surface the error to the caller
+    throw error;
   }
 }
 
@@ -253,32 +343,74 @@ export async function isBranchPushed(branch?: string, options?: GitOptions): Pro
  * ```
  */
 export async function getMainBranch(options?: GitOptions): Promise<string> {
+  function getErrorMsg(err: unknown): string {
+    if (err instanceof Error) {
+      return err.message;
+    }
+    return String(err);
+  }
+
+  function getExitCode(err: unknown): number | undefined {
+    if (err instanceof GitError) {
+      return err.exitCode;
+    }
+    return undefined;
+  }
+
   try {
     // Check if main exists
     await git(['rev-parse', '--verify', 'main'], options);
     return 'main';
   } catch (error) {
-    // Log the error and try master as fallback
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    logger.debug('getMainBranch: main branch not found, trying master', {
-      errorMessage: errorMsg,
-    });
+    // Only fallback to master if main branch doesn't exist (exit code 128)
+    // Re-throw all other errors (network, permissions, validation, etc.)
+    // TODO(#1920): Distinguish ValidationError from unexpected errors in log message
+    if (!(error instanceof GitError && error.exitCode === 128)) {
+      logger.error('getMainBranch: unexpected error checking main branch', {
+        errorMessage: getErrorMsg(error),
+        exitCode: getExitCode(error),
+        errorId: ErrorIds.GIT_COMMAND_FAILED,
+      });
+      throw error; // Re-throw unexpected errors
+    }
+
+    // Expected: main doesn't exist, try master
+    logger.debug('getMainBranch: main branch not found, trying master');
+
     try {
       // Check if master exists
       await git(['rev-parse', '--verify', 'master'], options);
       return 'master';
     } catch (masterError) {
-      // Log the error for both branches
-      const masterErrorMsg =
-        masterError instanceof Error ? masterError.message : String(masterError);
+      // Only accept "branch not found" error here too
+      // TODO(#1920): Distinguish ValidationError from unexpected errors in log message
+      if (!(masterError instanceof GitError && masterError.exitCode === 128)) {
+        logger.error('getMainBranch: unexpected error checking master branch', {
+          errorMessage: getErrorMsg(masterError),
+          exitCode: getExitCode(masterError),
+          errorId: ErrorIds.GIT_COMMAND_FAILED,
+        });
+        throw masterError; // Re-throw unexpected errors
+      }
+
+      // Both branches don't exist - preserve full error context from both attempts
+      // This helps diagnose if it's a consistent issue (same error for both) or different failures
+      const errorMsg = getErrorMsg(error);
+      const masterErrorMsg = getErrorMsg(masterError);
       logger.error('getMainBranch: neither main nor master branch found', {
         mainError: errorMsg,
         masterError: masterErrorMsg,
+        mainExitCode: getExitCode(error),
+        masterExitCode: getExitCode(masterError),
+        errorId: ErrorIds.GIT_NO_MAIN_BRANCH,
       });
-      throw new GitError(
+      throw GitError.create(
         'Could not find main or master branch. ' +
           'Ensure at least one of these branches exists in the repository. ' +
-          `Errors: main (${errorMsg}), master (${masterErrorMsg})`
+          `Errors: main (${errorMsg}), master (${masterErrorMsg})`,
+        undefined,
+        undefined,
+        ErrorIds.GIT_NO_MAIN_BRANCH
       );
     }
   }

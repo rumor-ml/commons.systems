@@ -49,8 +49,8 @@ describe('Rate Limit Retry Logic', () => {
       await sleep(100);
       const duration = Date.now() - start;
 
-      // Allow 50ms tolerance for timer precision
-      assert.ok(duration >= 100 && duration < 150, `Expected ~100ms, got ${duration}ms`);
+      // Allow 50ms tolerance for timer precision (5ms early tolerance for timer variations)
+      assert.ok(duration >= 95 && duration < 150, `Expected ~100ms, got ${duration}ms`);
     });
 
     it('should support different sleep durations', async () => {
@@ -61,7 +61,8 @@ describe('Rate Limit Retry Logic', () => {
         await sleep(ms);
         const duration = Date.now() - start;
 
-        assert.ok(duration >= ms && duration < ms + 50, `Expected ~${ms}ms, got ${duration}ms`);
+        // 5ms early tolerance for timer variations
+        assert.ok(duration >= ms - 5 && duration < ms + 50, `Expected ~${ms}ms, got ${duration}ms`);
       }
     });
   });
@@ -93,6 +94,7 @@ describe('Rate Limit Retry Logic', () => {
     });
 
     it('should throw after exhausting retries', async () => {
+      // TODO(#1840): Add assertions to verify specific error type (GitHubCliError) is preserved
       // Test that retries are exhausted for retryable errors
       // Note: This will make actual gh CLI calls that will likely fail
       // In a real test suite, we would mock ghCli

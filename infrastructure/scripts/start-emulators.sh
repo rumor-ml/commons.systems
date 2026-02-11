@@ -21,10 +21,53 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/port-utils.sh"
 
+# Get worktree root for registration
+# In pool mode: Set from environment by caller
+# In singleton mode: Determined later via git rev-parse or fallback to PROJECT_ROOT
+WORKTREE_ROOT="${WORKTREE_ROOT:-}"
+
 # Check sandbox requirement BEFORE any emulator operations
 check_sandbox_requirement "Starting Firebase emulators" || exit 1
 
-source "${SCRIPT_DIR}/allocate-test-ports.sh"
+# ============================================================================
+# EMULATOR POOL INTEGRATION: Use pool instance ports if provided
+# ============================================================================
+# Check if POOL_INSTANCE_ID is set (pool mode) or fall back to singleton mode
+# Pool mode: Use instance-specific ports from environment variables
+# Singleton mode: Allocate ports based on worktree using allocate-test-ports.sh
+
+if [ -n "${POOL_INSTANCE_ID:-}" ]; then
+  echo "=== Pool Mode: Using instance-specific ports ==="
+  echo "Pool Instance ID: $POOL_INSTANCE_ID"
+
+  # Validate all required pool environment variables are set
+  MISSING_POOL_VARS=""
+  [ -z "${GCP_PROJECT_ID:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS GCP_PROJECT_ID"
+  [ -z "${AUTH_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS AUTH_PORT"
+  [ -z "${FIRESTORE_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS FIRESTORE_PORT"
+  [ -z "${STORAGE_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS STORAGE_PORT"
+  [ -z "${UI_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS UI_PORT"
+  [ -z "${HOSTING_PORT:-}" ] && MISSING_POOL_VARS="$MISSING_POOL_VARS HOSTING_PORT"
+
+  if [ -n "$MISSING_POOL_VARS" ]; then
+    echo "ERROR: Pool mode enabled but missing environment variables:$MISSING_POOL_VARS" >&2
+    echo "When POOL_INSTANCE_ID is set, all port variables must be provided" >&2
+    exit 1
+  fi
+
+  # Set PROJECT_ID for consistency with allocate-test-ports.sh
+  PROJECT_ID="$GCP_PROJECT_ID"
+
+  echo "  Auth Port: $AUTH_PORT"
+  echo "  Firestore Port: $FIRESTORE_PORT"
+  echo "  Storage Port: $STORAGE_PORT"
+  echo "  UI Port: $UI_PORT"
+  echo "  Hosting Port: $HOSTING_PORT"
+  echo "  Project ID: $PROJECT_ID"
+else
+  echo "=== Singleton Mode: Allocating worktree-specific ports ==="
+  source "${SCRIPT_DIR}/allocate-test-ports.sh"
+fi
 
 # Configuration
 MAX_RETRIES=120  # Increased to handle system overload (2 minutes total)
@@ -70,16 +113,20 @@ cleanup_orphaned_configs() {
     if [ -f "$hosting_pid_file" ]; then
       # PID file exists - check if process is alive
       local pid pgid
-      if IFS=':' read -r pid pgid < "$hosting_pid_file" 2>/dev/null; then
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-          # Process is alive, config is in use
-          continue
-        fi
+      # CRITICAL: Don't suppress errors - log them
+      if ! IFS=':' read -r pid pgid < "$hosting_pid_file" 2>/dev/null; then
+        echo "WARNING: Failed to read PID file $hosting_pid_file - keeping config $filename" >&2
+        continue  # Safe default: keep the config
+      fi
+
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        # Process is alive, config is in use
+        continue
       fi
     fi
 
     # No active process - safe to remove
-    echo "Cleaning orphaned config: $filename" >&2
+    echo "Cleaning orphaned config: $filename (process not running)" >&2
     rm -f "$config_file"
     cleaned_count=$((cleaned_count + 1))
   done
@@ -212,13 +259,59 @@ else
   # Change to repository root
   cd "${PROJECT_ROOT}"
 
+  # Create firebase config for backend emulators with custom ports
+  # Required for pool mode to use instance-specific ports
+  # Config must be in PROJECT_ROOT so Firebase CLI resolves relative paths correctly
+  # Cleanup: stop-emulators.sh removes this file on shutdown
+  TEMP_BACKEND_CONFIG="${PROJECT_ROOT}/.firebase-backend-${PROJECT_ID}.json"
+
+  # Extract storage rules path from main firebase.json if it exists
+  # Firebase CLI resolves paths relative to the config file location (PROJECT_ROOT in this case)
+  STORAGE_RULES=$(jq -r '.storage.rules // "shared/storage.rules"' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "shared/storage.rules")
+  FIRESTORE_RULES=$(jq -r '.firestore.rules // empty' "${PROJECT_ROOT}/firebase.json" 2>/dev/null || echo "")
+
+  # Build config with emulator ports and rules
+  cat > "${TEMP_BACKEND_CONFIG}" <<EOF
+{
+  "emulators": {
+    "auth": {
+      "port": ${AUTH_PORT}
+    },
+    "firestore": {
+      "port": ${FIRESTORE_PORT}
+    },
+    "storage": {
+      "port": ${STORAGE_PORT}
+    },
+    "ui": {
+      "enabled": true,
+      "port": ${UI_PORT}
+    }
+  },
+  "storage": {
+    "rules": "${STORAGE_RULES}"
+  }
+EOF
+
+  # Add firestore rules if specified
+  if [ -n "$FIRESTORE_RULES" ]; then
+    cat >> "${TEMP_BACKEND_CONFIG}" <<EOF
+,
+  "firestore": {
+    "rules": "${FIRESTORE_RULES}"
+  }
+EOF
+  fi
+
+  # Close JSON
+  echo "}" >> "${TEMP_BACKEND_CONFIG}"
+
   # Start ONLY backend emulators (shared)
   # Import seed data from fellspiral/emulator-data (includes QA test user)
-  # Explicitly specify config to ensure root firebase.json is used (not app-level configs)
   npx firebase-tools emulators:start \
     --only auth,firestore,storage \
     --project="${PROJECT_ID}" \
-    --config="${PROJECT_ROOT}/firebase.json" \
+    --config="${TEMP_BACKEND_CONFIG}" \
     --import="${PROJECT_ROOT}/fellspiral/emulator-data" \
     > "$BACKEND_LOG_FILE" 2>&1 &
 
@@ -227,6 +320,7 @@ else
 
   echo "Backend emulators started with PID: ${BACKEND_PID}"
   echo "Log file: $BACKEND_LOG_FILE"
+  echo "Config file: $TEMP_BACKEND_CONFIG"
 
   # Health check for Auth
   wait_for_port ${AUTH_PORT} "Auth emulator" ${MAX_RETRIES} "$BACKEND_LOG_FILE" $BACKEND_PID || {
@@ -253,10 +347,133 @@ else
   # This verifies actual functionality, not just port availability
   echo ""
   if ! deep_health_check "127.0.0.1" "${AUTH_PORT}" "127.0.0.1" "${FIRESTORE_PORT}" "${PROJECT_ID}"; then
-    echo "⚠️  Deep health check failed - emulators may not be fully functional" >&2
-    # Don't fail startup, but warn user
+    echo "ERROR: Deep health check failed - emulators are not fully functional" >&2
+    echo "" >&2
+    echo "This usually indicates:" >&2
+    echo "  - Emulator process crashed after startup" >&2
+    echo "  - Network configuration issues" >&2
+    echo "  - Corrupted emulator state" >&2
+    echo "" >&2
+    echo "Check logs at: $BACKEND_LOG_FILE" >&2
+    echo "" >&2
+
+    # Clean up failed emulators
+    kill $BACKEND_PID 2>/dev/null || true
+    rm -f "$BACKEND_PID_FILE" "$TEMP_BACKEND_CONFIG"
+
+    exit 1
   fi
   echo ""
+
+  # Seed QA users after backend emulators are confirmed healthy
+  # Runs in singleton mode only (pool mode uses pre-seeded instances)
+  # Safe to run multiple times - seed-qa-users.js handles existing users gracefully
+  if [ -z "${POOL_INSTANCE_ID:-}" ]; then
+    echo "Seeding QA users..."
+    if ! command -v node &> /dev/null; then
+      echo "ERROR: Node.js not found - QA user seeding requires Node.js" >&2
+      echo "Install Node.js or set SKIP_QA_SEEDING=1 to skip" >&2
+      if [ -z "${SKIP_QA_SEEDING:-}" ]; then
+        exit 1
+      else
+        echo "" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  QA user seeding SKIPPED (SKIP_QA_SEEDING set)" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        echo "E2E tests will FAIL with authentication errors!" >&2
+        echo "" >&2
+        echo "Tests requiring QA GitHub user (qa-github@test.com) will fail:" >&2
+        echo "  - OAuth login flows" >&2
+        echo "  - User authentication tests" >&2
+        echo "  - Any test using pre-seeded test users" >&2
+        echo "" >&2
+        echo "To fix: Install Node.js and remove SKIP_QA_SEEDING" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+
+        # Set environment variable so test failure logs can reference it
+        export QA_SEEDING_SKIPPED="true"
+        export TEST_WARNING="NO_QA_USERS"
+      fi
+    else
+      # Set up environment for seed script
+      export FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:${AUTH_PORT}"
+      export GCP_PROJECT_ID="${PROJECT_ID}"
+
+      # Capture stderr to show actual error
+      SEED_ERROR=$(node "${SCRIPT_DIR}/seed-qa-users.js" 2>&1)
+      SEED_EXIT=$?
+
+      if [ $SEED_EXIT -eq 0 ]; then
+        echo "✓ QA users configured"
+      else
+        echo "ERROR: Failed to seed QA users (exit code: $SEED_EXIT)" >&2
+        echo "" >&2
+
+        # Check for specific error patterns to provide targeted advice
+        if echo "$SEED_ERROR" | grep -q "Network error"; then
+          echo "Error: Cannot connect to Auth emulator" >&2
+          echo "" >&2
+          echo "Possible causes:" >&2
+          echo "  - Auth emulator not fully started (wait longer)" >&2
+          echo "  - Wrong port: Check FIREBASE_AUTH_EMULATOR_HOST=${FIREBASE_AUTH_EMULATOR_HOST}" >&2
+          echo "  - Firewall blocking localhost connections" >&2
+          echo "" >&2
+          echo "Try: nc -z 127.0.0.1 ${AUTH_PORT} (should succeed if emulator is ready)" >&2
+          echo "" >&2
+          echo "Full error output:" >&2
+          echo "$SEED_ERROR" | sed 's/^/  /' >&2
+        elif echo "$SEED_ERROR" | grep -q "raw id exists"; then
+          # This is actually success - duplicate is handled gracefully by seed script
+          echo "Note: User already exists (this is normal)" >&2
+          echo "✓ QA users configured (pre-existing)" >&2
+          SEED_EXIT=0  # Treat as success
+        else
+          echo "Full error output:" >&2
+          echo "$SEED_ERROR" | sed 's/^/  /' >&2
+        fi
+
+        if [ $SEED_EXIT -ne 0 ]; then
+          echo "" >&2
+          echo "This will cause E2E test authentication to fail" >&2
+
+          if [ -n "${SKIP_QA_SEEDING:-}" ]; then
+            echo "⚠️  SKIP_QA_SEEDING is set - continuing without QA users" >&2
+            echo "   E2E tests WILL FAIL with authentication errors" >&2
+          else
+            exit 1
+          fi
+        fi
+      fi
+    fi
+    echo ""
+  fi
+
+  # Register worktree for singleton mode (after backend emulators are confirmed running)
+  if [ -z "${POOL_INSTANCE_ID:-}" ]; then
+    # Ensure WORKTREE_ROOT is set
+    if [ -z "$WORKTREE_ROOT" ]; then
+      WORKTREE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || WORKTREE_ROOT="$PROJECT_ROOT"
+    fi
+
+    echo "Registering worktree in shared emulator registry..."
+    REGISTER_ERROR=$("${SCRIPT_DIR}/worktree-registry.sh" register "$WORKTREE_ROOT" "$PROJECT_ID" "singleton" 2>&1)
+    REGISTER_EXIT=$?
+
+    if [ $REGISTER_EXIT -ne 0 ]; then
+      echo "ERROR: Failed to register worktree (exit code: $REGISTER_EXIT)" >&2
+      echo "Error output:" >&2
+      echo "$REGISTER_ERROR" | sed 's/^/  /' >&2
+      echo "" >&2
+      echo "Registry path: ~/.firebase-emulators/worktree-registrations.json" >&2
+      echo "" >&2
+      echo "This will cause premature emulator shutdown when other worktrees stop" >&2
+      exit 1
+    fi
+
+    echo "✓ Worktree registered: $WORKTREE_ROOT"
+  fi
 fi
 
 echo ""
@@ -301,37 +518,14 @@ fi
 
 echo "Starting per-worktree hosting emulator..."
 
-# Validate port is still available before starting emulator
-# Port was allocated by allocate-test-ports.sh, but verify it's still free
-# (race condition possible if another process claimed it between allocation and startup)
-echo "  Port: ${HOSTING_PORT}"
-echo "  Project: ${PROJECT_ID}"
-echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
+# ============================================================================
+# FIREBASE.JSON VALIDATION - Validate ONCE before port retry loop
+# ============================================================================
+# This prevents confusing error messages when JQ fails during port retries.
+# If JQ fails, we want immediate failure, not "port conflict" messages.
 
-if ! is_port_available ${HOSTING_PORT}; then
-  echo "ERROR: Allocated hosting port ${HOSTING_PORT} is no longer available" >&2
-  echo "Port allocation race condition detected!" >&2
-  echo "" >&2
-  echo "Another process claimed the port between allocation and startup." >&2
-  echo "Port owner details:" >&2
-  if ! get_port_owner ${HOSTING_PORT} >&2; then
-    echo "  (Unable to determine port owner)" >&2
-  fi
-  echo "" >&2
-  echo "Solutions:" >&2
-  echo "  1. Retry the test command (ports will be rechecked)" >&2
-  echo "  2. Stop all emulators: infrastructure/scripts/stop-emulators.sh" >&2
-  echo "  3. Check port owner: lsof -i :${HOSTING_PORT}" >&2
-  echo "  4. Kill the process using the port, then retry" >&2
-  exit 1
-fi
-
-# Change to repository root
+# Change to repository root for firebase.json access
 cd "${PROJECT_ROOT}"
-
-# Create temporary firebase config for this worktree with custom hosting port
-# Put it in PROJECT_ROOT so relative paths work correctly
-TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
 # Validate firebase.json exists and is readable
 if [ ! -f firebase.json ]; then
@@ -347,23 +541,11 @@ if ! jq empty firebase.json 2>/dev/null; then
   exit 1
 fi
 
-# Map app directory names to Firebase site IDs
-# This handles apps where directory name != site ID in firebase.json
-get_firebase_site_id() {
-  local app_name="$1"
-  case "$app_name" in
-    print) echo "print-dfb47" ;;
-    videobrowser) echo "videobrowser-7696a" ;;
-    budget) echo "budget-81cb7" ;;
-    *) echo "$app_name" ;;  # Default: use app name as-is
-  esac
-}
-
-# Filter hosting config to only include the site being tested (if APP_NAME provided)
+# Extract hosting config ONCE before port retry loop
 # Keep paths relative - Firebase emulator resolves them from CWD (PROJECT_ROOT)
 # Remove site/target fields - hosting emulator serves all configs at root path
 if [ -n "$APP_NAME" ]; then
-  # Map directory name to Firebase site ID
+  # Map directory name to Firebase site ID (uses shared function from port-utils.sh)
   SITE_ID=$(get_firebase_site_id "$APP_NAME")
 
   # Extract the one site config and remove site/target fields
@@ -423,6 +605,74 @@ else
 
   echo "Hosting all sites from firebase.json"
 fi
+
+# ============================================================================
+# PORT RETRY LOOP - Handle port allocation race conditions
+# ============================================================================
+# Port conflicts can occur between allocation check and emulator binding.
+# Retry with exponential backoff and automatic port reallocation on failure.
+# NOTE: HOSTING_CONFIG extracted above is reused on all retry attempts.
+
+# INFRASTRUCTURE STABILITY FIX: Increase retry attempts from 3 to 5
+# This reduces race conditions during parallel test runs and CI overload
+MAX_PORT_RETRIES=5
+PORT_RETRY_COUNT=0
+HOSTING_STARTED=false
+ORIGINAL_HOSTING_PORT="${HOSTING_PORT}"  # Save for error messages
+
+while [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ] && [ "$HOSTING_STARTED" = "false" ]; do
+  if [ $PORT_RETRY_COUNT -gt 0 ]; then
+    # Calculate backoff delay: 2^retry (1s, 2s, 4s)
+    BACKOFF_DELAY=$((2 ** PORT_RETRY_COUNT))
+    echo "Retrying in ${BACKOFF_DELAY}s... (attempt $((PORT_RETRY_COUNT + 1))/${MAX_PORT_RETRIES})"
+    sleep $BACKOFF_DELAY
+  fi
+
+  echo "  Port: ${HOSTING_PORT}"
+  echo "  Project: ${PROJECT_ID}"
+  echo "  Serving from: Paths configured in firebase.json (relative to repository root: ${PROJECT_ROOT})"
+
+  # Validate port availability
+  # allocate-test-ports.sh found an available port, but verify it's still free
+  # (race condition possible if another process claimed it between allocation and startup)
+  if ! is_port_available ${HOSTING_PORT}; then
+    echo "WARNING: Allocated port ${HOSTING_PORT} is not available" >&2
+    echo "Port allocation race condition detected!" >&2
+    echo "" >&2
+    echo "Port owner details:" >&2
+    if ! get_port_owner ${HOSTING_PORT} >&2; then
+      echo "  (Unable to determine port owner - port may have been freed)" >&2
+    fi
+    echo "" >&2
+
+    # Try to find a new port
+    PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
+    if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
+      # Find next available port (start 10 ports higher)
+      NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
+      if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
+        echo "Found alternative port: ${NEW_PORT}" >&2
+        HOSTING_PORT=$NEW_PORT
+        continue
+      else
+        echo "ERROR: Could not find alternative port" >&2
+      fi
+    fi
+
+    # All retries exhausted
+    echo "ERROR: Failed to allocate hosting port after ${MAX_PORT_RETRIES} attempts" >&2
+    echo "Original port: ${ORIGINAL_HOSTING_PORT}" >&2
+    echo "" >&2
+    echo "Solutions:" >&2
+    echo "  - Run: infrastructure/scripts/stop-emulators.sh to stop all emulators" >&2
+    echo "  - Check for processes holding ports: lsof -i :5000-5990" >&2
+    exit 1
+  fi
+
+# Create temporary firebase config for this worktree with custom hosting port
+# Put it in PROJECT_ROOT so relative paths work correctly
+# NOTE: HOSTING_CONFIG was already extracted and validated before the port retry loop
+TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
 cat > "${TEMP_CONFIG}" <<EOF
 {
@@ -515,11 +765,41 @@ echo "Log file: $HOSTING_LOG_FILE"
 
   # Check if process crashed immediately (port conflict or other startup error)
   if ! kill -0 $HOSTING_PID 2>/dev/null; then
-    echo "ERROR: Hosting emulator process crashed during startup" >&2
-    echo "Last 20 lines of emulator log:" >&2
-    tail -n 20 "$HOSTING_LOG_FILE" >&2
-    rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
-    exit 1
+    echo "WARNING: Hosting emulator process crashed during startup" >&2
+
+    # Check for port conflict in logs
+    if grep -q "EADDRINUSE\|address already in use\|port.*already in use" "$HOSTING_LOG_FILE" 2>/dev/null; then
+      echo "Port conflict detected in emulator logs" >&2
+      PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
+
+      # Cleanup failed emulator
+      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+
+      if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
+        # Find new port and retry
+        NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
+        if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
+          echo "Found alternative port: ${NEW_PORT}" >&2
+          HOSTING_PORT=$NEW_PORT
+          continue
+        else
+          echo "ERROR: Could not find alternative port" >&2
+          exit 1
+        fi
+      else
+        echo "ERROR: Failed to start hosting emulator after ${MAX_PORT_RETRIES} port allocation attempts" >&2
+        echo "Last 20 lines of emulator log:" >&2
+        tail -n 20 "$HOSTING_LOG_FILE" >&2
+        exit 1
+      fi
+    else
+      # Non-port-related crash
+      echo "ERROR: Hosting emulator crashed with non-port error" >&2
+      echo "Last 20 lines of emulator log:" >&2
+      tail -n 20 "$HOSTING_LOG_FILE" >&2
+      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+      exit 1
+    fi
   fi
 
   # Wait for hosting to be ready (check the assigned port)
@@ -533,10 +813,40 @@ echo "Log file: $HOSTING_LOG_FILE"
     # Check if process is still alive during wait
     if ! kill -0 $HOSTING_PID 2>/dev/null; then
       echo "ERROR: Hosting emulator process died during startup wait" >&2
-      echo "Last 20 lines of emulator log:" >&2
-      tail -n 20 "$HOSTING_LOG_FILE" >&2
-      rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
-      exit 1
+
+      # Check for port conflict in logs
+      if grep -q "EADDRINUSE\|address already in use\|port.*already in use" "$HOSTING_LOG_FILE" 2>/dev/null; then
+        echo "Port conflict detected in emulator logs" >&2
+        PORT_RETRY_COUNT=$((PORT_RETRY_COUNT + 1))
+
+        # Cleanup failed emulator
+        rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+
+        if [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ]; then
+          # Find new port and retry
+          NEW_PORT=$(find_available_port $((HOSTING_PORT + 10)) 10 10)
+          if [ $? -eq 0 ] && [ -n "$NEW_PORT" ]; then
+            echo "Found alternative port: ${NEW_PORT}" >&2
+            HOSTING_PORT=$NEW_PORT
+            continue 2  # Continue outer port retry loop
+          else
+            echo "ERROR: Could not find alternative port" >&2
+            exit 1
+          fi
+        else
+          echo "ERROR: Failed to start hosting emulator after ${MAX_PORT_RETRIES} port allocation attempts" >&2
+          echo "Last 20 lines of emulator log:" >&2
+          tail -n 20 "$HOSTING_LOG_FILE" >&2
+          exit 1
+        fi
+      else
+        # Non-port-related crash
+        echo "ERROR: Hosting emulator crashed during health check" >&2
+        echo "Last 20 lines of emulator log:" >&2
+        tail -n 20 "$HOSTING_LOG_FILE" >&2
+        rm -f "$HOSTING_PID_FILE" "$TEMP_CONFIG"
+        exit 1
+      fi
     fi
 
     RETRY_COUNT=$((RETRY_COUNT + 1))
@@ -558,7 +868,29 @@ echo "Log file: $HOSTING_LOG_FILE"
     RETRY_DELAY=$(awk "BEGIN {d = $RETRY_DELAY * 2; print (d > $MAX_RETRY_DELAY) ? $MAX_RETRY_DELAY : d}")
   done
 
+  # Health check passed - mark as successfully started
+  HOSTING_STARTED=true
   echo "✓ Hosting emulator ready on port ${HOSTING_PORT}"
+done  # End of port retry loop
+
+# If we got here after retries, report the recovery
+if [ $PORT_RETRY_COUNT -gt 0 ]; then
+  echo "✓ Successfully started hosting emulator after ${PORT_RETRY_COUNT} port conflict(s)"
+  echo "  Original port: ${ORIGINAL_HOSTING_PORT}"
+  echo "  Final port: ${HOSTING_PORT}"
+fi
+
+# Register worktree for pool mode (after hosting emulator is ready and pool instance is claimed)
+if [ -n "${POOL_INSTANCE_ID:-}" ]; then
+  # Ensure WORKTREE_ROOT is set
+  if [ -z "$WORKTREE_ROOT" ]; then
+    WORKTREE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || WORKTREE_ROOT="$PROJECT_ROOT"
+  fi
+
+  if ! "${SCRIPT_DIR}/worktree-registry.sh" register "$WORKTREE_ROOT" "$PROJECT_ID" "pool" "$POOL_INSTANCE_ID" 2>/dev/null; then
+    echo "⚠️  Failed to register worktree (non-critical)" >&2
+  fi
+fi
 
 # ============================================================================
 # Summary
