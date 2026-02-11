@@ -119,7 +119,7 @@ export function handleStateUpdateFailure(params: StateUpdateFailureParams): Guar
       step,
       phase: newState.phase,
       iteration: newState.iteration,
-      lastError: stateResult.lastError.message,
+      lastError: stateResult.lastError?.message,
       attemptCount: stateResult.attemptCount,
       impact: 'Multiple failures: state update + invalid number',
     });
