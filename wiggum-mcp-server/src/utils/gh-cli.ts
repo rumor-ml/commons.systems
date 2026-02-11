@@ -338,10 +338,16 @@ export interface PRReviewCommentsResult {
 }
 
 /**
- * Get PR review comments from specific user
+ * Get review comments on a PR from a specific user.
  *
- * Fetches inline code review comments (not PR comments) from a specific user
- * using GitHub API via gh CLI. These are comments on specific lines of code.
+ * GitHub API Endpoint: GET /repos/{owner}/{repo}/pulls/{prNumber}/comments
+ *
+ * IMPORTANT: This fetches inline code review comments (comments on specific lines
+ * of code), NOT general PR discussion comments (/issues/{}/comments) or formal
+ * review objects (/pulls/{}/reviews).
+ *
+ * The github-code-quality bot posts inline review comments, so this is the
+ * correct endpoint for fetching code quality feedback.
  *
  * Returns both the parsed comments and a count of any comments that failed to parse.
  * Callers should check skippedCount and warn users if review data is incomplete.

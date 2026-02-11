@@ -1146,6 +1146,10 @@ async function processPhase2CodeQualityAndReturnNextInstructions(
   stepsCompletedSoFar: string[]
 ): Promise<ToolResult> {
   // Fetch code quality bot comments
+  // Fetches inline code review comments from GitHub API endpoint:
+  // GET /repos/{repo}/pulls/{prNumber}/comments
+  // This is different from PR discussion comments (/issues/{}/comments)
+  // or formal reviews (/pulls/{}/reviews)
   // TODO(#517): Add graceful error handling with user-friendly messages for GitHub API failures
   // Current: errors propagate as GitHubCliError without wiggum-specific context
   const { comments, skippedCount, warning } = await getPRReviewComments(

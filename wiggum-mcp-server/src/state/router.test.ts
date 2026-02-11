@@ -394,10 +394,13 @@ describe('WiggumStep Type Safety', () => {
     // Each ts-expect-error below ensures type safety - pnpm typecheck fails if type errors disappear
     // @ts-expect-error - Type '"invalid-step"' is not assignable to type 'WiggumStep'
     const invalid: WiggumStep = 'invalid-step';
+    void invalid; // Intentionally unused - needed for compile-time type check
     // @ts-expect-error - Type '"1"' is not assignable to type 'WiggumStep'
     const numeric: WiggumStep = '1';
+    void numeric; // Intentionally unused - needed for compile-time type check
     // @ts-expect-error - Type '"p1-99"' is not assignable to type 'WiggumStep'
     const wrongPhase: WiggumStep = 'p1-99';
+    void wrongPhase; // Intentionally unused - needed for compile-time type check
 
     // Valid assignment should compile without error
     const valid: WiggumStep = STEP_PHASE1_MONITOR_WORKFLOW;
