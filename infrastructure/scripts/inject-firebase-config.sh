@@ -94,18 +94,44 @@ STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
 MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
 APP_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
 
+# Validate all extracted configuration values
+MISSING_FIELDS=()
+
+if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
+  MISSING_FIELDS+=("apiKey")
+fi
+
+if [ -z "$AUTH_DOMAIN" ] || [ "$AUTH_DOMAIN" = "null" ]; then
+  MISSING_FIELDS+=("authDomain")
+fi
+
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+  MISSING_FIELDS+=("projectId")
+fi
+
+if [ -z "$STORAGE_BUCKET" ] || [ "$STORAGE_BUCKET" = "null" ]; then
+  MISSING_FIELDS+=("storageBucket")
+fi
+
+if [ -z "$MESSAGING_SENDER_ID" ] || [ "$MESSAGING_SENDER_ID" = "null" ]; then
+  MISSING_FIELDS+=("messagingSenderId")
+fi
+
+if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
+  MISSING_FIELDS+=("appId")
+fi
+
+if [ ${#MISSING_FIELDS[@]} -gt 0 ]; then
+  echo "❌ Failed to extract required Firebase configuration fields: ${MISSING_FIELDS[*]}"
+  echo "Response: $CONFIG_RESPONSE"
+  exit 1
+fi
+
 # Override storage bucket for sites that use rml-media
 # videobrowser and print both use the rml-media bucket with shared storage rules
 if [ "$SITE_NAME" = "videobrowser" ] || [ "$SITE_NAME" = "print" ]; then
   STORAGE_BUCKET="rml-media"
   echo "  Using rml-media bucket for $SITE_NAME"
-fi
-
-# Validate we got the config
-if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
-  echo "❌ Failed to get Firebase configuration"
-  echo "Response: $CONFIG_RESPONSE"
-  exit 1
 fi
 
 echo "✅ Retrieved Firebase configuration"
@@ -117,6 +143,15 @@ echo "  Auth Domain: $AUTH_DOMAIN"
 CONFIG_FILE="${SITE_NAME}/site/src/firebase-config.js"
 ENV_FILE="${SITE_NAME}/site/.env"
 ENV_EXAMPLE_FILE="${SITE_NAME}/site/.env.example"
+
+# Helper function to validate file was written successfully
+validate_file_written() {
+  local file="$1"
+  if [ ! -f "$file" ] || [ ! -s "$file" ]; then
+    echo "❌ Failed to write Firebase configuration to $file"
+    exit 1
+  fi
+}
 
 # Pattern 1: Apps using firebase-config.js (legacy)
 if [ -f "$CONFIG_FILE" ]; then
@@ -141,15 +176,9 @@ export const firebaseConfig = {
 };
 EOF
 
-  # Validate that the config file was written successfully
-  if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
-    echo "❌ Failed to write Firebase configuration to $CONFIG_FILE"
-    exit 1
-  fi
-
+  validate_file_written "$CONFIG_FILE"
   TARGET_FILE="$CONFIG_FILE"
 
-# Fallback to .env pattern if firebase-config.js doesn't exist (newer apps use Vite env vars)
 # Pattern 2: Apps using Vite .env files (e.g., budget)
 elif [ -f "$ENV_EXAMPLE_FILE" ]; then
   cat > "$ENV_FILE" << EOF
@@ -164,12 +193,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=${MESSAGING_SENDER_ID}
 VITE_FIREBASE_APP_ID=${APP_ID}
 EOF
 
-  # Validate that the .env file was written successfully
-  if [ ! -f "$ENV_FILE" ] || [ ! -s "$ENV_FILE" ]; then
-    echo "❌ Failed to write Firebase configuration to $ENV_FILE"
-    exit 1
-  fi
-
+  validate_file_written "$ENV_FILE"
   TARGET_FILE="$ENV_FILE"
 
 else

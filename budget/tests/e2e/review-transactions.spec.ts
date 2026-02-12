@@ -19,10 +19,7 @@ test.describe('Review Page - Transaction Loading', () => {
     expect(collectionLog).toBeTruthy();
 
     // Verify no error messages
-    const setupGuide = page.locator('text=Firebase Setup Required');
-    await expect(setupGuide).not.toBeVisible();
-
-    const authError = page.locator('text=/authentication required|sign in|login/i');
-    await expect(authError).not.toBeVisible();
+    await expect(page.locator('text=Firebase Setup Required')).not.toBeVisible();
+    await expect(page.locator('text=/authentication required|sign in|login/i')).not.toBeVisible();
   });
 });

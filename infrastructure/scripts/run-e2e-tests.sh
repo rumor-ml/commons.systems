@@ -410,8 +410,8 @@ case "$APP_TYPE" in
     # Set VITE_FIREBASE_* vars for Vite apps to exercise production code paths
     # Apps with .env.example use these vars for Firebase SDK initialization
     # Values don't matter for emulator connectivity (handled by VITE_USE_FIREBASE_EMULATOR=true)
-    # but must be set at build time because Vite embeds env vars during build and
-    # isFirebaseConfigured() validates them at runtime (non-empty, no "your-" prefix)
+    # but must be set at build time because Vite embeds env vars during build
+    # Note: isFirebaseConfigured() skips validation when VITE_USE_FIREBASE_EMULATOR=true
     if [ -f "${APP_PATH_ABS}/site/.env.example" ]; then
       export VITE_FIREBASE_API_KEY="emulator-api-key"
       export VITE_FIREBASE_AUTH_DOMAIN="${GCP_PROJECT_ID}.firebaseapp.com"
@@ -422,12 +422,10 @@ case "$APP_TYPE" in
 
       # Validate that all required VITE_FIREBASE_* variables were exported successfully
       MISSING_FIREBASE_VARS=""
-      [ -z "${VITE_FIREBASE_API_KEY:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_API_KEY"
-      [ -z "${VITE_FIREBASE_AUTH_DOMAIN:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_AUTH_DOMAIN"
-      [ -z "${VITE_FIREBASE_PROJECT_ID:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_PROJECT_ID"
-      [ -z "${VITE_FIREBASE_STORAGE_BUCKET:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_STORAGE_BUCKET"
-      [ -z "${VITE_FIREBASE_MESSAGING_SENDER_ID:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_MESSAGING_SENDER_ID"
-      [ -z "${VITE_FIREBASE_APP_ID:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS VITE_FIREBASE_APP_ID"
+      for var in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID \
+                 VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID; do
+        [ -z "${!var:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS $var"
+      done
 
       if [ -n "$MISSING_FIREBASE_VARS" ]; then
         echo "FATAL: Required VITE_FIREBASE_* variables not exported:" >&2

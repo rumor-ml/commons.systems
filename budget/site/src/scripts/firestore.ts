@@ -51,10 +51,9 @@ function validateFirebaseConfig(): void {
   }
 }
 
-// TODO(#1962): Consolidate isFirebaseConfigured() into single every() check for readability
 // Check if Firebase is properly configured (non-throwing variant for UI checks)
 export function isFirebaseConfigured(): boolean {
-  // Emulator mode: skip Firebase config validation since emulator connectivity is handled separately
+  // Emulator mode: skip Firebase config validation since emulator uses dummy values
   if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
     return true;
   }
@@ -63,7 +62,7 @@ export function isFirebaseConfigured(): boolean {
   // TODO(#1971): Expand placeholder detection to include demo-, test-, example- prefixes
   return requiredEnvVars.every((key) => {
     const value = import.meta.env[key] as string;
-    return value && value !== '' && !value.includes('your-');
+    return value && !value.includes('your-');
   });
 }
 
@@ -173,7 +172,6 @@ let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 let emulatorConnected = false;
 
-// Initialize Firebase
 export function initFirebase(): FirebaseApp {
   if (!firebaseApp) {
     const config = getFirebaseConfig(); // Lazy validation happens here
@@ -182,7 +180,6 @@ export function initFirebase(): FirebaseApp {
   return firebaseApp;
 }
 
-// Get Firestore instance
 export function getFirestoreDb(): Firestore {
   if (!firestoreDb) {
     const app = initFirebase();
@@ -212,7 +209,6 @@ export function getFirestoreDb(): Firestore {
   return firestoreDb;
 }
 
-// Map Firestore document data to Transaction object
 function mapDocumentToTransaction(data: DocumentData): Transaction {
   // Handle createdAt - could be Timestamp, Date, or undefined
   let createdAt: Date | undefined;
@@ -300,7 +296,6 @@ export function createTransaction(data: {
   });
 }
 
-// Load transactions for a user
 export async function loadUserTransactions(
   userId: string,
   options?: {
@@ -414,7 +409,6 @@ export async function loadDemoTransactions(options?: {
   return transactions;
 }
 
-// Load statements for a user
 export async function loadUserStatements(userId: string): Promise<Statement[]> {
   const db = getFirestoreDb();
   const statementsRef = collection(db, getStatementsCollectionName());

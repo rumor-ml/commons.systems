@@ -263,6 +263,13 @@ if ! cp "${PROJECT_ROOT}/.firebase/firestore.rules" "${SHARED_RULES_DIR}/firesto
   echo "ERROR: Failed to copy Firestore rules to shared directory" >&2
   echo "Source: ${PROJECT_ROOT}/.firebase/firestore.rules" >&2
   echo "Dest: ${SHARED_RULES_DIR}/firestore.rules" >&2
+  echo "Possible causes: missing source file, disk full, permission denied" >&2
+
+  # Check if source file exists
+  if [ ! -f "${PROJECT_ROOT}/.firebase/firestore.rules" ]; then
+    echo "Source file does not exist - run merge-firestore-rules.sh first" >&2
+  fi
+
   exit 1
 fi
 
@@ -271,6 +278,13 @@ if ! cp "${PROJECT_ROOT}/shared/storage.rules" "${SHARED_RULES_DIR}/storage.rule
   echo "ERROR: Failed to copy Storage rules to shared directory" >&2
   echo "Source: ${PROJECT_ROOT}/shared/storage.rules" >&2
   echo "Dest: ${SHARED_RULES_DIR}/storage.rules" >&2
+  echo "Possible causes: missing source file, disk full, permission denied" >&2
+
+  # Check if source file exists
+  if [ ! -f "${PROJECT_ROOT}/shared/storage.rules" ]; then
+    echo "Source file does not exist - check repository structure" >&2
+  fi
+
   exit 1
 fi
 
@@ -696,7 +710,7 @@ while [ $PORT_RETRY_COUNT -lt $MAX_PORT_RETRIES ] && [ "$HOSTING_STARTED" = "fal
 # NOTE: HOSTING_CONFIG was already extracted and validated before the port retry loop
 TEMP_CONFIG="${PROJECT_ROOT}/.firebase-${PROJECT_ID}.json"
 
-cat > "${TEMP_CONFIG}" <<EOF
+if ! cat > "${TEMP_CONFIG}" <<EOF
 {
   "emulators": {
     "hosting": {
@@ -706,6 +720,12 @@ cat > "${TEMP_CONFIG}" <<EOF
   "hosting": ${HOSTING_CONFIG}
 }
 EOF
+then
+  echo "ERROR: Failed to write hosting emulator config" >&2
+  echo "Target file: ${TEMP_CONFIG}" >&2
+  echo "This may indicate disk space or permission issues" >&2
+  exit 1
+fi
 
 # Cleanup function for hosting emulator (process group)
 cleanup_hosting_emulator() {
