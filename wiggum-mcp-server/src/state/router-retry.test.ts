@@ -507,6 +507,7 @@ describe('executeStateUpdateWithRetry - MaxRetries Validation', () => {
           0
         ),
       (error: Error) => {
+        // Note: maxRetries validation throws generic Error, not ValidationError
         assert.ok(error.message.includes('maxRetries must be a positive integer'));
         assert.ok(error.message.includes('between 1 and 100'));
         return true;
@@ -527,6 +528,7 @@ describe('executeStateUpdateWithRetry - MaxRetries Validation', () => {
           101
         ),
       (error: Error) => {
+        // Note: maxRetries validation throws generic Error, not ValidationError
         assert.ok(error.message.includes('maxRetries must be a positive integer'));
         assert.ok(error.message.includes('between 1 and 100'));
         return true;
@@ -547,6 +549,7 @@ describe('executeStateUpdateWithRetry - MaxRetries Validation', () => {
           3.5
         ),
       (error: Error) => {
+        // Note: maxRetries validation throws generic Error, not ValidationError
         assert.ok(error.message.includes('maxRetries must be a positive integer'));
         return true;
       }
@@ -566,6 +569,7 @@ describe('executeStateUpdateWithRetry - MaxRetries Validation', () => {
           NaN
         ),
       (error: Error) => {
+        // Note: maxRetries validation throws generic Error, not ValidationError
         assert.ok(error.message.includes('maxRetries must be a positive integer'));
         return true;
       }
@@ -995,14 +999,11 @@ describe('executeStateUpdateWithRetry - State Validation', () => {
           3
         ),
       (error: Error) => {
-        // NOTE: Current implementation has a bug - when building error message for invalid state
-        // with missing completedSteps, it tries to call completedSteps.join() on undefined,
-        // causing a TypeError instead of StateApiError. This is tracked in router.ts line 337.
-        // TODO: Fix error message construction to handle missing fields gracefully
-        assert.strictEqual(error.name, 'TypeError', 'Currently throws TypeError due to bug');
+        assert.strictEqual(error.name, 'StateApiError', 'Should throw StateApiError');
+        assert.ok(error.message.includes('Invalid state'), 'Message should mention invalid state');
         assert.ok(
-          error.message.includes('join') || error.message.includes('undefined'),
-          'Error indicates missing array method'
+          error.message.includes('validation failed'),
+          'Message should mention validation failed'
         );
         return true;
       }
@@ -1062,6 +1063,93 @@ describe('executeStateUpdateWithRetry - State Validation', () => {
         const stateError = error as StateApiError;
         assert.strictEqual(stateError.resourceType, 'issue', 'Should have correct resourceType');
         assert.strictEqual(stateError.resourceId, 456, 'Should have correct resourceId');
+        return true;
+      }
+    );
+
+    // Should not attempt update
+    assert.strictEqual(mockUpdate.mock.calls.length, 0);
+  });
+
+  it('should reject invalid completedSteps array contents', async () => {
+    const mockUpdate = mock.fn(async () => {});
+    // Create state with non-string values in completedSteps
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const invalidState = createMockState({
+      completedSteps: [123 as any, null as any, 'valid-step'],
+    });
+
+    await assert.rejects(
+      () =>
+        executeStateUpdateWithRetry(
+          { resourceType: 'pr', resourceId: 123, updateFn: mockUpdate },
+          invalidState,
+          'test-step',
+          3
+        ),
+      (error: Error) => {
+        assert.strictEqual(error.name, 'StateApiError', 'Should throw StateApiError');
+        assert.ok(error.message.includes('Invalid state'), 'Message should mention invalid state');
+        assert.ok(
+          error.message.includes('validation failed'),
+          'Message should mention validation failed'
+        );
+        return true;
+      }
+    );
+
+    // Should not attempt update
+    assert.strictEqual(mockUpdate.mock.calls.length, 0);
+  });
+
+  it('should reject empty string phase value', async () => {
+    const mockUpdate = mock.fn(async () => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const invalidState = createMockState({ phase: '' as any });
+
+    await assert.rejects(
+      () =>
+        executeStateUpdateWithRetry(
+          { resourceType: 'pr', resourceId: 123, updateFn: mockUpdate },
+          invalidState,
+          'test-step',
+          3
+        ),
+      (error: Error) => {
+        assert.strictEqual(error.name, 'StateApiError', 'Should throw StateApiError');
+        assert.ok(error.message.includes('Invalid state'), 'Message should mention invalid state');
+        assert.ok(
+          error.message.includes('validation failed'),
+          'Message should mention validation failed'
+        );
+        return true;
+      }
+    );
+
+    // Should not attempt update
+    assert.strictEqual(mockUpdate.mock.calls.length, 0);
+  });
+
+  it('should reject empty string step value', async () => {
+    const mockUpdate = mock.fn(async () => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const invalidState = createMockState({ step: '' as any });
+
+    await assert.rejects(
+      () =>
+        executeStateUpdateWithRetry(
+          { resourceType: 'pr', resourceId: 123, updateFn: mockUpdate },
+          invalidState,
+          'test-step',
+          3
+        ),
+      (error: Error) => {
+        assert.strictEqual(error.name, 'StateApiError', 'Should throw StateApiError');
+        assert.ok(error.message.includes('Invalid state'), 'Message should mention invalid state');
+        assert.ok(
+          error.message.includes('validation failed'),
+          'Message should mention validation failed'
+        );
         return true;
       }
     );
