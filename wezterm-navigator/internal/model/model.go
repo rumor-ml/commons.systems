@@ -1,30 +1,57 @@
 package model
 
+// TODO(#1977): Add unit tests for wezterm-navigator Bubbletea TUI
+
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Model represents the application state
+// Tokyo Night color scheme styles
+var (
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7aa2f7")).
+			MarginBottom(1)
+
+	sectionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#c0caf5"))
+
+	keyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9ece6a")).
+			Bold(true)
+
+	descStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#a9b1d6"))
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#565f89")).
+			Italic(true).
+			MarginTop(1)
+)
+
+// TODO(#1984): Model zero value is invalid - width=0, height=0 breaks rendering. Document zero-value danger or add validation.
+// TODO(#1997): Add getter methods for Model width and height fields
+// TODO(#1999): Add dimension validation and invariant enforcement (bounds checking, defensive rendering)
 type Model struct {
 	width  int
 	height int
 }
 
-// NewModel creates a new model instance
 func NewModel() Model {
+	// TODO(#1987): Extract magic numbers to named constants (MinWidth, MinHeight)
 	return Model{
-		width:  40, // Default navigator width
-		height: 24, // Default height
+		width:  40,
+		height: 24,
 	}
 }
 
-// Init initializes the model
 func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles messages and updates the model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -33,76 +60,63 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
+		// TODO(#1996): Add bounds validation on WindowSizeMsg values
 		m.width = msg.Width
 		m.height = msg.Height
 	}
 	return m, nil
 }
 
-// View renders the UI
 func (m Model) View() string {
-	// Tokyo Night color scheme
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#7aa2f7")).
-		MarginBottom(1)
+	var b strings.Builder
 
-	sectionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#c0caf5"))
+	b.WriteString(titleStyle.Render("WezTerm Navigator"))
+	b.WriteString("\n\n")
 
-	keyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9ece6a")).
-		Bold(true)
+	b.WriteString(sectionStyle.Render("Welcome to WezTerm!"))
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("Mode: Singleton Window"))
+	b.WriteString("\n\n")
 
-	descStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#a9b1d6"))
+	b.WriteString(sectionStyle.Render("Keybindings:"))
+	b.WriteString("\n\n")
 
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#565f89")).
-		Italic(true).
-		MarginTop(1)
+	b.WriteString(keyStyle.Render("Window Management:"))
+	b.WriteString("\n")
+	b.WriteString(descStyle.Render("  Ctrl+Shift+T"))
+	b.WriteString(" - New tab\n")
+	b.WriteString(descStyle.Render("  Ctrl+Shift+N"))
+	b.WriteString(" - New window\n")
+	b.WriteString(descStyle.Render("  Ctrl+Shift+9"))
+	b.WriteString(" - Switch to navigator window\n")
+	b.WriteString(descStyle.Render("  Ctrl+Shift+0"))
+	b.WriteString(" - Switch to main window\n\n")
 
-	// Build content
-	var content string
+	b.WriteString(keyStyle.Render("Navigation:"))
+	b.WriteString("\n")
+	b.WriteString(descStyle.Render("  Alt+Left/Right"))
+	b.WriteString(" - Switch tabs\n")
+	b.WriteString(descStyle.Render("  Ctrl+Shift+Arrow"))
+	b.WriteString(" - Navigate panes\n\n")
 
-	// Title
-	content += titleStyle.Render("WezTerm Navigator") + "\n\n"
+	b.WriteString(keyStyle.Render("Splitting:"))
+	b.WriteString("\n")
+	b.WriteString(descStyle.Render("  Ctrl+Shift+%"))
+	b.WriteString(" - Horizontal split\n")
+	b.WriteString(descStyle.Render(`  Ctrl+Shift+"`))
+	b.WriteString(" - Vertical split\n\n")
 
-	// Welcome message
-	content += sectionStyle.Render("Welcome to WezTerm!") + "\n"
-	content += helpStyle.Render("Mode: Singleton Window") + "\n\n"
+	b.WriteString(keyStyle.Render("Closing:"))
+	b.WriteString("\n")
+	b.WriteString(descStyle.Render("  Ctrl+Shift+W"))
+	b.WriteString(" - Close tab\n\n")
 
-	// Keybindings section
-	content += sectionStyle.Render("Keybindings:") + "\n\n"
+	b.WriteString(helpStyle.Render("Press Ctrl+C or q to quit"))
 
-	// Window management
-	content += keyStyle.Render("Window Management:") + "\n"
-	content += descStyle.Render("  Ctrl+Shift+T") + " - New tab\n"
-	content += descStyle.Render("  Ctrl+Shift+N") + " - New window\n"
-	content += descStyle.Render("  Ctrl+Shift+9") + " - Switch workspace (navigator)\n\n"
-
-	// Navigation
-	content += keyStyle.Render("Navigation:") + "\n"
-	content += descStyle.Render("  Alt+Left/Right") + " - Switch tabs\n"
-	content += descStyle.Render("  Ctrl+Shift+Arrow") + " - Navigate panes\n\n"
-
-	// Splitting
-	content += keyStyle.Render("Splitting:") + "\n"
-	content += descStyle.Render("  Ctrl+Shift+%") + " - Horizontal split\n"
-	content += descStyle.Render(`  Ctrl+Shift+"`) + " - Vertical split\n\n"
-
-	// Closing
-	content += keyStyle.Render("Closing:") + "\n"
-	content += descStyle.Render("  Ctrl+Shift+W") + " - Close tab\n\n"
-
-	// Help
-	content += helpStyle.Render("Press Ctrl+C or q to quit")
-
-	// Wrap in container with padding
 	containerStyle := lipgloss.NewStyle().
 		Width(m.width).
 		Height(m.height).
 		Padding(1)
 
-	return containerStyle.Render(content)
+	return containerStyle.Render(b.String())
 }
