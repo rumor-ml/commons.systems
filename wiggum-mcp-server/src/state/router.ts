@@ -298,7 +298,7 @@ function safeStringify(value: unknown, label: string): string {
           partialError instanceof Error ? partialError.message : String(partialError);
         safeLog('warn', `Partial state extraction failed for ${label}`, {
           error: partialErrorMsg,
-          hasPhaseProperty: value && typeof value === 'object' && 'phase' in value,
+          hasPhaseProperty: true,
         });
         // Return explicit message about partial extraction failure
         return `<partial extraction failed: ${partialErrorMsg}>`;
