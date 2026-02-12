@@ -51,6 +51,13 @@ import { classifyGitHubError } from '@commons/mcp-common/errors';
 import { sanitizeErrorMessage } from '../utils/security.js';
 
 /**
+ * Constants for retry and error handling configuration
+ */
+const MAX_DELAY_MS = 60000; // 60 seconds - cap for exponential backoff
+const MAX_RETRIES_LIMIT = 100; // Maximum allowed retry attempts
+const ERROR_MESSAGE_MAX_LENGTH = 1000; // Maximum length for sanitized error messages
+
+/**
  * Helper type for state where PR is guaranteed to exist
  * Used in handlers after Step 0
  */
@@ -165,30 +172,29 @@ function safeLog(
   message: string,
   context: Record<string, unknown>
 ): void {
-  let capturedLoggingError: unknown;
-
+  // Try primary logger
   try {
     logger[level](message, context);
     return;
   } catch (loggingError) {
-    capturedLoggingError = loggingError;
+    // Fall through to console.error fallback
+    const errorMessage =
+      loggingError instanceof Error ? loggingError.message : String(loggingError);
+
+    try {
+      console.error('CRITICAL: Logger failed', {
+        level,
+        message,
+        context,
+        loggingError: errorMessage,
+      });
+      return;
+    } catch (consoleError) {
+      // Fall through to stderr fallback
+    }
   }
 
-  try {
-    console.error('CRITICAL: Logger failed', {
-      level,
-      message,
-      context,
-      loggingError:
-        capturedLoggingError instanceof Error
-          ? capturedLoggingError.message
-          : String(capturedLoggingError),
-    });
-    return;
-  } catch (consoleError) {
-    // Fall through to stderr fallback
-  }
-
+  // Try stderr fallback
   try {
     process.stderr.write(`CRITICAL: Logger and console.error failed - ${message}\n`);
     return;
@@ -201,6 +207,66 @@ function safeLog(
   if (typeof globalThis !== 'undefined') {
     (globalThis as any).__unloggedErrors = (globalThis as any).__unloggedErrors || [];
     (globalThis as any).__unloggedErrors.push({ level, message, context });
+  }
+}
+
+/**
+ * Classify GitHub API error with safe fallback
+ *
+ * Attempts to classify the error using classifyGitHubError. If classification fails,
+ * returns a conservative fallback that treats the error as unexpected (no retry).
+ *
+ * @param error - The error to classify
+ * @param exitCode - Optional exit code from GitHubCliError
+ * @param resourceIdField - Field name for logging ('prNumber' or 'issueNumber')
+ * @param resourceId - Resource ID for logging
+ * @param step - Step identifier for logging
+ * @param functionName - Function name for logging
+ * @returns Error classification result
+ */
+function getErrorClassificationWithFallback(
+  error: Error,
+  exitCode: number | undefined,
+  resourceIdField: string,
+  resourceId: number,
+  step: string,
+  functionName: string
+): ReturnType<typeof classifyGitHubError> {
+  try {
+    return classifyGitHubError(error, exitCode);
+  } catch (classificationError) {
+    const errorMsg = error.message;
+    safeLog('error', `CRITICAL: Error classification failed in ${functionName}`, {
+      [resourceIdField]: resourceId,
+      step,
+      originalError: errorMsg,
+      originalErrorStack: error.stack,
+      classificationError:
+        classificationError instanceof Error
+          ? classificationError.message
+          : String(classificationError),
+      classificationErrorStack:
+        classificationError instanceof Error ? classificationError.stack : undefined,
+    });
+
+    // Fallback classification: treat as unexpected (no retry)
+    // Conservative approach - don't retry if we can't classify the error
+    // TODO: Consider treating classification failures as potentially transient for conservative retry
+    // TODO(#1990): Error classification failure results in silent non-retry without user awareness
+    safeLog('warn', 'Using fallback error classification (no retry)', {
+      [resourceIdField]: resourceId,
+      step,
+      originalError: errorMsg,
+    });
+
+    return {
+      is404: false,
+      isAuth: false,
+      isRateLimit: false,
+      isNetwork: false,
+      isCritical: false,
+      isTransient: false,
+    };
   }
 }
 
@@ -312,7 +378,6 @@ async function executeStateUpdateWithRetry(
   //   - maxRetries < 1: Loop would not execute (no retries attempted)
   //   - maxRetries > 100: Excessive delays due to uncapped exponential backoff (attempt 10 = ~17 min)
   //   - Non-integer (0.5, NaN, Infinity): Unpredictable loop behavior
-  const MAX_RETRIES_LIMIT = 100;
   if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > MAX_RETRIES_LIMIT) {
     logger.error(`${functionName}: Invalid maxRetries parameter`, {
       [resourceIdField]: resourceId,
@@ -354,7 +419,7 @@ async function executeStateUpdateWithRetry(
     // Safe access to completedSteps - may be undefined/null in invalid state
     const completedStepsStr = Array.isArray(state.completedSteps)
       ? state.completedSteps.join(',')
-      : String(state.completedSteps);
+      : 'invalid';
     const stateSummary = `phase=${state.phase}, step=${state.step}, iteration=${state.iteration}, completedSteps=[${completedStepsStr}]`;
     throw StateApiError.create(
       `Invalid state - validation failed: ${details}. State: ${stateSummary}`,
@@ -419,42 +484,14 @@ async function executeStateUpdateWithRetry(
       // Classify error type using shared utility
       // If classification fails, use conservative fallback (no retry) to avoid misclassifying errors
       // TODO(#940): Document expected GitHub API error patterns and add test coverage
-      let classification: ReturnType<typeof classifyGitHubError>;
-      try {
-        classification = classifyGitHubError(updateError, exitCode);
-      } catch (classificationError) {
-        safeLog('error', `CRITICAL: Error classification failed in ${functionName}`, {
-          [resourceIdField]: resourceId,
-          step,
-          originalError: errorMsg,
-          originalErrorStack: updateError.stack,
-          classificationError:
-            classificationError instanceof Error
-              ? classificationError.message
-              : String(classificationError),
-          classificationErrorStack:
-            classificationError instanceof Error ? classificationError.stack : undefined,
-        });
-
-        // Fallback classification: treat as unexpected (no retry)
-        // Conservative approach - don't retry if we can't classify the error
-        // TODO: Consider treating classification failures as potentially transient for conservative retry
-        // TODO(#1990): Error classification failure results in silent non-retry without user awareness
-        classification = {
-          is404: false,
-          isAuth: false,
-          isRateLimit: false,
-          isNetwork: false,
-          isCritical: false,
-          isTransient: false,
-        };
-
-        safeLog('warn', 'Using fallback error classification (no retry)', {
-          [resourceIdField]: resourceId,
-          step,
-          originalError: errorMsg,
-        });
-      }
+      const classification = getErrorClassificationWithFallback(
+        updateError,
+        exitCode,
+        resourceIdField,
+        resourceId,
+        step,
+        functionName
+      );
 
       // Build error context including classification results for debugging
       const errorContext = {
@@ -502,7 +539,6 @@ async function executeStateUpdateWithRetry(
 
         if (attempt < maxRetries) {
           // Exponential backoff: 2^attempt seconds, capped at 60s to balance recovery time vs user experience
-          const MAX_DELAY_MS = 60000;
           const uncappedDelayMs = Math.pow(2, attempt) * 1000;
 
           // Validate uncapped delay to catch corrupted attempt counter early
@@ -753,7 +789,7 @@ function formatFixInstructions(
     const originalLength = failureDetails.length;
     const hadMultipleLines = failureDetails.includes('\n');
     // TODO(#1862): Consider logging full unsanitized error for debugging while showing sanitized version to users
-    sanitizedDetails = sanitizeErrorMessage(failureDetails, 1000);
+    sanitizedDetails = sanitizeErrorMessage(failureDetails, ERROR_MESSAGE_MAX_LENGTH);
 
     // Detect sanitization and log for debugging
     const wasLengthTruncated = sanitizedDetails.length < originalLength;
@@ -782,13 +818,12 @@ function formatFixInstructions(
 
   // If issueNumber provided, use triage workflow
   if (issueNumber !== undefined) {
-    return (
-      generateWorkflowTriageInstructions(
-        issueNumber,
-        failureType as 'Workflow' | 'PR checks',
-        sanitizedDetails
-      ) + truncationIndicator
+    const triageInstructions = generateWorkflowTriageInstructions(
+      issueNumber,
+      failureType as 'Workflow' | 'PR checks',
+      sanitizedDetails
     );
+    return triageInstructions + truncationIndicator;
   }
 
   // Fall back to direct fix instructions if no issueNumber
@@ -1561,12 +1596,19 @@ function hasExistingPR(state: CurrentState): state is CurrentStateWithPR {
  * @internal
  */
 export const _testExports = {
+  // Type guards
   hasExistingPR,
+  // Pre-check helpers
   checkUncommittedChanges,
   checkBranchPushed,
+  // Formatting helpers
   formatFixInstructions,
+  // Step handlers
   handlePhase2SecurityReview,
+  // Error handling helpers
   safeLog,
   safeStringify,
+  getErrorClassificationWithFallback,
+  // State update helpers
   executeStateUpdateWithRetry,
 };
