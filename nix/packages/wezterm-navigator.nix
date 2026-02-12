@@ -19,7 +19,8 @@ buildGoModule {
       baseName != ".git"
       && baseName != "result"
       && baseName != ".direnv"
-      && baseName != "wezterm-navigator";
+      && baseName != "build"
+      && !(baseName == "wezterm-navigator" && type == "regular");
   };
 
   vendorHash = "sha256-uwBJAqN4sIepiiJf9lCDumLqfKJEowQO2tOiSWD3Fig=";
