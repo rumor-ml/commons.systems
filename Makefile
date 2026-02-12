@@ -49,6 +49,7 @@ test-integration:
 	@echo "$(CYAN)Running integration tests...$(RESET)"
 	@./infrastructure/scripts/run-tests.sh --type integration
 
+# TODO(#1994): Implement E2E tests for wezterm sidebar integration
 test-e2e:
 	@echo "$(CYAN)Running E2E tests...$(RESET)"
 	@./infrastructure/scripts/run-tests.sh --type e2e

@@ -8,6 +8,7 @@ import (
 	"github.com/natescherer/commons.systems/wezterm-navigator/internal/model"
 )
 
+// TODO(#1980): Add integration tests for main function
 func main() {
 	m := model.NewModel()
 	p := tea.NewProgram(m, tea.WithAltScreen())

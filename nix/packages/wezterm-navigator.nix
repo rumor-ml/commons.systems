@@ -3,6 +3,7 @@
   buildGoModule,
 }:
 
+# TODO(#1992): Consider custom build error handling in Nix Go packages
 buildGoModule {
   pname = "wezterm-navigator";
   version = "0.1.0";
@@ -15,7 +16,10 @@ buildGoModule {
       let
         baseName = baseNameOf path;
       in
-      baseName != ".git" && baseName != "result" && baseName != ".direnv";
+      baseName != ".git"
+      && baseName != "result"
+      && baseName != ".direnv"
+      && baseName != "wezterm-navigator";
   };
 
   vendorHash = "sha256-uwBJAqN4sIepiiJf9lCDumLqfKJEowQO2tOiSWD3Fig=";
