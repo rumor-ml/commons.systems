@@ -29,6 +29,7 @@
       local config = wezterm.config_builder()
 
       -- Use JetBrains Mono if available, fallback to monospace
+      -- TODO(#1998): Consider explicit font fallback configuration or documentation
       config.font = wezterm.font('JetBrains Mono', { weight = 'Regular' })
       config.font_size = 11.0
 
@@ -66,16 +67,17 @@
       -- Persistent navigator configuration (singleton window)
       -- Creates a dedicated WezTerm window for the navigator that persists
       -- across all tabs and windows opened in the main workspace
+      -- TODO(#1995): Add defensive pcall wrapping around mux.spawn_window() calls
       wezterm.on('gui-startup', function(cmd)
         local mux = wezterm.mux
 
         -- Step 1: Create navigator window (separate from main window)
+        -- Using args parameter to directly exec the navigator binary without shell interaction
+        -- This is more robust than send_text as it avoids shell timing/prompt issues
         local nav_tab, nav_pane, nav_window = mux.spawn_window({
           workspace = 'default',
+          args = { '${pkgs.wezterm-navigator}/bin/wezterm-navigator' },
         })
-
-        -- Launch wezterm-navigator in the navigator window
-        nav_pane:send_text('${pkgs.wezterm-navigator}/bin/wezterm-navigator\n')
 
         -- Step 2: Create main working window
         local main_tab, main_pane, main_window = mux.spawn_window(cmd or {

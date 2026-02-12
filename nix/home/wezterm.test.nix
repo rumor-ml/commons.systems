@@ -171,6 +171,36 @@ let
             end
           end
 
+          -- Validate keys array structure
+          if key == "keys" then
+            if type(value) ~= "table" then
+              error("Config key 'keys' must be a table, got: " .. type(value))
+            end
+            -- Validate each keybinding entry
+            for i, binding in ipairs(value) do
+              if type(binding) ~= "table" then
+                error("keys[" .. i .. "] must be a table, got: " .. type(binding))
+              end
+              -- Validate required fields
+              if not binding.key then
+                error("keys[" .. i .. "] missing required field 'key'")
+              end
+              if type(binding.key) ~= "string" then
+                error("keys[" .. i .. "].key must be a string, got: " .. type(binding.key))
+              end
+              if not binding.action then
+                error("keys[" .. i .. "] missing required field 'action'")
+              end
+              if type(binding.action) ~= "table" then
+                error("keys[" .. i .. "].action must be a table (from wezterm.action), got: " .. type(binding.action))
+              end
+              -- mods is optional but must be string if present
+              if binding.mods and type(binding.mods) ~= "string" then
+                error("keys[" .. i .. "].mods must be a string, got: " .. type(binding.mods))
+              end
+            end
+          end
+
           -- Store the value
           rawset(t, key, value)
         end
