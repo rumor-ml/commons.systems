@@ -317,6 +317,7 @@ service cloud.firestore {
     // NOTE: Firebase Security Rules do NOT support wildcard collection names.
     // The syntax "match /collection{suffix}" is INVALID and causes compilation errors.
     // Each collection variant must be listed explicitly.
+    // TODO(#2003): Add security rules test coverage for public read rules
     match /budget-demo-transactions/{transactionId} {
       allow read: if true; // Publicly readable demo data
       allow create: if isAuthenticated()

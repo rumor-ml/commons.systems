@@ -335,6 +335,9 @@ parse_pid_file() {
   # Try to read PID:PGID format
   # Capture stderr to distinguish critical errors from expected failures
   local read_error=$(mktemp)
+  # Ensure cleanup on function return (handles SIGTERM/SIGINT)
+  trap "rm -f '$read_error'" RETURN
+
   if IFS=':' read -r pid pgid < "$pid_file_path" 2>"$read_error"; then
     # Validate we got at least a PID and that it's numeric
     if [ -n "$pid" ] && [[ "$pid" =~ ^[0-9]+$ ]]; then
@@ -346,27 +349,30 @@ parse_pid_file() {
       else
         PARSED_PGID="$pgid"  # May be empty if only PID was stored
       fi
-      rm -f "$read_error"
       return 0
     fi
   else
-    # Read failed - check error type
-    if grep -q "Permission denied" "$read_error" 2>/dev/null; then
-      echo "ERROR: Cannot read PID file (permission denied): $pid_file_path" >&2
+    # Read failed - check if it's a critical error requiring logging
+    if grep -qE "Permission denied|Input/output error" "$read_error" 2>/dev/null; then
+      local error_type
+      if grep -q "Permission denied" "$read_error"; then
+        error_type="permission denied"
+      else
+        error_type="I/O error"
+      fi
+      echo "ERROR: Cannot read PID file ($error_type): $pid_file_path" >&2
       cat "$read_error" >&2
-      rm -f "$read_error"
-      return 1
-    elif grep -q "Input/output error" "$read_error" 2>/dev/null; then
-      echo "ERROR: Cannot read PID file (I/O error): $pid_file_path" >&2
-      cat "$read_error" >&2
-      rm -f "$read_error"
       return 1
     fi
-    # Other errors are expected (empty file, malformed content) - continue to return failure
+    # Log unexpected errors for debugging
+    if [ -s "$read_error" ]; then
+      echo "WARNING: Unexpected error reading PID file: $pid_file_path" >&2
+      cat "$read_error" >&2
+    fi
+    # Other errors are expected (empty file, malformed content)
   fi
 
-  # Clean up temp file and return failure
-  rm -f "$read_error"
+  # Return failure (cleanup handled by RETURN trap)
   return 1
 }
 

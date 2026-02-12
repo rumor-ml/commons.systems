@@ -308,7 +308,7 @@ else
   # This automatically inherits singleProjectMode, ui.enabled, and any future settings
   # - del(.hosting): backend-only emulators don't need hosting config
   # - Absolute rules paths: emulator watches shared location regardless of starting worktree
-  if ! jq --argjson auth "${AUTH_PORT}" \
+  jq --argjson auth "${AUTH_PORT}" \
      --argjson fs "${FIRESTORE_PORT}" \
      --argjson storage "${STORAGE_PORT}" \
      --argjson ui "${UI_PORT}" \
@@ -318,9 +318,11 @@ else
        emulators: (.emulators | del(.hosting) | .auth.port = $auth | .firestore.port = $fs | .storage.port = $storage | .ui.port = $ui),
        storage: {rules: $storageRules},
        firestore: {rules: $fsRules}
-     }' "${PROJECT_ROOT}/firebase.json" > "${TEMP_BACKEND_CONFIG}"; then
+     }' "${PROJECT_ROOT}/firebase.json" > "${TEMP_BACKEND_CONFIG}"
+  jq_exit_code=$?
+  if [ $jq_exit_code -ne 0 ]; then
     echo "ERROR: Failed to generate backend emulator config with jq" >&2
-    echo "jq exit code: $?" >&2
+    echo "jq exit code: $jq_exit_code" >&2
     echo "Source: ${PROJECT_ROOT}/firebase.json" >&2
     echo "Dest: ${TEMP_BACKEND_CONFIG}" >&2
     exit 1

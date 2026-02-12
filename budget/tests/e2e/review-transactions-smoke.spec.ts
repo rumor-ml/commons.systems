@@ -11,7 +11,6 @@ test.describe('Review Page Smoke Tests', () => {
     const setupGuide = page.locator('text=Firebase Setup Required');
     await expect(setupGuide).not.toBeVisible();
 
-    // TODO(#1972): Replace waitForTimeout with deterministic wait for specific UI state
     // Wait for transactions to load
     await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 15000 });
 

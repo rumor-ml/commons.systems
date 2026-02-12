@@ -421,15 +421,15 @@ case "$APP_TYPE" in
       export VITE_FIREBASE_APP_ID="1:000000000000:web:0000000000000000000000"
 
       # Validate that all required VITE_FIREBASE_* variables were exported successfully
-      MISSING_FIREBASE_VARS=""
+      MISSING_FIREBASE_VARS=()
       for var in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID \
                  VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID; do
-        [ -z "${!var:-}" ] && MISSING_FIREBASE_VARS="$MISSING_FIREBASE_VARS $var"
+        [ -z "${!var:-}" ] && MISSING_FIREBASE_VARS+=("$var")
       done
 
-      if [ -n "$MISSING_FIREBASE_VARS" ]; then
+      if [ ${#MISSING_FIREBASE_VARS[@]} -gt 0 ]; then
         echo "FATAL: Required VITE_FIREBASE_* variables not exported:" >&2
-        echo "  Missing:$MISSING_FIREBASE_VARS" >&2
+        echo "  Missing: ${MISSING_FIREBASE_VARS[*]}" >&2
         echo "" >&2
         echo "This will cause build to fail or use incorrect Firebase configuration" >&2
         echo "Check export statements above for errors" >&2

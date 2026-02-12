@@ -96,30 +96,21 @@ APP_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
 
 # Validate all extracted configuration values
 MISSING_FIELDS=()
+declare -A FIELDS=(
+  ["apiKey"]="$API_KEY"
+  ["authDomain"]="$AUTH_DOMAIN"
+  ["projectId"]="$PROJECT_ID"
+  ["storageBucket"]="$STORAGE_BUCKET"
+  ["messagingSenderId"]="$MESSAGING_SENDER_ID"
+  ["appId"]="$APP_ID"
+)
 
-if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
-  MISSING_FIELDS+=("apiKey")
-fi
-
-if [ -z "$AUTH_DOMAIN" ] || [ "$AUTH_DOMAIN" = "null" ]; then
-  MISSING_FIELDS+=("authDomain")
-fi
-
-if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-  MISSING_FIELDS+=("projectId")
-fi
-
-if [ -z "$STORAGE_BUCKET" ] || [ "$STORAGE_BUCKET" = "null" ]; then
-  MISSING_FIELDS+=("storageBucket")
-fi
-
-if [ -z "$MESSAGING_SENDER_ID" ] || [ "$MESSAGING_SENDER_ID" = "null" ]; then
-  MISSING_FIELDS+=("messagingSenderId")
-fi
-
-if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
-  MISSING_FIELDS+=("appId")
-fi
+for field in "${!FIELDS[@]}"; do
+  value="${FIELDS[$field]}"
+  if [ -z "$value" ] || [ "$value" = "null" ]; then
+    MISSING_FIELDS+=("$field")
+  fi
+done
 
 if [ ${#MISSING_FIELDS[@]} -gt 0 ]; then
   echo "❌ Failed to extract required Firebase configuration fields: ${MISSING_FIELDS[*]}"

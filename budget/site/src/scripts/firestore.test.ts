@@ -241,6 +241,10 @@ describe('Firestore module', () => {
       expect(isFirebaseConfigured()).toBe(true);
 
       Object.assign(import.meta.env, currentEnv);
+      // Clean up emulator flag if it wasn't in original environment
+      if (!('VITE_USE_FIREBASE_EMULATOR' in currentEnv)) {
+        delete import.meta.env.VITE_USE_FIREBASE_EMULATOR;
+      }
     });
 
     it('returns false when VITE_USE_FIREBASE_EMULATOR is false and env vars are missing', async () => {
@@ -255,6 +259,10 @@ describe('Firestore module', () => {
       expect(isFirebaseConfigured()).toBe(false);
 
       Object.assign(import.meta.env, currentEnv);
+      // Clean up emulator flag if it wasn't in original environment
+      if (!('VITE_USE_FIREBASE_EMULATOR' in currentEnv)) {
+        delete import.meta.env.VITE_USE_FIREBASE_EMULATOR;
+      }
     });
 
     it('returns false when VITE_USE_FIREBASE_EMULATOR is uppercase TRUE', async () => {
@@ -269,6 +277,10 @@ describe('Firestore module', () => {
       expect(isFirebaseConfigured()).toBe(false);
 
       Object.assign(import.meta.env, currentEnv);
+      // Clean up emulator flag if it wasn't in original environment
+      if (!('VITE_USE_FIREBASE_EMULATOR' in currentEnv)) {
+        delete import.meta.env.VITE_USE_FIREBASE_EMULATOR;
+      }
     });
 
     it('does not throw error when called (unlike validateFirebaseConfig)', async () => {
@@ -320,7 +332,7 @@ describe('Firestore module', () => {
 
   describe('Transaction validation', () => {
     // TODO(#2000): Fix test - validateTransaction throws errors, doesn't return null
-    it.skip('validateTransaction returns null for invalid data', async () => {
+    it.skip('validateTransaction handles invalid data gracefully', async () => {
       const { validateTransaction } = await import('./firestore');
 
       expect(validateTransaction({})).toBe(null);
@@ -386,7 +398,7 @@ describe('Firestore module', () => {
     });
 
     // TODO(#2000): Fix test - createTransaction throws errors, doesn't return null
-    it.skip('returns null for invalid transaction data', async () => {
+    it.skip('handles invalid transaction data gracefully', async () => {
       const { createTransaction } = await import('./firestore');
 
       const invalid = createTransaction({

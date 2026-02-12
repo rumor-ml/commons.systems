@@ -20,7 +20,7 @@ import {
 } from './collection-names';
 import type { Category } from '../islands/types';
 
-// TODO(#1455): Add test coverage for Firestore query functions (loadUserTransactions,
+// TODO(#2007): Add test coverage for Firestore query functions (loadUserTransactions,
 // loadDemoTransactions, loadUserStatements, loadUserAccounts, loadUserInstitutions).
 // Need tests for: query constraints, data transformation, error handling, empty results.
 
@@ -35,6 +35,7 @@ const requiredEnvVars = [
 ] as const;
 
 // Validate Firebase environment variables (lazy - only when Firebase is initialized)
+// TODO(#2008): Add Sentry/structured logging to track Firebase config errors in production
 function validateFirebaseConfig(): void {
   const missingVars = requiredEnvVars.filter(
     (key) => !import.meta.env[key] || import.meta.env[key] === ''
@@ -53,12 +54,12 @@ function validateFirebaseConfig(): void {
 
 // Check if Firebase is properly configured (non-throwing variant for UI checks)
 export function isFirebaseConfigured(): boolean {
-  // Emulator mode: skip Firebase config validation since emulator uses dummy values
+  // Emulator mode bypasses validation since it uses dummy values
   if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
     return true;
   }
 
-  // Check if all required environment variables are present, not empty, and not placeholders
+  // Check if all required variables are present (truthy) and don't contain placeholder text
   // TODO(#1971): Expand placeholder detection to include demo-, test-, example- prefixes
   return requiredEnvVars.every((key) => {
     const value = import.meta.env[key] as string;
@@ -200,6 +201,7 @@ export function getFirestoreDb(): Firestore {
         ) {
           console.log('Firestore emulator connection already established');
         } else {
+          // TODO(#2004): Include host, port, and actionable guidance in emulator connection error
           console.error('Failed to connect to Firestore emulator:', error);
           throw error;
         }
@@ -241,6 +243,7 @@ function mapDocumentToTransaction(data: DocumentData): Transaction {
 }
 
 // Validate Transaction data from Firestore
+// TODO(#2006): Use 'unknown' or narrower type instead of 'any' for better type safety
 export function validateTransaction(data: any): Transaction {
   // Validate required fields
   // Note: userId is optional for demo transactions (shared data without ownership)
@@ -349,6 +352,7 @@ export async function loadUserTransactions(
       const transaction = validateTransaction(data);
       transactions.push(transaction);
     } catch (error) {
+      // TODO(#2005): Accumulate validation errors, add failure rate threshold, and provide user-facing feedback
       console.warn(
         'Skipping invalid transaction:',
         error instanceof Error ? error.message : String(error)
@@ -398,6 +402,7 @@ export async function loadDemoTransactions(options?: {
       const transaction = validateTransaction(data);
       transactions.push(transaction);
     } catch (error) {
+      // TODO(#2005): Accumulate validation errors, add failure rate threshold, and provide user-facing feedback
       console.warn(
         'Skipping invalid transaction:',
         error instanceof Error ? error.message : String(error)
