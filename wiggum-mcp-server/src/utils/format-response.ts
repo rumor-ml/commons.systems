@@ -6,7 +6,7 @@
  * to avoid JSON decoding errors and improve readability in agent logs.
  *
  * Protocol Context:
- * - Response structure must match ResponseData interface (see lines 43-50)
+ * - Response structure must match ResponseData interface (see interface definition in this file)
  * - All fields are required per protocol specification
  * - Context field ordering follows protocol definition but is not semantically significant
  * - Markdown output is consumed directly by LLM agents (not parsed)
@@ -23,6 +23,8 @@
 // TODO(#304): Add readonly modifiers to type definitions
 
 import { FormattingError } from './errors.js';
+import type { WiggumStep } from '../constants.js';
+import { isValidStep } from '../constants.js';
 
 /**
  * Allowed types for context values
@@ -44,7 +46,7 @@ interface ResponseContext {
  */
 interface ResponseData {
   current_step: string;
-  step_number: string;
+  step_number: WiggumStep;
   iteration_count: number;
   instructions: string;
   steps_completed_by_tool: string[];
@@ -56,7 +58,7 @@ interface ResponseData {
  * Validate response data has all required fields with correct types
  *
  * TODO(#304): Fix instructions validation contradiction (allow empty strings) - see PR review for #273
- * Enforces ResponseData interface schema requirements (see lines 43-50):
+ * Enforces ResponseData interface schema requirements:
  * - All fields are required by protocol specification
  * - Types must match exactly (string, number, array, object as specified)
  * - Missing or mistyped fields indicate protocol violation
@@ -72,7 +74,7 @@ function validateResponseData(data: unknown): asserts data is ResponseData {
   const d = data as Record<string, unknown>;
 
   // Validate required string fields
-  const stringFields = ['current_step', 'step_number', 'instructions'] as const;
+  const stringFields = ['current_step', 'instructions'] as const;
   for (const field of stringFields) {
     if (typeof d[field] !== 'string') {
       throw new FormattingError(
@@ -81,7 +83,18 @@ function validateResponseData(data: unknown): asserts data is ResponseData {
     }
   }
 
+  // Validate step_number is a valid WiggumStep (union of string literals)
+  if (!isValidStep(d.step_number)) {
+    const actualType = typeof d.step_number;
+    const displayValue =
+      typeof d.step_number === 'string' ? `"${d.step_number}"` : String(d.step_number);
+    throw new FormattingError(
+      `Invalid step_number: expected valid WiggumStep, got ${displayValue} (${actualType})`
+    );
+  }
+
   // Validate iteration_count
+  // TODO(#1941): Add range validation for iteration_count (non-negative integer check)
   if (typeof d.iteration_count !== 'number') {
     throw new FormattingError(
       `Invalid iteration_count: expected number, got ${typeof d.iteration_count}`
@@ -155,10 +168,10 @@ function formatContextValue(value: ContextValue): string {
  * @example
  * ```typescript
  * const markdown = formatWiggumResponse({
- *   current_step: "Security Review",
- *   step_number: "4",
+ *   current_step: "PR Review",
+ *   step_number: "p2-4",
  *   iteration_count: 2,
- *   instructions: "Execute /security-review...",
+ *   instructions: "Execute /review-pr...",
  *   steps_completed_by_tool: [],
  *   context: { pr_number: 252, current_branch: "feature-branch" }
  * });

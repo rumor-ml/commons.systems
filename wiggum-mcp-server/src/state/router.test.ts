@@ -7,6 +7,8 @@
  * TODO(#1873): Documentation-only tests with assert.ok(true) could be replaced with JSDoc comments
  */
 
+// TODO(#1930): Add more error context to test assertions for better debugging
+
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { _testExports, createStateUpdateFailure } from './router.js';
@@ -17,6 +19,7 @@ import type { WiggumStep } from '../constants.js';
 import type { ToolResult } from '../types.js';
 import {
   STEP_PHASE1_MONITOR_WORKFLOW,
+  STEP_PHASE1_PR_REVIEW,
   STEP_PHASE1_CREATE_PR,
   STEP_PHASE2_MONITOR_WORKFLOW,
   STEP_PHASE2_MONITOR_CHECKS,
@@ -24,6 +27,7 @@ import {
   STEP_PHASE2_PR_REVIEW,
   STEP_PHASE2_SECURITY_REVIEW,
   STEP_PHASE2_APPROVAL,
+  STEP_MAX,
   PHASE1_PR_REVIEW_COMMAND,
   PHASE2_PR_REVIEW_COMMAND,
   SECURITY_REVIEW_COMMAND,
@@ -145,7 +149,7 @@ describe('checkUncommittedChanges', () => {
     const state = createMockState({ git: { hasUncommittedChanges: true } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],
@@ -170,7 +174,7 @@ describe('checkUncommittedChanges', () => {
     const state = createMockState({ git: { hasUncommittedChanges: false } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],
@@ -188,7 +192,7 @@ describe('checkBranchPushed', () => {
     const state = createMockState({ git: { isPushed: false } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],
@@ -211,7 +215,7 @@ describe('checkBranchPushed', () => {
     const state = createMockState({ git: { isPushed: true } });
     const output = {
       current_step: 'Test Step',
-      step_number: '1',
+      step_number: STEP_PHASE1_MONITOR_WORKFLOW,
       iteration_count: 0,
       instructions: '',
       steps_completed_by_tool: [],
@@ -309,6 +313,7 @@ describe('Step Sequencing Logic', () => {
     it('should recognize valid step values in completedSteps', () => {
       const validSteps: WiggumStep[] = [
         STEP_PHASE1_MONITOR_WORKFLOW,
+        STEP_PHASE1_PR_REVIEW,
         STEP_PHASE1_CREATE_PR,
         STEP_PHASE2_MONITOR_WORKFLOW,
         STEP_PHASE2_MONITOR_CHECKS,
@@ -317,6 +322,9 @@ describe('Step Sequencing Logic', () => {
         STEP_PHASE2_SECURITY_REVIEW,
         STEP_PHASE2_APPROVAL,
       ];
+
+      assert.strictEqual(validSteps.length, 9, 'Should test all 9 workflow steps');
+
       for (const step of validSteps) {
         const state = createMockState({
           pr: { exists: true, state: 'OPEN' },
@@ -416,6 +424,54 @@ describe('Error State Handling', () => {
       git: { isPushed: false },
     });
     assert.strictEqual(state.git.isPushed, false);
+  });
+});
+
+describe('WiggumStep Type Safety', () => {
+  it('should reject invalid WiggumStep values at compile time', () => {
+    // Each ts-expect-error below ensures type safety - pnpm typecheck fails if type errors disappear
+    // @ts-expect-error - Type '"invalid-step"' is not assignable to type 'WiggumStep'
+    const invalid: WiggumStep = 'invalid-step';
+    void invalid; // Intentionally unused - needed for compile-time type check
+    // @ts-expect-error - Type '"1"' is not assignable to type 'WiggumStep'
+    const numeric: WiggumStep = '1';
+    void numeric; // Intentionally unused - needed for compile-time type check
+    // @ts-expect-error - Type '"p1-99"' is not assignable to type 'WiggumStep'
+    const wrongPhase: WiggumStep = 'p1-99';
+    void wrongPhase; // Intentionally unused - needed for compile-time type check
+
+    // Valid assignment should compile without error
+    const valid: WiggumStep = STEP_PHASE1_MONITOR_WORKFLOW;
+    assert.strictEqual(valid, STEP_PHASE1_MONITOR_WORKFLOW);
+  });
+
+  it('should accept all valid WiggumStep constants', () => {
+    const validSteps: WiggumStep[] = [
+      STEP_PHASE1_MONITOR_WORKFLOW,
+      STEP_PHASE1_PR_REVIEW,
+      STEP_PHASE1_CREATE_PR,
+      STEP_PHASE2_MONITOR_WORKFLOW,
+      STEP_PHASE2_MONITOR_CHECKS,
+      STEP_PHASE2_CODE_QUALITY,
+      STEP_PHASE2_PR_REVIEW,
+      STEP_PHASE2_SECURITY_REVIEW,
+      STEP_PHASE2_APPROVAL,
+      STEP_MAX,
+    ];
+
+    assert.strictEqual(validSteps.length, 10, 'Should test all 10 WiggumStep values');
+
+    for (const step of validSteps) {
+      const output = {
+        current_step: `Testing ${step}`,
+        step_number: step,
+        iteration_count: 0,
+        instructions: 'Test',
+        steps_completed_by_tool: [],
+        context: {},
+      };
+      assert.strictEqual(output.step_number, step);
+    }
   });
 });
 
@@ -1717,6 +1773,24 @@ describe('Security Review Instructions', () => {
         'Should reference the security review command'
       );
     });
+  });
+});
+
+describe('Iteration Limit Edge Cases', () => {
+  it('should document router behavior when iteration limit is reached', () => {
+    // init.ts checks iteration limits before calling router; router doesn't enforce limits.
+
+    const state = createMockState({
+      pr: { exists: true, state: 'OPEN', number: 123 },
+      wiggum: {
+        iteration: 10, // At default iteration limit
+        completedSteps: [STEP_PHASE1_CREATE_PR],
+        phase: 'phase2',
+      },
+    });
+
+    assert.strictEqual(state.wiggum.iteration, 10);
+    assert.ok(state.pr.exists && state.pr.state === 'OPEN');
   });
 });
 

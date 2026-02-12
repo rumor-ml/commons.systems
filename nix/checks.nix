@@ -324,11 +324,23 @@ pre-commit-hooks.lib.${pkgs.system}.run {
         # TODO(#1768): Duplicate direnv error handling pattern in checks.nix
         # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
         # This prevents ICU4c library version conflicts on macOS
-        if ! eval "$(${pkgs.direnv}/bin/direnv export bash 2>&1)"; then
+        DIRENV_OUTPUT=$(${pkgs.direnv}/bin/direnv export bash 2>/dev/null)
+        DIRENV_EXIT=$?
+
+        if [ $DIRENV_EXIT -ne 0 ]; then
+          DIRENV_OUTPUT=$(${pkgs.direnv}/bin/direnv export bash 2>&1)
+        fi
+
+        if [ $DIRENV_EXIT -ne 0 ] || [ -z "$DIRENV_OUTPUT" ]; then
           echo "ERROR: direnv environment setup failed"
           echo "Ensure 'direnv allow' has been run in the repository"
+          echo ""
+          echo "direnv error output:"
+          echo "$DIRENV_OUTPUT"
           exit 1
         fi
+
+        eval "$DIRENV_OUTPUT"
 
         # Verify we're in a git repository
         if ! git rev-parse --git-dir > /dev/null 2>&1; then
