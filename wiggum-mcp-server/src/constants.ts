@@ -375,11 +375,29 @@ wiggum_list_issues({ scope: 'all' })
 
 This returns issue IDs, titles, and counts WITHOUT full descriptions (saves tokens).
 
-**Step 2: Create TODO List**
+**Step 2: Enter Plan Mode**
+
+Call the EnterPlanMode tool to create a structured implementation plan.
+
+In plan mode, document:
+- Summary of all in-scope issues with issue IDs, titles, and file locations
+- Summary of all out-of-scope issues with issue IDs and titles
+- Implementation strategy (sequential in-scope fixes, parallel out-of-scope tracking)
+- Expected agent launches with issue IDs
+
+Call ExitPlanMode when plan is complete.
+
+**CRITICAL: After exiting plan mode, context will be cleared. Call wiggum_list_issues again to get fresh references.**
+
+**Step 3: Execute Plan (After Context Clear)**
+
+Call \`wiggum_list_issues({ scope: 'all' })\` again to get fresh issue references.
+
+**Step 4: Create TODO List**
 
 From the returned issue references, create a TODO list to track progress.
 
-**Step 3: Launch Agents**
+**Step 5: Launch Agents**
 
 ### For In-Scope Issues: RUN ONE AT A TIME (Sequential)
 

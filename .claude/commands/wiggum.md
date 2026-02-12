@@ -155,9 +155,48 @@ Execute AFTER PR is created for final validation:
    - One item per OUT-OF-SCOPE ISSUE: `[out-of-scope] {issue_id}: {title}`
    - One item for "Validate all implementations"
 
-**Phase 4: Parallel Implementation**
+**Phase 3.5: Plan Mode - Create Implementation Plan**
 
-5. Launch in PARALLEL using Task tool:
+5. Call EnterPlanMode tool to enter planning mode for the implementation strategy.
+
+6. In plan mode, create a structured implementation plan at `tmp/wiggum/all-hands-plan-{timestamp}.md` with these sections:
+
+   **A. Review Summary**
+   - Total in-scope issues: {count from wiggum_list_issues response}
+   - Total out-of-scope issues: {count from wiggum_list_issues response}
+   - Breakdown by agent: {list counts per agent}
+
+   **B. In-Scope Implementation Plan**
+   For each batch from wiggum_list_issues:
+   - Batch ID: batch-{N}
+   - Files affected: {list of files}
+   - Issue IDs in batch: {list issue IDs with titles}
+   - Agent: unsupervised-implement (opus model)
+
+   **C. Out-of-Scope Tracking Plan**
+   For each out-of-scope issue from wiggum_list_issues:
+   - Issue ID: {id}
+   - Title: {title}
+   - Agent: out-of-scope-tracker (sonnet model)
+
+   **D. Validation Strategy**
+   - After all parallel agents complete, launch single validation agent
+   - Pass all batch IDs to validation agent
+   - Validation agent runs full test suite and resolves any cross-batch issues
+
+   **E. Completion Steps**
+   - Execute `/commit-merge-push` to commit all fixes
+   - Call `wiggum_complete_all_hands()` to finalize
+
+7. Call ExitPlanMode when plan is complete.
+
+**IMPORTANT: After exiting plan mode, context will be cleared. The plan file persists and contains all information needed for implementation.**
+
+**Phase 4: Parallel Implementation (After Plan Mode)**
+
+8. Call wiggum_list_issues({ scope: 'all' }) again to get fresh issue references after context clear.
+
+9. Launch in PARALLEL using Task tool:
    - For each in-scope batch:
      - `subagent_type="unsupervised-implement"`
      - Pass batch_id from wiggum_list_issues
@@ -184,9 +223,9 @@ Execute AFTER PR is created for final validation:
 
 **Phase 6: Commit and Complete**
 
-7. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
-8. Call `wiggum_complete_all_hands({})`
-9. Follow the instructions returned by the tool
+10. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
+11. Call `wiggum_complete_all_hands({})`
+12. Follow the instructions returned by the tool
 
 ---
 
