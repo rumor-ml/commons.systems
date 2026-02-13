@@ -7,9 +7,18 @@ import { getTransactionsCollectionName } from '../../site/scripts/lib/collection
 
 test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
+    // Capture all console messages for debugging
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('Budget') || text.includes('Firestore') || text.includes('collection')) {
+        console.log(`[BROWSER ${msg.type()}] ${text}`);
+      }
+    });
+
     // For deployed tests, run-playwright-tests.sh already appends testCollection to baseURL
     // For local tests, we need to append it ourselves
     const isDeployed = process.env.DEPLOYED === 'true';
+    console.log(`[TEST] Deployed mode: ${isDeployed}`);
     let url;
 
     if (isDeployed) {
@@ -19,10 +28,20 @@ test.describe('Review Page Smoke Tests', () => {
     } else {
       // Local/emulator mode: append collection name as query param
       const collectionName = getTransactionsCollectionName();
+      console.log(`[TEST] Local collection: ${collectionName}`);
       url = `/?testCollection=${collectionName}#/review`;
     }
 
+    console.log(`[TEST] Navigating to: ${url}`);
     await page.goto(url);
+
+    // Log actual URL after navigation
+    const finalUrl = page.url();
+    const search = await page.evaluate(() => window.location.search);
+    const hash = await page.evaluate(() => window.location.hash);
+    console.log(`[TEST] Final URL: ${finalUrl}`);
+    console.log(`[TEST] Search params: ${search}`);
+    console.log(`[TEST] Hash: ${hash}`);
 
     // Wait for app to initialize
     await page.waitForSelector('.app-container', { timeout: 10000 });
