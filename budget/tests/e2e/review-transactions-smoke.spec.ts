@@ -3,11 +3,13 @@
 // TODO(#1968): Add negative test cases for authentication errors (emulator down, network fails)
 // Consolidated smoke test for review page - replaces manual-check.spec.ts and verify-transaction-loading.spec.ts
 import { test, expect } from '@playwright/test';
+import { getTransactionsCollectionName } from '../../site/scripts/lib/collection-names.js';
 
 test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
-    const url = new URL(page.url());
-    await page.goto(`/#/review${url.search}`);
+    // Get collection name from environment (handles PR/branch/worker namespacing)
+    const collectionName = getTransactionsCollectionName();
+    await page.goto(`/#/review?testCollection=${collectionName}`);
 
     const setupGuide = page.locator('text=Firebase Setup Required');
     await expect(setupGuide).not.toBeVisible();
