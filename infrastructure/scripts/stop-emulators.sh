@@ -246,3 +246,6 @@ else
 fi
 
 echo "✓ Emulator shutdown complete"
+
+# Explicitly exit with 0 to ensure clean exit despite background process termination
+exit 0
