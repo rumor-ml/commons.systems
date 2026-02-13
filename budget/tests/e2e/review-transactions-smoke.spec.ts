@@ -10,9 +10,13 @@ test.describe('Review Page Smoke Tests', () => {
     // For deployed tests, run-playwright-tests.sh already appends testCollection to baseURL
     // For local tests, we need to append it ourselves
     const isDeployed = process.env.DEPLOYED === 'true';
-    let url = '#/review';
+    let url;
 
-    if (!isDeployed) {
+    if (isDeployed) {
+      // Deployed mode: baseURL already has ?testCollection=..., just navigate to hash route
+      // Use leading slash to ensure it's relative to baseURL
+      url = '/#/review';
+    } else {
       // Local/emulator mode: append collection name as query param
       const collectionName = getTransactionsCollectionName();
       url = `/?testCollection=${collectionName}#/review`;
