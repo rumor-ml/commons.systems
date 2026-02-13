@@ -96,9 +96,6 @@ jobs:
 
       - name: Test Firestore security rules
         run: |
-          # Trap SIGTERM to prevent propagation from background job termination
-          trap '' TERM
-
           # Use existing emulator infrastructure (consistent with local dev)
           export SKIP_HOSTING=1  # Only need backend emulators for rules test
           source infrastructure/scripts/start-emulators.sh fellspiral
@@ -106,14 +103,9 @@ jobs:
           # Run tests using pnpm filter to target the specific package (avoids recursive workspace mode)
           # This runs the test:rules script from fellspiral/tests/package.json
           pnpm --filter @commons/fellspiral-tests run test:rules
-          TEST_EXIT_CODE=$?
 
-          # Cleanup using existing script
-          # Force backend shutdown since this is the only worktree in CI
-          infrastructure/scripts/stop-emulators.sh --force-backend 2>&1 || true
-
-          # Exit with test result (trap prevents SIGTERM propagation)
-          exit $TEST_EXIT_CODE
+          # Skip cleanup - GitHub Actions will kill orphan processes on job completion
+          # This avoids SIGTERM propagation issues that cause exit code 143
 
   # ==================== Firebase App Tests ====================
   test-firebase-fellspiral:
