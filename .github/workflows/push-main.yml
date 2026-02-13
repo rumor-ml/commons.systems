@@ -106,7 +106,8 @@ jobs:
           TEST_EXIT_CODE=$?
 
           # Cleanup using existing script (ignore exit code from cleanup)
-          infrastructure/scripts/stop-emulators.sh || true
+          # Force backend shutdown since this is the only worktree in CI
+          infrastructure/scripts/stop-emulators.sh --force-backend || true
 
           exit $TEST_EXIT_CODE
 
