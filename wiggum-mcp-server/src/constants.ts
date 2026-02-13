@@ -377,6 +377,8 @@ This returns issue IDs, titles, and counts WITHOUT full descriptions (saves toke
 
 **Step 2: Enter Plan Mode**
 
+// TODO(#2012): Plan mode instructions differ from wiggum.md - consider aligning structure or adding comments explaining workflow differences
+// TODO(#2014): Add test verifying EnterPlanMode and ExitPlanMode tool references in all-hands instructions
 Call the EnterPlanMode tool to create a structured implementation plan.
 
 In plan mode, document:
@@ -387,9 +389,9 @@ In plan mode, document:
 
 Call ExitPlanMode when plan is complete.
 
-**CRITICAL: After exiting plan mode, context will be cleared. Call wiggum_list_issues again to get fresh references.**
-
 **Step 3: Execute Plan (After Context Clear)**
+
+**CRITICAL: After exiting plan mode, context will be cleared. Call wiggum_list_issues again to get fresh references.**
 
 Call \`wiggum_list_issues({ scope: 'all' })\` again to get fresh issue references.
 
@@ -406,7 +408,7 @@ For EACH in-scope issue (one at a time, in order):
 \`\`\`
 Task({
   subagent_type: "unsupervised-implement",
-  model: "opus",
+  model: "sonnet",
   description: "Implement fix for issue {issue_id}",
   prompt: \`Implement fix for issue: {issue_id}
 

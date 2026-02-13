@@ -922,8 +922,7 @@ describe('generateScopeSeparatedFixInstructions', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
         '/tmp/out.md',
       ]);
-      assert(result.includes('model: "opus"')); // Agent 1
-      assert(result.includes('model: "sonnet"')); // Agent 2
+      assert(result.includes('model: "sonnet"')); // Both Agent 1 and Agent 2 use sonnet
     });
 
     it('should include in-scope count in header', () => {
@@ -1059,6 +1058,77 @@ describe('generateScopeSeparatedFixInstructions', () => {
       const result = generateScopeSeparatedFixInstructions(456, 'PR', 3, ['/tmp/in.md'], 0, []);
       // Issue number should appear in Agent 1's instructions
       assert(result.includes('#456') || result.includes('issue #456'));
+    });
+  });
+
+  describe('step sequence and context clear warning', () => {
+    it('should have correct step sequence with renumbered steps', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+
+      // Verify all steps exist
+      assert(result.match(/^\*\*Step 1:/m), 'Missing Step 1 header');
+      assert(result.match(/^\*\*Step 2:/m), 'Missing Step 2 header');
+      assert(result.match(/^\*\*Step 3:/m), 'Missing Step 3 header');
+      assert(result.match(/^\*\*Step 4:/m), 'Missing Step 4 header');
+      assert(result.match(/^\*\*Step 5:/m), 'Missing Step 5 header');
+
+      // Verify step titles
+      assert(result.includes('**Step 1: Get Issue References**'), 'Missing Step 1 title');
+      assert(result.includes('**Step 2: Enter Plan Mode**'), 'Missing Step 2 title');
+      assert(result.includes('**Step 3: Execute Plan (After Context Clear)**'), 'Missing Step 3 title');
+      assert(result.includes('**Step 4: Create TODO List**'), 'Missing Step 4 title');
+      assert(result.includes('**Step 5: Launch Agents**'), 'Missing Step 5 title');
+
+      // Verify correct ordering
+      const step1Index = result.indexOf('**Step 1:');
+      const step2Index = result.indexOf('**Step 2:');
+      const step3Index = result.indexOf('**Step 3:');
+      const step4Index = result.indexOf('**Step 4:');
+      const step5Index = result.indexOf('**Step 5:');
+
+      assert(step1Index !== -1, 'Step 1 not found');
+      assert(step2Index !== -1, 'Step 2 not found');
+      assert(step3Index !== -1, 'Step 3 not found');
+      assert(step4Index !== -1, 'Step 4 not found');
+      assert(step5Index !== -1, 'Step 5 not found');
+
+      assert(step1Index < step2Index, 'Step 1 should come before Step 2');
+      assert(step2Index < step3Index, 'Step 2 should come before Step 3');
+      assert(step3Index < step4Index, 'Step 3 should come before Step 4');
+      assert(step4Index < step5Index, 'Step 4 should come before Step 5');
+    });
+
+    it('should have context clear warning in Step 3', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+
+      // Verify warning exists
+      assert(
+        result.includes('CRITICAL: After exiting plan mode, context will be cleared'),
+        'Missing context clear warning'
+      );
+      assert(
+        result.includes('Call wiggum_list_issues again to get fresh references'),
+        'Missing wiggum_list_issues instruction'
+      );
+
+      // Verify warning appears in Step 3 (after "Step 3:" but before "Step 4:")
+      const step3Index = result.indexOf('**Step 3:');
+      const step4Index = result.indexOf('**Step 4:');
+      const warningIndex = result.indexOf('CRITICAL: After exiting plan mode, context will be cleared');
+
+      assert(warningIndex > step3Index, 'Warning should appear after Step 3 header');
+      assert(warningIndex < step4Index, 'Warning should appear before Step 4 header');
+    });
+
+    it('should have only one context clear warning (no redundancy)', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+
+      // Count occurrences of the warning text
+      const warningText = 'CRITICAL: After exiting plan mode, context will be cleared';
+      const matches = result.match(new RegExp(warningText, 'g'));
+
+      assert(matches !== null, 'Warning text not found');
+      assert.strictEqual(matches.length, 1, 'Warning should appear exactly once');
     });
   });
 });

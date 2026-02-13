@@ -159,6 +159,7 @@ Execute AFTER PR is created for final validation:
 
 5. Call EnterPlanMode tool to enter planning mode for the implementation strategy.
 
+<!-- TODO(#2016): Add test verifying plan file path template is present in instructions -->
 6. In plan mode, create a structured implementation plan at `tmp/wiggum/all-hands-plan-{timestamp}.md` with these sections:
 
    **A. Review Summary**
@@ -171,7 +172,7 @@ Execute AFTER PR is created for final validation:
    - Batch ID: batch-{N}
    - Files affected: {list of files}
    - Issue IDs in batch: {list issue IDs with titles}
-   - Agent: unsupervised-implement (opus model)
+   - Agent: unsupervised-implement (sonnet model)
 
    **C. Out-of-Scope Tracking Plan**
    For each out-of-scope issue from wiggum_list_issues:
@@ -191,6 +192,7 @@ Execute AFTER PR is created for final validation:
 7. Call ExitPlanMode when plan is complete.
 
 **IMPORTANT: After exiting plan mode, context will be cleared. The plan file persists and contains all information needed for implementation.**
+<!-- TODO(#2011): Clarify that plan file serves as audit trail/user reference only, or explicitly add step to read it in Phase 4 -->
 
 **Phase 4: Parallel Implementation (After Plan Mode)**
 
@@ -210,7 +212,7 @@ Execute AFTER PR is created for final validation:
 
 **Phase 5: Sequential Validation**
 
-6. After ALL Phase 4 agents complete, invoke SINGLE unsupervised-implement agent:
+10. After ALL Phase 4 agents complete, invoke SINGLE unsupervised-implement agent:
    - `subagent_type="unsupervised-implement"`
    - Instructions: "Validate all implementations for batches [batch-0, batch-1, ...]. Run full test suite and verify all fixes are correct. Resolve any out-of-scope validation errors reported by the parallel implementation agents: [include any errors from Phase 4 responses]."
    - Pass list of all batch IDs that were implemented
@@ -223,9 +225,9 @@ Execute AFTER PR is created for final validation:
 
 **Phase 6: Commit and Complete**
 
-10. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
-11. Call `wiggum_complete_all_hands({})`
-12. Follow the instructions returned by the tool
+11. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
+12. Call `wiggum_complete_all_hands({})`
+13. Follow the instructions returned by the tool
 
 ---
 
