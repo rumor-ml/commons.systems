@@ -1125,21 +1125,26 @@ describe('generateScopeSeparatedFixInstructions', () => {
 
       const step3Index = result.indexOf('**Step 3:');
       const step4Index = result.indexOf('**Step 4:');
-      const warningIndex = result.indexOf('CRITICAL: After exiting plan mode, context will be cleared');
-      const listIssuesIndex = result.indexOf('Call `wiggum_list_issues({ scope: \'all\' })` again');
+      const warningIndex = result.indexOf(
+        'CRITICAL: After exiting plan mode, context will be cleared'
+      );
+      const listIssuesIndex = result.indexOf("Call `wiggum_list_issues({ scope: 'all' })` again");
 
       assert(warningIndex !== -1, 'Missing context clear warning');
       assert(listIssuesIndex !== -1, 'Missing wiggum_list_issues instruction');
       assert(warningIndex > step3Index, 'Warning should appear after Step 3 header');
       assert(warningIndex < step4Index, 'Warning should appear before Step 4 header');
-      assert(listIssuesIndex > warningIndex, 'wiggum_list_issues instruction should follow warning');
+      assert(
+        listIssuesIndex > warningIndex,
+        'wiggum_list_issues instruction should follow warning'
+      );
     });
 
     it('should have only one context clear warning (no redundancy)', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
 
       const warningText = 'CRITICAL: After exiting plan mode, context will be cleared';
-      const listIssuesText = 'Call `wiggum_list_issues({ scope: \'all\' })` again';
+      const listIssuesText = "Call `wiggum_list_issues({ scope: 'all' })` again";
 
       assert(result.indexOf(warningText) !== -1, 'Warning text not found');
       assert.strictEqual(
@@ -1161,14 +1166,8 @@ describe('generateScopeSeparatedFixInstructions', () => {
         result.includes('tmp/wiggum/plan-'),
         'Missing plan file path template with tmp/wiggum/plan- prefix'
       );
-      assert(
-        result.includes('{timestamp}'),
-        'Missing {timestamp} placeholder in plan file path'
-      );
-      assert(
-        result.includes('.md'),
-        'Plan file path should include .md extension'
-      );
+      assert(result.includes('{timestamp}'), 'Missing {timestamp} placeholder in plan file path');
+      assert(result.includes('.md'), 'Plan file path should include .md extension');
     });
   });
 });
