@@ -7,41 +7,24 @@ import { getTransactionsCollectionName } from '../../site/scripts/lib/collection
 
 test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
-    // Capture all console messages for debugging
-    page.on('console', (msg) => {
-      const text = msg.text();
-      if (text.includes('Budget') || text.includes('Firestore') || text.includes('collection')) {
-        console.log(`[BROWSER ${msg.type()}] ${text}`);
-      }
-    });
-
-    // For deployed tests, run-playwright-tests.sh already appends testCollection to baseURL
-    // For local tests, we need to append it ourselves
+    // For deployed tests, run-playwright-tests.sh sets DEPLOYED_URL with testCollection param
+    // For local tests, we need to construct the URL ourselves
     const isDeployed = process.env.DEPLOYED === 'true';
-    console.log(`[TEST] Deployed mode: ${isDeployed}`);
+    const deployedUrl = process.env.DEPLOYED_URL || '';
     let url;
 
-    if (isDeployed) {
-      // Deployed mode: baseURL already has ?testCollection=..., just navigate to hash route
-      // Use leading slash to ensure it's relative to baseURL
-      url = '/#/review';
+    if (isDeployed && deployedUrl) {
+      // Deployed mode: DEPLOYED_URL has baseURL + ?testCollection=...
+      // Parse it to preserve query params when adding hash route
+      const urlObj = new URL(deployedUrl);
+      url = `${urlObj.pathname}${urlObj.search}#/review`;
     } else {
-      // Local/emulator mode: append collection name as query param
+      // Local/emulator mode: construct URL with collection name
       const collectionName = getTransactionsCollectionName();
-      console.log(`[TEST] Local collection: ${collectionName}`);
       url = `/?testCollection=${collectionName}#/review`;
     }
 
-    console.log(`[TEST] Navigating to: ${url}`);
     await page.goto(url);
-
-    // Log actual URL after navigation
-    const finalUrl = page.url();
-    const search = await page.evaluate(() => window.location.search);
-    const hash = await page.evaluate(() => window.location.hash);
-    console.log(`[TEST] Final URL: ${finalUrl}`);
-    console.log(`[TEST] Search params: ${search}`);
-    console.log(`[TEST] Hash: ${hash}`);
 
     // Wait for app to initialize
     await page.waitForSelector('.app-container', { timeout: 10000 });
