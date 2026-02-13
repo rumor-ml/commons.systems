@@ -10,7 +10,9 @@ test.describe('Review Page Smoke Tests', () => {
     // Get collection name from environment (handles PR/branch/worker namespacing)
     const collectionName = getTransactionsCollectionName();
     // Query params must be BEFORE hash for window.location.search to work
-    await page.goto(`/?testCollection=${collectionName}#/review`);
+    await page.goto(`/?testCollection=${collectionName}#/review`, {
+      waitUntil: 'networkidle',
+    });
 
     // Wait for app to initialize
     await page.waitForSelector('.app-container', { timeout: 10000 });
