@@ -7,10 +7,18 @@ import { getTransactionsCollectionName } from '../../site/scripts/lib/collection
 
 test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
-    // Get collection name from environment (handles PR/branch/worker namespacing)
-    const collectionName = getTransactionsCollectionName();
-    // Query params must be BEFORE hash for window.location.search to work
-    await page.goto(`/?testCollection=${collectionName}#/review`);
+    // For deployed tests, run-playwright-tests.sh already appends testCollection to baseURL
+    // For local tests, we need to append it ourselves
+    const isDeployed = process.env.DEPLOYED === 'true';
+    let url = '#/review';
+
+    if (!isDeployed) {
+      // Local/emulator mode: append collection name as query param
+      const collectionName = getTransactionsCollectionName();
+      url = `/?testCollection=${collectionName}#/review`;
+    }
+
+    await page.goto(url);
 
     // Wait for app to initialize
     await page.waitForSelector('.app-container', { timeout: 10000 });
