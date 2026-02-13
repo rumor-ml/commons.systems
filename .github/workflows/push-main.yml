@@ -96,6 +96,8 @@ jobs:
 
       - name: Test Firestore security rules
         run: |
+          set +e  # Don't exit on error, handle manually
+
           # Use existing emulator infrastructure (consistent with local dev)
           export SKIP_HOSTING=1  # Only need backend emulators for rules test
           source infrastructure/scripts/start-emulators.sh fellspiral
@@ -105,10 +107,24 @@ jobs:
           pnpm --filter @commons/fellspiral-tests run test:rules
           TEST_EXIT_CODE=$?
 
-          # Cleanup using existing script (ignore exit code from cleanup)
+          # Cleanup using existing script (run in background to avoid blocking)
           # Force backend shutdown since this is the only worktree in CI
-          infrastructure/scripts/stop-emulators.sh --force-backend || true
+          (infrastructure/scripts/stop-emulators.sh --force-backend 2>&1 | sed 's/^/[cleanup] /') &
+          CLEANUP_PID=$!
 
+          # Wait up to 10 seconds for cleanup to complete
+          for i in {1..100}; do
+            if ! kill -0 $CLEANUP_PID 2>/dev/null; then
+              break
+            fi
+            sleep 0.1
+          done
+
+          # Kill any remaining cleanup process
+          kill -TERM $CLEANUP_PID 2>/dev/null || true
+          wait $CLEANUP_PID 2>/dev/null || true
+
+          # Exit with test result
           exit $TEST_EXIT_CODE
 
   # ==================== Firebase App Tests ====================
