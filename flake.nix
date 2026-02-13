@@ -159,6 +159,7 @@
 
           # Custom packages
           tmux-tui = pkgs.callPackage ./nix/packages/tmux-tui.nix { };
+          wezterm-navigator = pkgs.callPackage ./nix/packages/wezterm-navigator.nix { };
           mcp-common = pkgs.callPackage ./nix/packages/mcp-common.nix { };
           gh-workflow-mcp-server = pkgs.callPackage ./nix/packages/gh-workflow-mcp-server.nix {
             inherit mcp-common;
@@ -190,6 +191,7 @@
           devShell = pkgs.mkShell {
             buildInputs = commonPackages ++ [
               tmux-tui
+              wezterm-navigator
               mcp-common
               gh-workflow-mcp-server
               gh-issue-mcp-server
@@ -227,6 +229,7 @@
               echo ""
               echo "Custom tools available:"
               echo "  • tmux-tui - Git-aware tmux pane manager"
+              echo "  • wezterm-navigator - Persistent navigator for WezTerm"
               echo "  • gh-workflow-mcp-server - GitHub workflow MCP server"
               echo "  • gh-issue-mcp-server - GitHub issue context MCP server"
               echo "  • wiggum-mcp-server - Wiggum PR automation MCP server"
@@ -245,6 +248,7 @@
           packages = {
             inherit
               tmux-tui
+              wezterm-navigator
               mcp-common
               gh-workflow-mcp-server
               gh-issue-mcp-server
@@ -318,13 +322,19 @@
           mkHomeConfig =
             system:
             let
-              pkgs = import nixpkgs {
+              basePkgs = import nixpkgs {
                 inherit system;
                 config = {
                   allowUnfree = true;
                 };
                 overlays = [ claude-code-nix.overlays.default ];
               };
+              # Add custom packages for use in Home Manager modules
+              pkgs = basePkgs.extend (
+                final: prev: {
+                  wezterm-navigator = prev.callPackage ./nix/packages/wezterm-navigator.nix { };
+                }
+              );
             in
             home-manager.lib.homeManagerConfiguration {
               inherit pkgs;
