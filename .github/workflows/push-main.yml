@@ -865,6 +865,21 @@ jobs:
           environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-budget.web.app', steps.sanitize.outputs.sanitized) || 'https://budget.web.app' }}
           site_name: 'budget'
           branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
+      - name: Inject environment variables for build
+        working-directory: budget
+        run: |
+          # Create .env file for Vite (in site/ directory where Vite command runs)
+          echo "VITE_PR_NUMBER=${{ github.event.pull_request.number }}" > site/.env
+          echo "VITE_BRANCH_NAME=${{ github.head_ref || github.ref_name }}" >> site/.env
+
+          # Show what we're building
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            echo "Building for PR #${{ github.event.pull_request.number }}"
+            echo "Collection will be: budget-demo-transactions_pr_${{ github.event.pull_request.number }}"
+          else
+            echo "Building for branch: ${{ github.ref_name }}"
+          fi
+
       - name: Deploy budget to Firebase Hosting
         id: deploy
         continue-on-error: true
@@ -1091,6 +1106,8 @@ jobs:
         run: ./infrastructure/scripts/run-playwright-tests.sh budget "${{ needs.deploy-budget.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-budget.outputs.url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           CI: true
 
   # ==================== Rollback on failure (main branch only) ====================
