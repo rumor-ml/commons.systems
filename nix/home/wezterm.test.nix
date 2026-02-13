@@ -20,6 +20,12 @@ let
   # Import the wezterm module for testing
   weztermModule = import ./wezterm.nix;
 
+  # Base test pkgs with mock packages needed for module evaluation
+  # The wezterm.nix module references pkgs.wezterm-navigator for the binary path
+  testPkgs = pkgs // {
+    wezterm-navigator = pkgs.writeScriptBin "wezterm-navigator" "#!/bin/sh\necho mock";
+  };
+
   # Test helper: Evaluate module with mock config
   # Parameters:
   #   username: string (default: "testuser") - username for config interpolation
@@ -54,7 +60,7 @@ let
       !(isLinux && isDarwin)
     ) "evaluateModule: Cannot have both isLinux=true and isDarwin=true (mutually exclusive platforms)";
     let
-      mockPkgs = pkgs // {
+      mockPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = isLinux;
           isDarwin = isDarwin;
@@ -92,6 +98,7 @@ let
       window_padding = true,
       default_prog = true,
       native_macos_fullscreen_mode = true,
+      keys = true,
     }
 
     -- Track valid color schemes (subset - Tokyo Night is in actual WezTerm)
@@ -164,6 +171,36 @@ let
             end
           end
 
+          -- Validate keys array structure
+          if key == "keys" then
+            if type(value) ~= "table" then
+              error("Config key 'keys' must be a table, got: " .. type(value))
+            end
+            -- Validate each keybinding entry
+            for i, binding in ipairs(value) do
+              if type(binding) ~= "table" then
+                error("keys[" .. i .. "] must be a table, got: " .. type(binding))
+              end
+              -- Validate required fields
+              if not binding.key then
+                error("keys[" .. i .. "] missing required field 'key'")
+              end
+              if type(binding.key) ~= "string" then
+                error("keys[" .. i .. "].key must be a string, got: " .. type(binding.key))
+              end
+              if not binding.action then
+                error("keys[" .. i .. "] missing required field 'action'")
+              end
+              if type(binding.action) ~= "table" then
+                error("keys[" .. i .. "].action must be a table (from wezterm.action), got: " .. type(binding.action))
+              end
+              -- mods is optional but must be string if present
+              if binding.mods and type(binding.mods) ~= "string" then
+                error("keys[" .. i .. "].mods must be a string, got: " .. type(binding.mods))
+              end
+            end
+          end
+
           -- Store the value
           rawset(t, key, value)
         end
@@ -182,6 +219,28 @@ let
         __wezterm_font_object = true  -- Tag to identify this as a font object
       }
     end
+
+    -- Mock on() - registers event handlers (no-op in tests)
+    function wezterm.on(event_name, callback)
+      if type(event_name) ~= "string" then
+        error("wezterm.on() requires a string event name, got: " .. type(event_name))
+      end
+      if type(callback) ~= "function" then
+        error("wezterm.on() requires a function callback, got: " .. type(callback))
+      end
+    end
+
+    -- Mock action namespace for keybindings
+    wezterm.action = setmetatable({}, {
+      __index = function(t, key)
+        return function(...)
+          return { action = key, args = {...} }
+        end
+      end
+    })
+
+    -- Mock mux (only used inside gui-startup callback, not executed in tests)
+    wezterm.mux = {}
 
     return wezterm
   '';
@@ -542,12 +601,12 @@ let
         isDarwin = false;
       });
       # Replace the valid font() call with a raw string assignment
-      # Match: config.font = wezterm.font('JetBrains Mono Nerd Font')
-      # Replace with: config.font = 'JetBrains Mono Nerd Font'
+      # Match: config.font = wezterm.font('JetBrains Mono', { weight = 'Regular' })
+      # Replace with: config.font = 'JetBrains Mono'
       invalidLuaConfig =
         builtins.replaceStrings
-          [ "config.font = wezterm.font('JetBrains Mono Nerd Font')" ]
-          [ "config.font = 'JetBrains Mono Nerd Font'" ]
+          [ "config.font = wezterm.font('JetBrains Mono', { weight = 'Regular' })" ]
+          [ "config.font = 'JetBrains Mono'" ]
           validLuaConfig;
 
       invalidConfigFile = pkgs.writeText "invalid-font-value-config.lua" invalidLuaConfig;
@@ -1265,7 +1324,7 @@ let
   test-conflicting-platform-flags =
     let
       # Create mock pkgs with BOTH platform flags set to true
-      conflictingPkgs = pkgs // {
+      conflictingPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = true;
           isDarwin = true;
@@ -1436,7 +1495,7 @@ let
   test-homemanager-integration =
     let
       # Mock pkgs for Linux
-      linuxPkgs = pkgs // {
+      linuxPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = true;
           isDarwin = false;
@@ -1444,7 +1503,7 @@ let
       };
 
       # Mock pkgs for macOS
-      macosPkgs = pkgs // {
+      macosPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = false;
           isDarwin = true;
@@ -1564,7 +1623,7 @@ let
   test-activation-dag-execution =
     let
       # Mock pkgs for Linux
-      linuxPkgs = pkgs // {
+      linuxPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = true;
           isDarwin = false;
@@ -1682,7 +1741,7 @@ let
       # Verify script is properly excluded on macOS via lib.mkIf
       ${
         let
-          macosPkgs = pkgs // {
+          macosPkgs = testPkgs // {
             stdenv = pkgs.stdenv // {
               isLinux = false;
               isDarwin = true;
@@ -1724,7 +1783,7 @@ let
   test-homemanager-dag-integration =
     let
       # Mock pkgs for Linux (WSL environment)
-      linuxPkgs = pkgs // {
+      linuxPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = true;
           isDarwin = false;
@@ -1732,7 +1791,7 @@ let
       };
 
       # Mock pkgs for macOS
-      macosPkgs = pkgs // {
+      macosPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = false;
           isDarwin = true;
@@ -2329,7 +2388,7 @@ let
       };
 
       # Mock pkgs for Linux
-      linuxPkgs = pkgs // {
+      linuxPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = true;
           isDarwin = false;
@@ -2487,7 +2546,7 @@ let
       };
 
       # Mock pkgs for Linux
-      linuxPkgs = pkgs // {
+      linuxPkgs = testPkgs // {
         stdenv = pkgs.stdenv // {
           isLinux = true;
           isDarwin = false;
