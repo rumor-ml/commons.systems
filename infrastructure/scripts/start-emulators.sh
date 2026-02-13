@@ -301,6 +301,20 @@ if ! cp "${PROJECT_ROOT}/shared/storage.rules" "${SHARED_RULES_DIR}/storage.rule
   exit 1
 fi
 
+# WORKAROUND: Firebase CLI resolves paths in config relative to CWD, not as absolute paths
+# Create symlink in PROJECT_ROOT so relative paths work correctly
+# This allows Firebase to find /home/runner/.firebase-emulators/rules/* via symlink
+EMULATOR_SYMLINK="${PROJECT_ROOT}/.firebase-emulators"
+if [ ! -e "$EMULATOR_SYMLINK" ]; then
+  ln -sf "${SHARED_EMULATOR_DIR}" "$EMULATOR_SYMLINK"
+  echo "✓ Created symlink: $EMULATOR_SYMLINK -> $SHARED_EMULATOR_DIR"
+elif [ -L "$EMULATOR_SYMLINK" ]; then
+  # Symlink exists - update it to point to current SHARED_EMULATOR_DIR
+  ln -sf "${SHARED_EMULATOR_DIR}" "$EMULATOR_SYMLINK"
+else
+  echo "WARNING: $EMULATOR_SYMLINK exists but is not a symlink" >&2
+fi
+
 # Lock acquired - check if backend is already running
 if nc -z 127.0.0.1 $AUTH_PORT 2>/dev/null; then
   echo "✓ Backend emulators already running - reusing shared instance"
@@ -320,13 +334,14 @@ else
   # Derive backend config from firebase.json, overriding only ports and rules paths
   # This automatically inherits singleProjectMode, ui.enabled, and any future settings
   # - del(.hosting): backend-only emulators don't need hosting config
-  # - Absolute rules paths: emulator watches shared location regardless of starting worktree
+  # - Relative rules paths: Firebase CLI resolves paths relative to config file (PROJECT_ROOT)
+  #   The symlink at .firebase-emulators points to the shared location
   jq --argjson auth "${AUTH_PORT}" \
      --argjson fs "${FIRESTORE_PORT}" \
      --argjson storage "${STORAGE_PORT}" \
      --argjson ui "${UI_PORT}" \
-     --arg fsRules "${SHARED_RULES_DIR}/firestore.rules" \
-     --arg storageRules "${SHARED_RULES_DIR}/storage.rules" \
+     --arg fsRules ".firebase-emulators/rules/firestore.rules" \
+     --arg storageRules ".firebase-emulators/rules/storage.rules" \
      '{
        emulators: (.emulators | del(.hosting) | .auth.port = $auth | .firestore.port = $fs | .storage.port = $storage | .ui.port = $ui),
        storage: {rules: $storageRules},
