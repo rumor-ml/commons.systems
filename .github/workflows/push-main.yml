@@ -105,8 +105,8 @@ jobs:
           pnpm --filter @commons/fellspiral-tests run test:rules
           TEST_EXIT_CODE=$?
 
-          # Cleanup using existing script
-          infrastructure/scripts/stop-emulators.sh
+          # Cleanup using existing script (ignore exit code from cleanup)
+          infrastructure/scripts/stop-emulators.sh || true
 
           exit $TEST_EXIT_CODE
 
