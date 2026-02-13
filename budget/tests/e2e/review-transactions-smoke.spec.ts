@@ -12,10 +12,13 @@ test.describe('Review Page Smoke Tests', () => {
     // Query params must be BEFORE hash for window.location.search to work
     await page.goto(`/?testCollection=${collectionName}#/review`);
 
+    // Wait for app to initialize
+    await page.waitForSelector('.app-container', { timeout: 10000 });
+
     const setupGuide = page.locator('text=Firebase Setup Required');
     await expect(setupGuide).not.toBeVisible();
 
-    // Wait for transactions to load
+    // Wait for transactions to load from Firestore
     await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 15000 });
 
     // TODO(#1970): Replace hardcoded count with range check or threshold assertion
