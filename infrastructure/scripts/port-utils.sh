@@ -391,13 +391,38 @@ kill_process_group() {
   if [ -n "$pgid" ]; then
     # Kill entire process group (parent + children)
     kill -TERM -$pgid 2>/dev/null || true
-    sleep 1
+
+    # Wait up to 3 seconds for processes to die gracefully
+    local waited=0
+    while [ $waited -lt 30 ]; do  # 30 * 0.1s = 3s max
+      # Check if any process in the group still exists
+      if ! ps -o pgid= -p $pid 2>/dev/null | grep -q "$pgid"; then
+        return 0  # All processes terminated
+      fi
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+
+    # Force kill if still alive
     kill -KILL -$pgid 2>/dev/null || true
+    sleep 0.5
   elif [ -n "$pid" ]; then
     # Fallback to single PID (children may continue running)
     kill -TERM $pid 2>/dev/null || true
-    sleep 1
+
+    # Wait up to 3 seconds for process to die gracefully
+    local waited=0
+    while [ $waited -lt 30 ]; do  # 30 * 0.1s = 3s max
+      if ! kill -0 $pid 2>/dev/null; then
+        return 0  # Process terminated
+      fi
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+
+    # Force kill if still alive
     kill -KILL $pid 2>/dev/null || true
+    sleep 0.5
   fi
 
   return 0
