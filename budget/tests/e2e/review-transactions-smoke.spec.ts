@@ -7,10 +7,22 @@ import { getTransactionsCollectionName } from '../../site/scripts/lib/collection
 
 test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
+    // Capture browser console logs
+    page.on('console', (msg) => console.log(`[BROWSER] ${msg.type()}: ${msg.text()}`));
     // Get collection name from environment (handles PR/branch/worker namespacing)
     const collectionName = getTransactionsCollectionName();
+    console.log(`[TEST] Expected collection: ${collectionName}`);
+
     // Query params must be BEFORE hash for window.location.search to work
     await page.goto(`/?testCollection=${collectionName}#/review`);
+
+    // Debug: Check what the browser sees
+    const browserUrl = page.url();
+    const browserSearch = await page.evaluate(() => window.location.search);
+    const browserHash = await page.evaluate(() => window.location.hash);
+    console.log(`[TEST] Browser URL: ${browserUrl}`);
+    console.log(`[TEST] window.location.search: ${browserSearch}`);
+    console.log(`[TEST] window.location.hash: ${browserHash}`);
 
     const setupGuide = page.locator('text=Firebase Setup Required');
     await expect(setupGuide).not.toBeVisible();
