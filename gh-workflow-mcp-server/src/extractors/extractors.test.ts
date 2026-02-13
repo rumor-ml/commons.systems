@@ -1170,8 +1170,9 @@ Just plain text
 
 describe('Validation Infrastructure', async () => {
   // Import validation functions for testing
-  const { createFallbackError, safeValidateExtractedError, ValidationErrorTracker } =
-    await import('./types.js');
+  const { createFallbackError, safeValidateExtractedError, ValidationErrorTracker } = await import(
+    './types.js'
+  );
   const { z } = await import('zod');
 
   describe('createFallbackError', () => {
