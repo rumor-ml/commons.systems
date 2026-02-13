@@ -159,9 +159,13 @@ Execute AFTER PR is created for final validation:
 
 5. Call EnterPlanMode tool to enter planning mode for the implementation strategy.
 
-<!-- TODO(#2012): Plan mode instructions differ from constants.ts - consider aligning structure or adding comments explaining workflow differences -->
+<!-- TODO(#2012): Plan mode instructions differ from constants.ts:
+     - File path: wiggum.md uses `tmp/wiggum/plan-{timestamp}.md`, constants.ts uses same
+     - Section structure: wiggum.md has detailed A-E sections (Review Summary, Implementation Plan, Tracking Plan, Validation, Completion), constants.ts focuses on sequential vs parallel execution strategy
+     - Agent launch pattern: wiggum.md launches all batches + out-of-scope in parallel, constants.ts runs in-scope sequentially and out-of-scope in parallel
+     - Consider documenting these workflow variations or aligning to single pattern -->
 <!-- TODO(#2016): Add test verifying plan file path template is present in instructions -->
-6. In plan mode, create a structured implementation plan at `tmp/wiggum/all-hands-plan-{timestamp}.md` with these sections:
+6. In plan mode, create a structured implementation plan at `tmp/wiggum/plan-{timestamp}.md` with these sections:
 
    **A. Review Summary**
    - Total in-scope issues: {count from wiggum_list_issues response}
@@ -192,8 +196,8 @@ Execute AFTER PR is created for final validation:
 
 7. Call ExitPlanMode when plan is complete.
 
-**IMPORTANT: After exiting plan mode, context will be cleared. The plan file persists and contains all information needed for implementation.**
-<!-- TODO(#2011): Clarify that plan file serves as audit trail/user reference only, or explicitly add step to read it in Phase 4 -->
+**IMPORTANT: After exiting plan mode, context will be cleared. The plan file at `tmp/wiggum/plan-{timestamp}.md` serves as an audit trail and user reference only. Implementation agents use wiggum_list_issues and wiggum_get_issue to fetch issue details from manifests - they do NOT read the plan file.**
+<!-- TODO(#2011): Verify that no implementation agents attempt to read the plan file. If agents need structured guidance beyond issue manifests, consider adding plan file reading step in Phase 4. -->
 
 **Phase 4: Parallel Implementation (After Plan Mode)**
 

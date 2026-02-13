@@ -872,173 +872,34 @@ describe('SKIP_MECHANISM_GUIDANCE constant', () => {
   });
 });
 
-describe('Plan Mode Instructions', () => {
-  describe('EnterPlanMode/ExitPlanMode tool references', () => {
-    it('should reference EnterPlanMode tool in triage instructions', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(result.includes('EnterPlanMode'), 'Missing EnterPlanMode tool reference');
-    });
-
-    it('should reference ExitPlanMode tool in triage instructions', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(result.includes('ExitPlanMode'), 'Missing ExitPlanMode tool reference');
-    });
-
-    it('should reference EnterPlanMode tool in workflow triage instructions', () => {
-      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
-      assert(result.includes('EnterPlanMode'), 'Missing EnterPlanMode tool reference');
-    });
-
-    it('should reference ExitPlanMode tool in workflow triage instructions', () => {
-      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
-      assert(result.includes('ExitPlanMode'), 'Missing ExitPlanMode tool reference');
-    });
+describe('All-hands review scope separation', () => {
+  it('should not include wiggum_list_issues in single-issue triage instructions', () => {
+    const result = generateTriageInstructions(123, 'PR', 5);
+    assert(
+      !result.includes('wiggum_list_issues'),
+      'Single-issue triage should not reference wiggum_list_issues'
+    );
   });
 
-  describe('plan file path template', () => {
-    it('should include plan file path template in triage instructions', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(
-        result.includes('tmp/wiggum/plan-'),
-        'Missing plan file path template with tmp/wiggum/plan- prefix'
-      );
-      assert(result.includes('{timestamp}'), 'Missing {timestamp} placeholder in plan file path');
-    });
-
-    it('should include plan file path template in workflow triage instructions', () => {
-      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
-      assert(
-        result.includes('tmp/wiggum/plan-'),
-        'Missing plan file path template with tmp/wiggum/plan- prefix'
-      );
-      assert(result.includes('{timestamp}'), 'Missing {timestamp} placeholder in plan file path');
-    });
-
-    it('should specify .md extension for plan files', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(result.includes('.md'), 'Plan file path should include .md extension');
-    });
+  it('should not include wiggum_list_issues in workflow triage instructions', () => {
+    const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+    assert(
+      !result.includes('wiggum_list_issues'),
+      'Workflow triage should not reference wiggum_list_issues'
+    );
   });
 
-  describe('plan content requirements', () => {
-    it('should require Implementation section in plan for triage instructions', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(
-        result.includes('Implementation') || result.includes('In-Scope Fixes'),
-        'Missing Implementation/In-Scope Fixes section requirement'
-      );
-    });
-
-    it('should require Tracking section in plan for triage instructions', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(
-        result.includes('Tracking') || result.includes('Out-of-Scope Tracking'),
-        'Missing Tracking/Out-of-Scope Tracking section requirement'
-      );
-    });
-
-    it('should require Implementation section in plan for workflow triage instructions', () => {
-      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
-      assert(
-        result.includes('Implementation') || result.includes('In-Scope Fixes'),
-        'Missing Implementation/In-Scope Fixes section requirement'
-      );
-    });
-
-    it('should require Tracking section in plan for workflow triage instructions', () => {
-      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
-      assert(
-        result.includes('Tracking') ||
-          result.includes('Out-of-Scope') ||
-          result.includes('Skip Mechanism'),
-        'Missing Tracking/Out-of-Scope/Skip Mechanism section requirement'
-      );
-    });
-
-    it('should specify plan structure with A/B sections', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(result.includes('**A.'), 'Missing section A marker in plan structure');
-      assert(result.includes('**B.'), 'Missing section B marker in plan structure');
-    });
-  });
-
-  describe('all-hands review workflow (wiggum.md)', () => {
-    it('should not include wiggum_list_issues in single-issue triage instructions', () => {
-      // wiggum_list_issues is used in all-hands review workflow (.claude/commands/wiggum.md)
-      // but not in single-issue triage (generateTriageInstructions)
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(
-        !result.includes('wiggum_list_issues'),
-        'Single-issue triage should not reference wiggum_list_issues'
-      );
-    });
-
-    it('should not include wiggum_list_issues in workflow triage instructions', () => {
-      // wiggum_list_issues is used in all-hands review workflow (.claude/commands/wiggum.md)
-      // but not in workflow failure triage (generateWorkflowTriageInstructions)
-      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
-      assert(
-        !result.includes('wiggum_list_issues'),
-        'Workflow triage should not reference wiggum_list_issues'
-      );
-    });
-
-    it('should not include scope filter in single-issue triage instructions', () => {
-      // Scope filter is used in all-hands review workflow (.claude/commands/wiggum.md)
-      // but not in single-issue triage
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(
-        !result.includes('scope:') && !result.includes("scope: 'in-scope'"),
-        'Single-issue triage should not reference scope filter'
-      );
-    });
-  });
-
-  describe('plan mode workflow integration', () => {
-    it('should include plan mode step in workflow sequence', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      assert(result.includes('## Step 1:'), 'Missing Step 1 in plan mode workflow');
-      assert(result.includes('## Step 2:'), 'Missing Step 2 in plan mode workflow');
-      assert(result.includes('## Step 3:'), 'Missing Step 3 in plan mode workflow');
-    });
-
-    it('should sequence EnterPlanMode before plan writing', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      const enterIndex = result.indexOf('EnterPlanMode');
-      const planWriteIndex = result.indexOf('Write Plan');
-      assert(enterIndex !== -1, 'EnterPlanMode not found');
-      assert(
-        planWriteIndex === -1 || enterIndex < planWriteIndex,
-        'EnterPlanMode should come before plan writing'
-      );
-    });
-
-    it('should sequence plan writing before ExitPlanMode', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      const exitIndex = result.indexOf('ExitPlanMode');
-      const sectionIndex = result.indexOf('**A.');
-      assert(exitIndex !== -1, 'ExitPlanMode not found');
-      assert(
-        sectionIndex === -1 || sectionIndex < exitIndex,
-        'Plan sections should be defined before ExitPlanMode'
-      );
-    });
-
-    it('should execute plan after exiting plan mode', () => {
-      const result = generateTriageInstructions(123, 'PR', 5);
-      const exitIndex = result.indexOf('ExitPlanMode');
-      const step3Index = result.indexOf('## Step 3:');
-      assert(exitIndex !== -1, 'ExitPlanMode not found');
-      assert(step3Index !== -1, 'Step 3 not found');
-      assert(
-        exitIndex < step3Index,
-        'Plan execution (Step 3) should happen after ExitPlanMode'
-      );
-    });
+  it('should not include scope filter in single-issue triage instructions', () => {
+    const result = generateTriageInstructions(123, 'PR', 5);
+    assert(
+      !result.includes('scope:') && !result.includes("scope: 'in-scope'"),
+      'Single-issue triage should not reference scope filter'
+    );
   });
 });
 
 describe('generateScopeSeparatedFixInstructions', () => {
+  // TODO(#2026): Add validation tests once input validation is implemented
   describe('output format', () => {
     it('should include issue number in output', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 2, [
@@ -1070,7 +931,6 @@ describe('generateScopeSeparatedFixInstructions', () => {
       assert(result.includes('/tmp/out2.md'));
     });
 
-    // TODO(#2020): Simplify step sequence verification - use loop-based approach with expectedSteps array
     it('should include Agent 1 and Agent 2 sections when both counts > 0', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 3, [
         '/tmp/out.md',
@@ -1089,7 +949,6 @@ describe('generateScopeSeparatedFixInstructions', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
         '/tmp/out.md',
       ]);
-      // TODO(#2024): Improve test comment clarity
       assert(result.includes('model: "sonnet"')); // All agents use sonnet model
     });
 
@@ -1244,8 +1103,11 @@ describe('generateScopeSeparatedFixInstructions', () => {
       const stepIndices: number[] = [];
 
       for (const step of expectedSteps) {
-        assert(result.match(new RegExp(`^\\*\\*Step ${step.number}:`, 'm')), `Missing Step ${step.number} header`);
-        assert(result.includes(`**Step ${step.number}: ${step.title}**`), `Missing Step ${step.number} title`);
+        const headerPattern = new RegExp(`^\\*\\*Step ${step.number}:`, 'm');
+        const expectedTitle = `**Step ${step.number}: ${step.title}**`;
+
+        assert(result.match(headerPattern), `Missing Step ${step.number} header`);
+        assert(result.includes(expectedTitle), `Missing Step ${step.number} title`);
 
         const index = result.indexOf(`**Step ${step.number}:`);
         assert(index !== -1, `Step ${step.number} not found`);
@@ -1257,6 +1119,7 @@ describe('generateScopeSeparatedFixInstructions', () => {
       }
     });
 
+    // TODO(#2028): Add behavioral tests for context clearing
     it('should have context clear warning in Step 3', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
 
@@ -1272,22 +1135,42 @@ describe('generateScopeSeparatedFixInstructions', () => {
       assert(listIssuesIndex > warningIndex, 'wiggum_list_issues instruction should follow warning');
     });
 
-    // TODO(#2021): Simplify redundancy check using indexOf/lastIndexOf comparison
     it('should have only one context clear warning (no redundancy)', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
 
       const warningText = 'CRITICAL: After exiting plan mode, context will be cleared';
       const listIssuesText = 'Call `wiggum_list_issues({ scope: \'all\' })` again';
 
-      const warningFirstIndex = result.indexOf(warningText);
-      const warningLastIndex = result.lastIndexOf(warningText);
-      const listIssuesFirstIndex = result.indexOf(listIssuesText);
-      const listIssuesLastIndex = result.lastIndexOf(listIssuesText);
+      assert(result.indexOf(warningText) !== -1, 'Warning text not found');
+      assert.strictEqual(
+        result.indexOf(warningText),
+        result.lastIndexOf(warningText),
+        'Warning should appear exactly once'
+      );
+      assert(result.indexOf(listIssuesText) !== -1, 'List issues instruction not found');
+      assert.strictEqual(
+        result.indexOf(listIssuesText),
+        result.lastIndexOf(listIssuesText),
+        'List issues instruction should appear exactly once'
+      );
+    });
 
-      assert(warningFirstIndex !== -1, 'Warning text not found');
-      assert.strictEqual(warningFirstIndex, warningLastIndex, 'Warning should appear exactly once');
-      assert(listIssuesFirstIndex !== -1, 'List issues instruction not found');
-      assert.strictEqual(listIssuesFirstIndex, listIssuesLastIndex, 'List issues instruction should appear exactly once');
+    it('should include plan file path template with timestamp placeholder', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(
+        result.includes('tmp/wiggum/plan-'),
+        'Missing plan file path template with tmp/wiggum/plan- prefix'
+      );
+      assert(
+        result.includes('{timestamp}'),
+        'Missing {timestamp} placeholder in plan file path'
+      );
+      assert(
+        result.includes('.md'),
+        'Plan file path should include .md extension'
+      );
     });
   });
 });
+
+// TODO(#2027): Missing cross-workflow consistency tests

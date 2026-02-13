@@ -364,6 +364,9 @@ export function generateScopeSeparatedFixInstructions(
 
   // TODO(#2012): Plan mode instructions differ from wiggum.md - consider aligning structure or adding comments explaining workflow differences
   // TODO(#2014): Add test verifying EnterPlanMode and ExitPlanMode tool references in all-hands instructions
+  // TODO(#2022): Remove redundant instruction with duplicate warning phrasing
+  // TODO(#2016): Plan file path template not verified by tests
+  // TODO(#2026): Add JSDoc or inline comment clarifying model choice for review/prioritization agents
   instructions += `
 
 ## Workflow: List Issues -> Launch Agents
@@ -391,10 +394,8 @@ In plan mode, document:
 Call ExitPlanMode when plan is complete.
 
 **Step 3: Execute Plan (After Context Clear)**
-// TODO(#2022): Remove redundant instruction with duplicate warning phrasing
-// TODO(#2016): Plan file path template not verified by tests
 
-**CRITICAL: After exiting plan mode, context will be cleared to prevent unbounded growth. The plan is saved to \`/tmp/wiggum-plan-[timestamp].md\` for audit purposes. Implementation agents will reference the issue manifests directly, not this plan file.**
+**CRITICAL: After exiting plan mode, context will be cleared to prevent unbounded growth. The plan is saved to \`tmp/wiggum/plan-{timestamp}.md\` for audit purposes. Implementation agents will reference the issue manifests directly, not this plan file.**
 
 Call \`wiggum_list_issues({ scope: 'all' })\` again to get fresh issue references.
 
@@ -408,7 +409,6 @@ From the returned issue references, create a TODO list to track progress.
 
 For EACH in-scope issue (one at a time, in order):
 
-// TODO(#2026): Add JSDoc or inline comment clarifying model choice for review/prioritization agents
 \`\`\`
 Task({
   subagent_type: "unsupervised-implement",
@@ -521,6 +521,7 @@ Use this to mark out-of-scope issues as blocked by the current issue when approp
  * @throws {ValidationError} Invalid failureType or issueNumber
  */
 // TODO(#334): Add error boundary tests
+// TODO(#2029): Add validation for failureDetails parameter
 export function generateWorkflowTriageInstructions(
   issueNumber: number,
   failureType: 'Workflow' | 'PR checks',
