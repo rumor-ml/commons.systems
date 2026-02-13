@@ -395,9 +395,9 @@ kill_process_group() {
     # Wait up to 3 seconds for processes to die gracefully
     local waited=0
     while [ $waited -lt 30 ]; do  # 30 * 0.1s = 3s max
-      # Check if any process in the group still exists
-      if ! ps -o pgid= -p $pid 2>/dev/null | grep -q "$pgid"; then
-        return 0  # All processes terminated
+      # Check if any process in the group still exists using ps -e (all processes)
+      if ! ps -eo pgid= | grep -q "^[[:space:]]*${pgid}$"; then
+        return 0  # All processes in group terminated
       fi
       sleep 0.1
       waited=$((waited + 1))
@@ -405,7 +405,14 @@ kill_process_group() {
 
     # Force kill if still alive
     kill -KILL -$pgid 2>/dev/null || true
+
+    # Wait briefly for SIGKILL to complete
     sleep 0.5
+
+    # Final verification
+    if ps -eo pgid= | grep -q "^[[:space:]]*${pgid}$"; then
+      echo "WARNING: Process group $pgid still alive after SIGKILL" >&2
+    fi
   elif [ -n "$pid" ]; then
     # Fallback to single PID (children may continue running)
     kill -TERM $pid 2>/dev/null || true
@@ -422,7 +429,14 @@ kill_process_group() {
 
     # Force kill if still alive
     kill -KILL $pid 2>/dev/null || true
+
+    # Wait briefly for SIGKILL to complete
     sleep 0.5
+
+    # Final verification
+    if kill -0 $pid 2>/dev/null; then
+      echo "WARNING: Process $pid still alive after SIGKILL" >&2
+    fi
   fi
 
   return 0
