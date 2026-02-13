@@ -10,9 +10,7 @@ test.describe('Review Page Smoke Tests', () => {
     // Get collection name from environment (handles PR/branch/worker namespacing)
     const collectionName = getTransactionsCollectionName();
     // Query params must be BEFORE hash for window.location.search to work
-    await page.goto(`/?testCollection=${collectionName}#/review`, {
-      waitUntil: 'networkidle',
-    });
+    await page.goto(`/?testCollection=${collectionName}#/review`);
 
     // Wait for app to initialize
     await page.waitForSelector('.app-container', { timeout: 10000 });
@@ -20,8 +18,8 @@ test.describe('Review Page Smoke Tests', () => {
     const setupGuide = page.locator('text=Firebase Setup Required');
     await expect(setupGuide).not.toBeVisible();
 
-    // Wait for transactions to load from Firestore
-    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 15000 });
+    // Wait for transactions to load from Firestore (increased timeout for emulator stability)
+    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 30000 });
 
     // TODO(#1970): Replace hardcoded count with range check or threshold assertion
     const rowCount = await page.locator('table tbody tr').count();
