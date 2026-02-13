@@ -75,12 +75,19 @@ RETRY_INTERVAL=1
 
 # Shared directory for backend emulator state (shared across all worktrees)
 # Ensure absolute path even if HOME is not set or is relative (CI edge case)
+echo "=== PATH DIAGNOSTIC ==="
+echo "HOME=${HOME:-<unset>}"
+echo "whoami=$(whoami)"
 if [ -z "${HOME:-}" ] || [[ ! "${HOME}" =~ ^/ ]]; then
   # HOME not set or not absolute - use hardcoded fallback
   SHARED_EMULATOR_DIR="/home/$(whoami)/.firebase-emulators"
+  echo "Using fallback path (HOME not absolute)"
 else
   SHARED_EMULATOR_DIR="${HOME}/.firebase-emulators"
+  echo "Using HOME-based path"
 fi
+echo "SHARED_EMULATOR_DIR=${SHARED_EMULATOR_DIR}"
+echo "=== END PATH DIAGNOSTIC ==="
 mkdir -p "${SHARED_EMULATOR_DIR}"
 
 # PID and log files
@@ -348,6 +355,12 @@ else
     cat "${TEMP_BACKEND_CONFIG}" >&2
     exit 1
   fi
+
+  # Diagnostic: Show rules paths in generated config
+  echo "=== BACKEND CONFIG RULES PATHS ==="
+  echo "Firestore rules: $(jq -r '.firestore.rules' "${TEMP_BACKEND_CONFIG}")"
+  echo "Storage rules: $(jq -r '.storage.rules' "${TEMP_BACKEND_CONFIG}")"
+  echo "=== END BACKEND CONFIG ==="
 
   # Start ONLY backend emulators (shared)
   # Import seed data from fellspiral/emulator-data (includes QA test user)
