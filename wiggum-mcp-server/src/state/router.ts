@@ -642,6 +642,7 @@ async function executeStateUpdateWithRetry(
 }
 
 // TODO(#1942): Unify WiggumInstructions and ResponseData interfaces to reduce duplication
+// TODO(#793): Use branded types for numeric parameters (PositiveInteger/NonNegativeInteger)
 interface WiggumInstructions {
   current_step: string;
   step_number: WiggumStep;

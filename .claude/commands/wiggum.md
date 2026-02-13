@@ -159,6 +159,7 @@ Execute AFTER PR is created for final validation:
 
 5. Call EnterPlanMode tool to enter planning mode for the implementation strategy.
 
+<!-- TODO(#2012): Plan mode instructions differ from constants.ts - consider aligning structure or adding comments explaining workflow differences -->
 <!-- TODO(#2016): Add test verifying plan file path template is present in instructions -->
 6. In plan mode, create a structured implementation plan at `tmp/wiggum/all-hands-plan-{timestamp}.md` with these sections:
 

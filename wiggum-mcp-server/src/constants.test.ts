@@ -872,6 +872,172 @@ describe('SKIP_MECHANISM_GUIDANCE constant', () => {
   });
 });
 
+describe('Plan Mode Instructions', () => {
+  describe('EnterPlanMode/ExitPlanMode tool references', () => {
+    it('should reference EnterPlanMode tool in triage instructions', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('EnterPlanMode'), 'Missing EnterPlanMode tool reference');
+    });
+
+    it('should reference ExitPlanMode tool in triage instructions', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('ExitPlanMode'), 'Missing ExitPlanMode tool reference');
+    });
+
+    it('should reference EnterPlanMode tool in workflow triage instructions', () => {
+      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+      assert(result.includes('EnterPlanMode'), 'Missing EnterPlanMode tool reference');
+    });
+
+    it('should reference ExitPlanMode tool in workflow triage instructions', () => {
+      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+      assert(result.includes('ExitPlanMode'), 'Missing ExitPlanMode tool reference');
+    });
+  });
+
+  describe('plan file path template', () => {
+    it('should include plan file path template in triage instructions', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(
+        result.includes('tmp/wiggum/plan-'),
+        'Missing plan file path template with tmp/wiggum/plan- prefix'
+      );
+      assert(result.includes('{timestamp}'), 'Missing {timestamp} placeholder in plan file path');
+    });
+
+    it('should include plan file path template in workflow triage instructions', () => {
+      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+      assert(
+        result.includes('tmp/wiggum/plan-'),
+        'Missing plan file path template with tmp/wiggum/plan- prefix'
+      );
+      assert(result.includes('{timestamp}'), 'Missing {timestamp} placeholder in plan file path');
+    });
+
+    it('should specify .md extension for plan files', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('.md'), 'Plan file path should include .md extension');
+    });
+  });
+
+  describe('plan content requirements', () => {
+    it('should require Implementation section in plan for triage instructions', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(
+        result.includes('Implementation') || result.includes('In-Scope Fixes'),
+        'Missing Implementation/In-Scope Fixes section requirement'
+      );
+    });
+
+    it('should require Tracking section in plan for triage instructions', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(
+        result.includes('Tracking') || result.includes('Out-of-Scope Tracking'),
+        'Missing Tracking/Out-of-Scope Tracking section requirement'
+      );
+    });
+
+    it('should require Implementation section in plan for workflow triage instructions', () => {
+      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+      assert(
+        result.includes('Implementation') || result.includes('In-Scope Fixes'),
+        'Missing Implementation/In-Scope Fixes section requirement'
+      );
+    });
+
+    it('should require Tracking section in plan for workflow triage instructions', () => {
+      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+      assert(
+        result.includes('Tracking') ||
+          result.includes('Out-of-Scope') ||
+          result.includes('Skip Mechanism'),
+        'Missing Tracking/Out-of-Scope/Skip Mechanism section requirement'
+      );
+    });
+
+    it('should specify plan structure with A/B sections', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('**A.'), 'Missing section A marker in plan structure');
+      assert(result.includes('**B.'), 'Missing section B marker in plan structure');
+    });
+  });
+
+  describe('all-hands review workflow (wiggum.md)', () => {
+    it('should not include wiggum_list_issues in single-issue triage instructions', () => {
+      // wiggum_list_issues is used in all-hands review workflow (.claude/commands/wiggum.md)
+      // but not in single-issue triage (generateTriageInstructions)
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(
+        !result.includes('wiggum_list_issues'),
+        'Single-issue triage should not reference wiggum_list_issues'
+      );
+    });
+
+    it('should not include wiggum_list_issues in workflow triage instructions', () => {
+      // wiggum_list_issues is used in all-hands review workflow (.claude/commands/wiggum.md)
+      // but not in workflow failure triage (generateWorkflowTriageInstructions)
+      const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+      assert(
+        !result.includes('wiggum_list_issues'),
+        'Workflow triage should not reference wiggum_list_issues'
+      );
+    });
+
+    it('should not include scope filter in single-issue triage instructions', () => {
+      // Scope filter is used in all-hands review workflow (.claude/commands/wiggum.md)
+      // but not in single-issue triage
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(
+        !result.includes('scope:') && !result.includes("scope: 'in-scope'"),
+        'Single-issue triage should not reference scope filter'
+      );
+    });
+  });
+
+  describe('plan mode workflow integration', () => {
+    it('should include plan mode step in workflow sequence', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      assert(result.includes('## Step 1:'), 'Missing Step 1 in plan mode workflow');
+      assert(result.includes('## Step 2:'), 'Missing Step 2 in plan mode workflow');
+      assert(result.includes('## Step 3:'), 'Missing Step 3 in plan mode workflow');
+    });
+
+    it('should sequence EnterPlanMode before plan writing', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      const enterIndex = result.indexOf('EnterPlanMode');
+      const planWriteIndex = result.indexOf('Write Plan');
+      assert(enterIndex !== -1, 'EnterPlanMode not found');
+      assert(
+        planWriteIndex === -1 || enterIndex < planWriteIndex,
+        'EnterPlanMode should come before plan writing'
+      );
+    });
+
+    it('should sequence plan writing before ExitPlanMode', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      const exitIndex = result.indexOf('ExitPlanMode');
+      const sectionIndex = result.indexOf('**A.');
+      assert(exitIndex !== -1, 'ExitPlanMode not found');
+      assert(
+        sectionIndex === -1 || sectionIndex < exitIndex,
+        'Plan sections should be defined before ExitPlanMode'
+      );
+    });
+
+    it('should execute plan after exiting plan mode', () => {
+      const result = generateTriageInstructions(123, 'PR', 5);
+      const exitIndex = result.indexOf('ExitPlanMode');
+      const step3Index = result.indexOf('## Step 3:');
+      assert(exitIndex !== -1, 'ExitPlanMode not found');
+      assert(step3Index !== -1, 'Step 3 not found');
+      assert(
+        exitIndex < step3Index,
+        'Plan execution (Step 3) should happen after ExitPlanMode'
+      );
+    });
+  });
+});
+
 describe('generateScopeSeparatedFixInstructions', () => {
   describe('output format', () => {
     it('should include issue number in output', () => {
@@ -904,6 +1070,7 @@ describe('generateScopeSeparatedFixInstructions', () => {
       assert(result.includes('/tmp/out2.md'));
     });
 
+    // TODO(#2020): Simplify step sequence verification - use loop-based approach with expectedSteps array
     it('should include Agent 1 and Agent 2 sections when both counts > 0', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 3, [
         '/tmp/out.md',
@@ -922,7 +1089,8 @@ describe('generateScopeSeparatedFixInstructions', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
         '/tmp/out.md',
       ]);
-      assert(result.includes('model: "sonnet"')); // Both Agent 1 and Agent 2 use sonnet
+      // TODO(#2024): Improve test comment clarity
+      assert(result.includes('model: "sonnet"')); // All agents use sonnet model
     });
 
     it('should include in-scope count in header', () => {
@@ -1065,70 +1233,61 @@ describe('generateScopeSeparatedFixInstructions', () => {
     it('should have correct step sequence with renumbered steps', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
 
-      // Verify all steps exist
-      assert(result.match(/^\*\*Step 1:/m), 'Missing Step 1 header');
-      assert(result.match(/^\*\*Step 2:/m), 'Missing Step 2 header');
-      assert(result.match(/^\*\*Step 3:/m), 'Missing Step 3 header');
-      assert(result.match(/^\*\*Step 4:/m), 'Missing Step 4 header');
-      assert(result.match(/^\*\*Step 5:/m), 'Missing Step 5 header');
+      const expectedSteps = [
+        { number: 1, title: 'Get Issue References' },
+        { number: 2, title: 'Enter Plan Mode' },
+        { number: 3, title: 'Execute Plan (After Context Clear)' },
+        { number: 4, title: 'Create TODO List' },
+        { number: 5, title: 'Launch Agents' },
+      ];
 
-      // Verify step titles
-      assert(result.includes('**Step 1: Get Issue References**'), 'Missing Step 1 title');
-      assert(result.includes('**Step 2: Enter Plan Mode**'), 'Missing Step 2 title');
-      assert(result.includes('**Step 3: Execute Plan (After Context Clear)**'), 'Missing Step 3 title');
-      assert(result.includes('**Step 4: Create TODO List**'), 'Missing Step 4 title');
-      assert(result.includes('**Step 5: Launch Agents**'), 'Missing Step 5 title');
+      const stepIndices: number[] = [];
 
-      // Verify correct ordering
-      const step1Index = result.indexOf('**Step 1:');
-      const step2Index = result.indexOf('**Step 2:');
-      const step3Index = result.indexOf('**Step 3:');
-      const step4Index = result.indexOf('**Step 4:');
-      const step5Index = result.indexOf('**Step 5:');
+      for (const step of expectedSteps) {
+        assert(result.match(new RegExp(`^\\*\\*Step ${step.number}:`, 'm')), `Missing Step ${step.number} header`);
+        assert(result.includes(`**Step ${step.number}: ${step.title}**`), `Missing Step ${step.number} title`);
 
-      assert(step1Index !== -1, 'Step 1 not found');
-      assert(step2Index !== -1, 'Step 2 not found');
-      assert(step3Index !== -1, 'Step 3 not found');
-      assert(step4Index !== -1, 'Step 4 not found');
-      assert(step5Index !== -1, 'Step 5 not found');
+        const index = result.indexOf(`**Step ${step.number}:`);
+        assert(index !== -1, `Step ${step.number} not found`);
+        stepIndices.push(index);
+      }
 
-      assert(step1Index < step2Index, 'Step 1 should come before Step 2');
-      assert(step2Index < step3Index, 'Step 2 should come before Step 3');
-      assert(step3Index < step4Index, 'Step 3 should come before Step 4');
-      assert(step4Index < step5Index, 'Step 4 should come before Step 5');
+      for (let i = 1; i < stepIndices.length; i++) {
+        assert(stepIndices[i - 1] < stepIndices[i], `Step ${i} should come before Step ${i + 1}`);
+      }
     });
 
     it('should have context clear warning in Step 3', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
 
-      // Verify warning exists
-      assert(
-        result.includes('CRITICAL: After exiting plan mode, context will be cleared'),
-        'Missing context clear warning'
-      );
-      assert(
-        result.includes('Call wiggum_list_issues again to get fresh references'),
-        'Missing wiggum_list_issues instruction'
-      );
-
-      // Verify warning appears in Step 3 (after "Step 3:" but before "Step 4:")
       const step3Index = result.indexOf('**Step 3:');
       const step4Index = result.indexOf('**Step 4:');
       const warningIndex = result.indexOf('CRITICAL: After exiting plan mode, context will be cleared');
+      const listIssuesIndex = result.indexOf('Call `wiggum_list_issues({ scope: \'all\' })` again');
 
+      assert(warningIndex !== -1, 'Missing context clear warning');
+      assert(listIssuesIndex !== -1, 'Missing wiggum_list_issues instruction');
       assert(warningIndex > step3Index, 'Warning should appear after Step 3 header');
       assert(warningIndex < step4Index, 'Warning should appear before Step 4 header');
+      assert(listIssuesIndex > warningIndex, 'wiggum_list_issues instruction should follow warning');
     });
 
+    // TODO(#2021): Simplify redundancy check using indexOf/lastIndexOf comparison
     it('should have only one context clear warning (no redundancy)', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
 
-      // Count occurrences of the warning text
       const warningText = 'CRITICAL: After exiting plan mode, context will be cleared';
-      const matches = result.match(new RegExp(warningText, 'g'));
+      const listIssuesText = 'Call `wiggum_list_issues({ scope: \'all\' })` again';
 
-      assert(matches !== null, 'Warning text not found');
-      assert.strictEqual(matches.length, 1, 'Warning should appear exactly once');
+      const warningFirstIndex = result.indexOf(warningText);
+      const warningLastIndex = result.lastIndexOf(warningText);
+      const listIssuesFirstIndex = result.indexOf(listIssuesText);
+      const listIssuesLastIndex = result.lastIndexOf(listIssuesText);
+
+      assert(warningFirstIndex !== -1, 'Warning text not found');
+      assert.strictEqual(warningFirstIndex, warningLastIndex, 'Warning should appear exactly once');
+      assert(listIssuesFirstIndex !== -1, 'List issues instruction not found');
+      assert.strictEqual(listIssuesFirstIndex, listIssuesLastIndex, 'List issues instruction should appear exactly once');
     });
   });
 });
