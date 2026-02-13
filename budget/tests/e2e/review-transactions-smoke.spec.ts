@@ -9,7 +9,8 @@ test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
     // Get collection name from environment (handles PR/branch/worker namespacing)
     const collectionName = getTransactionsCollectionName();
-    await page.goto(`/#/review?testCollection=${collectionName}`);
+    // Query params must be BEFORE hash for window.location.search to work
+    await page.goto(`/?testCollection=${collectionName}#/review`);
 
     const setupGuide = page.locator('text=Firebase Setup Required');
     await expect(setupGuide).not.toBeVisible();
