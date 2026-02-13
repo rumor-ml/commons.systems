@@ -437,7 +437,13 @@ case "$APP_TYPE" in
       fi
     fi
 
-    VITE_USE_FIREBASE_EMULATOR=true VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" pnpm --dir "${APP_PATH_ABS}/site" build
+    # Extract Firestore port for Vite build-time embedding
+    FIRESTORE_PORT="${FIRESTORE_EMULATOR_HOST##*:}"
+
+    VITE_USE_FIREBASE_EMULATOR=true \
+    VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
+    VITE_FIREBASE_EMULATOR_FIRESTORE_PORT="${FIRESTORE_PORT}" \
+    pnpm --dir "${APP_PATH_ABS}/site" build
 
     if [ "$REUSE_EMULATORS" = "true" ]; then
       echo "✓ Skipping emulator startup - reusing existing emulators"
