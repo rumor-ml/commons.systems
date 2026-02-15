@@ -153,7 +153,7 @@ service cloud.firestore {
     // LIMITATION: PR and preview collections require explicit rules for each PR number.
     // Firebase does not support collection name patterns. The -worker-0 variants
     // for local emulator testing are explicitly defined above.
-    // TODO(#ISSUE): Design scalable solution for PR/preview collection rules.
+    // TODO(#2036): Design scalable solution for PR/preview collection rules.
     // Options: subcollections, programmatic deployment, or application-level permissions.
 
     // Budget Demo Transactions PR 2010 - publicly readable (for E2E tests)
