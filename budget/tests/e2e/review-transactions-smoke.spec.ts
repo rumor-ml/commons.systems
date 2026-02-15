@@ -24,6 +24,15 @@ test.describe('Review Page Smoke Tests', () => {
 
     await page.goto(url);
 
+    // DEBUG: Log URL construction details
+    console.log('[TEST] Deployed mode:', isDeployed);
+    console.log(
+      '[TEST] Collection name:',
+      url.match(/testCollection=([^&#]+)/)?.[1] || 'NOT FOUND'
+    );
+    console.log('[TEST] Navigating to:', url);
+    console.log('[TEST] Page URL after goto:', page.url());
+
     // Wait for app container
     await page.waitForSelector('.app-container', { timeout: 10000 });
 
