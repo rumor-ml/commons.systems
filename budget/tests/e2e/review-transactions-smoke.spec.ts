@@ -7,12 +7,22 @@ import { getTransactionsCollectionName } from '../../site/scripts/lib/collection
 
 test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
-    // Get collection name (reads from env vars or defaults)
-    const collectionName = getTransactionsCollectionName();
+    const isDeployed = process.env.DEPLOYED === 'true';
+    let url;
 
-    // Construct URL with testCollection parameter and hash route
-    // Playwright will resolve this against baseURL (localhost for local, deployed URL for CI)
-    await page.goto(`/?testCollection=${collectionName}#/review`);
+    if (isDeployed && process.env.DEPLOYED_URL) {
+      // Deployed: DEPLOYED_URL already has testCollection param (set by run-playwright-tests.sh)
+      // Extract the collection name from URL to pass to hash route
+      const urlObj = new URLSearchParams(new URL(process.env.DEPLOYED_URL).search);
+      const testCollection = urlObj.get('testCollection') || 'budget-demo-transactions';
+      url = `/?testCollection=${testCollection}#/review`;
+    } else {
+      // Local/emulator: Get collection name from environment (reads FIRESTORE_EMULATOR_HOST, etc.)
+      const collectionName = getTransactionsCollectionName();
+      url = `/?testCollection=${collectionName}#/review`;
+    }
+
+    await page.goto(url);
 
     // Wait for app container
     await page.waitForSelector('.app-container', { timeout: 10000 });
