@@ -7,24 +7,12 @@ import { getTransactionsCollectionName } from '../../site/scripts/lib/collection
 
 test.describe('Review Page Smoke Tests', () => {
   test('@smoke should load demo transactions on review page', async ({ page }) => {
-    // For deployed tests, run-playwright-tests.sh sets DEPLOYED_URL with testCollection param
-    // For local tests, we need to construct the URL ourselves
-    const isDeployed = process.env.DEPLOYED === 'true';
-    const deployedUrl = process.env.DEPLOYED_URL || '';
-    let url;
+    // Get collection name (reads from env vars or defaults)
+    const collectionName = getTransactionsCollectionName();
 
-    if (isDeployed && deployedUrl) {
-      // Deployed mode: DEPLOYED_URL has baseURL + ?testCollection=...
-      // Parse it to preserve query params when adding hash route
-      const urlObj = new URL(deployedUrl);
-      url = `${urlObj.pathname}${urlObj.search}#/review`;
-    } else {
-      // Local/emulator mode: construct URL with collection name
-      const collectionName = getTransactionsCollectionName();
-      url = `/?testCollection=${collectionName}#/review`;
-    }
-
-    await page.goto(url);
+    // Construct URL with testCollection parameter and hash route
+    // Playwright will resolve this against baseURL (localhost for local, deployed URL for CI)
+    await page.goto(`/?testCollection=${collectionName}#/review`);
 
     // Wait for app container
     await page.waitForSelector('.app-container', { timeout: 10000 });
