@@ -320,27 +320,13 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       entry = "${pkgs.writeShellScript "mcp-npm-test" ''
         set -e
 
-        # TODO(#1765): Duplicate direnv comment pattern in checks.nix
-        # TODO(#1768): Duplicate direnv error handling pattern in checks.nix
         # Load direnv environment to ensure Nix Node.js is used instead of Homebrew
         # This prevents ICU4c library version conflicts on macOS
-        DIRENV_OUTPUT=$(${pkgs.direnv}/bin/direnv export bash 2>/dev/null)
-        DIRENV_EXIT=$?
-
-        if [ $DIRENV_EXIT -ne 0 ]; then
-          DIRENV_OUTPUT=$(${pkgs.direnv}/bin/direnv export bash 2>&1)
-        fi
-
-        if [ $DIRENV_EXIT -ne 0 ] || [ -z "$DIRENV_OUTPUT" ]; then
-          echo "ERROR: direnv environment setup failed"
-          echo "Ensure 'direnv allow' has been run in the repository"
-          echo ""
-          echo "direnv error output:"
-          echo "$DIRENV_OUTPUT"
+        # Uses shared helper (resolves TODO #1765, #1768)
+        source infrastructure/scripts/lib/direnv-loader.sh
+        if ! load_direnv_environment "${pkgs.direnv}/bin/direnv" "true"; then
           exit 1
         fi
-
-        eval "$DIRENV_OUTPUT"
 
         # Verify we're in a git repository
         if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -400,6 +386,44 @@ pre-commit-hooks.lib.${pkgs.system}.run {
       stages = [ "pre-push" ];
       pass_filenames = false;
       always_run = true;
+    };
+
+    # Test direnv-loader.sh integration when it changes
+    # Resolves TODO(#1739): Add integration tests for MCP direnv wrapper
+    direnv-loader-test = {
+      enable = true;
+      name = "direnv-loader-test";
+      description = "Test direnv-loader.sh integration";
+      entry = "${pkgs.writeShellScript "direnv-loader-test" ''
+        set -e
+
+        # Verify we're in a git repository
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "ERROR: Not in a git repository"
+          exit 1
+        fi
+
+        # Verify origin/main exists
+        if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+          echo "ERROR: Remote branch 'origin/main' not found"
+          echo "Please fetch from origin: git fetch origin"
+          exit 1
+        fi
+
+        # Only run if direnv-loader.sh or its tests changed
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+
+        if echo "$CHANGED_FILES" | grep -qE "(infrastructure/scripts/lib/direnv-loader\.sh|infrastructure/scripts/tests/direnv-loader\.test\.sh)"; then
+          echo "direnv-loader.sh or its tests changed, running integration tests..."
+          bash ./infrastructure/scripts/tests/direnv-loader.test.sh
+        else
+          echo "No direnv-loader.sh changes detected, skipping tests."
+        fi
+      ''}";
+      language = "system";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+      always_run = false;
     };
 
     # Validate pnpm lockfile consistency
