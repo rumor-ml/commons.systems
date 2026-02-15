@@ -31,7 +31,6 @@ service cloud.firestore {
     // until updated with isPublic: true (see fellspiral/scripts/migrate-ispublic.js)
     // DEPLOYMENT: Run migration script before deploying these rules to prevent cards becoming unreadable.
     // For detailed deployment procedures, see the CRITICAL DEPLOYMENT ORDER section in migrate-ispublic.js
-    // TODO(#1958): Consider moving deployment warnings to rule invocations or creating top-level DEPLOYMENT section
     function canReadCard() {
       return resource.data.get('isPublic', false) == true
              || (isAuthenticated() && resource.data.get('createdBy', '') == request.auth.uid);
@@ -50,7 +49,6 @@ service cloud.firestore {
     // (2) UPDATE operations enforce lastModifiedAt == request.time for audit trail integrity.
     // (3) Server-side queries can use _createTime metadata for accurate ordering if needed.
     // TODO(#283): Add E2E test attempting to forge createdAt timestamp
-    // TODO(#1369): Clarify TODO comment - tests tracked separately in #283
     function canCreateCard() {
       return isAuthenticated()
              && request.resource.data.keys().hasAll(['title', 'type', 'subtype', 'isPublic'])
@@ -252,7 +250,6 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isOwner(userId);
     }
 
-    // TODO(#1961): Move "Default: deny all access" comment to line 415 near the actual default deny rule
     // Default: deny all access to other collections
 
     // ========================================
@@ -317,7 +314,6 @@ service cloud.firestore {
     // NOTE: Firebase Security Rules do NOT support wildcard collection names.
     // The syntax "match /collection{suffix}" is INVALID and causes compilation errors.
     // Each collection variant must be listed explicitly.
-    // TODO(#2003): Add security rules test coverage for public read rules
     match /budget-demo-transactions/{transactionId} {
       allow read: if true; // Publicly readable demo data
       allow create: if isAuthenticated()
@@ -405,14 +401,55 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
     }
 
-    // LIMITATION: PR and preview collections (budget-demo-transactions_pr_123,
-    // budget-demo-transactions_preview_branch) are NOT covered by these rules.
+    // LIMITATION: PR and preview collections require explicit rules for each PR number.
     // Firebase does not support collection name patterns. The -worker-0 variants
     // for local emulator testing are explicitly defined above.
-    // For dynamic PR/preview environments, consider:
-    //   1. Restructuring to use subcollections: /preview/{env}/transactions/{id}
-    //   2. Deploying rules updates programmatically for each preview environment
-    //   3. Handling permissions at the application level
+    // TODO(#ISSUE): Design scalable solution for PR/preview collection rules.
+    // Options: subcollections, programmatic deployment, or application-level permissions.
+
+    // Budget Demo Transactions PR 2010 - publicly readable (for E2E tests)
+    match /budget-demo-transactions_pr_2010/{transactionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Statements PR 2010 - publicly readable (for E2E tests)
+    match /budget-demo-statements_pr_2010/{statementId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Accounts PR 2010 - publicly readable (for E2E tests)
+    match /budget-demo-accounts_pr_2010/{accountId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Institutions PR 2010 - publicly readable (for E2E tests)
+    match /budget-demo-institutions_pr_2010/{institutionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
 
     // Deny all other access
     match /{document=**} { allow read, write: if false; }
