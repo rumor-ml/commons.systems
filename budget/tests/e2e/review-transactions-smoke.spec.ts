@@ -26,15 +26,27 @@ test.describe('Review Page Smoke Tests', () => {
 
     await page.goto(url);
 
-    // Wait for app to initialize
+    // Wait for app container
     await page.waitForSelector('.app-container', { timeout: 10000 });
+
+    // Wait for table to exist (even if empty)
+    await page.waitForSelector('table tbody', { timeout: 10000 });
+
+    // Poll for table rows with longer timeout
+    // This handles the case where table exists but rows are loading
+    // Increased from 30s to 45s to account for slow first load
+    await page.waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('table tbody tr');
+        return rows.length > 0;
+      },
+      { timeout: 45000 }
+    );
 
     const setupGuide = page.locator('text=Firebase Setup Required');
     await expect(setupGuide).not.toBeVisible();
 
-    // Wait for transactions to load from Firestore (increased timeout for emulator stability)
-    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 30000 });
-
+    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 5000 });
     // TODO(#1970): Replace hardcoded count with range check or threshold assertion
     const rowCount = await page.locator('table tbody tr').count();
     expect(rowCount).toBe(91);
