@@ -11,8 +11,8 @@ RUN npm install -g pnpm@9
 # Install Firebase CLI globally
 RUN npm install -g firebase-tools
 
-# Install Playwright system dependencies
-RUN npx playwright install-deps chromium
+# Install Playwright browsers (chromium)
+RUN npx playwright install chromium
 
 # Set up workspace
 WORKDIR /workspace

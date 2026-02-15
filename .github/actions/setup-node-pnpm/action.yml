@@ -51,7 +51,7 @@ runs:
     - name: Install Playwright browsers
       if: inputs.install-playwright == 'true'
       shell: bash
-      run: npx playwright install chromium firefox --with-deps
+      run: npx playwright install chromium firefox
 
     - name: Install Firebase CLI
       if: inputs.install-firebase == 'true'

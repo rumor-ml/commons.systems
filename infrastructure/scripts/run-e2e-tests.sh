@@ -406,7 +406,44 @@ case "$APP_TYPE" in
     # These cached 404s persist even if files are added later, causing tests to fail.
     # Building first ensures all files exist before the emulator starts caching.
     echo "Building..."
-    VITE_USE_FIREBASE_EMULATOR=true VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" pnpm --dir "${APP_PATH_ABS}/site" build
+
+    # Set VITE_FIREBASE_* vars for Vite apps to exercise production code paths
+    # Apps with .env.example use these vars for Firebase SDK initialization
+    # Values don't matter for emulator connectivity (handled by VITE_USE_FIREBASE_EMULATOR=true)
+    # but must be set at build time because Vite embeds env vars during build
+    # Note: isFirebaseConfigured() skips validation when VITE_USE_FIREBASE_EMULATOR=true
+    if [ -f "${APP_PATH_ABS}/site/.env.example" ]; then
+      export VITE_FIREBASE_API_KEY="emulator-api-key"
+      export VITE_FIREBASE_AUTH_DOMAIN="${GCP_PROJECT_ID}.firebaseapp.com"
+      export VITE_FIREBASE_PROJECT_ID="${GCP_PROJECT_ID}"
+      export VITE_FIREBASE_STORAGE_BUCKET="${GCP_PROJECT_ID}.appspot.com"
+      export VITE_FIREBASE_MESSAGING_SENDER_ID="000000000000"
+      export VITE_FIREBASE_APP_ID="1:000000000000:web:0000000000000000000000"
+
+      # Validate that all required VITE_FIREBASE_* variables were exported successfully
+      MISSING_FIREBASE_VARS=()
+      for var in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID \
+                 VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID; do
+        [ -z "${!var:-}" ] && MISSING_FIREBASE_VARS+=("$var")
+      done
+
+      if [ ${#MISSING_FIREBASE_VARS[@]} -gt 0 ]; then
+        echo "FATAL: Required VITE_FIREBASE_* variables not exported:" >&2
+        echo "  Missing: ${MISSING_FIREBASE_VARS[*]}" >&2
+        echo "" >&2
+        echo "This will cause build to fail or use incorrect Firebase configuration" >&2
+        echo "Check export statements above for errors" >&2
+        exit 1
+      fi
+    fi
+
+    # Extract Firestore port for Vite build-time embedding
+    FIRESTORE_PORT="${FIRESTORE_EMULATOR_HOST##*:}"
+
+    VITE_USE_FIREBASE_EMULATOR=true \
+    VITE_GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
+    VITE_FIREBASE_EMULATOR_FIRESTORE_PORT="${FIRESTORE_PORT}" \
+    pnpm --dir "${APP_PATH_ABS}/site" build
 
     if [ "$REUSE_EMULATORS" = "true" ]; then
       echo "✓ Skipping emulator startup - reusing existing emulators"
