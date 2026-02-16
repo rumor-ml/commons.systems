@@ -398,17 +398,32 @@ jobs:
           site_name: 'fellspiral'
           branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
 
+      - name: Extract PR number
+        id: pr_number
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            # Extract from merge queue branch name: gh-readonly-queue/main/pr-{PR_NUMBER}-{hash}
+            if [[ "${{ github.ref_name }}" =~ pr-([0-9]+)- ]]; then
+              echo "value=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Inject environment variables for build
         working-directory: fellspiral
+        env:
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           # Create .env file for Vite (in site/ directory where Vite command runs)
-          echo "VITE_PR_NUMBER=${{ github.event.pull_request.number }}" > site/.env
-          echo "VITE_BRANCH_NAME=${{ github.head_ref || github.ref_name }}" >> site/.env
+          echo "VITE_PR_NUMBER=$PR_NUMBER" > site/.env
+          echo "VITE_BRANCH_NAME=$BRANCH_NAME" >> site/.env
 
           # Show what we're building
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
-            echo "Building for PR #${{ github.event.pull_request.number }}"
-            echo "Collection will be: cards_pr_${{ github.event.pull_request.number }}"
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Building for PR #$PR_NUMBER"
+            echo "Collection will be: cards_pr_$PR_NUMBER"
           else
             echo "Building for branch: ${{ github.ref_name }}"
           fi
@@ -510,11 +525,23 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Extract PR number
+        id: pr_number
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            # Extract from merge queue branch name: gh-readonly-queue/main/pr-{PR_NUMBER}-{hash}
+            if [[ "${{ github.ref_name }}" =~ pr-([0-9]+)- ]]; then
+              echo "value=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Seed Firestore with namespaced collection
         working-directory: fellspiral
         env:
           FIRESTORE_PROJECT_ID: chalanding
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           # Show which collection we're seeding
@@ -865,17 +892,32 @@ jobs:
           environment_url: ${{ github.event_name == 'pull_request' && format('https://preview-{0}-budget.web.app', steps.sanitize.outputs.sanitized) || 'https://budget.web.app' }}
           site_name: 'budget'
           branch_name: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
+      - name: Extract PR number
+        id: pr_number
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            # Extract from merge queue branch name: gh-readonly-queue/main/pr-{PR_NUMBER}-{hash}
+            if [[ "${{ github.ref_name }}" =~ pr-([0-9]+)- ]]; then
+              echo "value=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Inject environment variables for build
         working-directory: budget
+        env:
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           # Create .env file for Vite (in site/ directory where Vite command runs)
-          echo "VITE_PR_NUMBER=${{ github.event.pull_request.number }}" > site/.env
-          echo "VITE_BRANCH_NAME=${{ github.head_ref || github.ref_name }}" >> site/.env
+          echo "VITE_PR_NUMBER=$PR_NUMBER" > site/.env
+          echo "VITE_BRANCH_NAME=$BRANCH_NAME" >> site/.env
 
           # Show what we're building
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
-            echo "Building for PR #${{ github.event.pull_request.number }}"
-            echo "Collection will be: budget-demo-transactions_pr_${{ github.event.pull_request.number }}"
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Building for PR #$PR_NUMBER"
+            echo "Collection will be: budget-demo-transactions_pr_$PR_NUMBER"
           else
             echo "Building for branch: ${{ github.ref_name }}"
           fi
@@ -968,11 +1010,23 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Extract PR number
+        id: pr_number
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            # Extract from merge queue branch name: gh-readonly-queue/main/pr-{PR_NUMBER}-{hash}
+            if [[ "${{ github.ref_name }}" =~ pr-([0-9]+)- ]]; then
+              echo "value=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Seed Firestore with namespaced collections
         working-directory: budget/site
         env:
           FIRESTORE_PROJECT_ID: chalanding
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           # Show which collections we're seeding
@@ -1006,11 +1060,23 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Extract PR number
+        id: pr_number
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            # Extract from merge queue branch name: gh-readonly-queue/main/pr-{PR_NUMBER}-{hash}
+            if [[ "${{ github.ref_name }}" =~ pr-([0-9]+)- ]]; then
+              echo "value=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Test fellspiral
         run: ./infrastructure/scripts/run-playwright-tests.sh fellspiral "${{ needs.deploy-fellspiral.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-fellspiral.outputs.url }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           CI: true
 
@@ -1102,11 +1168,22 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Extract PR number
+        id: pr_number
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            # Extract from merge queue branch name: gh-readonly-queue/main/pr-{PR_NUMBER}-{hash}
+            if [[ "${{ github.ref_name }}" =~ pr-([0-9]+)- ]]; then
+              echo "value=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            fi
+          fi
       - name: Test budget
         run: ./infrastructure/scripts/run-playwright-tests.sh budget "${{ needs.deploy-budget.outputs.url }}"
         env:
           DEPLOYED_URL: ${{ needs.deploy-budget.outputs.url }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           CI: true
 
