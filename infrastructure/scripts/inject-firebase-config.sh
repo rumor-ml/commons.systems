@@ -3,6 +3,7 @@
 # Usage: inject-firebase-config.sh <site-name>
 
 # TODO(#434): Improve error handling in Firebase deployment infrastructure scripts
+# TODO(#1960): Extract target file path into variable and reduce duplicate echo statements
 set -e
 
 SITE_NAME="${1}"
@@ -93,6 +94,30 @@ STORAGE_BUCKET=$(echo "$CONFIG_RESPONSE" | jq -r '.storageBucket')
 MESSAGING_SENDER_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.messagingSenderId')
 APP_ID=$(echo "$CONFIG_RESPONSE" | jq -r '.appId')
 
+# Validate all extracted configuration values
+MISSING_FIELDS=()
+declare -A FIELDS=(
+  ["apiKey"]="$API_KEY"
+  ["authDomain"]="$AUTH_DOMAIN"
+  ["projectId"]="$PROJECT_ID"
+  ["storageBucket"]="$STORAGE_BUCKET"
+  ["messagingSenderId"]="$MESSAGING_SENDER_ID"
+  ["appId"]="$APP_ID"
+)
+
+for field in "${!FIELDS[@]}"; do
+  value="${FIELDS[$field]}"
+  if [ -z "$value" ] || [ "$value" = "null" ]; then
+    MISSING_FIELDS+=("$field")
+  fi
+done
+
+if [ ${#MISSING_FIELDS[@]} -gt 0 ]; then
+  echo "❌ Failed to extract required Firebase configuration fields: ${MISSING_FIELDS[*]}"
+  echo "Response: $CONFIG_RESPONSE"
+  exit 1
+fi
+
 # Override storage bucket for sites that use rml-media
 # videobrowser and print both use the rml-media bucket with shared storage rules
 if [ "$SITE_NAME" = "videobrowser" ] || [ "$SITE_NAME" = "print" ]; then
@@ -100,29 +125,28 @@ if [ "$SITE_NAME" = "videobrowser" ] || [ "$SITE_NAME" = "print" ]; then
   echo "  Using rml-media bucket for $SITE_NAME"
 fi
 
-# Validate we got the config
-if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
-  echo "❌ Failed to get Firebase configuration"
-  echo "Response: $CONFIG_RESPONSE"
-  exit 1
-fi
-
 echo "✅ Retrieved Firebase configuration"
 echo "  API Key: ${API_KEY:0:20}..."
 echo "  Project ID: $PROJECT_ID"
 echo "  Auth Domain: $AUTH_DOMAIN"
 
-# Update the firebase-config.js file
+# Inject Firebase config based on app type
 CONFIG_FILE="${SITE_NAME}/site/src/firebase-config.js"
+ENV_FILE="${SITE_NAME}/site/.env"
+ENV_EXAMPLE_FILE="${SITE_NAME}/site/.env.example"
 
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "⚠️  Configuration file not found: $CONFIG_FILE"
-  echo "⚠️  Skipping Firebase config injection (app doesn't use Firebase SDK)"
-  exit 0
-fi
+# Helper function to validate file was written successfully
+validate_file_written() {
+  local file="$1"
+  if [ ! -f "$file" ] || [ ! -s "$file" ]; then
+    echo "❌ Failed to write Firebase configuration to $file"
+    exit 1
+  fi
+}
 
-# Create the new configuration
-cat > "$CONFIG_FILE" << EOF
+# Pattern 1: Apps using firebase-config.js (legacy)
+if [ -f "$CONFIG_FILE" ]; then
+  cat > "$CONFIG_FILE" << EOF
 /**
  * Firebase Configuration for ${SITE_NAME^}
  *
@@ -143,4 +167,30 @@ export const firebaseConfig = {
 };
 EOF
 
-echo "✅ Firebase configuration injected into $CONFIG_FILE"
+  validate_file_written "$CONFIG_FILE"
+  TARGET_FILE="$CONFIG_FILE"
+
+# Pattern 2: Apps using Vite .env files (e.g., budget)
+elif [ -f "$ENV_EXAMPLE_FILE" ]; then
+  cat > "$ENV_FILE" << EOF
+# Firebase Configuration
+# Auto-generated during CI/CD deployment
+
+VITE_FIREBASE_API_KEY=${API_KEY}
+VITE_FIREBASE_AUTH_DOMAIN=${AUTH_DOMAIN}
+VITE_FIREBASE_PROJECT_ID=${PROJECT_ID}
+VITE_FIREBASE_STORAGE_BUCKET=${STORAGE_BUCKET}
+VITE_FIREBASE_MESSAGING_SENDER_ID=${MESSAGING_SENDER_ID}
+VITE_FIREBASE_APP_ID=${APP_ID}
+EOF
+
+  validate_file_written "$ENV_FILE"
+  TARGET_FILE="$ENV_FILE"
+
+else
+  echo "⚠️  No firebase-config.js or .env.example found in ${SITE_NAME}/site"
+  echo "⚠️  Skipping Firebase config injection (app doesn't use Firebase SDK)"
+  exit 0
+fi
+
+echo "✅ Firebase configuration injected into $TARGET_FILE"

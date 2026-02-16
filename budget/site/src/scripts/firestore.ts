@@ -20,7 +20,7 @@ import {
 } from './collection-names';
 import type { Category } from '../islands/types';
 
-// TODO(#1455): Add test coverage for Firestore query functions (loadUserTransactions,
+// TODO(#2007): Add test coverage for Firestore query functions (loadUserTransactions,
 // loadDemoTransactions, loadUserStatements, loadUserAccounts, loadUserInstitutions).
 // Need tests for: query constraints, data transformation, error handling, empty results.
 
@@ -35,6 +35,7 @@ const requiredEnvVars = [
 ] as const;
 
 // Validate Firebase environment variables (lazy - only when Firebase is initialized)
+// TODO(#2008): Add Sentry/structured logging to track Firebase config errors in production
 function validateFirebaseConfig(): void {
   const missingVars = requiredEnvVars.filter(
     (key) => !import.meta.env[key] || import.meta.env[key] === ''
@@ -53,22 +54,17 @@ function validateFirebaseConfig(): void {
 
 // Check if Firebase is properly configured (non-throwing variant for UI checks)
 export function isFirebaseConfigured(): boolean {
-  // Check if all required environment variables are present and not empty
-  const hasAllVars = requiredEnvVars.every(
-    (key) => import.meta.env[key] && import.meta.env[key] !== ''
-  );
-
-  if (!hasAllVars) {
-    return false;
+  // Emulator mode bypasses validation since it uses dummy values
+  if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
+    return true;
   }
 
-  // Check if any values contain placeholder text from .env.example
-  const hasPlaceholders = requiredEnvVars.some((key) => {
+  // Check if all required variables are present (truthy) and don't contain placeholder text
+  // TODO(#1971): Expand placeholder detection to include demo-, test-, example- prefixes
+  return requiredEnvVars.every((key) => {
     const value = import.meta.env[key] as string;
-    return value.includes('your-');
+    return value && !value.includes('your-');
   });
-
-  return !hasPlaceholders;
 }
 
 // Firebase configuration from environment variables (lazy initialization)
@@ -108,6 +104,7 @@ function getFirebaseConfig() {
 export type DateString = string & { readonly __brand: 'DateString' };
 
 // Type guard to validate date string format
+// TODO(#1969): Add semantic date validation to reject invalid dates like 2024-02-30
 export function isValidDateString(s: string): s is DateString {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
@@ -176,7 +173,6 @@ let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 let emulatorConnected = false;
 
-// Initialize Firebase
 export function initFirebase(): FirebaseApp {
   if (!firebaseApp) {
     const config = getFirebaseConfig(); // Lazy validation happens here
@@ -185,7 +181,6 @@ export function initFirebase(): FirebaseApp {
   return firebaseApp;
 }
 
-// Get Firestore instance
 export function getFirestoreDb(): Firestore {
   if (!firestoreDb) {
     const app = initFirebase();
@@ -206,6 +201,7 @@ export function getFirestoreDb(): Firestore {
         ) {
           console.log('Firestore emulator connection already established');
         } else {
+          // TODO(#2004): Include host, port, and actionable guidance in emulator connection error
           console.error('Failed to connect to Firestore emulator:', error);
           throw error;
         }
@@ -215,7 +211,6 @@ export function getFirestoreDb(): Firestore {
   return firestoreDb;
 }
 
-// Map Firestore document data to Transaction object
 function mapDocumentToTransaction(data: DocumentData): Transaction {
   // Handle createdAt - could be Timestamp, Date, or undefined
   let createdAt: Date | undefined;
@@ -248,6 +243,7 @@ function mapDocumentToTransaction(data: DocumentData): Transaction {
 }
 
 // Validate Transaction data from Firestore
+// TODO(#2006): Use 'unknown' or narrower type instead of 'any' for better type safety
 export function validateTransaction(data: any): Transaction {
   // Validate required fields
   // Note: userId is optional for demo transactions (shared data without ownership)
@@ -303,7 +299,6 @@ export function createTransaction(data: {
   });
 }
 
-// Load transactions for a user
 export async function loadUserTransactions(
   userId: string,
   options?: {
@@ -357,6 +352,7 @@ export async function loadUserTransactions(
       const transaction = validateTransaction(data);
       transactions.push(transaction);
     } catch (error) {
+      // TODO(#2005): Accumulate validation errors, add failure rate threshold, and provide user-facing feedback
       console.warn(
         'Skipping invalid transaction:',
         error instanceof Error ? error.message : String(error)
@@ -406,6 +402,7 @@ export async function loadDemoTransactions(options?: {
       const transaction = validateTransaction(data);
       transactions.push(transaction);
     } catch (error) {
+      // TODO(#2005): Accumulate validation errors, add failure rate threshold, and provide user-facing feedback
       console.warn(
         'Skipping invalid transaction:',
         error instanceof Error ? error.message : String(error)
@@ -417,7 +414,6 @@ export async function loadDemoTransactions(options?: {
   return transactions;
 }
 
-// Load statements for a user
 export async function loadUserStatements(userId: string): Promise<Statement[]> {
   const db = getFirestoreDb();
   const statementsRef = collection(db, getStatementsCollectionName());

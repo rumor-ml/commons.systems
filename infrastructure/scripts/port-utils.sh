@@ -333,7 +333,12 @@ parse_pid_file() {
   fi
 
   # Try to read PID:PGID format
-  if IFS=':' read -r pid pgid < "$pid_file_path" 2>/dev/null; then
+  # Capture stderr to distinguish critical errors from expected failures
+  local read_error=$(mktemp)
+  # Ensure cleanup on function return (handles SIGTERM/SIGINT)
+  trap "rm -f '$read_error'" RETURN
+
+  if IFS=':' read -r pid pgid < "$pid_file_path" 2>"$read_error"; then
     # Validate we got at least a PID and that it's numeric
     if [ -n "$pid" ] && [[ "$pid" =~ ^[0-9]+$ ]]; then
       PARSED_PID="$pid"
@@ -346,9 +351,28 @@ parse_pid_file() {
       fi
       return 0
     fi
+  else
+    # Read failed - check if it's a critical error requiring logging
+    if grep -qE "Permission denied|Input/output error" "$read_error" 2>/dev/null; then
+      local error_type
+      if grep -q "Permission denied" "$read_error"; then
+        error_type="permission denied"
+      else
+        error_type="I/O error"
+      fi
+      echo "ERROR: Cannot read PID file ($error_type): $pid_file_path" >&2
+      cat "$read_error" >&2
+      return 1
+    fi
+    # Log unexpected errors for debugging
+    if [ -s "$read_error" ]; then
+      echo "WARNING: Unexpected error reading PID file: $pid_file_path" >&2
+      cat "$read_error" >&2
+    fi
+    # Other errors are expected (empty file, malformed content)
   fi
 
-  # Parse failed
+  # Return failure (cleanup handled by RETURN trap)
   return 1
 }
 
@@ -367,13 +391,52 @@ kill_process_group() {
   if [ -n "$pgid" ]; then
     # Kill entire process group (parent + children)
     kill -TERM -$pgid 2>/dev/null || true
-    sleep 1
+
+    # Wait up to 3 seconds for processes to die gracefully
+    local waited=0
+    while [ $waited -lt 30 ]; do  # 30 * 0.1s = 3s max
+      # Check if any process in the group still exists using ps -e (all processes)
+      if ! ps -eo pgid= | grep -q "^[[:space:]]*${pgid}$"; then
+        return 0  # All processes in group terminated
+      fi
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+
+    # Force kill if still alive
     kill -KILL -$pgid 2>/dev/null || true
+
+    # Wait briefly for SIGKILL to complete
+    sleep 0.5
+
+    # Final verification
+    if ps -eo pgid= | grep -q "^[[:space:]]*${pgid}$"; then
+      echo "WARNING: Process group $pgid still alive after SIGKILL" >&2
+    fi
   elif [ -n "$pid" ]; then
     # Fallback to single PID (children may continue running)
     kill -TERM $pid 2>/dev/null || true
-    sleep 1
+
+    # Wait up to 3 seconds for process to die gracefully
+    local waited=0
+    while [ $waited -lt 30 ]; do  # 30 * 0.1s = 3s max
+      if ! kill -0 $pid 2>/dev/null; then
+        return 0  # Process terminated
+      fi
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+
+    # Force kill if still alive
     kill -KILL $pid 2>/dev/null || true
+
+    # Wait briefly for SIGKILL to complete
+    sleep 0.5
+
+    # Final verification
+    if kill -0 $pid 2>/dev/null; then
+      echo "WARNING: Process $pid still alive after SIGKILL" >&2
+    fi
   fi
 
   return 0

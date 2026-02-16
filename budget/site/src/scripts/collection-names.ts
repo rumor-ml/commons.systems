@@ -17,7 +17,16 @@ function getCollectionNameFromConfig(
 ): string {
   const { prNumber, branchName, useEmulator } = config;
 
-  // Emulator mode: Use worker-0 suffix to match seed script behavior
+  // Priority 1 - URL parameter (for E2E tests)
+  if (typeof window !== 'undefined' && window.location?.search) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlCollection = urlParams.get('testCollection');
+    if (urlCollection) {
+      return urlCollection; // Direct override
+    }
+  }
+
+  // Priority 2 - Emulator mode: Use worker-0 suffix to match seed script behavior
   // When running with emulator, always use {collection}-worker-0
   if (useEmulator) {
     return `${baseCollectionName}-worker-0`;

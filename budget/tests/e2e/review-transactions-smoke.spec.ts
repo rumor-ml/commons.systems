@@ -1,0 +1,61 @@
+// TODO(#1959): Consolidate three separate E2E test cases into one comprehensive test
+// TODO(#1965): Verify deleted test files have no dangling references in documentation
+// TODO(#1968): Add negative test cases for authentication errors (emulator down, network fails)
+// Consolidated smoke test for review page - replaces manual-check.spec.ts and verify-transaction-loading.spec.ts
+import { test, expect } from '@playwright/test';
+import { getTransactionsCollectionName } from '../../site/scripts/lib/collection-names.js';
+
+test.describe('Review Page Smoke Tests', () => {
+  test('@smoke should load demo transactions on review page', async ({ page }) => {
+    const isDeployed = process.env.DEPLOYED === 'true';
+    let url;
+
+    if (isDeployed && process.env.DEPLOYED_URL) {
+      // Deployed: DEPLOYED_URL already has testCollection param (set by run-playwright-tests.sh)
+      // Extract the collection name from URL to pass to hash route
+      const urlObj = new URLSearchParams(new URL(process.env.DEPLOYED_URL).search);
+      const testCollection = urlObj.get('testCollection') || 'budget-demo-transactions';
+      url = `/?testCollection=${testCollection}#/review`;
+    } else {
+      // Local/emulator: Get collection name from environment (reads FIRESTORE_EMULATOR_HOST, etc.)
+      const collectionName = getTransactionsCollectionName();
+      url = `/?testCollection=${collectionName}#/review`;
+    }
+
+    await page.goto(url);
+
+    // DEBUG: Log URL construction details
+    console.log('[TEST] Deployed mode:', isDeployed);
+    console.log(
+      '[TEST] Collection name:',
+      url.match(/testCollection=([^&#]+)/)?.[1] || 'NOT FOUND'
+    );
+    console.log('[TEST] Navigating to:', url);
+    console.log('[TEST] Page URL after goto:', page.url());
+
+    // Wait for app container
+    await page.waitForSelector('.app-container', { timeout: 10000 });
+
+    // Wait for table to exist (even if empty)
+    await page.waitForSelector('table tbody', { timeout: 10000 });
+
+    // Poll for table rows with longer timeout
+    // This handles the case where table exists but rows are loading
+    // Increased from 30s to 45s to account for slow first load
+    await page.waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('table tbody tr');
+        return rows.length > 0;
+      },
+      { timeout: 45000 }
+    );
+
+    const setupGuide = page.locator('text=Firebase Setup Required');
+    await expect(setupGuide).not.toBeVisible();
+
+    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 5000 });
+    // TODO(#1970): Replace hardcoded count with range check or threshold assertion
+    const rowCount = await page.locator('table tbody tr').count();
+    expect(rowCount).toBe(91);
+  });
+});

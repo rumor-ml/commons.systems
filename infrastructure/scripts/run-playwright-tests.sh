@@ -35,6 +35,30 @@ if [ ! -d "$TEST_DIR" ]; then
 fi
 cd "$TEST_DIR"
 
+# --- Construct collection name for budget E2E tests ---
+# For budget tests, append testCollection query parameter to URL
+# This allows runtime override of Firestore collection names for PR/branch namespacing
+if [ "$SITE_NAME" = "budget" ]; then
+  if [ -n "$PR_NUMBER" ]; then
+    COLLECTION_NAME="budget-demo-transactions_pr_${PR_NUMBER}"
+  elif [ -n "$BRANCH_NAME" ] && [ "$BRANCH_NAME" != "main" ]; then
+    # Sanitize branch name: lowercase, alphanumeric + hyphens, max 50 chars
+    SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/-\+/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-50)
+    COLLECTION_NAME="budget-demo-transactions_preview_${SANITIZED_BRANCH}"
+  else
+    COLLECTION_NAME="budget-demo-transactions"
+  fi
+
+  # Append testCollection parameter to URL
+  if [[ "$SITE_URL" == *"?"* ]]; then
+    SITE_URL="${SITE_URL}&testCollection=${COLLECTION_NAME}"
+  else
+    SITE_URL="${SITE_URL}?testCollection=${COLLECTION_NAME}"
+  fi
+
+  echo "Using collection name: $COLLECTION_NAME"
+fi
+
 # Capture output to validate that Playwright produced results
 # We check for "X passed" pattern to confirm Playwright executed successfully
 # Note: Pattern matches "0 passed" which may indicate tests were skipped - see TODO below

@@ -1,5 +1,6 @@
 import { createPlaywrightConfig } from '../../playwright.base.config';
 
+// TODO(#1966): Consolidate test directory structure: move tests back to app directories
 export default createPlaywrightConfig({
   mode: 'hosting-emulator',
   siteName: 'budget',
