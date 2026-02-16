@@ -431,6 +431,9 @@ jobs:
       - name: Deploy fellspiral to Firebase Hosting
         id: deploy
         continue-on-error: true
+        env:
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh fellspiral ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
 
       - name: Get deployment URL
@@ -925,6 +928,9 @@ jobs:
       - name: Deploy budget to Firebase Hosting
         id: deploy
         continue-on-error: true
+        env:
+          PR_NUMBER: ${{ steps.pr_number.outputs.value }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: ./infrastructure/scripts/deploy-firebase-hosting.sh budget ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }} ${{ github.sha }}
       - name: Get deployment URL
         id: site-url
