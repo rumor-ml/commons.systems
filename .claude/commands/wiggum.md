@@ -155,9 +155,57 @@ Execute AFTER PR is created for final validation:
    - One item per OUT-OF-SCOPE ISSUE: `[out-of-scope] {issue_id}: {title}`
    - One item for "Validate all implementations"
 
-**Phase 4: Parallel Implementation**
+**Phase 3.5: Plan Mode - Create Implementation Plan**
 
-5. Launch in PARALLEL using Task tool:
+5. Call EnterPlanMode tool to enter planning mode for the implementation strategy.
+
+<!-- TODO(#2012): Plan mode instructions differ from constants.ts:
+     - File path: wiggum.md uses `tmp/wiggum/plan-{timestamp}.md`, constants.ts uses same
+     - Section structure: wiggum.md has detailed A-E sections (Review Summary, Implementation Plan, Tracking Plan, Validation, Completion), constants.ts focuses on sequential vs parallel execution strategy
+     - Agent launch pattern: wiggum.md launches all batches + out-of-scope in parallel, constants.ts runs in-scope sequentially and out-of-scope in parallel
+     - Consider documenting these workflow variations or aligning to single pattern -->
+<!-- TODO(#2016): Add test verifying plan file path template is present in instructions -->
+
+6. In plan mode, create a structured implementation plan at `tmp/wiggum/plan-{timestamp}.md` with these sections:
+
+   **A. Review Summary**
+   - Total in-scope issues: {count from wiggum_list_issues response}
+   - Total out-of-scope issues: {count from wiggum_list_issues response}
+   - Breakdown by agent: {list counts per agent}
+
+   **B. In-Scope Implementation Plan**
+   For each batch from wiggum_list_issues:
+   - Batch ID: batch-{N}
+   - Files affected: {list of files}
+   - Issue IDs in batch: {list issue IDs with titles}
+   - Agent: unsupervised-implement (sonnet model)
+
+   **C. Out-of-Scope Tracking Plan**
+   For each out-of-scope issue from wiggum_list_issues:
+   - Issue ID: {id}
+   - Title: {title}
+   - Agent: out-of-scope-tracker (sonnet model)
+
+   **D. Validation Strategy**
+   - After all parallel agents complete, launch single validation agent
+   - Pass all batch IDs to validation agent
+   - Validation agent runs full test suite and resolves any cross-batch issues
+
+   **E. Completion Steps**
+   - Execute `/commit-merge-push` to commit all fixes
+   - Call `wiggum_complete_all_hands()` to finalize
+
+7. Call ExitPlanMode when plan is complete.
+
+**IMPORTANT: After exiting plan mode, context will be cleared. The plan file at `tmp/wiggum/plan-{timestamp}.md` serves as an audit trail and user reference only. Implementation agents use wiggum_list_issues and wiggum_get_issue to fetch issue details from manifests - they do NOT read the plan file.**
+
+<!-- TODO(#2011): Verify that no implementation agents attempt to read the plan file. If agents need structured guidance beyond issue manifests, consider adding plan file reading step in Phase 4. -->
+
+**Phase 4: Parallel Implementation (After Plan Mode)**
+
+8. Call wiggum_list_issues({ scope: 'all' }) again to get fresh issue references after context clear.
+
+9. Launch in PARALLEL using Task tool:
    - For each in-scope batch:
      - `subagent_type="unsupervised-implement"`
      - Pass batch_id from wiggum_list_issues
@@ -171,10 +219,11 @@ Execute AFTER PR is created for final validation:
 
 **Phase 5: Sequential Validation**
 
-6. After ALL Phase 4 agents complete, invoke SINGLE unsupervised-implement agent:
-   - `subagent_type="unsupervised-implement"`
-   - Instructions: "Validate all implementations for batches [batch-0, batch-1, ...]. Run full test suite and verify all fixes are correct. Resolve any out-of-scope validation errors reported by the parallel implementation agents: [include any errors from Phase 4 responses]."
-   - Pass list of all batch IDs that were implemented
+10. After ALL Phase 4 agents complete, invoke SINGLE unsupervised-implement agent:
+
+- `subagent_type="unsupervised-implement"`
+- Instructions: "Validate all implementations for batches [batch-0, batch-1, ...]. Run full test suite and verify all fixes are correct. Resolve any out-of-scope validation errors reported by the parallel implementation agents: [include any errors from Phase 4 responses]."
+- Pass list of all batch IDs that were implemented
 
 **Why two stages?**
 
@@ -184,9 +233,9 @@ Execute AFTER PR is created for final validation:
 
 **Phase 6: Commit and Complete**
 
-7. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
-8. Call `wiggum_complete_all_hands({})`
-9. Follow the instructions returned by the tool
+11. Execute `/commit-merge-push` using SlashCommand tool to commit all fixes
+12. Call `wiggum_complete_all_hands({})`
+13. Follow the instructions returned by the tool
 
 ---
 

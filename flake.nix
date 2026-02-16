@@ -96,7 +96,7 @@
           #
           # TODO: Re-evaluate using modular approach once Nix fixes underlying issue
           #
-          # NOTE: tmux and neovim are also configured in nix/home/ for Home Manager users.
+          # NOTE: tmux, neovim, and gh are also configured in nix/home/ for Home Manager users.
           # They are kept here for backwards compatibility with users who don't use Home Manager
           # and for CI environments. This duplication is intentional during the migration period.
           commonPackages =
@@ -106,7 +106,7 @@
               bash
               coreutils
               git
-              gh
+              gh # Also in nix/home/gh.nix
               jq
               curl
               # Sandbox dependencies for Claude Code

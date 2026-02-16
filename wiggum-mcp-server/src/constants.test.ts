@@ -872,7 +872,34 @@ describe('SKIP_MECHANISM_GUIDANCE constant', () => {
   });
 });
 
+describe('All-hands review scope separation', () => {
+  it('should not include wiggum_list_issues in single-issue triage instructions', () => {
+    const result = generateTriageInstructions(123, 'PR', 5);
+    assert(
+      !result.includes('wiggum_list_issues'),
+      'Single-issue triage should not reference wiggum_list_issues'
+    );
+  });
+
+  it('should not include wiggum_list_issues in workflow triage instructions', () => {
+    const result = generateWorkflowTriageInstructions(123, 'Workflow', 'test failure');
+    assert(
+      !result.includes('wiggum_list_issues'),
+      'Workflow triage should not reference wiggum_list_issues'
+    );
+  });
+
+  it('should not include scope filter in single-issue triage instructions', () => {
+    const result = generateTriageInstructions(123, 'PR', 5);
+    assert(
+      !result.includes('scope:') && !result.includes("scope: 'in-scope'"),
+      'Single-issue triage should not reference scope filter'
+    );
+  });
+});
+
 describe('generateScopeSeparatedFixInstructions', () => {
+  // TODO(#2026): Add validation tests once input validation is implemented
   describe('output format', () => {
     it('should include issue number in output', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 5, ['/tmp/in.md'], 2, [
@@ -922,8 +949,7 @@ describe('generateScopeSeparatedFixInstructions', () => {
       const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 1, [
         '/tmp/out.md',
       ]);
-      assert(result.includes('model: "opus"')); // Agent 1
-      assert(result.includes('model: "sonnet"')); // Agent 2
+      assert(result.includes('model: "sonnet"')); // All agents use sonnet model
     });
 
     it('should include in-scope count in header', () => {
@@ -1061,4 +1087,89 @@ describe('generateScopeSeparatedFixInstructions', () => {
       assert(result.includes('#456') || result.includes('issue #456'));
     });
   });
+
+  describe('step sequence and context clear warning', () => {
+    it('should have correct step sequence with renumbered steps', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+
+      const expectedSteps = [
+        { number: 1, title: 'Get Issue References' },
+        { number: 2, title: 'Enter Plan Mode' },
+        { number: 3, title: 'Execute Plan (After Context Clear)' },
+        { number: 4, title: 'Create TODO List' },
+        { number: 5, title: 'Launch Agents' },
+      ];
+
+      const stepIndices: number[] = [];
+
+      for (const step of expectedSteps) {
+        const headerPattern = new RegExp(`^\\*\\*Step ${step.number}:`, 'm');
+        const expectedTitle = `**Step ${step.number}: ${step.title}**`;
+
+        assert(result.match(headerPattern), `Missing Step ${step.number} header`);
+        assert(result.includes(expectedTitle), `Missing Step ${step.number} title`);
+
+        const index = result.indexOf(`**Step ${step.number}:`);
+        assert(index !== -1, `Step ${step.number} not found`);
+        stepIndices.push(index);
+      }
+
+      for (let i = 1; i < stepIndices.length; i++) {
+        assert(stepIndices[i - 1] < stepIndices[i], `Step ${i} should come before Step ${i + 1}`);
+      }
+    });
+
+    // TODO(#2028): Add behavioral tests for context clearing
+    it('should have context clear warning in Step 3', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+
+      const step3Index = result.indexOf('**Step 3:');
+      const step4Index = result.indexOf('**Step 4:');
+      const warningIndex = result.indexOf(
+        'CRITICAL: After exiting plan mode, context will be cleared'
+      );
+      const listIssuesIndex = result.indexOf("Call `wiggum_list_issues({ scope: 'all' })` again");
+
+      assert(warningIndex !== -1, 'Missing context clear warning');
+      assert(listIssuesIndex !== -1, 'Missing wiggum_list_issues instruction');
+      assert(warningIndex > step3Index, 'Warning should appear after Step 3 header');
+      assert(warningIndex < step4Index, 'Warning should appear before Step 4 header');
+      assert(
+        listIssuesIndex > warningIndex,
+        'wiggum_list_issues instruction should follow warning'
+      );
+    });
+
+    it('should have only one context clear warning (no redundancy)', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+
+      const warningText = 'CRITICAL: After exiting plan mode, context will be cleared';
+      const listIssuesText = "Call `wiggum_list_issues({ scope: 'all' })` again";
+
+      assert(result.indexOf(warningText) !== -1, 'Warning text not found');
+      assert.strictEqual(
+        result.indexOf(warningText),
+        result.lastIndexOf(warningText),
+        'Warning should appear exactly once'
+      );
+      assert(result.indexOf(listIssuesText) !== -1, 'List issues instruction not found');
+      assert.strictEqual(
+        result.indexOf(listIssuesText),
+        result.lastIndexOf(listIssuesText),
+        'List issues instruction should appear exactly once'
+      );
+    });
+
+    it('should include plan file path template with timestamp placeholder', () => {
+      const result = generateScopeSeparatedFixInstructions(123, 'PR', 1, ['/tmp/in.md'], 0, []);
+      assert(
+        result.includes('tmp/wiggum/plan-'),
+        'Missing plan file path template with tmp/wiggum/plan- prefix'
+      );
+      assert(result.includes('{timestamp}'), 'Missing {timestamp} placeholder in plan file path');
+      assert(result.includes('.md'), 'Plan file path should include .md extension');
+    });
+  });
 });
+
+// TODO(#2027): Missing cross-workflow consistency tests

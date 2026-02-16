@@ -36,6 +36,7 @@
     ./bash.nix
     ./zsh.nix
     ./git.nix
+    ./gh.nix
     ./tmux.nix
     ./wezterm.nix
     ./tools.nix

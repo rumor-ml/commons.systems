@@ -46,6 +46,10 @@
         bottom = 2,
       }
 
+      -- Enable Kitty keyboard protocol for proper shift+enter support in Claude Code
+      -- This allows modified key combinations to be properly distinguished
+      config.enable_kitty_keyboard = true
+
       ${lib.optionalString pkgs.stdenv.isLinux ''
         -- WSL Integration (Linux/WSL only)
         -- This section is included when Home Manager runs on Linux/WSL.

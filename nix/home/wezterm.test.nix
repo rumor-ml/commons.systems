@@ -99,6 +99,7 @@ let
       default_prog = true,
       native_macos_fullscreen_mode = true,
       keys = true,
+      enable_kitty_keyboard = true,
     }
 
     -- Track valid color schemes (subset - Tokyo Night is in actual WezTerm)
