@@ -92,7 +92,15 @@ run_all_cleanup() {
   fi
 }
 
-trap run_all_cleanup EXIT
+# Skip cleanup trap in CI - GitHub Actions automatically kills orphan processes
+# This prevents exit code 143 (SIGTERM) when runner shuts down during cleanup
+# Local development still needs cleanup to avoid port/process leaks
+if [ "${CI:-false}" != "true" ]; then
+  trap run_all_cleanup EXIT
+else
+  echo "ℹ️  CI environment detected - skipping cleanup trap (runner will kill orphans)"
+  echo ""
+fi
 
 # ============================================================================
 # EMULATOR POOL INTEGRATION: Claim instance from pool if available
@@ -700,7 +708,7 @@ EOF
     echo "================================"
 
     # Set up cleanup handler (only when we started the emulators AND supervisor is NOT managing them)
-    if [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
+    if [ "${CI:-false}" != "true" ] && [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
       cleanup() {
         echo "Stopping emulators..."
         "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
@@ -714,6 +722,8 @@ EOF
         ps aux | grep -E "defunct|<defunct>" | grep -E "node|playwright|firefox|chromium" | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
       }
       add_cleanup_handler cleanup
+    elif [ "${CI:-false}" = "true" ]; then
+      echo "ℹ️  CI environment - skipping cleanup (runner will kill orphans)"
     else
       echo "ℹ️  Emulators managed by supervisor - no cleanup on exit"
     fi
@@ -764,12 +774,14 @@ EOF
     export GCP_PROJECT_ID
 
     # Set up cleanup handler (only when we started the emulators AND supervisor is NOT managing them)
-    if [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
+    if [ "${CI:-false}" != "true" ] && [ "$REUSE_EMULATORS" = "false" ] && ! is_supervisor_running; then
       cleanup_backend() {
         echo "Stopping emulators..."
         "${ROOT_DIR}/infrastructure/scripts/stop-emulators.sh" || true
       }
       add_cleanup_handler cleanup_backend
+    elif [ "${CI:-false}" = "true" ]; then
+      echo "ℹ️  CI environment - skipping backend cleanup (runner will kill orphans)"
     else
       echo "ℹ️  Backend emulators managed by supervisor - no cleanup on exit"
     fi
