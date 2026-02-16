@@ -495,6 +495,50 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
     }
 
+    // Budget Demo Transactions PR 1938 - publicly readable (for E2E tests)
+    match /budget-demo-transactions_pr_1938/{transactionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Statements PR 1938 - publicly readable (for E2E tests)
+    match /budget-demo-statements_pr_1938/{statementId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Accounts PR 1938 - publicly readable (for E2E tests)
+    match /budget-demo-accounts_pr_1938/{accountId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    // Budget Demo Institutions PR 1938 - publicly readable (for E2E tests)
+    match /budget-demo-institutions_pr_1938/{institutionId} {
+      allow read: if true; // Publicly readable demo data
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
     // Deny all other access
     match /{document=**} { allow read, write: if false; }
   }
